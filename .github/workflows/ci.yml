@@ -1,0 +1,177 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Code Quality & Static Typing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Check code formatting (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Run linter (ruff check)
+        run: uv run ruff check .
+
+      - name: Enforce static typing (mypy strict)
+        run: uv run mypy packages services tests evaluation
+
+      - name: Validate OpenAPI 3.1 schema
+        run: uv run python -m services.api.openapi --check
+
+  unit-tests:
+    name: Unit Tests (Zero Credentials)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run unit tests with coverage
+        run: uv run pytest tests/unit -v --cov=packages --cov=services --cov-report=term-missing
+        env:
+          # Enforce R24.5: strictly zero live credentials
+          OPENAI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          GOOGLE_API_KEY: ""
+          COHERE_API_KEY: ""
+          GMAIL_CLIENT_SECRET: ""
+          MS_GRAPH_CLIENT_SECRET: ""
+
+  integration-tests:
+    name: Integration Tests (Ephemeral Containers)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rag_email
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio:
+        image: quay.io/minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        command: server /data
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run database migrations
+        run: uv run python -m packages.db.cli up
+        env:
+          DATABASE__HOST: localhost
+          DATABASE__PORT: 5432
+          DATABASE__USER: postgres
+          DATABASE__PASSWORD: postgres
+          DATABASE__NAME: rag_email
+
+      - name: Bootstrap object storage buckets
+        run: uv run python -m packages.core.storage_cli bootstrap
+        env:
+          STORAGE__ENDPOINT_URL: http://localhost:9000
+          STORAGE__ACCESS_KEY: minioadmin
+          STORAGE__SECRET_KEY: minioadmin
+          STORAGE__USE_SSL: "false"
+
+      - name: Run integration tests against ephemeral services
+        run: uv run pytest tests/integration -v
+        env:
+          DATABASE__HOST: localhost
+          DATABASE__PORT: 5432
+          DATABASE__USER: postgres
+          DATABASE__PASSWORD: postgres
+          DATABASE__NAME: rag_email
+          BROKER__HOST: localhost
+          BROKER__PORT: 5672
+          BROKER__USER: guest
+          BROKER__PASSWORD: guest
+          STORAGE__ENDPOINT_URL: http://localhost:9000
+          STORAGE__ACCESS_KEY: minioadmin
+          STORAGE__SECRET_KEY: minioadmin
+          STORAGE__USE_SSL: "false"
+          OPENAI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          GOOGLE_API_KEY: ""

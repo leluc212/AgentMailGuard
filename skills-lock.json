@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "opentelemetry": {
+      "source": "grafana/skills",
+      "sourceType": "github",
+      "skillPath": "skills/grafana-core/opentelemetry/SKILL.md",
+      "computedHash": "abdf5df50836781e22422495d92d5a8cf66906e72bccf1aebaa211058a292401"
+    },
+    "postgresql-optimization": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/postgresql-optimization/SKILL.md",
+      "computedHash": "8022448de70ba9a485e3b5bce34c5bbc644f93eb39b68431c9f7dabcf03aeb09"
+    },
+    "pytest-coverage": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/pytest-coverage/SKILL.md",
+      "computedHash": "06481f4bbc6d80a52091ec9ba5856eb1dc5f80cbabb40fd4ad02aaea3085a0dc"
+    },
+    "rabbitmq-development": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "rabbitmq-development/SKILL.md",
+      "computedHash": "5696250d6eb09665ce24ee60d6528f0cd0492c7341a708d0ac2937c307b37a12"
+    },
+    "rag-eval": {
+      "source": "nvidia/skills",
+      "sourceType": "github",
+      "skillPath": "skills/rag-eval/SKILL.md",
+      "computedHash": "5e11b2d28098f4504c60501dba2b7c4d916b413cfbc9d4b0d1efa13fe1f0f8b3"
+    }
+  }
+}

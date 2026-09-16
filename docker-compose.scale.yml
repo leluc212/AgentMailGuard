@@ -1,0 +1,21 @@
+# Scale overrides for load and burst tests (R20.3, R20.4)
+services:
+  email-worker:
+    deploy:
+      replicas: 3
+
+  triage-worker:
+    deploy:
+      replicas: 3
+
+  ai-worker:
+    deploy:
+      replicas: 4
+
+  knowledge-worker:
+    deploy:
+      replicas: 2
+
+  dispatch-worker:
+    deploy:
+      replicas: 3

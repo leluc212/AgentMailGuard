@@ -1,0 +1,43 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "api"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: "mail_connector"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["mail-connector:8001"]
+
+  - job_name: "email_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["email-worker:8002"]
+
+  - job_name: "triage_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["triage-worker:8003"]
+
+  - job_name: "ai_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["ai-worker:8004"]
+
+  - job_name: "knowledge_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["knowledge-worker:8005"]
+
+  - job_name: "dispatch_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["dispatch-worker:8006"]

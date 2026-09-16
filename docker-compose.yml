@@ -1,0 +1,290 @@
+services:
+  # --- Infrastructure Tier ---
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-email-postgres
+    restart: unless-stopped
+    ports:
+      - "${DATABASE__PORT:-5433}:5432"
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE__NAME:-rag_email}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-postgres} -d ${DATABASE__NAME:-rag_email}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rag-email-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "${BROKER__PORT:-5672}:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROKER__USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${BROKER__PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${BROKER__VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: rag-email-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${OBJECT_STORAGE__PORT:-9010}:9000"
+      - "${OBJECT_STORAGE__CONSOLE_PORT:-9011}:9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE__ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE__SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: rag-email-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: rag-email-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA__PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Application Tier ---
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-email-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      SERVICE_NAME: api
+      PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-email-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      SERVICE_NAME: frontend
+      PORT: 3001
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mail-connector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8001"
+    environment:
+      SERVICE_NAME: mail_connector
+      PORT: 8001
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  email-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8002"
+    environment:
+      SERVICE_NAME: email_worker
+      PORT: 8002
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  triage-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8003"
+    environment:
+      SERVICE_NAME: triage_worker
+      PORT: 8003
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8004"
+    environment:
+      SERVICE_NAME: ai_worker
+      PORT: 8004
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  knowledge-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8005"
+    environment:
+      SERVICE_NAME: knowledge_worker
+      PORT: 8005
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  dispatch-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8006"
+    environment:
+      SERVICE_NAME: dispatch_worker
+      PORT: 8006
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:

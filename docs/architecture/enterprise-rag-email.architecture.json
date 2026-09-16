@@ -1,0 +1,602 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Enterprise RAG Email Management & Response Architecture",
+    "quality_profile": "showcase",
+    "output": "docs/architecture/enterprise-rag-email.architecture.html",
+    "views": [
+      {
+        "id": "end-to-end-email",
+        "label": "End-to-end email path",
+        "focus": [
+          "email_providers",
+          "mail_connector",
+          "rabbitmq_ingest",
+          "email_processor",
+          "triage_engine",
+          "rabbitmq_category",
+          "context_builder",
+          "reply_agent",
+          "mail_dispatcher"
+        ],
+        "note": "Inbound webhook triggers history/delta fetch returning message & thread data, normalization, triage, category queue, RAG, and dispatch."
+      },
+      {
+        "id": "rag-context",
+        "label": "Selective hybrid RAG",
+        "focus": [
+          "context_builder",
+          "hybrid_rag",
+          "postgres_platform",
+          "reply_agent"
+        ],
+        "note": "Selective retrieval: PostgreSQL FTS + pgvector HNSW ANN dual query, RRF rank fusion, and cross-encoder reranking to Top 4-6 chunks."
+      },
+      {
+        "id": "knowledge-indexing",
+        "label": "Knowledge ingestion pipeline",
+        "focus": [
+          "knowledge_pipeline",
+          "postgres_platform"
+        ],
+        "note": "Offline ingestion: document parsing, 350-700 token chunking, and dense embedding generation stored once on update."
+      },
+      {
+        "id": "async-reliability",
+        "label": "Async reliability & recovery",
+        "focus": [
+          "mail_connector",
+          "rabbitmq_ingest",
+          "email_processor",
+          "rabbitmq_category",
+          "postgres_platform"
+        ],
+        "note": "At-least-once delivery, idempotent jobs, durable sync checkpoints (historyId/deltaLink), backoff retries, and dead-letter routing."
+      },
+      {
+        "id": "scale-and-operations",
+        "label": "Scale, deployment & operations",
+        "focus": [
+          "rabbitmq_ingest",
+          "rabbitmq_category",
+          "context_builder",
+          "postgres_platform",
+          "reply_agent"
+        ],
+        "note": "Docker Compose FYP to enterprise worker pools scaling on RabbitMQ queue depth (100k mail, 35k AI replies, 24.5k RAG); OTel tracing."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "email_providers",
+      "type": "external",
+      "label": "Email Providers",
+      "sublabel": "Gmail \u00b7 Graph \u00b7 IMAP",
+      "tag": "Push Source & Reply Sink",
+      "pos": [
+        40,
+        190
+      ],
+      "size": [
+        165,
+        70
+      ]
+    },
+    {
+      "id": "mail_connector",
+      "type": "backend",
+      "label": "Mail Connector Service",
+      "sublabel": "Adapter \u00b7 Sync \u00b7 Checkpoint",
+      "tag": "Fetch Messages & Threads \u00b7 Checkpoint",
+      "pos": [
+        310,
+        30
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "rabbitmq_ingest",
+      "type": "messagebus",
+      "brand": "rabbitmq",
+      "label": "RabbitMQ Ingest",
+      "sublabel": "Inbound Queue \u00b7 Buffer \u00b7 Ack",
+      "tag": "Logical Queue in Shared Broker",
+      "pos": [
+        590,
+        30
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "email_processor",
+      "type": "backend",
+      "label": "Email Processing Service",
+      "sublabel": "MIME \u00b7 HTML Clean \u00b7 Dedupe",
+      "tag": "Thread Association & Objects",
+      "pos": [
+        870,
+        30
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "triage_engine",
+      "type": "backend",
+      "label": "Cascading Triage Engine",
+      "sublabel": "Rules \u2192 ML Classifier \u2192 LLM",
+      "tag": "Intent \u00b7 Priority \u00b7 Reply/RAG \u00b7 Conf",
+      "pos": [
+        1150,
+        30
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "rabbitmq_category",
+      "type": "messagebus",
+      "brand": "rabbitmq",
+      "label": "RabbitMQ Categories",
+      "sublabel": "Priority Queues \u00b7 Micro-Batch",
+      "tag": "Logical Queue in Shared Broker \u00b7 DLQ",
+      "pos": [
+        1150,
+        190
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "knowledge_pipeline",
+      "type": "backend",
+      "label": "Knowledge Ingestion",
+      "sublabel": "Parse \u00b7 350-700t \u00b7 Embed",
+      "tag": "Sources: SOP \u00b7 FAQ \u00b7 Docs \u00b7 Templates",
+      "pos": [
+        310,
+        190
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "postgres_platform",
+      "type": "database",
+      "brand": "postgresql",
+      "label": "PostgreSQL Platform",
+      "sublabel": "Relational \u00b7 FTS \u00b7 pgvector",
+      "tag": "Threads \u00b7 Business \u00b7 Vectors",
+      "pos": [
+        590,
+        190
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "hybrid_rag",
+      "type": "backend",
+      "label": "Hybrid RAG Engine",
+      "sublabel": "FTS + HNSW \u00b7 RRF \u00b7 Rerank",
+      "tag": "Top 4-6 Grounding Chunks",
+      "pos": [
+        870,
+        190
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "mail_dispatcher",
+      "type": "backend",
+      "label": "Draft Store & Dispatcher",
+      "sublabel": "Draft State \u00b7 Citations \u00b7 Send",
+      "tag": "Idempotent Reply Delivery",
+      "pos": [
+        310,
+        350
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "reply_agent",
+      "type": "backend",
+      "label": "Reply Agent & Model Cascade",
+      "sublabel": "Profiles \u00b7 Router \u00b7 Schema",
+      "tag": "Routine Model \u2192 High-Capability Model",
+      "pos": [
+        730,
+        350
+      ],
+      "size": [
+        175,
+        70
+      ]
+    },
+    {
+      "id": "context_builder",
+      "type": "backend",
+      "label": "Context Builder",
+      "sublabel": "Thread \u00b7 Business \u00b7 RAG",
+      "tag": "Thread vs Business vs Knowledge",
+      "pos": [
+        1150,
+        350
+      ],
+      "size": [
+        175,
+        70
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "provider-notify",
+      "from": "email_providers",
+      "to": "mail_connector",
+      "label": "Mailbox Change Notification",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          122.5,
+          65
+        ]
+      ],
+      "labelAt": [
+        216,
+        52
+      ]
+    },
+    {
+      "id": "sync-fetch",
+      "from": "mail_connector",
+      "to": "email_providers",
+      "label": "Incremental Sync / Fetch Messages",
+      "fromSide": "left",
+      "toSide": "right",
+      "via": [
+        [
+          257.5,
+          65
+        ],
+        [
+          257.5,
+          225
+        ]
+      ],
+      "labelAt": [
+        257.5,
+        145
+      ]
+    },
+    {
+      "id": "publish-sync",
+      "from": "mail_connector",
+      "to": "rabbitmq_ingest",
+      "label": "Publish Inbound Work"
+    },
+    {
+      "id": "consume-events",
+      "from": "rabbitmq_ingest",
+      "to": "email_processor",
+      "label": "Consume Events"
+    },
+    {
+      "id": "normalized-mail",
+      "from": "email_processor",
+      "to": "triage_engine",
+      "label": "Normalized Email"
+    },
+    {
+      "id": "actionable-route",
+      "from": "triage_engine",
+      "to": "rabbitmq_category",
+      "label": "Actionable Job \u00b7 Category + Priority",
+      "labelAt": [
+        1237.5,
+        145
+      ]
+    },
+    {
+      "id": "dispatch-job",
+      "from": "rabbitmq_category",
+      "to": "context_builder",
+      "label": "Scheduled Priority Job",
+      "labelAt": [
+        1237.5,
+        290
+      ]
+    },
+    {
+      "id": "assembled-context",
+      "from": "context_builder",
+      "to": "reply_agent",
+      "label": "Assembled Context Package",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          1237.5,
+          455
+        ],
+        [
+          817.5,
+          455
+        ]
+      ],
+      "labelAt": [
+        1027.5,
+        470
+      ]
+    },
+    {
+      "id": "generated-draft",
+      "from": "reply_agent",
+      "to": "mail_dispatcher",
+      "label": "Structured Draft"
+    },
+    {
+      "id": "outbound-reply",
+      "from": "mail_dispatcher",
+      "to": "email_providers",
+      "label": "Create Draft / Send Reply",
+      "variant": "emphasis"
+    },
+    {
+      "id": "persist-message",
+      "from": "email_processor",
+      "to": "postgres_platform",
+      "label": "Persist Message & Thread",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          957.5,
+          125
+        ],
+        [
+          677.5,
+          125
+        ]
+      ],
+      "labelAt": [
+        817.5,
+        112
+      ]
+    },
+    {
+      "id": "triage-early-exit",
+      "from": "triage_engine",
+      "to": "postgres_platform",
+      "label": "No Reply \u2192 COMPLETE (Zero RAG)",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "top",
+      "via": [
+        [
+          1050,
+          65
+        ],
+        [
+          1050,
+          155
+        ],
+        [
+          677.5,
+          155
+        ]
+      ],
+      "labelAt": [
+        854,
+        142
+      ]
+    },
+    {
+      "id": "business-thread-data",
+      "from": "postgres_platform",
+      "to": "context_builder",
+      "label": "Thread State + Business Data",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          677.5,
+          295
+        ],
+        [
+          1080,
+          295
+        ],
+        [
+          1080,
+          385
+        ]
+      ],
+      "labelAt": [
+        875,
+        305
+      ]
+    },
+    {
+      "id": "rag-query",
+      "from": "context_builder",
+      "to": "hybrid_rag",
+      "label": "Selective Query",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "via": [
+        [
+          1237.5,
+          310
+        ],
+        [
+          957.5,
+          310
+        ]
+      ],
+      "labelAt": [
+        1015,
+        325
+      ]
+    },
+    {
+      "id": "rag-chunks",
+      "from": "hybrid_rag",
+      "to": "context_builder",
+      "label": "Top 4-6 Grounding Chunks",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          1045,
+          225
+        ],
+        [
+          1100,
+          225
+        ],
+        [
+          1100,
+          430
+        ],
+        [
+          1237.5,
+          430
+        ]
+      ],
+      "labelAt": [
+        1168,
+        435
+      ]
+    },
+    {
+      "id": "rag-retrieval",
+      "from": "hybrid_rag",
+      "to": "postgres_platform",
+      "label": "FTS + HNSW Retrieval",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelAt": [
+        817.5,
+        178
+      ]
+    },
+    {
+      "id": "rag-candidates",
+      "from": "postgres_platform",
+      "to": "hybrid_rag",
+      "label": "Ranked Candidate Chunks",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        817.5,
+        272
+      ]
+    },
+    {
+      "id": "knowledge-index",
+      "from": "knowledge_pipeline",
+      "to": "postgres_platform",
+      "label": "Chunks + Metadata + FTS + Embeddings",
+      "variant": "dashed",
+      "labelAt": [
+        537.5,
+        178
+      ]
+    },
+    {
+      "id": "persist-draft",
+      "from": "mail_dispatcher",
+      "to": "postgres_platform",
+      "label": "Draft & State",
+      "variant": "dashed"
+    },
+    {
+      "id": "sync-checkpoints",
+      "from": "mail_connector",
+      "to": "postgres_platform",
+      "label": "Sync Checkpoints",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          397.5,
+          110
+        ],
+        [
+          677.5,
+          110
+        ]
+      ],
+      "labelAt": [
+        537.5,
+        98
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "System Principles & Cost Defense",
+      "items": [
+        "Classify first \u00b7 Retrieve only when required \u00b7 Generate only when necessary",
+        "45% early exit (reply_required=false); 100k daily \u2192 45k no-reply \u2192 20k simple \u2192 35k AI (~24.5k RAG)"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Hybrid RAG, Business Data & Storage",
+      "items": [
+        "Dual Search: PostgreSQL FTS (top 20) + pgvector HNSW (top 20) \u2192 RRF \u2192 Cross-Encoder Top 4\u20136",
+        "Context & Storage: Compressed thread state + Business data; MinIO/S3 stores raw MIME, attachments & docs"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Lifecycle, Reliability & Observability",
+      "items": [
+        "State Machine: RECEIVED \u2192 NORMALIZED \u2192 CLASSIFIED \u2192 QUEUED \u2192 CONTEXT_READY \u2192 GENERATING \u2192 DRAFTED \u2192 DISPATCHED \u2192 COMPLETED",
+        "Delivery: at-least-once + idempotent (org, mailbox, msg_id, op); GENERATING \u2192 RETRY_PENDING \u2192 GENERATING (backoff); exhausted \u2192 DEAD_LETTER; OTel"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Deployment & Runtime Model",
+      "items": [
+        "FYP Implementation: Docker Compose (FastAPI, PostgreSQL+pgvector, RabbitMQ, MinIO, Prometheus, Grafana)",
+        "Enterprise: stateless worker pools, RabbitMQ cluster, managed DB, S3 storage; scale on queue depth; interchangeable AI"
+      ]
+    }
+  ]
+}
