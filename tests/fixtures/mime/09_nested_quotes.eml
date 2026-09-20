@@ -1,0 +1,16 @@
+From: Charlie <charlie@example.com>
+To: Alice <alice@example.com>, Bob <bob@example.com>
+Subject: Re: Re: Project Proposal Timeline
+Date: Thu, 17 Sep 2026 14:00:00 +0000
+Message-ID: <msg_nested_09@example.com>
+In-Reply-To: <alice_reply@example.com>
+References: <original_bob@example.com> <alice_reply@example.com>
+Content-Type: text/plain; charset="utf-8"
+
+I agree with both points. Let us launch next Monday.
+
+On Thu, Sep 17, 2026 at 1:00 PM Alice <alice@example.com> wrote:
+> Charlie, does Monday work?
+>
+> On Wed, Sep 16, 2026 at 5:00 PM Bob <bob@example.com> wrote:
+>> Team, we need to finalize the launch date.

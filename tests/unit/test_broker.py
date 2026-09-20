@@ -120,3 +120,23 @@ def test_publisher_initialization() -> None:
     pub = MessagePublisher(broker_settings=b_cfg)
     assert pub.settings.host == "broker.example.com"
     assert "amqp://" in pub.settings.url
+
+
+def test_job_envelope_sync_mailbox_defaults() -> None:
+    """Verify JobEnvelope handles mailbox-level sync jobs without message UUIDs (R2.1, R7.3)."""
+    env = JobEnvelope(
+        idempotency_key="org1:mbx1:sync:123",
+        job_type="sync_mailbox",
+        organization_id="11111111-1111-1111-1111-111111111111",
+        mailbox_id="mbx-12345",
+        payload={"provider": "graph", "change_type": "created"},
+    )
+    assert env.job_type == "sync_mailbox"
+    assert env.mailbox_id == "mbx-12345"
+    assert env.message_id == ""
+    assert env.thread_id == ""
+    assert env.payload["provider"] == "graph"
+
+    msg = env.to_message()
+    assert msg.headers["mailbox_id"] == "mbx-12345"
+    assert msg.headers["organization_id"] == "11111111-1111-1111-1111-111111111111"

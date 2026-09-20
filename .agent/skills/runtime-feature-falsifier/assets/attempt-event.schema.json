@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.invalid/runtime-feature-falsifier/attempt-event.schema.json",
+  "title": "Runtime Feature Falsifier Attempt Event",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_type",
+    "attempt_id",
+    "timestamp_utc",
+    "feature_id",
+    "probe_id",
+    "sequence",
+    "prev_event_sha256",
+    "event_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "event_type": {
+      "enum": [
+        "STARTED",
+        "FINISHED"
+      ]
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "feature_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "probe_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "prev_event_sha256": {
+      "type": "string"
+    },
+    "event_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "result": {
+      "enum": [
+        "SURVIVED",
+        "FALSIFIED",
+        "BLOCKED",
+        "INCONCLUSIVE"
+      ]
+    },
+    "failure_pattern": {
+      "enum": [
+        "TODO",
+        "PLACEHOLDER",
+        "FAKE_NOOP",
+        "BTTLP",
+        "HARDCODED",
+        "HARDCODED_SUSPECTED",
+        "MOCK_ONLY",
+        "PARTIAL_IMPLEMENTATION",
+        "REAL_BUT_BROKEN",
+        "NONE_OBSERVED",
+        "UNKNOWN_PATTERN"
+      ]
+    },
+    "confidence": {
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ]
+    },
+    "hypothesis_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "changed_variable": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retry_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "escalation_stage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ]
+    },
+    "repro_command": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entry_point": {
+      "type": "string"
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

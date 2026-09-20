@@ -911,3 +911,929 @@
 - **Verification Command:**
   - `uv run pytest tests/unit/test_dependency_rules.py && uv run ruff check packages/adapters packages/domain && uv run mypy packages/adapters packages/domain && uv run pytest tests/unit`
 - **Result:** PASS (All checks and 138 tests passed)
+
+# Execution Log: Phase 1 Task 1.2 — FakeProviderAdapter
+
+## Step 1: Implement FakeProviderAdapter Core & Protocol Conformance
+- **Files Changed:**
+  - `packages/adapters/fake.py`
+  - `packages/adapters/__init__.py`
+  - `tests/unit/test_fake_adapter.py`
+- **What Changed:**
+  - Implemented `FakeProviderAdapter` class conforming to `MailProviderAdapter` protocol with in-memory stores for messages, threads, subscriptions, drafts, and outbound deliveries.
+  - Auto-registered `FakeProviderAdapter` under provider key `"fake"`.
+  - Added `tests/unit/test_fake_adapter.py` inheriting `MailProviderAdapterContractSuite` and verified all 8 protocol contract tests pass.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_fake_adapter.py`
+- **Result:** PASS (9 passed in 0.08s)
+
+## Step 2: Add Fixture Loading, Sync Windows & Pagination
+- **Files Changed:**
+  - `packages/adapters/fake.py`
+  - `tests/fixtures/mail/sample_messages.json`
+  - `tests/unit/test_fake_adapter.py`
+- **What Changed:**
+  - Added sample JSON mail fixtures in `tests/fixtures/mail/sample_messages.json`.
+  - Implemented `load_fixtures_from_json` and `load_fixtures_from_dict` supporting RFC822 MIME generation, metadata parsing, and thread association.
+  - Implemented sync windows with configurable `batch_size`, monotonic `history_id` sequences, and `has_more` multi-page pagination.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_fake_adapter.py`
+- **Result:** PASS (11 passed in 0.11s)
+
+## Step 3: Implement Expired Checkpoints & Failure Injection
+- **Files Changed:**
+  - `packages/adapters/fake.py`
+  - `tests/unit/test_fake_adapter.py`
+- **What Changed:**
+  - Implemented expired checkpoint detection (`expire_checkpoint`) returning `requires_full_resync=True` to trigger bounded full resync flow.
+  - Implemented programmable fault injection (`inject_rate_limit`, `inject_auth_expired`, `inject_transient_failure`, `inject_permanent_failure`, `inject_not_found`, and `clear_injected_faults`).
+  - Added decremental call counters allowing fault simulation followed by automated recovery.
+  - Verified all error taxonomy cases and recovery transitions in unit tests.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_fake_adapter.py`
+- **Result:** PASS (15 passed in 0.12s)
+
+## Step 4: Ensure Stub Compatibility, Linting & Regression Suite
+- **Files Changed:**
+  - `tests/stubs/__init__.py`
+  - `packages/adapters/registry.py`
+  - `packages/adapters/__init__.py`
+  - `tests/unit/test_adapter_registry.py`
+- **What Changed:**
+  - Re-exported `FakeProviderAdapter` in `tests/stubs` and preserved full compatibility with `FakeMailProviderAdapter`.
+  - Added `register_default_adapters` to `packages/adapters/registry.py` to ensure default built-ins remain available across all test modules.
+  - Verified static linting (`ruff`), strict type checking (`mypy`), and ran full unit test suite (153 passed with 0 regressions).
+- **Verification Command:**
+  - `uv run ruff check packages/adapters && uv run mypy packages/adapters && uv run pytest tests/unit`
+- **Result:** PASS (153 passed in 2.46s)
+
+# Execution Log: Phase 1 Task 1.3 — Gmail Adapter
+
+## Step 1: Implement MIME Serialization & Gmail HTTP Client Core
+- **Files Changed:**
+  - `packages/adapters/gmail.py`
+  - `tests/unit/test_gmail_adapter.py`
+- **What Changed:**
+  - Implemented URL-safe base64 encoding and decoding helpers (`encode_urlsafe_b64`, `decode_urlsafe_b64`).
+  - Implemented RFC822 MIME builder (`build_rfc822_mime`) converting `OutboundReply` to valid MIME bytes with HTML alternative support.
+  - Implemented async HTTP request dispatcher `_request()` translating HTTP 429 (`RateLimited` with `Retry-After`), 401/403 (`AuthExpired`), 404 (`NotFound`), 5xx/timeouts (`Transient`), and 400 (`Permanent`).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_gmail_adapter.py`
+- **Result:** PASS (5 passed in 0.09s)
+
+## Step 2: Implement 7 Protocol Methods & Contract Test Suite
+- **Files Changed:**
+  - `packages/adapters/gmail.py`
+  - `packages/adapters/registry.py`
+  - `packages/adapters/__init__.py`
+  - `tests/unit/test_gmail_adapter.py`
+- **What Changed:**
+  - Implemented all 7 protocol methods on `GmailProviderAdapter`: `subscribe`, `renew_subscription`, `synchronize`, `get_message`, `get_thread`, `create_draft`, and `send_reply`.
+  - Registered `GmailProviderAdapter` under provider key `"gmail"` in `registry.py` and exported from `packages.adapters`.
+  - Added `TestGmailProviderAdapterContract(MailProviderAdapterContractSuite)` in `test_gmail_adapter.py` using `create_mock_gmail_transport()`.
+  - Fixed mock transport route matching to correctly handle `GET /messages?maxResults=50` list endpoint.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_gmail_adapter.py`
+- **Result:** PASS (14 passed in 0.16s)
+
+## Step 3: Implement Pub/Sub Parsing, Expired History & Rate Limiting
+- **Files Changed:**
+  - `packages/adapters/gmail.py`
+  - `packages/adapters/__init__.py`
+  - `tests/unit/test_gmail_adapter.py`
+- **What Changed:**
+  - Implemented `GmailPushNotification` dataclass and `parse_pubsub_notification()` decoding nested Google Cloud Pub/Sub base64 `message.data` JSON envelopes (extracting `emailAddress` and `historyId`).
+  - Added multi-page `history.list()` pagination walking `nextPageToken` and accumulating unique message IDs.
+  - Added robust detection of expired/invalid `historyId` (handling both HTTP 404 and HTTP 400 history-expired responses) returning `requires_full_resync=True` with `sync_state="full_resync"`.
+  - Added unit tests covering standard Pub/Sub envelope, direct payload dictionary, JSON str, UTF-8 bytes, invalid format validation, 404/400 expired history resync fallback, and multi-page history pagination.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_gmail_adapter.py`
+- **Result:** PASS (21 passed in 0.20s)
+
+## Step 4: Ensure Architectural Isolation, Linting & Full Test Suite
+- **Files Changed:**
+  - `tests/unit/test_adapter_registry.py`
+  - `tests/unit/test_gmail_adapter.py`
+- **What Changed:**
+  - Verified architectural boundary rules in `tests/unit/test_dependency_rules.py` ensuring mail provider identifier `"gmail"` is strictly confined to `packages/adapters/`.
+  - Formatted files with `ruff format`, fixed all import ordering, and resolved fixture type hint in `tests/unit/test_adapter_registry.py`.
+  - Ran `ruff check` (0 errors) and strict `mypy` static type checking (0 issues across 103 source files).
+  - Executed full test suite via `make ci`: 174 unit tests and 31 integration tests (205 total tests passed in 14.82s).
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (205 passed in 14.82s)
+
+# Execution Log: Phase 1 Task 1.4 — Microsoft Graph Adapter
+
+## Step 1: Implement Graph HTTP Client Core, Error Translation & Notification Parsing
+- **Files Changed:**
+  - `packages/adapters/graph.py`
+  - `tests/unit/test_graph_adapter.py`
+- **What Changed:**
+  - Implemented `GraphProviderAdapter` HTTP dispatcher `_request()` translating Microsoft Graph API errors: HTTP 429 (`RateLimited` with `Retry-After`), HTTP 401/403 (`AuthExpired`), HTTP 404 (`NotFound`), HTTP 410 (`Permanent` with delta token expired / gone), 5xx/network errors (`Transient`), and HTTP 400 (`Permanent`).
+  - Implemented `GraphChangeNotification` dataclass and `parse_graph_notification()` extracting items from the `"value"` array (decoding dicts, JSON strings, and bytes, and capturing `subscriptionId`, `changeType`, `resource`, `resourceData.id`, `clientState`, `subscriptionExpirationDateTime`).
+  - Added unit tests in `tests/unit/test_graph_adapter.py` covering rate limiting with `Retry-After`, auth expiration, resource not found, server/transient errors, bad request, and notification parsing.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_graph_adapter.py -k "test_error_translation or test_parse_notification"`
+- **Result:** PASS (8 passed)
+
+## Step 2: Implement 7 Protocol Methods & Contract Test Suite
+- **Files Changed:**
+  - `packages/adapters/graph.py`
+  - `packages/adapters/registry.py`
+  - `packages/adapters/__init__.py`
+  - `tests/unit/test_graph_adapter.py`
+- **What Changed:**
+  - Implemented all 7 protocol methods on `GraphProviderAdapter`: `subscribe` (creates Graph webhook subscription), `renew_subscription` (patches expiration date), `synchronize` (executes delta query), `get_message` (fetches RFC822 MIME byte stream from `/$value` and metadata), `get_thread` (filters messages by `conversationId`), `create_draft` (creates draft in `/messages`), and `send_reply` (dispatches message via `/sendMail`).
+  - Added alias `MicrosoftGraphProviderAdapter = GraphProviderAdapter` for spec compliance (R1.2).
+  - Registered `GraphProviderAdapter` under provider key `"graph"` in `packages/adapters/registry.py` and exported from `packages.adapters`.
+  - Added `TestGraphProviderAdapterContract(MailProviderAdapterContractSuite)` in `tests/unit/test_graph_adapter.py` using `create_mock_graph_transport()`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_graph_adapter.py -k "TestGraphProviderAdapterContract or test_graph_adapter_registered"`
+- **Result:** PASS (9 passed)
+
+## Step 3: Implement Delta Query Traversal & Invalid Delta Token Detection
+- **Files Changed:**
+  - `packages/adapters/graph.py`
+  - `tests/unit/test_graph_adapter.py`
+- **What Changed:**
+  - Implemented multi-page delta traversal in `synchronize()` following `@odata.nextLink` pages, accumulating unique message IDs, and saving the terminal `@odata.deltaLink` into `Checkpoint.delta_link` (R2.6).
+  - Implemented expired/invalid delta token detection (detecting HTTP 410 Gone, `ResyncRequired`, and `InvalidDeltaToken`), safely returning `SyncResult(requires_full_resync=True, has_more=False)` with `Checkpoint(sync_state="full_resync", delta_link=None)` (R2.7).
+  - Added unit tests: `test_delta_pagination_follows_next_link_to_delta_link`, `test_delta_token_expired_triggers_full_resync_410`, and `test_delta_token_resync_required_error_code`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_graph_adapter.py -k "delta"`
+- **Result:** PASS (3 passed)
+
+## Step 4: Ensure Architectural Isolation, Formatting, Linting & Full CI Suite
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Verified architectural boundary rules in `tests/unit/test_dependency_rules.py` ensuring provider name `"graph"` is strictly confined to `packages/adapters/`.
+  - Formatted all files with `ruff format`, resolved all `ruff check` lint warnings and unused imports.
+  - Validated strict type checking with `mypy` across 105 source files (0 issues).
+  - Executed full test suite via `make ci`: 194 unit tests and 31 integration tests (225 total tests passed in 14.54s).
+  - Marked Task 1.4 completed in `specs/tasks.md`.
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (225 passed in 14.54s)
+
+# Execution Log: Phase 1 Task 1.5 — Webhook Receivers
+
+## Step 1: Enhance JobEnvelope for Mailbox Sync Jobs
+- **Files Changed:**
+  - `packages/broker/envelope.py`
+  - `tests/unit/test_broker.py`
+- **What Changed:**
+  - Updated `JobEnvelope` to make `message_id` and `thread_id` default to `""` for mailbox-level pipeline jobs (`job_type="sync_mailbox"`).
+  - Added `mailbox_id: str | None = None` and `payload: dict[str, Any] = Field(default_factory=dict)` to `JobEnvelope`.
+  - Added `mailbox_id` propagation into AMQP message headers in `to_message()`.
+  - Added `test_job_envelope_sync_mailbox_defaults()` verifying serialization/deserialization and header assignment.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_broker.py`
+- **Result:** PASS (6 passed in 0.85s)
+
+## Step 2: Implement Webhook Router & Handshakes in packages/adapters/webhooks.py
+- **Files Changed:**
+  - `packages/adapters/webhooks.py`
+  - `packages/adapters/__init__.py`
+  - `services/api/main.py`
+- **What Changed:**
+  - Created `packages/adapters/webhooks.py` implementing `webhook_router`:
+    - Microsoft Graph endpoints (`GET/POST /v1/webhooks/graph` and `/v1/webhooks/graph/{mailbox_id}`): completes validation handshake when `validationToken` query parameter is present (returns 200 `text/plain` with exact token string, R2.1); handles change notification JSON payloads, parsing signals with `parse_graph_notification()`, enqueuing `sync_mailbox` jobs to `mail.sync` via RabbitMQ exchange `mail.ingest`, and acknowledging with 202 Accepted within 5s with zero provider fetches (R2.2, R2.3).
+    - Gmail / Google Cloud Pub/Sub endpoints (`GET/POST /v1/webhooks/gmail` and `/v1/webhooks/gmail/{mailbox_id}`): completes verification handshake probes when challenge/token parameters are present (returns 200 `text/plain`, R2.1); handles push notification envelopes, parsing signals with `parse_pubsub_notification()`, enqueuing `sync_mailbox` jobs to `mail.sync`, and acknowledging with 200 OK within 5s with zero provider fetches (R2.2, R2.3).
+  - Exported `webhook_router` from `packages/adapters/__init__.py` and mounted in `services/api/main.py`.
+  - Initialized `app.state.publisher` in `app_lifespan` in `services/api/main.py`.
+  - Confined all provider string literals and parser imports strictly within `packages/adapters/` (GEMINI.md §4, R1.3).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (4 passed in 0.29s)
+
+## Step 3: Implement Comprehensive Webhook Receiver Unit Tests
+- **Files Changed:**
+  - `tests/unit/test_webhook_receivers.py`
+- **What Changed:**
+  - Created unit test suite covering Microsoft Graph and Gmail / Pub/Sub webhook receivers:
+    - Verified Graph validation handshake on GET and POST responding with exact `validationToken` in `text/plain; charset=utf-8` (R2.1).
+    - Verified Graph change notification ingestion, decoding `"value"` notification items, treating payloads as signals only, enqueuing `JobEnvelope(job_type="sync_mailbox")` to `mail.ingest`/`mail.sync.requested`, performing no synchronous provider fetches, and returning 202 Accepted (R2.2, R2.3).
+    - Verified Gmail / Google Cloud Pub/Sub validation probe and challenge query echo (R2.1).
+    - Verified Gmail Pub/Sub push envelope decoding, signal extraction (`email_address`, `history_id`), `sync_mailbox` enqueuing to `mail.sync.requested`, and immediate 200 OK acknowledgment (R2.2, R2.3).
+    - Verified mailbox path parameter overrides and graceful error handling for empty/ping payloads and malformed request bodies.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_webhook_receivers.py`
+- **Result:** PASS (10 passed in 0.70s)
+
+## Step 4: Formatting, Linting, Type Checking & Full CI Suite
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Formatted all files with `ruff format`, resolved all `ruff check` lint warnings and unused imports.
+  - Verified architectural boundary rules in `tests/unit/test_dependency_rules.py` ensuring provider names are strictly confined to `packages/adapters/`.
+  - Validated strict type checking with `mypy` across 107 source files (0 issues).
+  - Executed full test suite via `make ci`: 205 unit tests and 31 integration tests (236 total tests passed in 13.54s).
+  - Marked Task 1.5 completed in `specs/tasks.md`.
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (236 passed in 13.54s)
+
+# Execution Log: Phase 1 Task 1.6 — Checkpoint Store & Sync Orchestration
+
+## Batch 1: Domain & Store Interfaces and Backends
+- **Files Changed:**
+  - `packages/domain/entities.py`
+  - `packages/db/checkpoint.py`
+  - `packages/db/mailbox.py`
+  - `packages/db/__init__.py`
+- **What Changed:**
+  - Added optional `organization_id: UUID | str | None = None` to `Checkpoint` dataclass.
+  - Implemented `CheckpointStore` protocol with `PostgresCheckpointStore` and `InMemoryCheckpointStore`. Supported atomic locking via conditional SQL update (`sync_state = 'syncing'`), pending follow-up toggling, and multi-tenant persistence.
+  - Implemented `MailboxStore` protocol with `PostgresMailboxStore` and `InMemoryMailboxStore` for mailbox lookups and status lifecycle management (`needs_reauth`).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_domain_entities.py`
+- **Result:** PASS (10 passed in 0.05s)
+
+## Batch 2: Sync Orchestration Loop in services/mail_connector
+- **Files Changed:**
+  - `services/mail_connector/orchestrator.py`
+  - `services/mail_connector/__init__.py`
+- **What Changed:**
+  - Implemented `SyncOrchestrator` driving the canonical sync loop from `specs/design.md §5.1`.
+  - Enforced in-flight coalescing via `checkpoint_store.try_acquire_lock`: concurrent sync requests atomically set `pending_followup = true` and exit with coalesced outcome (R2.9).
+  - Bounded full re-sync: on `requires_full_resync=True`, records `sync_state='full_resync'`, resets cursors, updates `last_full_sync_at`, and executes full bounded sync (R2.7).
+  - Stored raw MIME payloads in object storage (`raw/{org_id}/{mailbox_id}/{msg_id}.eml`) (R4.10, R5.8).
+  - Published persistent `JobEnvelope(job_type="normalize_email")` with deterministic SHA-256 idempotency key to `email.process` / `email.normalize` (R3.1, R19.2).
+  - Checkpoint advancement ordering: saved checkpoint **only after** all fetched messages from window are durably stored in object storage and published to broker (R2.8).
+  - Handled `AuthExpired`: marked mailbox status to `needs_reauth`, recorded error state, and halted without spinning (R1.5, R2.10).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (4 passed in 0.38s)
+
+## Batch 3 (Parallel Execution): Unit and Integration Tests
+- **Files Changed:**
+  - `tests/unit/test_sync_orchestrator.py`
+  - `tests/integration/test_checkpoint_postgres.py`
+- **What Changed:**
+  - Added 8 unit tests in `test_sync_orchestrator.py` covering initial sync, incremental sync, failure during side-effects preventing checkpoint advance (R2.8), full resync on expired checkpoint (R2.7), in-flight coalescing (R2.9), multi-page pagination, and auth expiration (R1.5).
+  - Added 4 integration tests in `test_checkpoint_postgres.py` verifying real PostgreSQL operations: CRUD round-trip, atomic in-flight locking, atomic pending follow-up toggling, and mailbox status updates.
+- **Verification Commands:**
+  - `uv run pytest tests/unit/test_sync_orchestrator.py -v`
+  - `uv run pytest tests/integration/test_checkpoint_postgres.py -v`
+- **Results:**
+  - `test_sync_orchestrator.py`: PASS (8 passed in 0.61s)
+  - `test_checkpoint_postgres.py`: PASS (4 passed in 1.30s)
+
+## Batch 4: Formatting, Static Typing, Full CI & Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Formatted codebase and fixed line lengths with `ruff`.
+  - Validated strict type checking with `mypy` across 112 source files (0 errors).
+  - Executed complete CI suite via `make ci`: 213 unit tests + 35 integration tests (248 total passed in 13.00s).
+  - Marked Task 1.6 completed in `specs/tasks.md`.
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (248 passed)
+
+# Execution Log: Phase 1 Task 1.7 — Subscription Renewal Job
+
+## Batch 1 (Parallel Execution): Schema Migration, Observability & Configuration
+- **Files Changed:**
+  - `migrations/0002_mailbox_subscription.up.sql`
+  - `migrations/0002_mailbox_subscription.down.sql`
+  - `tests/integration/test_database_schema.py`
+  - `packages/observability/metrics.py`
+  - `packages/core/settings.py`
+  - `packages/core/__init__.py`
+  - `.env.example`
+  - `docs/configuration.md`
+  - `tests/unit/test_observability_metrics.py`
+- **What Changed:**
+  - Created `0002_mailbox_subscription.up.sql` creating table `mailbox_subscription` with mandatory `organization_id` foreign key, uniqueness constraints, and indexes on `expires_at` and `mailbox_id` (R2.10, R5.3).
+  - Created reversible rollback `0002_mailbox_subscription.down.sql` (R5.5).
+  - Updated `test_database_schema.py` to assert `mailbox_subscription` tenant column scoping and enhanced `test_migration_reversibility` to roll back all discovered migrations.
+  - Added `subscription_renewals_total` Counter with `["provider", "status"]` labels to `PipelineMetrics` (R21.4).
+  - Added `SubscriptionRenewalSettings` (`renewal_threshold_hours`, `check_interval_seconds`, `batch_size`) to `AppSettings` (R20.6).
+  - Documented new configuration parameters in `.env.example` and Section 2.14 of `docs/configuration.md`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_observability_metrics.py tests/integration/test_database_schema.py`
+- **Result:** PASS (10 passed in 3.10s)
+
+## Batch 2: Domain Entity & SubscriptionStore Implementations
+- **Files Changed:**
+  - `packages/domain/entities.py`
+  - `packages/db/subscription.py`
+  - `packages/db/__init__.py`
+  - `tests/unit/test_subscription_store.py`
+- **What Changed:**
+  - Extended `Subscription` domain entity with `organization_id`, `last_renewed_at`, `last_renewal_status`, and `last_error` (default `None`).
+  - Defined `SubscriptionStore` protocol (`get`, `get_by_mailbox`, `list_expiring`, `save`, `record_renewal_outcome`).
+  - Implemented `PostgresSubscriptionStore` with asyncpg parameterized queries carrying `organization_id` on every query (R5.3).
+  - Implemented in-memory test double `InMemorySubscriptionStore` with thread-safe `asyncio.Lock`.
+  - Re-exported stores from `packages.db`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_subscription_store.py -v`
+- **Result:** PASS (4 passed in 0.19s)
+
+## Batch 3: Subscription Renewal Job & Error Taxonomy Orchestration
+- **Files Changed:**
+  - `services/mail_connector/renewal.py`
+  - `services/mail_connector/__init__.py`
+  - `tests/unit/test_subscription_renewal.py`
+- **What Changed:**
+  - Implemented `SubscriptionRenewalJob` driving scheduled renewal cycles (`run_once`, `run_loop`).
+  - Enforced provider name isolation: `services/mail_connector` interacts strictly with `MailProviderAdapter` protocol and neutral adapter resolver (GEMINI.md §4).
+  - Evaluated expiring subscriptions (`expires_at <= now() + renewal_threshold_hours`).
+  - Handled `AuthExpired`: marked mailbox operational status as `'needs_reauth'` via `MailboxStore.update_status()`, recorded outcome with error message, incremented telemetry counter, and halted without spinning (R1.5, R2.10).
+  - Handled `RateLimited` (preserving `retry_after`), `Transient`, and `Permanent` errors per common taxonomy.
+  - Skipped mailboxes already in `'needs_reauth'` status to prevent spinning.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_subscription_renewal.py -v`
+- **Result:** PASS (6 passed in 0.44s)
+
+## Batch 4: PostgreSQL Integration, Multi-Tenant Assertions & Full CI
+- **Files Changed:**
+  - `tests/integration/test_subscription_renewal_postgres.py`
+  - `specs/tasks.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Added live integration tests connecting to PostgreSQL container:
+    - Multi-tenant CRUD operations across $\ge 3$ tenants with strict isolation (R5.3).
+    - End-to-end renewal cycle verifying `status="success"` and updated `expires_at` persisted to database.
+    - End-to-end `AuthExpired` transition verifying `mailbox.status = 'needs_reauth'` committed to database and second pass skipped without spinning.
+  - Verified architectural boundary rules (`test_dependency_rules.py`).
+  - Formatted and verified static typing: 0 lint errors, 0 mypy issues across 117 source files.
+  - Executed full test suite: 223 unit tests + 37 integration tests = 260 tests passed.
+  - Marked Task 1.7 complete (`[x]`) in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run ruff check . && uv run mypy . && uv run pytest tests/unit/ && uv run pytest tests/integration/`
+- **Result:** PASS (260 passed, 0 lint/type issues)
+
+# Execution Log: Phase 1 Task 1.8 — Manual Re-Sync Endpoint
+
+## Step 1: Request/Response Schemas & Mailbox Router (R2.11, R23.2, R23.6, R5.3)
+- **Files Changed:**
+  - `services/api/schemas/mailboxes.py` [NEW]
+  - `services/api/schemas/__init__.py` [NEW]
+  - `services/api/routers/mailboxes.py` [NEW]
+  - `services/api/routers/v1.py` [MODIFY]
+- **What Changed:**
+  - Defined Pydantic V2 models `TimeWindow`, `ResyncRequest`, `ResyncResponse`, and `MailboxResponse` with model validator enforcing `since <= until`.
+  - Implemented `POST /v1/mailboxes/{id}/resync` accepting `since`, `until`, `full_resync`, and `force`.
+  - Enforced tenant verification against `X-Organization-ID`: returns 404 for unknown mailboxes or mailboxes belonging to different tenants (R23.6, R5.3).
+  - Implemented guard against spinning on invalid auth: returns 409 Conflict if mailbox is in `needs_reauth` or `paused` status unless `force=True` (R1.5, R2.10).
+  - Implemented `GET /v1/mailboxes/{id}` returning mailbox status and metadata (R23.2).
+  - Mounted mailbox router onto `v1_router` under prefix `/mailboxes`.
+- **Verification Command:**
+  - `uv run ruff check services/api && uv run mypy services/api`
+- **Result:** PASS
+
+## Step 2: Dependency Injection & Error Serialization (R3.1, R21.1)
+- **Files Changed:**
+  - `services/api/dependencies.py` [MODIFY]
+  - `services/api/errors.py` [MODIFY]
+  - `services/api/main.py` [MODIFY]
+- **What Changed:**
+  - Added `get_mailbox_store` falling back from `app.state.mailbox_store` to `PostgresMailboxStore(db_pool)` or `InMemoryMailboxStore`.
+  - Added `get_job_publisher` resolving `app.state.publisher`.
+  - Wired `jsonable_encoder` in `validation_exception_handler` and `http_exception_handler` to guarantee JSON serializability of Pydantic V2 validation contexts.
+  - Bound OpenTelemetry span `api.mailbox.resync` and correlation context variables (`mailbox_id`, `organization_id`).
+- **Verification Command:**
+  - `uv run python -m services.api.openapi --check`
+- **Result:** PASS (OpenAPI schema valid v3.1.0, 11 paths)
+
+## Step 3: Comprehensive Unit Test Suite (R2.11, R23.6, R5.3)
+- **Files Changed:**
+  - `tests/unit/test_api_resync.py` [NEW]
+- **What Changed:**
+  - Implemented 13 unit tests covering:
+    - Successful 202 Accepted response with `JobEnvelope` enqueued to `mail.ingest` / `mail.sync.requested`.
+    - Time window filtering (`since`, `until`) and `full_resync` flags preserved in AMQP payload.
+    - 422 Unprocessable Content when `since > until`.
+    - 404 Not Found on missing mailbox or cross-tenant request.
+    - 400 Bad Request when `X-Organization-ID` is omitted.
+    - 409 Conflict for `needs_reauth` or `paused` mailbox without `force`, and 202 with status reset to active when `force=True`.
+    - `GET /v1/mailboxes/{id}` returning `MailboxResponse` and enforcing tenant scoping.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_api_resync.py -v`
+- **Result:** PASS (13 passed in 1.23s)
+
+## Step 4: End-to-End Integration Tests (R2.11, R20.1)
+- **Files Changed:**
+  - `tests/integration/test_api_resync_e2e.py` [NEW]
+- **What Changed:**
+  - Implemented live integration tests connecting to PostgreSQL (port 5433) and RabbitMQ (port 5672) containers.
+  - Seeded $\ge 3$ tenants with real mailboxes to verify multi-tenant isolation.
+  - Exercised `GET /v1/mailboxes/{id}` and `POST /v1/mailboxes/{id}/resync` via `httpx.AsyncClient` inside `app.router.lifespan_context(app)`.
+  - Verified message arrival on RabbitMQ queue `mail.sync.requested` with `delivery_mode=PERSISTENT`, correlation headers, and full payload.
+  - Verified operational override updating `mailbox.status` in PostgreSQL from `needs_reauth` to `active` upon `force=True`.
+  - Verified OpenAPI 3.1 schema includes resync and mailbox endpoints.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_api_resync_e2e.py -v`
+- **Result:** PASS (2 passed in 2.31s)
+
+## Step 5: Full Verification & Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md` [MODIFY]
+  - `artifacts/superpowers/execution.md` [MODIFY]
+  - `artifacts/superpowers/finish.md` [MODIFY]
+- **What Changed:**
+  - Marked Task 1.8 complete (`[x]`) in `specs/tasks.md`.
+  - Validated zero lint issues (`ruff check`), zero static typing errors (`mypy`), and clean architectural boundary checks.
+  - Verified full test suite across 275 unit and integration tests.
+- **Verification Command:**
+  - `uv run ruff check . && uv run mypy . && uv run pytest tests/unit/ tests/integration/`
+- **Result:** PASS (275 passed in 22.57s)
+
+
+
+# Execution Log: Phase 1 Task 1.9 — Raw Payload Archival
+
+## Step 1: Raw Payload Archiver Core & Replay Abstractions (R4.10, R5.8)
+- **Files Changed:**
+  - `packages/core/archive.py` [NEW]
+  - `packages/core/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `ArchivedPayloadRef` dataclass capturing `object_key`, `bucket`, `sha256`, `size_bytes`, `content_type`, and `metadata`.
+  - Implemented `RawPayloadArchiver` with `archive()`, `retrieve()`, and `create_replay_envelope()`.
+  - Implemented `compute_payload_digest()` and `ChecksumMismatchError` for data integrity validation.
+  - Re-exported new symbols from `packages.core`.
+- **Verification Command:**
+  - `uv run ruff check packages/core && uv run mypy packages/core`
+- **Result:** PASS (0 errors across 7 files)
+
+## Step 2: Observability & Metric Instruments (R21.4)
+- **Files Changed:**
+  - `packages/observability/metrics.py` [MODIFY]
+  - `tests/unit/test_observability_metrics.py` [MODIFY]
+- **What Changed:**
+  - Defined `PAYLOAD_SIZE_BUCKETS` (1KB, 10KB, 50KB, 250KB, 1MB, 5MB, 25MB).
+  - Added `raw_payloads_archived_total` Counter with `["provider", "status"]` labels.
+  - Added `raw_payload_size_bytes` Histogram with `["provider"]` labels and payload size buckets.
+  - Updated unit tests verifying registration of the new metric instruments.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_observability_metrics.py -v && uv run ruff check packages/observability && uv run mypy packages/observability`
+- **Result:** PASS (3/3 tests passed, 0 lint/mypy issues)
+
+## Step 3: Integrate Archiver into Sync Orchestrator (R4.10, R5.8, R3.1)
+- **Files Changed:**
+  - `services/mail_connector/orchestrator.py` [MODIFY]
+- **What Changed:**
+  - Injected `RawPayloadArchiver` into `SyncOrchestrator` with fallback to default settings.
+  - Wrapped raw message archival with OpenTelemetry span `mail.archive_raw` and telemetry recording (`raw_payloads_archived_total`, `raw_payload_size_bytes`).
+  - Enriched published `JobEnvelope(job_type="normalize_email")` payload with `sha256`, `size_bytes`, and `raw_bucket` alongside `raw_object_key`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_sync_orchestrator.py -v && uv run ruff check services/mail_connector && uv run mypy services/mail_connector`
+- **Result:** PASS (8/8 tests passed, 0 lint/mypy issues)
+
+## Step 4: Unit Test Suite for Raw Payload Archival (R4.10, R5.8)
+- **Files Changed:**
+  - `tests/unit/test_raw_payload_archival.py` [NEW]
+- **What Changed:**
+  - Tested binary RFC 822 MIME byte archival and string payload archival.
+  - Verified deterministic SHA-256 calculation and key formatting `raw/{org_id}/{mbx_id}/{msg_id}.eml`.
+  - Verified S3 metadata headers (`organization_id`, `mailbox_id`, `provider_message_id`, `sha256`, `size_bytes`, `archived_at`).
+  - Tested retrieval with checksum verification and `ChecksumMismatchError` on corruption.
+  - Tested `create_replay_envelope()` generating persistent `JobEnvelope(job_type="normalize_email")` ready for replay.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_raw_payload_archival.py -v && uv run ruff check tests/unit/test_raw_payload_archival.py && uv run mypy tests/unit/test_raw_payload_archival.py`
+- **Result:** PASS (7/7 tests passed, 0 lint/mypy issues)
+
+## Step 5: Live MinIO Integration Tests & Multi-Tenant Scoping (R4.10, R5.8)
+- **Files Changed:**
+  - `tests/integration/test_raw_payload_archival_minio.py` [NEW]
+- **What Changed:**
+  - Added live integration tests running against MinIO container on port 9000.
+  - Validated multi-tenant raw MIME archival across >=3 tenants with tenant-isolated object keys.
+  - Verified byte-for-byte retrieval and SHA-256 integrity verification.
+  - Verified S3 metadata persistence (`x-amz-meta-organization_id`, `x-amz-meta-sha256`, `x-amz-meta-provider_message_id`).
+  - Tested replay envelope reconstitution and AMQP serialization.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_raw_payload_archival_minio.py -v && uv run ruff check tests/integration/test_raw_payload_archival_minio.py && uv run mypy tests/integration/test_raw_payload_archival_minio.py`
+- **Result:** PASS (1 passed in 0.21s, 0 lint/mypy issues)
+
+## Step 6: Full Verification, Documentation & Sign-Off (DoD)
+- **Files Changed:**
+  - `specs/tasks.md` [MODIFY]
+  - `artifacts/superpowers/execution.md` [MODIFY]
+  - `artifacts/superpowers/finish.md` [MODIFY]
+- **What Changed:**
+  - Marked Task 1.9 complete (`[x]`) in `specs/tasks.md`.
+  - Validated full test suite: 283 passed (243 unit + 40 integration).
+  - Validated 0 ruff errors and 0 mypy issues across all 125 source files.
+  - Verified architectural boundaries strictly preserved.
+- **Verification Command:**
+  - `uv run ruff check . && uv run mypy packages services tests evaluation && uv run pytest tests/unit/ tests/integration/`
+- **Result:** PASS (283 passed in 27.30s)
+
+# Execution Log: Phase 1 Task 1.10 — MIME Normalization
+
+## Step 1: HTML-to-Text Converter (R4.2)
+- **Files Changed:**
+  - `services/email_worker/html.py` [NEW]
+  - `services/email_worker/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `HTMLToTextConverter` and `html_to_text()` using Python stdlib `HTMLParser`.
+  - Preserves hyperlinks in `anchor text (url)` format, strips 1x1 / 0x0 / hidden tracking pixels, and drops `<script>`, `<style>`, `<meta>`, and `<noscript>` elements.
+  - Normalizes block elements (`p`, `div`, `h1`-`h6`, `table`, `li`) into structured plain text without excessive empty lines.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/html.py services/email_worker/__init__.py && uv run mypy services/email_worker/html.py services/email_worker/__init__.py`
+- **Result:** PASS (0 errors, 0 mypy issues)
+
+## Step 2: Quoted-History Separation & Signature Detection (R4.3, R4.4)
+- **Files Changed:**
+  - `services/email_worker/history.py` [NEW]
+  - `services/email_worker/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `separate_quoted_history()` recognizing international and multi-client reply headers (`On ... wrote:`, `-----Original Message-----`, `Le ... a écrit :`, Outlook blocks, trailing `>` quote lines).
+  - Implemented `detect_and_strip_signature()` detecting RFC 3676 delimiters (`-- `), mobile signatures (`Sent from my iPhone/iPad/Galaxy/Android`), and standard sign-offs (`Best regards,`, `Thanks,`, `Sincerely,`).
+  - Implemented `clean_email_body()` combining history separation and signature stripping to return `(body_text, body_text_clean, signature_stripped)`.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/history.py services/email_worker/__init__.py && uv run mypy services/email_worker/history.py services/email_worker/__init__.py`
+- **Result:** PASS (0 errors, 0 mypy issues)
+
+## Step 3: Attachment Metadata Extraction (R4.7, R5.8)
+- **Files Changed:**
+  - `services/email_worker/attachments.py` [NEW]
+  - `services/email_worker/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `extract_attachments_from_message()` traversing MIME tree to identify attachments and inline media with filenames or Content-IDs.
+  - Computed size, SHA-256 digests, and deterministic object storage keys via `ObjectKeyBuilder.attachment(org_id, msg_id, att_id, filename)`.
+  - Implemented async `offload_attachments()` offloading binary payloads to MinIO `bucket_attachments` with metadata headers.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/attachments.py services/email_worker/__init__.py && uv run mypy services/email_worker/attachments.py services/email_worker/__init__.py`
+- **Result:** PASS (0 errors, 0 mypy issues)
+
+## Step 4: MIME Parser & Email Normalizer Orchestrator (R4.1, R4.2, R4.9, design.md §5.2)
+- **Files Changed:**
+  - `packages/domain/entities.py` [MODIFY]
+  - `services/email_worker/parser.py` [NEW]
+  - `services/email_worker/normalizer.py` [NEW]
+  - `services/email_worker/__init__.py` [MODIFY]
+  - `tests/unit/test_domain_entities.py` [MODIFY]
+- **What Changed:**
+  - Extended `NormalizedMessage` with `signature_stripped: bool`, `.flags` dict, and `.to_contract_dict()` matching `design.md §5.2`.
+  - Implemented `parse_mime_bytes()`, `extract_email_headers()`, and `select_message_body()` with RFC 2047 decoding, subject normalization, and HTML-to-text fallback when no plain text part exists (R4.2).
+  - Implemented `EmailNormalizer` coordinating headers, cleaned body (`body_text` and `body_text_clean`), snippet, attachments, and flags.
+  - Implemented `normalize_and_offload()` for asynchronous storage offload of attachments and raw HTML bodies.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker packages/domain && uv run mypy services/email_worker packages/domain && uv run pytest tests/unit/test_domain_entities.py tests/unit/test_dependency_rules.py`
+- **Result:** PASS (14/14 tests passed, 0 errors, 0 mypy issues)
+
+## Step 5: Unit Tests for Pure Normalization Components (R4.1–R4.4, R4.7, R24.3)
+- **Files Changed:**
+  - `tests/unit/test_email_normalization.py` [NEW]
+- **What Changed:**
+  - Added 30 comprehensive unit tests covering HTML parsing (tracking pixel removal, hyperlink formatting, entity unescaping, block spacing), quoted-history splitting, signature detection (RFC 3676, mobile, sign-offs), subject normalization, and attachment extraction with SHA-256 digests.
+  - Tested `EmailNormalizer` end-to-end for `multipart/alternative`, HTML-only fallback, and corrupted payload failure handling.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_email_normalization.py && uv run mypy tests/unit/test_email_normalization.py && uv run pytest tests/unit/test_email_normalization.py -v`
+- **Result:** PASS (30/30 passed in 0.21s, 0 lint/mypy issues)
+
+## Step 6: Awkward Real-World MIME Corpus Test Suite (R4.1–R4.4, R4.7, R24.3)
+- **Files Changed:**
+  - `tests/fixtures/mime/*.eml` [NEW] (10 awkward real-world MIME fixture files)
+  - `tests/unit/test_mime_corpus.py` [NEW]
+  - `services/email_worker/parser.py` [MODIFY]
+  - `services/email_worker/attachments.py` [MODIFY]
+- **What Changed:**
+  - Created 10 real-world awkward MIME fixtures: `multipart/alternative`, HTML-only fallback, plain-text-only, ISO-8859-1 (Latin-1 8-bit), Windows-1252, Shift-JIS, RFC 2047 encoded-word headers, inline image media with Content-ID, multi-tier nested quote replies, and nested forwarded `message/rfc822` attachment.
+  - Enhanced `parser.py` with raw surrogateescape recovery and charset fallback cascade to handle unencoded 8-bit headers.
+  - Enhanced `attachments.py` to extract attached `message/rfc822` email files while ignoring recursive internal subparts.
+  - Validated all 10 fixtures through `EmailNormalizer` with complete assertions on canonical entity fields and flags.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_mime_corpus.py && uv run mypy tests/unit/test_mime_corpus.py && uv run pytest tests/unit/test_mime_corpus.py -v`
+- **Result:** PASS (10/10 passed in 0.16s, 0 lint/mypy issues)
+
+## Step 7: Full Verification, Documentation & Sign-Off (DoD)
+- **Files Changed:**
+  - `specs/tasks.md` [MODIFY]
+  - `artifacts/superpowers/execution.md` [MODIFY]
+  - `artifacts/superpowers/finish.md` [NEW]
+- **What Changed:**
+  - Marked Task 1.10 as completed (`[x]`) in `specs/tasks.md`.
+  - Executed full lint check (`uv run ruff check .`): 0 errors across 132 source files.
+  - Executed strict type checking (`uv run mypy packages services tests evaluation`): 0 issues across 132 source files.
+  - Executed full test suite (`uv run pytest tests/unit/ tests/integration/`): 323 passed in 21.69s (283 previous + 40 new).
+  - Verified architectural boundaries strictly preserved.
+- **Verification Command:**
+  - `uv run ruff check . && uv run mypy packages services tests evaluation && uv run pytest tests/unit/ tests/integration/`
+- **Result:** PASS (323 passed, 0 lint/mypy issues)
+
+# Execution Log: Phase 1 Task 1.11 — Subject Normalization & Thread Association
+
+## Step 1: Domain Entity & Configuration (R4.5, R4.6)
+- **Files Changed:**
+  - `packages/domain/entities.py` [MODIFY]
+  - `packages/domain/__init__.py` [MODIFY]
+  - `packages/core/settings.py` [MODIFY]
+  - `packages/core/__init__.py` [MODIFY]
+  - `.env.example` [MODIFY]
+  - `docs/configuration.md` [MODIFY]
+- **What Changed:**
+  - Defined `EmailThread` domain entity (`id`, `organization_id`, `mailbox_id`, `provider_thread_id`, `subject_normalized`, `participants`, `first_message_at`, `last_message_at`, `message_count`, `status`).
+  - Added `ThreadAssociationSettings` (`window_days: int = 14`) to `AppSettings`.
+  - Added `THREAD_ASSOCIATION__WINDOW_DAYS=14` to `.env.example` and documented it in `docs/configuration.md`.
+- **Verification Command:**
+  - `uv run ruff check packages/domain packages/core && uv run mypy packages/domain packages/core`
+- **Result:** PASS (0 errors, 0 mypy issues across 10 source files)
+
+## Step 2: Database Thread Store (R4.6, design.md §5.2)
+- **Files Changed:**
+  - `packages/db/thread.py` [NEW]
+  - `packages/db/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `ThreadStore` protocol defining thread lookup (`find_by_provider_thread_id`, `find_by_rfc822_message_id`, `find_by_references`, `find_by_subject_and_participants`), creation, and atomic update.
+  - Implemented `InMemoryThreadStore` for isolated pure unit tests with subject matching and participant overlap logic.
+  - Implemented `PostgresThreadStore` utilizing PostgreSQL array overlap operator (`participants && $4`), atomic `LEAST`/`GREATEST` timestamp progression, and `array_agg(DISTINCT p)` participant expansion.
+- **Verification Command:**
+  - `uv run ruff check packages/db && uv run mypy packages/db`
+- **Result:** PASS (0 errors, 0 mypy issues across 14 source files)
+
+## Step 3: Thread Associator Service & Normalization Helpers (R4.5, R4.6)
+- **Files Changed:**
+  - `services/email_worker/threading.py` [NEW]
+  - `services/email_worker/__init__.py` [MODIFY]
+- **What Changed:**
+  - Implemented `extract_participant_emails()` parsing and deduplicating sender, recipient, and cc email addresses into normalized lowercase sorted sets.
+  - Defined `ThreadAssociationReason` enum (`provider_thread_id`, `in_reply_to`, `references`, `subject_participants`, `new_thread`) and `ThreadAssociationResult`.
+  - Implemented `ThreadAssociator` orchestrating the 4-tier decision cascade: provider thread ID -> In-Reply-To -> References -> normalized subject + overlapping participants within time window -> new thread, while advancing message counts and timestamps.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/threading.py services/email_worker/__init__.py && uv run mypy services/email_worker/threading.py services/email_worker/__init__.py`
+- **Result:** PASS (0 errors, 0 mypy issues)
+
+## Step 4: Pure Unit Tests for Thread Association (R4.5, R4.6)
+- **Files Changed:**
+  - `tests/unit/test_thread_association.py` [NEW]
+  - `services/email_worker/threading.py` [MODIFY]
+- **What Changed:**
+  - Added 26 unit tests covering subject prefix normalization (`Re:`, `Fwd:`, `Aw:`, `Re[2]:`, stacked, whitespace), participant extraction/deduplication, and the full 4-tier association cascade.
+  - Verified Tier 1 provider thread ID matching, Tier 2a In-Reply-To matching, Tier 2b References matching (prioritizing latest reference), Tier 3 subject + participant overlap within window, failure cases when outside window or disjoint participants, and Tier 4 new thread fallback.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_thread_association.py && uv run mypy tests/unit/test_thread_association.py && uv run pytest tests/unit/test_thread_association.py -v`
+- **Result:** PASS (26/26 passed in 0.16s, 0 lint/mypy issues)
+
+## Step 5: PostgreSQL Integration Tests with Multi-Tenant Fixtures (R4.5, R4.6, GEMINI.md §8)
+- **Files Changed:**
+  - `migrations/0003_email_thread_nullable_provider_thread_id.up.sql` [NEW]
+  - `migrations/0003_email_thread_nullable_provider_thread_id.down.sql` [NEW]
+  - `tests/integration/test_thread_postgres.py` [NEW]
+- **What Changed:**
+  - Added migration `0003_email_thread_nullable_provider_thread_id` to allow nullable `provider_thread_id` per `design.md §6.1` (for non-provider / IMAP threads).
+  - Implemented 5 integration tests against ephemeral PostgreSQL:
+    - Multi-tenant isolation verified across $\ge 3$ tenants with overlapping `provider_thread_id` values.
+    - PostgreSQL array overlap querying (`participants && $4`) and sliding time-window logic.
+    - Atomic thread counter increment (`message_count + 1`), `first_message_at` / `last_message_at` timestamp progression, and array deduplication.
+    - In-Reply-To and References lookups against `email_message` with cross-tenant isolation.
+    - Full `ThreadAssociator` pipeline execution with live PostgreSQL storage.
+- **Verification Command:**
+  - `uv run ruff check tests/integration/test_thread_postgres.py && uv run mypy tests/integration/test_thread_postgres.py && uv run pytest tests/integration/test_thread_postgres.py -v`
+- **Result:** PASS (5/5 passed in 1.42s, 0 lint/mypy issues)
+
+## Step 6: Full Verification, Documentation & Sign-Off (DoD)
+- **Files Changed:**
+  - `specs/tasks.md` [MODIFY]
+  - `artifacts/superpowers/execution.md` [MODIFY]
+  - `artifacts/superpowers/finish.md` [NEW]
+- **What Changed:**
+  - Marked Task 1.11 complete (`[x]`) in `specs/tasks.md`.
+  - Executed static analysis across 136 files: 0 ruff errors, 0 mypy issues.
+  - Executed full test suite: 354 passed in 22.29s (+31 tests: 26 unit in `test_thread_association.py` + 5 integration in `test_thread_postgres.py`).
+  - Strict multi-tenant isolation, architectural boundaries, and schema integrity verified.
+- **Verification Command:**
+  - `uv run ruff check . && uv run mypy packages services tests evaluation && uv run pytest tests/unit/ tests/integration/`
+- **Result:** PASS (354 passed, 0 lint/mypy issues)
+
+## Step 1: Message & Attachment Persistence Stores (`packages/db/message.py`, `packages/db/__init__.py`)
+- **Files Changed:**
+  - `packages/db/message.py`
+  - `packages/db/__init__.py`
+- **What Changed:**
+  - Implemented `MessageInsertResult` and `AttachmentRecord` data models.
+  - Defined `MessageStore` protocol for atomic message and attachment operations.
+  - Implemented `InMemoryMessageStore` for pure unit testing and isolated mocking.
+  - Implemented `PostgresMessageStore` using `asyncpg` supporting:
+    - Atomic `INSERT INTO email_message` with `ON CONFLICT (organization_id, mailbox_id, provider_message_id) DO NOTHING`.
+    - Write-time full-text search vector generation: `setweight(to_tsvector('english', coalesce(subject, '')), 'A') || setweight(to_tsvector('english', coalesce(body_text_clean, '')), 'B')`.
+    - Same-transaction attachment metadata insertion into the `attachment` table.
+    - Full-text search with `search_tsv @@ plainto_tsquery('english', ...)` and thread-scoped retrieval.
+  - Exported components from `packages/db/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check packages/db/ && uv run mypy packages/db/`
+- **Result:** PASS (15 source files checked cleanly)
+
+## Step 2: Email Worker Persister Integration (`services/email_worker/persister.py`, `services/email_worker/__init__.py`)
+- **Files Changed:**
+  - `services/email_worker/persister.py`
+  - `services/email_worker/threading.py`
+  - `services/email_worker/__init__.py`
+- **What Changed:**
+  - Implemented `EmailPersistenceResult` dataclass recording operation status, deduplication state, resolved thread, and downstream dispatch eligibility flag (`should_dispatch`).
+  - Implemented `EmailPersister` pipeline service coordinating:
+    - Fast check against `MessageStore.get_message_by_provider_id` to exit early on replayed payloads.
+    - Multi-tier thread association via `ThreadAssociator.associate_normalized_message`.
+    - Atomic persistence of `email_message` and `attachment` records.
+    - Duplicate detection via `ON CONFLICT DO NOTHING` with automatic suppression of downstream jobs (`should_dispatch=False` per R4.8).
+  - Exported `EmailPersister` and `EmailPersistenceResult` in `services/email_worker/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/ && uv run mypy services/email_worker/`
+- **Result:** PASS (8 source files checked cleanly)
+
+## Step 3: Unit Tests (`tests/unit/test_message_persistence.py`)
+- **Files Changed:**
+  - `tests/unit/test_message_persistence.py`
+- **What Changed:**
+  - Added unit test suite covering:
+    - `test_in_memory_store_insert_and_get`: Validates message insertion, ID lookups, provider message ID index, and attachment records.
+    - `test_in_memory_store_deduplication_on_conflict`: Validates idempotent rejection of duplicate `(organization_id, mailbox_id, provider_message_id)` with `inserted=False, is_duplicate=True`.
+    - `test_in_memory_store_tenant_isolation`: Validates strict tenant isolation across organizations.
+    - `test_in_memory_store_thread_messages_and_search`: Validates thread message ordering and in-memory full-text search.
+    - `test_persister_pipeline_first_time_message`: Validates persister pipeline creating thread and returning `should_dispatch=True`.
+    - `test_persister_pipeline_replayed_message_suppresses_dispatch`: Validates R4.8 suppression of duplicate jobs (`should_dispatch=False`) and preservation of thread counters.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_message_persistence.py && uv run mypy tests/unit/test_message_persistence.py && uv run pytest tests/unit/test_message_persistence.py -v`
+- **Result:** PASS (6 tests passed in 0.16s)
+
+## Step 4: Multi-Tenant PostgreSQL Integration Tests (`tests/integration/test_message_postgres.py`)
+- **Files Changed:**
+  - `tests/integration/test_message_postgres.py`
+- **What Changed:**
+  - Added live PostgreSQL integration test suite:
+    - `test_postgres_message_store_multi_tenant_isolation`: Validates 3 distinct tenants storing identical provider message IDs and subjects in total isolation per GEMINI.md §8 mandate.
+    - `test_postgres_message_store_deduplication_on_conflict`: Validates `ON CONFLICT (organization_id, mailbox_id, provider_message_id) DO NOTHING` suppressing replayed deliveries with `inserted=False, is_duplicate=True`.
+    - `test_postgres_message_store_attachments_persistence`: Validates atomic transactional persistence of attachments in the `attachment` table with FK linking to `email_message.id`.
+    - `test_postgres_message_store_search_tsv_gin`: Validates write-time full-text search vector generation with 'A' (subject) and 'B' (clean body) weights and tenant-isolated GIN queries.
+    - `test_postgres_message_store_thread_ordered_messages`: Validates thread messages retrieved in chronological order (`received_at ASC`).
+- **Verification Command:**
+  - `uv run ruff check tests/integration/test_message_postgres.py && uv run mypy tests/integration/test_message_postgres.py && uv run pytest tests/integration/test_message_postgres.py -v`
+- **Result:** PASS (5 integration tests passed in 1.47s)
+
+## Step 1: Update Persister for Normalization Failures (`services/email_worker/persister.py`)
+- **Files Changed:**
+  - `services/email_worker/persister.py`
+- **What Changed:**
+  - Updated `EmailPersister.persist()` to explicitly check `message.normalization_failed`.
+  - When `normalization_failed=True`, message is persisted in database (preserving `raw_object_key` per R4.9), and `should_dispatch` is returned as `False` to suppress downstream triage job emission.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/persister.py && uv run mypy services/email_worker/persister.py`
+- **Result:** PASS
+
+## Step 2: Implement Email Normalization Consumer (`services/email_worker/consumer.py`, `services/email_worker/__init__.py`)
+- **Files Changed:**
+  - `services/email_worker/consumer.py`
+  - `services/email_worker/__init__.py`
+- **What Changed:**
+  - Implemented `EmailNormalizationConsumer(BaseConsumer)` to consume jobs from `email.normalize`.
+  - Implemented `process_job`:
+    - Fetches raw MIME payload from MinIO/S3 object storage via `storage_client.get_bytes`.
+    - Normalizes payload via `EmailNormalizer.normalize_and_offload`.
+    - Persists message and attachments using `EmailPersister.persist` with `ON CONFLICT DO NOTHING` (never discarding messages per R4.9).
+    - If `normalization_failed=True`: raises `FatalError` causing `BaseConsumer` to route the job to `dlx.email` exchange preserving `x-original-routing-key`, `x-failure-reason`, `x-attempt` headers and acknowledging message.
+    - If duplicate: returns early without dispatching.
+    - If successful: emits downstream triage job envelope to `email.triage`.
+  - Re-exported `EmailNormalizationConsumer` in `services/email_worker/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check services/email_worker/ && uv run mypy services/email_worker/`
+- **Result:** PASS (9 source files checked cleanly)
+
+## Step 3: Unit Tests for Normalization Failure Handling (`tests/unit/test_normalization_failure.py`)
+- **Files Changed:**
+  - `services/email_worker/normalizer.py`
+  - `tests/unit/test_normalization_failure.py`
+- **What Changed:**
+  - Updated `EmailNormalizer.normalize()` to validate non-empty MIME payloads and detect total header absence, triggering fallback message generation with `normalization_failed=True` and `raw_object_key` retention per R4.9.
+  - Added unit test suite covering:
+    - `test_normalizer_corrupted_mime_produces_failed_message`: Validates corrupted non-email bytes produce `normalization_failed=True` while retaining `raw_object_key` and fallback text.
+    - `test_persister_suppresses_dispatch_on_normalization_failed`: Validates `EmailPersister` stores failed message in DB (never discarding per R4.9) and suppresses downstream dispatch (`should_dispatch=False`).
+    - `test_consumer_persists_and_raises_fatal_error_on_normalization_failure`: Validates `EmailNormalizationConsumer` persists failed message to store and raises `FatalError` for dead-letter routing, with zero triage jobs dispatched.
+    - `test_consumer_success_path_publishes_triage_job`: Validates successful normalization dispatches triage job envelope to `email.triage`.
+    - `test_consumer_missing_raw_key_raises_fatal_error`: Validates missing payload keys raise `FatalError`.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_normalization_failure.py && uv run mypy tests/unit/test_normalization_failure.py && uv run pytest tests/unit/test_normalization_failure.py -v`
+- **Result:** PASS (5 unit tests passed in 0.13s)
+
+## Step 4: Live RabbitMQ + PostgreSQL Integration Tests (`tests/integration/test_normalization_failure_integration.py`)
+- **Files Changed:**
+  - `tests/integration/test_normalization_failure_integration.py`
+- **What Changed:**
+  - Implemented end-to-end integration test suite running against live PostgreSQL (port 5433) and RabbitMQ (port 5672) containers:
+    - `test_normalization_failure_persists_and_dead_letters`: Ingests corrupted non-MIME binary payload, processes via `EmailNormalizationConsumer`, asserts PostgreSQL row is durably stored in `email_message` with `normalization_failed=True` and `raw_object_key` intact (R4.9). Asserts message is routed to `email.dead_letter` queue with `x-original-routing-key=email.normalize` and `x-failure-reason` in AMQP headers (R3.5). Confirms downstream `email.triage` queue receives 0 jobs.
+    - `test_multi_tenant_normalization_mixed_scenarios`: Tests $\ge 3$ distinct tenants handling a mix of corrupted, valid, and replayed emails simultaneously. Validates complete tenant isolation, corrupt payload dead-lettering, and successful payload dispatch to `email.triage`.
+- **Verification Command:**
+  - `uv run ruff check tests/integration/test_normalization_failure_integration.py && uv run mypy tests/integration/test_normalization_failure_integration.py && uv run pytest tests/integration/test_normalization_failure_integration.py -v`
+- **Result:** PASS (2 integration tests passed in 2.01s)
+
+## Step 5: Full CI Verification & Task Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+- **What Changed:**
+  - Executed complete CI validation gate (`make ci`):
+    - `ruff format --check .`: 156 files verified clean.
+    - `ruff check .`: 0 lint errors.
+    - `mypy packages services tests evaluation`: 0 type errors across 143 source files.
+    - `pytest tests/unit -v`: 320 unit tests passed cleanly.
+    - `pytest tests/integration -v`: 52 integration tests passed against live PostgreSQL and RabbitMQ containers.
+  - Marked Task 1.13 as completed (`[x]`) in `specs/tasks.md`.
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (372 total tests passing, 0 lint/format/type issues)
+
+# Execution Log: Phase 1 Task 1.14 — Read API for Mail Data & Real Gmail Support
+
+## Step 1: Database Store Enhancements for Read Operations (`packages/db/`)
+- **Files Changed:**
+  - `packages/db/mailbox.py`
+  - `packages/db/thread.py`
+- **What Changed:**
+  - Added `list_mailboxes(organization_id, limit, offset, status, provider)` to `MailboxStore` protocol, `PostgresMailboxStore`, and `InMemoryMailboxStore` supporting pagination and tenant filtering.
+  - Added `list_threads(organization_id, limit, offset, mailbox_id, status)` to `ThreadStore` protocol, `PostgresThreadStore`, and `InMemoryThreadStore` supporting pagination, ordering by `last_message_at DESC NULLS LAST`, and tenant filtering.
+- **Verification Command:**
+  - `uv run ruff check packages/db/ && uv run mypy packages/db/ && uv run pytest tests/unit/test_thread_association.py tests/integration/test_thread_postgres.py -v`
+- **Result:** PASS (31 tests passed, 0 lint/type issues across 15 source files)
+
+## Step 2: Real Gmail Credentials Reference Resolver & Webhook Bug Fix (`packages/adapters/`)
+- **Files Changed:**
+  - `packages/adapters/registry.py`
+  - `packages/adapters/webhooks.py`
+- **What Changed:**
+  - Implemented `resolve_provider_credentials(credentials_ref, provider)` supporting `env:<VAR>`, `file:<PATH>`, raw token strings, and fallback to `GMAIL_ACCESS_TOKEN`.
+  - Updated `get_adapter_for_mailbox` to resolve credentials and pass `access_token` to `GmailProviderAdapter` when instantiating real Gmail adapters.
+  - Fixed database table name query bug in `packages/adapters/webhooks.py`: changed `FROM mailboxes` to `FROM mailbox` to match PostgreSQL schema.
+- **Verification Command:**
+  - `uv run ruff check packages/adapters/ && uv run mypy packages/adapters/ && uv run pytest tests/unit/test_adapter_registry.py tests/unit/test_gmail_adapter.py tests/unit/test_webhook_receivers.py -v`
+- **Result:** PASS (36 tests passed, 0 lint/type issues across 9 source files)
+
+## Step 3: Read API Schemas, Dependencies & Routers (`services/api/`)
+- **Files Changed:**
+  - `services/api/schemas/threads.py`
+  - `services/api/schemas/messages.py`
+  - `services/api/schemas/__init__.py`
+  - `services/api/dependencies.py`
+  - `services/api/routers/mailboxes.py`
+  - `services/api/routers/threads.py`
+  - `services/api/routers/messages.py`
+  - `services/api/routers/v1.py`
+- **What Changed:**
+  - Created Pydantic V2 schemas for threads (`ThreadSummaryResponse`, `ThreadDetailResponse`, `MessageSummaryInThread`) and messages (`EmailAddressResponse`, `AttachmentSummaryResponse`, `MessageDetailResponse`).
+  - Added `ThreadStoreDep`, `MessageStoreDep`, and `StorageClientDep` dependencies to `services/api/dependencies.py`.
+  - Implemented `GET /v1/mailboxes`: paginated list with optional `status` and `provider` filters, scoped by `organization_id`.
+  - Implemented `GET /v1/threads`: paginated list of threads with optional `mailbox_id` and `status` filters, scoped by `organization_id`.
+  - Implemented `GET /v1/threads/{id}`: detailed view including chronological thread messages.
+  - Implemented `GET /v1/messages/{id}`: detailed view with recipient lists, attachments metadata, clean text, and presigned download URLs.
+  - Mounted `thread_router` and `message_router` under `/v1` in `services/api/routers/v1.py`.
+- **Verification Command:**
+  - `uv run ruff check services/api/ && uv run mypy services/api/ && uv run python -m services.api.openapi --check && uv run pytest tests/unit/test_api_skeleton.py tests/unit/test_api_resync.py -v`
+- **Result:** PASS (OpenAPI schema valid with 15 paths, 29 tests passed, 0 lint/type issues)
+
+## Step 4: Pure Unit Tests for Mail Read API & Credentials (`tests/unit/test_mail_read_api.py`)
+- **Files Changed:**
+  - `tests/unit/test_mail_read_api.py`
+- **What Changed:**
+  - Implemented unit test suite covering:
+    - `test_list_mailboxes_paginated_and_filtered`: validates tenant isolation, pagination limits/offsets, provider filters, and status filters for `GET /v1/mailboxes`.
+    - `test_list_threads_paginated_and_ordered`: validates tenant scoping, recency ordering (`last_message_at DESC`), and pagination for `GET /v1/threads`.
+    - `test_get_thread_detail_with_chronological_messages`: validates thread metadata, ordered messages (`received_at ASC`), and 404 on cross-tenant requests.
+    - `test_get_message_detail_with_attachments`: validates recipient resolution, attachment metadata, presigned download URLs, and cross-tenant 404 rejection.
+    - `test_resolve_provider_credentials_and_adapter_instantiation`: validates `env:VAR`, raw OAuth tokens, and environment fallbacks passing `access_token` to `GmailProviderAdapter`.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_mail_read_api.py && uv run mypy tests/unit/test_mail_read_api.py && uv run pytest tests/unit/test_mail_read_api.py -v`
+- **Result:** PASS (5 tests passed in 0.83s, 0 lint/type issues)
+
+## Step 5: Multi-Tenant PostgreSQL Integration Tests (`tests/integration/test_mail_read_api_integration.py`)
+- **Files Changed:**
+  - `tests/integration/test_mail_read_api_integration.py`
+- **What Changed:**
+  - Implemented multi-tenant integration test suite against live PostgreSQL container conforming to GEMINI.md §8:
+    - `test_mail_read_api_multi_tenant_isolation`: seeds 3 distinct tenants (`org1`, `org2`, `org3`) with overlapping provider IDs and normalized subjects, verifying strict cross-tenant 404 rejection on threads and messages, and tenant isolation on mailbox/thread listings.
+    - `test_mail_read_api_pagination_and_filters`: tests database pagination (`limit`, `offset`), filtering by `provider`, `status`, and `mailbox_id`, recency ordering (`last_message_at DESC NULLS LAST`), and chronological message ordering (`received_at ASC`).
+- **Verification Command:**
+  - `uv run ruff check tests/integration/test_mail_read_api_integration.py && uv run mypy tests/integration/test_mail_read_api_integration.py && uv run pytest tests/integration/test_mail_read_api_integration.py -v`
+- **Result:** PASS (2 integration tests passed in 1.02s, 0 lint/type issues)
+
+## Step 6: Phase 1 End-to-End Pipeline & Real Gmail Integration Test (`tests/integration/test_phase1_pipeline_e2e.py`)
+- **Files Changed:**
+  - `tests/integration/test_phase1_pipeline_e2e.py`
+- **What Changed:**
+  - Implemented end-to-end integration test suite exercising the complete Phase 1 pipeline across all active infrastructure components:
+    - `test_real_gmail_mailbox_adapter_capability`: tests real Gmail mailbox credentials resolution from `credentials_ref` (`env:VAR` and direct OAuth tokens), instantiating `GmailProviderAdapter` configured for `https://gmail.googleapis.com` without mock doubles.
+    - `test_phase1_pipeline_full_e2e`: runs full lifecycle: Ingest -> MinIO (`raw-emails` bucket) -> checkpoint advancement in PostgreSQL -> RabbitMQ (`email.normalize` queue) -> `EmailNormalizationConsumer` -> MIME normalization & attachment offload to MinIO -> Thread association & message insertion in PostgreSQL (`email_message`, `email_thread`) -> RabbitMQ downstream triage job dispatch (`email.triage` queue) -> Read API verification via HTTP (`GET /v1/mailboxes`, `GET /v1/threads`, `GET /v1/threads/{id}`, `GET /v1/messages/{id}`) -> Idempotency duplicate suppression check.
+- **Verification Command:**
+  - `uv run ruff check tests/integration/test_phase1_pipeline_e2e.py && uv run mypy tests/integration/test_phase1_pipeline_e2e.py && uv run pytest tests/integration/test_phase1_pipeline_e2e.py -v`
+- **Result:** PASS (2 integration tests passed in 0.98s, 0 lint/type issues)
+
+## Step 7: Full CI Verification Gate & Task Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+- **What Changed:**
+  - Executed full formatting, linting, type-checking, unit test suite, and live integration test suite via `make ci`.
+  - Verified 381 automated tests (325 unit + 56 integration) passed with zero regressions.
+  - Marked Task 1.14 as completed (`[x]`) in `specs/tasks.md`, completing Phase 1: Core Mail Pipeline.
+- **Verification Command:**
+  - `make ci`
+- **Result:** PASS (163 files formatted, 150 source files checked by mypy with 0 errors, 381 tests passed in 27.82s)
+
+

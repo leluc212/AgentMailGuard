@@ -82,6 +82,17 @@ def test_normalized_message_creation() -> None:
     assert msg.direction == "inbound"
     assert msg.attachments == []
     assert not msg.normalization_failed
+    assert not msg.signature_stripped
+    assert msg.flags == {"normalization_failed": False, "signature_stripped": False}
+
+    contract = msg.to_contract_dict()
+    assert contract["message_id"] == str(msg_id)
+    assert contract["thread_id"] == str(thread_id)
+    assert contract["provider"] == "gmail"
+    assert contract["sender"] == {"name": "Client", "email": "client@example.com"}
+    assert contract["body_text"] == "Hi, when will my order ship?"
+    assert contract["body_text_clean"] == "Hi, when will my order ship?"
+    assert contract["flags"] == {"normalization_failed": False, "signature_stripped": False}
 
 
 def test_classification_defaults() -> None:

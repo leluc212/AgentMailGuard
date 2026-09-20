@@ -30,6 +30,15 @@ GENERATION_BUCKETS = (100.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 15000
 END_TO_END_BUCKETS = (500.0, 1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0, 20000.0)
 QUEUE_WAIT_BUCKETS = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 5000.0)
 CALLS_PER_JOB_BUCKETS = (1.0, 2.0, 3.0, 4.0, 5.0)
+PAYLOAD_SIZE_BUCKETS = (
+    1024.0,
+    10240.0,
+    51200.0,
+    256000.0,
+    1048576.0,
+    5242880.0,
+    26214400.0,
+)
 
 
 @dataclass
@@ -51,6 +60,8 @@ class PipelineMetrics:
     estimated_ai_cost_total: Counter
     llm_calls_total: Counter
     retrieval_underfilled_total: Counter
+    subscription_renewals_total: Counter
+    raw_payloads_archived_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -60,6 +71,7 @@ class PipelineMetrics:
     end_to_end_latency_ms: Histogram
     queue_wait_ms: Histogram
     llm_calls_per_job: Histogram
+    raw_payload_size_bytes: Histogram
 
     # --- Gauges (R21.4) ---
     queue_depth: Gauge
@@ -157,6 +169,18 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             ["tenant"],
             registry=reg,
         ),
+        subscription_renewals_total=Counter(
+            "subscription_renewals_total",
+            "Total subscription renewals attempted",
+            ["provider", "status"],
+            registry=reg,
+        ),
+        raw_payloads_archived_total=Counter(
+            "raw_payloads_archived_total",
+            "Total raw email payloads archived in object storage",
+            ["provider", "status"],
+            registry=reg,
+        ),
         # Histograms (latency and calls per job)
         classification_latency_ms=Histogram(
             "classification_latency_ms",
@@ -202,6 +226,13 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "llm_calls_per_job",
             "Distribution of LLM calls made for a single job execution",
             buckets=CALLS_PER_JOB_BUCKETS,
+            registry=reg,
+        ),
+        raw_payload_size_bytes=Histogram(
+            "raw_payload_size_bytes",
+            "Size of archived raw email payloads in bytes",
+            ["provider"],
+            buckets=PAYLOAD_SIZE_BUCKETS,
             registry=reg,
         ),
         # Gauges

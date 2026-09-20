@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from packages.adapters.webhooks import webhook_router
 from packages.core.settings import APISettings
 from packages.db.connection import create_pool_from_settings
 from packages.observability.context import bind_log_context, get_correlation_context
@@ -75,6 +76,7 @@ def create_app(
     async def app_lifespan(app_instance: FastAPI) -> AsyncIterator[dict[str, Any]]:
         if not lifespan_enabled:
             app_instance.state.db_pool = None
+            app_instance.state.publisher = None
             yield {}
             return
 
@@ -107,12 +109,25 @@ def create_app(
             logger.info("Database connection pool established successfully")
         except Exception as exc:
             logger.warning("Database pool initialization deferred or failed: %s", exc)
-            app_instance.state.db_pool = None
+        # 3. Initialize MessagePublisher for broker if configured
+        publisher = None
+        try:
+            from packages.broker.publisher import MessagePublisher
 
-        yield {"db_pool": db_pool}
+            publisher = MessagePublisher(broker_settings=active_settings.broker)
+            app_instance.state.publisher = publisher
+            logger.info("Message publisher attached to app state")
+        except Exception as exc:
+            logger.warning("Message publisher initialization deferred or failed: %s", exc)
+            app_instance.state.publisher = None
 
-        # 3. Shutdown cleanup
+        yield {"db_pool": db_pool, "publisher": publisher}
+
+        # 4. Shutdown cleanup
         logger.info("Shutting down API application lifespan")
+        if publisher is not None:
+            await publisher.close()
+            logger.info("Message publisher closed")
         if db_pool is not None:
             await db_pool.close()
             logger.info("Database connection pool closed")
@@ -145,6 +160,9 @@ def create_app(
 
     # Mount un-scoped health/readiness/metrics at root
     app.include_router(create_health_router(health_registry=reg))
+
+    # Mount provider webhook receiver router
+    app.include_router(webhook_router)
 
     # Mount scoped /v1 API router
     app.include_router(v1_router)

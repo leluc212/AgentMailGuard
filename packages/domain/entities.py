@@ -67,6 +67,50 @@ class NormalizedMessage:
     direction: str = "inbound"  # inbound | outbound
     attachments: list[AttachmentRef] = field(default_factory=list)
     normalization_failed: bool = False
+    signature_stripped: bool = False
+
+    @property
+    def flags(self) -> dict[str, bool]:
+        """Processing flags per design.md §5.2."""
+        return {
+            "normalization_failed": self.normalization_failed,
+            "signature_stripped": self.signature_stripped,
+        }
+
+    def to_contract_dict(self) -> dict[str, Any]:
+        """Serialize to canonical JSON contract defined in design.md §5.2."""
+        return {
+            "message_id": str(self.message_id),
+            "thread_id": str(self.thread_id),
+            "mailbox_id": str(self.mailbox_id),
+            "organization_id": str(self.organization_id),
+            "provider": self.provider,
+            "provider_message_id": self.provider_message_id,
+            "rfc822_message_id": self.rfc822_message_id,
+            "sender": {
+                "name": self.sender.name or "",
+                "email": self.sender.email,
+            },
+            "recipients": [{"name": r.name or "", "email": r.email} for r in self.recipients],
+            "cc": [{"name": c.name or "", "email": c.email} for c in self.cc],
+            "subject": self.subject,
+            "subject_normalized": self.subject_normalized,
+            "body_text": self.body_text,
+            "body_text_clean": self.body_text_clean,
+            "body_html_ref": self.html_object_key,
+            "received_at": self.received_at.isoformat(),
+            "direction": self.direction,
+            "attachments": [
+                {
+                    "filename": a.filename,
+                    "mime_type": a.mime_type,
+                    "size_bytes": a.size_bytes,
+                    "object_key": a.object_key,
+                }
+                for a in self.attachments
+            ],
+            "flags": self.flags,
+        }
 
 
 @dataclass
@@ -224,11 +268,12 @@ class Checkpoint:
     last_sync_at: datetime | None = None
     last_full_sync_at: datetime | None = None
     pending_followup: bool = False
+    organization_id: UUID | str | None = None
 
 
 @dataclass
 class Subscription:
-    """Webhook/push notification subscription with an email provider (R1.1, R2.2)."""
+    """Webhook/push notification subscription with an email provider (R1.1, R2.2, R2.10)."""
 
     mailbox_id: UUID | str
     subscription_id: str
@@ -236,6 +281,10 @@ class Subscription:
     provider: str
     resource: str | None = None
     client_state: str | None = None
+    organization_id: UUID | str | None = None
+    last_renewed_at: datetime | None = None
+    last_renewal_status: str | None = None
+    last_error: str | None = None
 
 
 @dataclass
@@ -309,3 +358,19 @@ class ThreadRef:
 
     provider_thread_id: str
     message_count: int = 0
+
+
+@dataclass
+class EmailThread:
+    """Canonical email thread entity representing an ongoing conversation (R4.6, design.md §6.1)."""
+
+    id: UUID
+    organization_id: UUID
+    mailbox_id: UUID
+    subject_normalized: str
+    provider_thread_id: str | None = None
+    participants: list[str] = field(default_factory=list)
+    first_message_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_message_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    message_count: int = 1
+    status: str = "open"

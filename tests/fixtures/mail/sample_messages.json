@@ -1,0 +1,29 @@
+[
+  {
+    "provider_message_id": "fixture-msg-001",
+    "provider_thread_id": "fixture-th-001",
+    "sender": "customer1@example.com",
+    "recipients": ["support@company.com"],
+    "subject": "Inquiry about delivery date",
+    "body_text": "Hello, could you let me know when order #1042 will be delivered?",
+    "received_at": "2026-09-10T10:00:00Z"
+  },
+  {
+    "provider_message_id": "fixture-msg-002",
+    "provider_thread_id": "fixture-th-001",
+    "sender": "support@company.com",
+    "recipients": ["customer1@example.com"],
+    "subject": "Re: Inquiry about delivery date",
+    "body_text": "Order #1042 is scheduled for dispatch tomorrow.",
+    "received_at": "2026-09-10T10:15:00Z"
+  },
+  {
+    "provider_message_id": "fixture-msg-003",
+    "provider_thread_id": "fixture-th-002",
+    "sender": "billing@vendor.com",
+    "recipients": ["accounts@company.com"],
+    "subject": "Monthly Invoice INV-8821",
+    "body_text": "Please find attached the invoice for September services.",
+    "received_at": "2026-09-10T11:00:00Z"
+  }
+]

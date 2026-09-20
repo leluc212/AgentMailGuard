@@ -1,0 +1,30 @@
+From: Alice <alice@example.com>
+To: Bob <bob@example.com>
+Subject: Re: Q3 Planning Meeting
+Date: Thu, 17 Sep 2026 09:30:00 +0000
+Message-ID: <msg_alt_01@example.com>
+Content-Type: multipart/alternative; boundary="alt_boundary_01"
+
+--alt_boundary_01
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi Bob,
+
+The meeting is confirmed for 2 PM.
+
+Best regards,
+Alice
+VP of Operations
+
+On Wed, Sep 16, 2026 at 4:00 PM Bob <bob@example.com> wrote:
+> Hi Alice, what time works for Q3 planning?
+--alt_boundary_01
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<p>Hi Bob,</p>
+<p>The meeting is confirmed for 2 PM.</p>
+<img src="https://tracker.example.com/pixel.gif" width="1" height="1" />
+<p>Best regards,<br/>Alice<br/>VP of Operations</p>
+--alt_boundary_01--

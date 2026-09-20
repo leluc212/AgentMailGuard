@@ -27,6 +27,8 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.estimated_ai_cost_total is not None
     assert m.llm_calls_total is not None
     assert m.retrieval_underfilled_total is not None
+    assert m.subscription_renewals_total is not None
+    assert m.raw_payloads_archived_total is not None
 
     # Histograms
     assert m.classification_latency_ms is not None
@@ -36,6 +38,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.end_to_end_latency_ms is not None
     assert m.queue_wait_ms is not None
     assert m.llm_calls_per_job is not None
+    assert m.raw_payload_size_bytes is not None
 
     # Gauges
     assert m.queue_depth is not None

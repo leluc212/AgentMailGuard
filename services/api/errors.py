@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -72,7 +73,7 @@ async def http_exception_handler(request: Request, exc: Exception) -> JSONRespon
     )
     return JSONResponse(
         status_code=status_code,
-        content=payload.model_dump(),
+        content=jsonable_encoder(payload.model_dump()),
         headers=headers,
     )
 
@@ -83,7 +84,8 @@ async def validation_exception_handler(
 ) -> JSONResponse:
     """Handle Pydantic request validation errors."""
     request_id = _get_request_id()
-    errors = exc.errors() if isinstance(exc, RequestValidationError) else str(exc)
+    raw_errors = exc.errors() if isinstance(exc, RequestValidationError) else str(exc)
+    errors = jsonable_encoder(raw_errors)
     payload = APIErrorResponse(
         error="Request validation failed",
         code="VALIDATION_ERROR",
@@ -92,7 +94,7 @@ async def validation_exception_handler(
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=payload.model_dump(),
+        content=jsonable_encoder(payload.model_dump()),
     )
 
 

@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.invalid/runtime-feature-falsifier/audit-plan.schema.json",
+  "title": "Runtime Feature Falsifier Audit Plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "audit_id",
+    "audit_mode",
+    "target",
+    "features"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "audit_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at_utc": {
+      "type": "string"
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "project",
+        "environment",
+        "scope",
+        "startup_path"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startup_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "feature_id",
+          "claim",
+          "claim_source",
+          "entry_points",
+          "expected_end_effects",
+          "input_sensitive",
+          "stateful",
+          "dependency_sensitive",
+          "probes"
+        ],
+        "properties": {
+          "feature_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1
+          },
+          "claim_source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "entry_points": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accepted_inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "documented_limits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_end_effects": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "documented_rejections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "input_sensitive": {
+            "type": "boolean"
+          },
+          "stateful": {
+            "type": "boolean"
+          },
+          "dependency_sensitive": {
+            "type": "boolean"
+          },
+          "probes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "probe_id",
+                "probe_intent",
+                "contract_relation",
+                "expected",
+                "required"
+              ],
+              "properties": {
+                "probe_id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+                },
+                "probe_intent": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "contract_relation": {
+                  "enum": [
+                    "VALID",
+                    "INVALID",
+                    "BOUNDARY",
+                    "CONTRACT_UNKNOWN",
+                    "ENVIRONMENT"
+                  ]
+                },
+                "input_family": {
+                  "type": "string"
+                },
+                "input_case": {
+                  "type": "string"
+                },
+                "entry_point": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "expected": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "effect_checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "audit_mode": {
+      "enum": [
+        "FEATURE",
+        "SYSTEM"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

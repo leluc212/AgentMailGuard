@@ -27,8 +27,9 @@ class JobEnvelope(BaseModel):
         description="Pipeline job type (sync_mailbox, normalize, triage, generate_reply, dispatch)"
     )
     organization_id: str = Field(description="Mandatory tenant isolation UUID (R23.6)")
-    message_id: str = Field(description="Target normalized message UUID")
-    thread_id: str = Field(description="Target conversation thread UUID")
+    message_id: str = Field(default="", description="Target normalized message UUID")
+    thread_id: str = Field(default="", description="Target conversation thread UUID")
+    mailbox_id: str | None = Field(default=None, description="Target mailbox UUID")
     trace_id: str = Field(
         default_factory=lambda: uuid.uuid4().hex,
         description="Distributed OpenTelemetry trace context identifier (R21.2)",
@@ -37,6 +38,10 @@ class JobEnvelope(BaseModel):
     classification: dict[str, Any] = Field(
         default_factory=dict,
         description="Classification snapshot so worker never re-classifies (R7.3)",
+    )
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arbitrary job payload/signal metadata",
     )
     enqueued_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
@@ -61,6 +66,8 @@ class JobEnvelope(BaseModel):
         msg_headers.setdefault("trace_id", self.trace_id)
         msg_headers.setdefault("organization_id", self.organization_id)
         msg_headers.setdefault("job_id", self.job_id)
+        if self.mailbox_id:
+            msg_headers.setdefault("mailbox_id", self.mailbox_id)
 
         # Inject OpenTelemetry W3C trace context (R21.1)
         try:

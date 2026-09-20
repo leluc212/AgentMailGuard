@@ -119,6 +119,7 @@ async def test_tenant_scoping_columns(db_pool: asyncpg.Pool[Any]) -> None:
         "order",
         "order_item",
         "ticket",
+        "mailbox_subscription",
     ]
     async with db_pool.acquire() as conn:
         for t in tenant_tables:
@@ -252,10 +253,13 @@ async def test_vector_dimension_verification(db_pool: asyncpg.Pool[Any]) -> None
 async def test_migration_reversibility() -> None:
     """Verify migration rollback drops tables and reapplying restores them (R5.5)."""
     settings = AppSettings().database
+    from packages.db.migrator import discover_migrations
 
-    # Roll back
-    rolled_back = await rollback_migrations(dsn=settings.asyncpg_dsn, steps=1)
+    # Roll back all migrations
+    num_migrations = len(discover_migrations())
+    rolled_back = await rollback_migrations(dsn=settings.asyncpg_dsn, steps=num_migrations)
     assert "0001" in rolled_back
+    assert "0002" in rolled_back
 
     # Verify tables dropped
     conn = await asyncpg.connect(settings.asyncpg_dsn)
@@ -275,3 +279,4 @@ async def test_migration_reversibility() -> None:
     # Re-apply
     applied = await apply_migrations(dsn=settings.asyncpg_dsn)
     assert "0001" in applied
+    assert "0002" in applied

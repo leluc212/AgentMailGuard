@@ -5,6 +5,7 @@ Requirements:
 - R1.3: Adapter registry keyed by mailbox.provider.
 """
 
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +20,7 @@ from packages.adapters.registry import (
     is_provider_registered,
     list_registered_providers,
     register_adapter,
+    register_default_adapters,
 )
 from packages.domain.entities import (
     Checkpoint,
@@ -72,10 +74,11 @@ class ConformingDummyAdapter:
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry() -> None:
+def _reset_registry() -> Iterator[None]:
     clear_registry()
     yield
     clear_registry()
+    register_default_adapters()
 
 
 def test_protocol_runtime_checkable() -> None:

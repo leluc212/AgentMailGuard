@@ -6,7 +6,7 @@ tenant context to async correlation logging (R21.3).
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import asyncpg
@@ -88,3 +88,65 @@ async def get_db_connection(request: Request) -> AsyncIterator[asyncpg.Connectio
             yield conn
     else:
         yield None
+
+
+def get_mailbox_store(request: Request) -> Any:
+    """Retrieve MailboxStore from app.state or create from db_pool."""
+    store = getattr(request.app.state, "mailbox_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.mailbox import PostgresMailboxStore
+
+        return PostgresMailboxStore(db_pool)
+    from packages.db.mailbox import InMemoryMailboxStore
+
+    return InMemoryMailboxStore()
+
+
+def get_thread_store(request: Request) -> Any:
+    """Retrieve ThreadStore from app.state or create from db_pool."""
+    store = getattr(request.app.state, "thread_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.thread import PostgresThreadStore
+
+        return PostgresThreadStore(db_pool)
+    from packages.db.thread import InMemoryThreadStore
+
+    return InMemoryThreadStore()
+
+
+def get_message_store(request: Request) -> Any:
+    """Retrieve MessageStore from app.state or create from db_pool."""
+    store = getattr(request.app.state, "message_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.message import PostgresMessageStore
+
+        return PostgresMessageStore(db_pool)
+    from packages.db.message import InMemoryMessageStore
+
+    return InMemoryMessageStore()
+
+
+def get_storage_client(request: Request) -> Any:
+    """Retrieve object storage client from app.state if available."""
+    return getattr(request.app.state, "storage_client", None)
+
+
+def get_job_publisher(request: Request) -> Any:
+    """Retrieve message publisher from FastAPI app.state if available."""
+    return getattr(request.app.state, "publisher", None)
+
+
+MailboxStoreDep = Annotated[Any, Depends(get_mailbox_store)]
+ThreadStoreDep = Annotated[Any, Depends(get_thread_store)]
+MessageStoreDep = Annotated[Any, Depends(get_message_store)]
+StorageClientDep = Annotated[Any, Depends(get_storage_client)]
+PublisherDep = Annotated[Any, Depends(get_job_publisher)]

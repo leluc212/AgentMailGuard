@@ -196,3 +196,20 @@ price_table = {
 | `API__TITLE` | `string` | `Enterprise RAG Email API` | Non-empty | OpenAPI title in generated documentation |
 | `API__VERSION` | `string` | `0.1.0` | Semver | OpenAPI version string in documentation |
 
+### 2.14 Subscription Renewal Job (`SUBSCRIPTION_RENEWAL__*`)
+*Scheduled renewal parameters for mail provider push notifications (R2.10).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `SUBSCRIPTION_RENEWAL__RENEWAL_THRESHOLD_HOURS` | `integer` | `24` | $\ge 1$ | Subscriptions expiring within this window will be renewed |
+| `SUBSCRIPTION_RENEWAL__CHECK_INTERVAL_SECONDS` | `integer` | `3600` | $\ge 10$ | Interval between renewal check runs in seconds |
+| `SUBSCRIPTION_RENEWAL__BATCH_SIZE` | `integer` | `100` | $\ge 1$ | Maximum number of subscriptions evaluated per renewal batch |
+
+### 2.15 Thread Association (`THREAD_ASSOCIATION__*`)
+*Message-to-thread association window parameters (R4.6, design.md §5.2).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `THREAD_ASSOCIATION__WINDOW_DAYS` | `integer` | `14` | 1–365 | Time window in days for matching threads by normalized subject and overlapping participants |
+
+

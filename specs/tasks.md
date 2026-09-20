@@ -132,67 +132,67 @@
   - Shared contract test suite every adapter must pass.
   - _Requirements: R1.1, R1.3, R1.4, R1.5_
 
-- [ ] **1.2 FakeProviderAdapter**
+- [x] **1.2 FakeProviderAdapter**
   - Fixture-driven, offline, deterministic; supports sync windows, expired checkpoints, rate limiting, and failure injection.
   - This is the adapter CI and the load harness use — build it before the real ones.
   - _Requirements: R1.7, R24.5_
 
-- [ ] **1.3 Gmail adapter**
+- [x] **1.3 Gmail adapter**
   - Pub/Sub push notification handling; `history.list()` incremental sync from stored `historyId`; message/thread fetch; expired-history detection.
   - Honour retry-after on rate limiting.
   - _Requirements: R1.2, R1.6, R2.5_
 
-- [ ] **1.4 Microsoft Graph adapter**
+- [x] **1.4 Microsoft Graph adapter**
   - Change-notification subscription handling; delta query following `@odata.nextLink` to the terminal `@odata.deltaLink`; invalid-delta-token detection.
   - _Requirements: R1.2, R2.6_
 
-- [ ] **1.5 Webhook receivers**
+- [x] **1.5 Webhook receivers**
   - Endpoints for Gmail and Graph, completing each provider's validation handshake.
   - Acknowledge within 5 s; enqueue a sync job; perform **no** provider fetch inside the request.
   - Treat payload as a signal only — never as authoritative state.
   - _Requirements: R2.1, R2.2, R2.3_
 
-- [ ] **1.6 Checkpoint store & sync orchestration**
+- [x] **1.6 Checkpoint store & sync orchestration**
   - `mailbox_checkpoint` read/write; the sync loop from `design.md §5.1`.
   - Checkpoint advanced **only after** fetched messages are durably persisted and published.
   - Bounded full re-sync when the checkpoint is rejected, recording `sync_state='full_resync'`.
   - In-flight coalescing: further notifications for a syncing mailbox collapse to one pending follow-up.
   - _Requirements: R2.4, R2.7, R2.8, R2.9_
 
-- [ ] **1.7 Subscription renewal job**
+- [x] **1.7 Subscription renewal job**
   - Scheduled renewal before expiry for both providers; outcomes recorded; `AuthExpired` marks the mailbox `needs_reauth` and stops syncing rather than spinning.
   - _Requirements: R2.10, R1.5_
 
-- [ ] **1.8 Manual re-sync endpoint**
+- [x] **1.8 Manual re-sync endpoint**
   - `POST /v1/mailboxes/{id}/resync` with an optional time window.
   - _Requirements: R2.11, R23.2_
 
-- [ ] **1.9 Raw payload archival**
+- [x] **1.9 Raw payload archival**
   - Store raw provider payload / raw MIME in object storage before normalization, keyed for replay.
   - _Requirements: R4.10, R5.8_
 
-- [ ] **1.10 MIME normalization**
+- [x] **1.10 MIME normalization**
   - Parse MIME → part selection → HTML-to-text → produce the normalized contract from `design.md §5.2`.
   - Quoted-history separation into `body_text` and `body_text_clean`; signature detection with a recorded success flag.
   - Attachment metadata extraction; binaries to object storage only.
   - Unit tests over a corpus of awkward real-world MIME (multipart/alternative, inline images, nested forwards, non-UTF8 charsets, missing text part).
   - _Requirements: R4.1, R4.2, R4.3, R4.4, R4.7, R24.3_
 
-- [ ] **1.11 Subject normalization & thread association**
+- [x] **1.11 Subject normalization & thread association**
   - Strip reply/forward prefixes; association order: provider thread id → `In-Reply-To`/`References` → normalized subject + participants → new thread.
   - Maintain `email_thread` counters and timestamps.
   - _Requirements: R4.5, R4.6_
 
-- [ ] **1.12 Deduplication & persistence**
+- [x] **1.12 Deduplication & persistence**
   - `ON CONFLICT DO NOTHING` insert; zero rows ⇒ ack as success, emit no new job.
   - Populate `email_message.search_tsv` at write time.
   - _Requirements: R4.8, R5.4, R5.6_
 
-- [ ] **1.13 Normalization failure handling**
+- [x] **1.13 Normalization failure handling**
   - Parse failure ⇒ persist with `normalization_failed`, retain raw key, dead-letter the job. Never discard a message.
   - _Requirements: R4.9, R3.5_
 
-- [ ] **1.14 Read API for mail data**
+- [x] **1.14 Read API for mail data**
   - `GET /v1/mailboxes`, `/v1/threads`, `/v1/threads/{id}`, `/v1/messages/{id}`, all paginated and organization-scoped.
   - _Requirements: R23.2, R23.6_
 

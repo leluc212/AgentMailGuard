@@ -241,6 +241,17 @@ class SummarizationSettings(BaseModel):
     )
 
 
+class ThreadAssociationSettings(BaseModel):
+    """Configuration for message-to-thread association rules (R4.6, design.md §5.2)."""
+
+    window_days: int = Field(
+        default=14,
+        ge=1,
+        le=365,
+        description="Time window in days for matching threads by subject and participants",
+    )
+
+
 class RetryLadderSettings(BaseModel):
     """Exponential message queue retry intervals (R3.4)."""
 
@@ -310,6 +321,26 @@ class ObservabilitySettings(BaseModel):
     )
 
 
+class SubscriptionRenewalSettings(BaseModel):
+    """Settings for scheduled provider subscription renewal (R2.10)."""
+
+    renewal_threshold_hours: int = Field(
+        default=24,
+        ge=1,
+        description="Renew subscriptions expiring within this number of hours",
+    )
+    check_interval_seconds: int = Field(
+        default=3600,
+        ge=10,
+        description="Interval between renewal check cycles in seconds",
+    )
+    batch_size: int = Field(
+        default=100,
+        ge=1,
+        description="Maximum subscriptions evaluated per renewal batch",
+    )
+
+
 class AppSettings(BaseSettings):
     """Top-level master settings container supporting environment variable loading."""
 
@@ -335,9 +366,13 @@ class AppSettings(BaseSettings):
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     triage: TriageSettings = Field(default_factory=TriageSettings)
     summarization: SummarizationSettings = Field(default_factory=SummarizationSettings)
+    thread_association: ThreadAssociationSettings = Field(default_factory=ThreadAssociationSettings)
     retry: RetryLadderSettings = Field(default_factory=RetryLadderSettings)
     concurrency: WorkerConcurrencySettings = Field(default_factory=WorkerConcurrencySettings)
     telemetry: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    subscription_renewal: SubscriptionRenewalSettings = Field(
+        default_factory=SubscriptionRenewalSettings
+    )
 
 
 def assert_embedding_dimension(configured_dim: int, db_column_dim: int) -> None:

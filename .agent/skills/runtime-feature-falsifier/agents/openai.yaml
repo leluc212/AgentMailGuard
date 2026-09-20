@@ -1,0 +1,4 @@
+interface:
+  display_name: "Runtime Feature Falsifier"
+  short_description: "Falsify fake or superficial runtime features"
+  default_prompt: "Use $runtime-feature-falsifier to falsify claimed runtime behavior. If I ask for all/every/whole-project coverage, use SYSTEM mode: inventory the discovered feature universe, plan exhaustive coverage, execute every in-scope feature/workflow, and persist on ambiguous/intermittent failures with bounded hypotheses and information-gaining retries, and report concrete counterexamples without repairing implementation."

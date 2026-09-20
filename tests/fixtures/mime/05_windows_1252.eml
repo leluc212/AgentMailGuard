@@ -1,0 +1,13 @@
+From: sales@shop.com
+To: customer@example.com
+Subject: Order Confirmation
+Date: Thu, 17 Sep 2026 11:20:00 +0000
+Message-ID: <msg_win1252_05@shop.com>
+Content-Type: text/plain; charset="windows-1252"
+Content-Transfer-Encoding: 8bit
+
+Thank you for your order—total amount is €150.00.
+We will ship “Express” today.
+
+Best regards,
+Customer Care

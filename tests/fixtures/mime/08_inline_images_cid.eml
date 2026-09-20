@@ -1,0 +1,23 @@
+From: Design Team <design@agency.com>
+To: Client <client@example.com>
+Subject: New Brand Logo
+Date: Thu, 17 Sep 2026 13:00:00 +0000
+Message-ID: <msg_inline_08@agency.com>
+Content-Type: multipart/related; boundary="related_boundary_08"
+
+--related_boundary_08
+Content-Type: text/html; charset="utf-8"
+
+<p>Hello, please see the logo preview below:</p>
+<img src="cid:brand_logo_cid" alt="Acme Brand Logo" />
+<p>Thanks,</p>
+
+--related_boundary_08
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-ID: <brand_logo_cid>
+Content-Disposition: inline; filename="logo.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9
+awAAAABJRU5ErkJggg==
+--related_boundary_08--

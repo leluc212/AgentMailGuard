@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.invalid/runtime-feature-falsifier/hypothesis-event.schema.json",
+  "title": "Runtime Feature Falsifier Hypothesis Ledger Event",
+  "type": "object",
+  "required": ["schema_version", "event_type", "hypothesis_id", "timestamp_utc", "sequence", "prev_event_sha256", "event_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "event_type": {"enum": ["HYPOTHESIS_OPENED", "HYPOTHESIS_UPDATED"]},
+    "hypothesis_id": {"type": "string", "pattern": "^hyp-[a-zA-Z0-9._-]+$"},
+    "timestamp_utc": {"type": "string"},
+    "feature_id": {"type": "string"},
+    "statement": {"type": "string"},
+    "trigger_attempt_id": {"type": ["string", "null"]},
+    "next_probe": {"type": "string"},
+    "max_attempts": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["OPEN", "SUPPORTED", "REFUTED", "CONFIRMED", "BLOCKED", "BUDGET_EXHAUSTED"]},
+    "evidence_for": {"type": "array", "items": {"type": "string"}},
+    "evidence_against": {"type": "array", "items": {"type": "string"}},
+    "changed_variable": {"type": "string"},
+    "notes": {"type": "string"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "prev_event_sha256": {"type": "string"},
+    "event_sha256": {"type": "string"}
+  },
+  "additionalProperties": true
+}

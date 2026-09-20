@@ -13,12 +13,18 @@ from pydantic import BaseModel, Field
 from packages.core.pagination import PaginatedResponse, paginate
 from services.api.dependencies import get_organization_id
 from services.api.pagination import PaginationParamsDep
+from services.api.routers.mailboxes import mailbox_router
+from services.api.routers.messages import message_router
+from services.api.routers.threads import thread_router
 
 v1_router = APIRouter(
     prefix="/v1",
     tags=["v1"],
     dependencies=[Depends(get_organization_id)],
 )
+v1_router.include_router(mailbox_router)
+v1_router.include_router(thread_router)
+v1_router.include_router(message_router)
 
 
 class PingResponse(BaseModel):
