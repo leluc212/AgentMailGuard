@@ -35,8 +35,11 @@ Do not try to prove a feature is "real" or "alive." A finite set of successful p
 9. **Persist on uncertainty, not on making the product pass.** A suspicious, failed, or intermittent result starts a bounded hypothesis-driven investigation; do not repair target code.
 10. **Do not repeat blindly.** Re-running an already-attempted probe must change an information-bearing variable or state an explicit reproduction/nondeterminism reason.
 11. **Do not finalise until the deterministic audit gate passes.** Findings may be `FALSIFIED`; incompleteness or unresolved hypotheses may not be hidden.
-12. **Startup and dependency-sensitive paths must be reproducible.** Record the real startup path, complete a required `environment_start` probe, and provide `repro_command` metadata for startup/dependency-sensitive attempts.
-13. **Parallel workers never write audit JSONL directly.** They may execute pre-registered probes concurrently, but only `auditctl.py` may serialize canonical attempt/hypothesis events. Canonical JSONL readers take the same cross-platform lock as writers, so summary/report/gate cannot observe a partial append.
+12. **Runtime preflight is three-stage and reproducible.** Record the real startup path and expected runtime identity; complete required `environment_start`, `runtime_identity`, and `environment_collision` probes. Preflight and dependency-sensitive attempts require `repro_command` metadata. A healthy container/port is not proof that the intended application is what is serving it.
+13. **Audit-environment interference is not a product counterexample.** Before ordinary feature probes, check for shared mutable queues/topics, DB schemas/databases, object-store buckets/prefixes, Redis namespaces, ports/processes, tenants/accounts, filesystem paths, or test fixtures that can race with the live target. If isolation cannot be established, record `BLOCKED`/`INCONCLUSIVE`; do not mislabel contamination as a product defect.
+14. **Parallel workers never write audit JSONL directly.** They may execute pre-registered probes concurrently, but only `auditctl.py` may serialize canonical attempt/hypothesis events. Canonical JSONL readers take the same cross-platform lock as writers, so summary/report/gate cannot observe a partial append.
+15. **Reporting language preserves epistemic scope.** `NOT_FALSIFIED` is the verdict. Do not rename it to “verified”, “proven”, “alive”, “fully working”, “verified reality”, or equivalent in reports, retrospectives, summaries, or chat conclusions.
+16. **One sealed audit run is immutable history.** After remediation, start a new audit workspace and, on harnesses with dedicated subagents such as Antigravity, spawn a fresh auditor instance. Do not append a post-fix run to a sealed pre-fix ledger.
 
 The target application may naturally create runtime state while being exercised. That is allowed when it is part of the feature under audit. Do not mutate source/config merely to make the audit possible.
 
@@ -119,9 +122,11 @@ When running under Google Antigravity 2.0, read [references/GOOGLE-ANTIGRAVITY.m
   4. implementation-facing docs/config,
   5. existing tests only as last-resort claim discovery.
 - [ ] Record real entry point(s), preconditions, accepted inputs/limits, expected outputs, expected end effects, rejection behavior, and dependencies.
+- [ ] Record `target.runtime_identity_expectation`: what process/server/build/container command should actually be serving the product.
+- [ ] Identify collision surfaces that could make the audit race with tests or other live consumers.
 - [ ] Mark uncertain obligations `CONTRACT_UNKNOWN`; do not invent support requirements.
 
-Read [references/FALSIFICATION-METHOD.md](references/FALSIFICATION-METHOD.md) before planning a non-trivial feature.
+Read [references/FALSIFICATION-METHOD.md](references/FALSIFICATION-METHOD.md) before planning a non-trivial feature and [references/AUDIT-ENVIRONMENT.md](references/AUDIT-ENVIRONMENT.md) for runtime identity/isolation preflight.
 
 ### Phase 2 — Create and validate the falsification plan
 
@@ -147,7 +152,7 @@ For every feature declare these shape flags because the gate uses them to requir
 - `stateful`: behavior claims a state transition, persistence, creation, update, deletion, delivery, or downstream result,
 - `dependency_sensitive`: behavior depends on a real external/internal provider whose authenticity matters.
 
-The plan must also set `target.startup_path` to the real supported startup procedure and contain one required `environment_start` probe with `contract_relation=ENVIRONMENT`. This probe establishes startup health before feature conclusions.
+The plan must set both `target.startup_path` and `target.runtime_identity_expectation`, and contain three required `ENVIRONMENT` probes: `environment_start`, `runtime_identity`, and `environment_collision`. `runtime_identity` must establish what executable/server/container entrypoint is actually serving the target; `environment_collision` must examine applicable shared mutable resources before ordinary feature probes.
 
 Then validate:
 
@@ -161,7 +166,13 @@ Do not execute feature probes until this passes.
 
 Use the documented local/development/authorized staging startup path. Do not substitute mocks.
 
-Record startup itself as the required `environment_start` probe. Its attempt must include `--repro-command`. Features marked `dependency_sensitive: true` also require reproduction metadata on every attempt.
+Preflight sequence:
+
+1. `environment_start` — start/reach the target runtime and record the reproducible startup command/path. It must `SURVIVED` before later preflight.
+2. `runtime_identity` — verify the running process/container/server matches `target.runtime_identity_expectation` using runtime evidence such as process command line, container entrypoint/CMD, server signature, build/version endpoint, OpenAPI identity, executable path, or equivalent. A health endpoint alone is insufficient. Identity mismatch may be `FALSIFIED` (for example `PLACEHOLDER`) and should be preserved; later probes characterize the deployed runtime, not the intended source tree.
+3. `environment_collision` — inspect applicable shared queues/topics, DB schemas/databases, buckets/prefixes, caches/namespaces, ports/processes, tenants/accounts, filesystem paths, and test fixtures. This probe must `SURVIVED` before ordinary feature probes; otherwise results may be contaminated.
+
+All three preflight attempts require `--repro-command`. Features marked `dependency_sensitive: true` also require reproduction metadata on every attempt.
 
 If credentials/dependencies are unavailable, record affected attempts `BLOCKED`. Do not silently downgrade to a fake provider.
 
@@ -307,6 +318,10 @@ python3 scripts/auditctl.py gate \
 
 **Only finish when this command exits 0.** A completed audit can contain many `FALSIFIED` findings. The gate checks integrity and completeness, not feature health. It also rejects reports generated before the latest attempt, hypothesis update, plan change, or SYSTEM inventory change; regenerate the report whenever canonical audit state changes.
 
+If you write a separate retrospective or human-facing summary, run `auditctl terminology-check --input <file>` before publishing it. This catches common verdict inflation such as `Run 2 (Verified)` or `Verified Reality` when the machine verdict is only `NOT_FALSIFIED`.
+
+After a sealed audit is followed by remediation, **do not reuse the sealed workspace**. Use a new directory such as `.runtime-feature-audit-run2`; in Antigravity/other subagent harnesses, spawn a fresh auditor instance rather than messaging an idle/completed auditor.
+
 ## Verdict semantics
 
 These definitions are normative. References may illustrate them but must not redefine them. Use runtime verdict and implementation pattern independently.
@@ -314,7 +329,7 @@ These definitions are normative. References may illustrate them but must not red
 Runtime verdict:
 
 - `FALSIFIED` — reproducible counterexample to a claimed obligation.
-- `NOT_FALSIFIED` — all required planned probes completed without a counterexample; never call this "verified", "alive", or "proven".
+- `NOT_FALSIFIED` — all required planned probes completed without a counterexample; never rewrite this as “verified”, “proven”, “alive”, “fully working”, “confirmed working”, “verified reality”, or an equivalent success verdict.
 - `BLOCKED` — required real environment/dependency/access unavailable.
 - `INCONCLUSIVE` — evidence or contract is too ambiguous.
 
@@ -334,6 +349,9 @@ Per-attempt `SURVIVED` means only that one probe did not falsify its proposition
 - Do not retry an already-attempted probe unchanged unless reproduction of nondeterminism is the stated experiment.
 - Do not leave a serious failure hypothesis `OPEN`/`SUPPORTED` just because later work is inconvenient.
 - Do not repair the implementation and then report the repaired state as the audited baseline.
+- A healthy container, open port, or `/healthz` response does not establish runtime identity; verify what executable/application is actually serving it.
+- Shared RabbitMQ/Kafka queues, DB schemas, buckets, Redis namespaces, or tenants can make a live worker race with a test/audit consumer; isolate or block the audit before interpreting results.
+- After remediation, start a fresh audit run and auditor instance; do not merge pre-fix and post-fix evidence into one sealed ledger.
 
 ## Upload-image minimum pattern
 
@@ -358,7 +376,7 @@ Before returning a final audit result, all of the following must be true:
 - the plan validates,
 - in `SYSTEM` mode, the feature inventory validates and every discovered `IN_SCOPE` item maps to the plan,
 - in `SYSTEM` mode, meaningful cross-feature workflows are inventoried/planned when applicable,
-- the required startup-health probe has a terminal attempt and startup/dependency-sensitive attempts carry reproduction metadata,
+- the three preflight probes are complete: startup health `SURVIVED`, runtime identity was observed against the declared expectation, and environment collision/isolation `SURVIVED`; preflight/dependency-sensitive attempts carry reproduction metadata,
 - every required probe has a terminal attempt,
 - no attempt remains open,
 - bundled Draft 7 JSON schemas are enforced by the vendored standards-compliant `fastjsonschema` engine, and RFF semantic validators accept the canonical plan/inventory/events,

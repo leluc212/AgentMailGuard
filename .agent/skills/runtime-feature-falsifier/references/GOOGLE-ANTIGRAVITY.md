@@ -66,3 +66,9 @@ Do not manually edit/delete canonical audit lifecycle/log files to escape the ga
 ## Shared 2.0 / CLI behavior
 
 Antigravity 2.0 and Antigravity CLI share the same agent harness and workspace customization layout, so RFF installs the skill and auditor once even when both integrations are selected. Product-specific verification and TUI commands are documented in [ANTIGRAVITY-CLI.md](ANTIGRAVITY-CLI.md).
+
+## Field-tested multi-run rule
+
+A completed/idle Antigravity subagent should be treated as finished for that sealed audit run. For a remediation + re-audit cycle, terminate/leave the old auditor intact and invoke a **fresh `runtime-feature-auditor`** with a new audit workspace. Do not rely on messaging an idle subagent to restart itself, and do not append post-fix evidence to the pre-fix hash chain.
+
+The dedicated auditor manifest intentionally uses only currently documented Antigravity tools. Permission approval is handled by Antigravity's permission system/UI; `list_permissions` and `ask_permission` are not custom-agent tools and must not appear in the manifest.

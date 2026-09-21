@@ -117,6 +117,7 @@ class EmailNormalizer:
                 attachments=attachment_refs,
                 normalization_failed=False,
                 signature_stripped=sig_stripped,
+                headers=headers.headers,
             )
 
             return NormalizationResult(

@@ -27,7 +27,8 @@
         "project",
         "environment",
         "scope",
-        "startup_path"
+        "startup_path",
+        "runtime_identity_expectation"
       ],
       "properties": {
         "project": {
@@ -45,6 +46,18 @@
         "startup_path": {
           "type": "string",
           "minLength": 1
+        },
+        "runtime_identity_expectation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collision_surfaces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         }
       },
       "additionalProperties": true

@@ -36,7 +36,7 @@ Assign only when:
 - required end effects were observed,
 - no in-contract counterexample was found.
 
-Always report the number and classes of probes. Never translate this status to "verified" or "alive".
+Always report the number and classes of probes. Never translate this status to "verified", "proven", "alive", "fully working", "confirmed working", "verified reality", or an equivalent success verdict.
 
 ### BLOCKED
 
@@ -104,6 +104,10 @@ Use when some advertised obligations are genuinely implemented but at least one 
 ### REAL_BUT_BROKEN
 
 Use when the implementation clearly attempts the actual end-to-end behavior through real dependencies/state, but a defect prevents correct operation. Do not use this label merely to be charitable; require evidence distinguishing it from a stub/fake.
+
+### AUDIT_ENVIRONMENT_INTERFERENCE
+
+Use only for audit/test contamination rather than a product implementation defect. Examples include a live worker consuming the same RabbitMQ queue as an integration test, another process sharing the same database schema, or tests and the live target writing the same bucket/prefix. Pair this pattern with `BLOCKED` or `INCONCLUSIVE` while isolation is unresolved; do not present it as a product `FALSIFIED` finding unless a separate in-contract runtime counterexample exists.
 
 ## Confidence
 

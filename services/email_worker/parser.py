@@ -44,6 +44,7 @@ class ParsedHeaders:
     subject: str = ""
     subject_normalized: str = ""
     received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 def normalize_subject(subject: str) -> str:
@@ -178,6 +179,13 @@ def extract_email_headers(message: Message) -> ParsedHeaders:
         for k, v in message.raw_items():
             raw_headers.setdefault(k.lower(), str(v))
 
+    # Collect decoded headers with lowercase keys for case-insensitive lookup
+    all_headers: dict[str, str] = {}
+    for k, v in message.items():
+        if k:
+            decoded_v = decode_header_value(v, fallback_charset=fallback_charset)
+            all_headers.setdefault(k.lower(), decoded_v)
+
     # Message-ID
     raw_msg_id = raw_headers.get("message-id", message.get("Message-ID"))
     rfc822_message_id = _clean_message_id(raw_msg_id)
@@ -242,6 +250,7 @@ def extract_email_headers(message: Message) -> ParsedHeaders:
         subject=subject,
         subject_normalized=subject_normalized,
         received_at=received_at,
+        headers=all_headers,
     )
 
 

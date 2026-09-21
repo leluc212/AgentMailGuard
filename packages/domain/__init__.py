@@ -24,6 +24,12 @@ from packages.domain.entities import (
     SyncResult,
     ThreadRef,
 )
+from packages.domain.rules import (
+    EmailContext,
+    Rule,
+    RuleAction,
+    RuleEngine,
+)
 from packages.domain.state_machine import (
     TRANSITIONS,
     IllegalStateTransitionError,
@@ -41,6 +47,7 @@ __all__ = [
     "ContextPackage",
     "DraftRef",
     "EmailAddress",
+    "EmailContext",
     "EmailThread",
     "IllegalStateTransitionError",
     "Job",
@@ -51,6 +58,9 @@ __all__ = [
     "ProcessingEvent",
     "RawMessage",
     "RawThread",
+    "Rule",
+    "RuleAction",
+    "RuleEngine",
     "SentRef",
     "Subscription",
     "SyncResult",

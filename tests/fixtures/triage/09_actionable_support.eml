@@ -1,0 +1,20 @@
+From: "Samantha Reed" <samantha.reed@customerorg.com>
+To: "Customer Support" <support@enterprise.com>
+Subject: Question about configuring SAML SSO in staging environment
+Date: Mon, 21 Sep 2026 15:30:00 +0000
+Message-ID: <sso-help-5512@customerorg.com>
+Content-Type: text/plain; charset="utf-8"
+
+Hello Support Team,
+
+We are currently testing the Okta SAML 2.0 integration in our staging tenant.
+When our users attempt to sign in via the SSO portal, they are receiving an 'Invalid assertion consumer service URL' response.
+
+Could you verify whether our ACS endpoint is whitelisted for tenant customer-org-staging?
+
+Attached is our metadata XML for reference.
+
+Thank you,
+Samantha Reed
+Lead Security Engineer
+CustomerOrg

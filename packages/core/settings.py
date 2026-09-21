@@ -215,6 +215,10 @@ class TriageSettings(BaseModel):
     safe_default_priority: str = Field(
         default="normal", description="Fallback priority if all stages fail"
     )
+    rules_path: str = Field(
+        default="config/triage_rules.yaml",
+        description="Path to declarative triage rules YAML (R6.8)",
+    )
 
     @model_validator(mode="after")
     def validate_threshold_order(self) -> "TriageSettings":

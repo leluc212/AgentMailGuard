@@ -1,0 +1,177 @@
+# Declarative Stage 1 Triage Rules (specs/design.md §5.3, R6.1, R6.8)
+#
+# Rules are evaluated in top-to-bottom order. The first matching rule emits
+# a Classification entity and stops evaluation. If no rule matches, the message
+# falls through to Stage 2 (Lightweight ML Classifier).
+
+rules:
+  # 1. RFC 3834 Auto-Submitted header (automated replies, bounces, vacation responders)
+  - id: auto-submitted
+    description: "Detect automated systems using RFC 3834 Auto-Submitted header"
+    when:
+      header.auto-submitted:
+        exists: true
+    then:
+      category: automated_notification
+      intent: auto_submitted
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.99
+
+  # 2. RFC 2369 List-Unsubscribe header (marketing, newsletters, bulk updates)
+  - id: list-unsubscribe
+    description: "Detect bulk newsletters and mailings with List-Unsubscribe header"
+    when:
+      header.list-unsubscribe:
+        exists: true
+    then:
+      category: automated_notification
+      intent: newsletter
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.98
+
+  # 3. Precedence / X-Precedence bulk headers
+  - id: precedence-bulk
+    description: "Detect bulk mailing via RFC Precedence headers"
+    when:
+      any:
+        - header.precedence:
+            matches: "^(bulk|list|junk)$"
+        - header.x-precedence:
+            matches: "^(bulk|list|junk)$"
+    then:
+      category: automated_notification
+      intent: bulk_notification
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.98
+
+  # 4. Delivery Status Notifications / Bounces (prioritized over generic sender matches)
+  - id: delivery-status-notification
+    description: "Detect delivery failure notifications and bounced messages"
+    when:
+      any:
+        - subject:
+            matches: "^(delivery status notification|undeliverable|failure notice|returned mail)"
+        - header.content-type:
+            matches: "report-type=delivery-status"
+    then:
+      category: automated_notification
+      intent: bounce
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.99
+
+  # 5. Out of office / auto-reply subjects or X-Auto-Response-Suppress header
+  - id: out-of-office
+    description: "Detect out-of-office and vacation auto-responses"
+    when:
+      any:
+        - subject:
+            matches: "^(out of office|automatic reply|autoreply|auto-reply|vacation response|away from office)"
+        - header.x-auto-response-suppress:
+            exists: true
+    then:
+      category: automated_notification
+      intent: out_of_office
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.99
+
+  # 6. Standard no-reply / notification robot senders
+  - id: no-reply-sender
+    description: "Identify non-actionable transactional sender addresses"
+    when:
+      sender.email:
+        matches: "^(no-?reply|donotreply|notifications?|mailer-daemon|postmaster|daemon)@"
+    then:
+      category: automated_notification
+      intent: system_notification
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.97
+
+  # 7. Explicit Invoice Reference (INV-YYYY-NNNNN pattern)
+  - id: invoice-reference
+    description: "Identify billing inquiry bearing explicit invoice number format INV-YYYY-NNNNN"
+    when:
+      any:
+        - body.matches: "\\bINV-\\d{4}-\\d{5}\\b"
+        - subject:
+            matches: "\\bINV-\\d{4}-\\d{5}\\b"
+    then:
+      category: billing
+      intent: invoice_inquiry
+      priority: normal
+      reply_required: true
+      workflow_hint: ai
+      retrieval_required: true
+      confidence: 0.96
+
+  # 8. Urgent Billing / Past Due notices
+  - id: urgent-billing
+    description: "Identify urgent billing, collection, or overdue payment notices"
+    when:
+      all:
+        - any:
+            - body.matches: "\\b(past due|overdue|payment failure|chargeback|collections?)\\b"
+            - subject:
+                matches: "\\b(past due|overdue|payment failure|chargeback|collections?)\\b"
+        - any:
+            - body.matches: "\\b(invoice|account|bill|payment|balance)\\b"
+            - subject:
+                matches: "\\b(invoice|account|bill|payment|balance)\\b"
+    then:
+      category: billing
+      intent: overdue_payment
+      priority: urgent
+      reply_required: true
+      workflow_hint: ai
+      retrieval_required: true
+      confidence: 0.95
+
+  # 9. Calendar Invitations / Responses
+  - id: calendar-invite
+    description: "Detect calendar meeting invitations and responses"
+    when:
+      any:
+        - header.content-type:
+            matches: "text/calendar"
+        - subject:
+            matches: "^(invitation|accepted|declined|tentative):"
+    then:
+      category: scheduling
+      intent: calendar_event
+      priority: normal
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.95
+
+  # 10. Automated Receipt Acknowledgements
+  - id: receipt-acknowledgement
+    description: "Detect automated receipt and support ticket confirmation messages"
+    when:
+      subject:
+        matches: "^(thank you for contacting|we received your request|acknowledgement|request received)"
+    then:
+      category: acknowledgement
+      intent: receipt_confirmation
+      priority: low
+      reply_required: false
+      workflow_hint: none
+      retrieval_required: false
+      confidence: 0.95

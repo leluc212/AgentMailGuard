@@ -70,6 +70,7 @@
         "MOCK_ONLY",
         "PARTIAL_IMPLEMENTATION",
         "REAL_BUT_BROKEN",
+        "AUDIT_ENVIRONMENT_INTERFERENCE",
         "NONE_OBSERVED",
         "UNKNOWN_PATTERN"
       ]

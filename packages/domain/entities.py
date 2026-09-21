@@ -68,6 +68,7 @@ class NormalizedMessage:
     attachments: list[AttachmentRef] = field(default_factory=list)
     normalization_failed: bool = False
     signature_stripped: bool = False
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def flags(self) -> dict[str, bool]:

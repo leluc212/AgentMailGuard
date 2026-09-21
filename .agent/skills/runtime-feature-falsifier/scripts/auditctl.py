@@ -59,14 +59,14 @@ RELATIONS = {"VALID", "INVALID", "BOUNDARY", "CONTRACT_UNKNOWN", "ENVIRONMENT"}
 PATTERNS = {
     "TODO", "PLACEHOLDER", "FAKE_NOOP", "BTTLP", "HARDCODED",
     "HARDCODED_SUSPECTED", "MOCK_ONLY", "PARTIAL_IMPLEMENTATION",
-    "REAL_BUT_BROKEN", "NONE_OBSERVED", "UNKNOWN_PATTERN",
+    "REAL_BUT_BROKEN", "AUDIT_ENVIRONMENT_INTERFERENCE", "NONE_OBSERVED", "UNKNOWN_PATTERN",
 }
 CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
 HYPOTHESIS_STATUSES = {"OPEN", "SUPPORTED", "REFUTED", "CONFIRMED", "BLOCKED", "BUDGET_EXHAUSTED"}
 HYPOTHESIS_TERMINAL = {"REFUTED", "CONFIRMED", "BLOCKED", "BUDGET_EXHAUSTED"}
 ESCALATION_STAGES = {str(i) for i in range(12)}
 INTENTS = {
-    "environment_start", "baseline_valid", "valid_variation", "format_variation",
+    "environment_start", "runtime_identity", "environment_collision", "baseline_valid", "valid_variation", "format_variation",
     "causal_sensitivity", "invalid_type_or_shape", "mime_extension_mismatch",
     "corrupt_input", "boundary_min", "boundary_max", "boundary_above_max",
     "state_transition", "round_trip", "persistence", "repeat_or_duplicate",
@@ -355,14 +355,26 @@ def validate_plan_obj(plan: Any) -> dict[str, Any]:
     target = plan.get("target") if isinstance(plan.get("target"), dict) else {}
     if not str(target.get("startup_path", "")).strip():
         errors.append("target.startup_path is required; document the real supported startup path")
-    environment_probes = [
-        p for feature in plan.get("features", []) for p in feature.get("probes", [])
-        if isinstance(p, dict) and p.get("required", True) and p.get("probe_intent") == "environment_start"
-    ]
-    if not environment_probes:
-        errors.append("audit requires one required environment_start probe to establish startup health")
-    elif not any(p.get("contract_relation") == "ENVIRONMENT" for p in environment_probes):
-        errors.append("environment_start probe must use contract_relation=ENVIRONMENT")
+    if not str(target.get("runtime_identity_expectation", "")).strip():
+        errors.append("target.runtime_identity_expectation is required; state what process/server/build must actually be running")
+
+    required_preflight = {
+        "environment_start": "establish startup health",
+        "runtime_identity": "prove what runtime/process is actually serving the target",
+        "environment_collision": "check audit/test/live shared-resource interference",
+    }
+    for preflight_intent, purpose in required_preflight.items():
+        probes_for_intent = [
+            p for feature in plan.get("features", []) for p in feature.get("probes", [])
+            if isinstance(p, dict) and p.get("required", True) and p.get("probe_intent") == preflight_intent
+        ]
+        if not probes_for_intent:
+            errors.append(f"audit requires one required {preflight_intent} probe to {purpose}")
+            continue
+        if not any(p.get("contract_relation") == "ENVIRONMENT" for p in probes_for_intent):
+            errors.append(f"{preflight_intent} probe must use contract_relation=ENVIRONMENT")
+        if preflight_intent in {"runtime_identity", "environment_collision"} and not any(p.get("effect_checks") for p in probes_for_intent):
+            errors.append(f"{preflight_intent} probe requires at least one effect_check")
 
     return {"ok": not errors, "errors": errors, "warnings": warnings, "feature_count": len(feature_ids), "probe_count": len(probe_ids)}
 
@@ -813,6 +825,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     paths = audit_paths(args.audit_dir)
     paths["dir"].mkdir(parents=True, exist_ok=True)
     paths["evidence"].mkdir(parents=True, exist_ok=True)
+    if paths["complete"].exists():
+        emit({"ok": False, "errors": [
+            f"audit workspace is sealed: {paths['complete']}. For a re-audit after remediation, use a fresh auditor instance and a new audit directory (for example .runtime-feature-audit-run2)."
+        ]}, args.format)
+        return 2
     if paths["plan"].exists() and not args.force:
         emit({"ok": False, "errors": [f"plan already exists: {paths['plan']} (use --force to replace)"]}, args.format)
         return 2
@@ -828,6 +845,8 @@ def cmd_init(args: argparse.Namespace) -> int:
             "environment": args.environment,
             "scope": args.scope,
             "startup_path": "",
+            "runtime_identity_expectation": "",
+            "collision_surfaces": [],
         },
         "features": [],
     }
@@ -897,15 +916,46 @@ def cmd_validate_plan(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
-def startup_health_survived(events: list[dict[str, Any]]) -> bool:
+PREFLIGHT_INTENTS = {"environment_start", "runtime_identity", "environment_collision"}
+
+
+def preflight_finishes(events: list[dict[str, Any]], intent: str) -> list[dict[str, Any]]:
     attempts, errors = fold_attempts(events)
     if errors:
-        return False
-    return any(
-        (pair.get("start") or {}).get("probe_intent") == "environment_start"
-        and (pair.get("finish") or {}).get("result") == "SURVIVED"
+        return []
+    return [
+        pair.get("finish") or {}
         for pair in attempts.values()
-    )
+        if (pair.get("start") or {}).get("probe_intent") == intent and pair.get("finish")
+    ]
+
+
+def startup_health_survived(events: list[dict[str, Any]]) -> bool:
+    return any(x.get("result") == "SURVIVED" for x in preflight_finishes(events, "environment_start"))
+
+
+def runtime_identity_completed(events: list[dict[str, Any]]) -> bool:
+    return bool(preflight_finishes(events, "runtime_identity"))
+
+
+def collision_check_survived(events: list[dict[str, Any]]) -> bool:
+    return any(x.get("result") == "SURVIVED" for x in preflight_finishes(events, "environment_collision"))
+
+
+def preflight_error_for(intent: str, events: list[dict[str, Any]]) -> str | None:
+    if intent == "environment_start":
+        return None
+    if not startup_health_survived(events):
+        return "startup health has not completed SURVIVED; finish environment_start first"
+    if intent == "runtime_identity":
+        return None
+    if not runtime_identity_completed(events):
+        return "runtime identity has not completed; finish runtime_identity before collision/feature probes"
+    if intent == "environment_collision":
+        return None
+    if not collision_check_survived(events):
+        return "audit environment collision check has not completed SURVIVED; isolate shared queues/DB schemas/buckets/ports/tenants before feature probes"
+    return None
 
 
 def cmd_attempt_start(args: argparse.Namespace) -> int:
@@ -918,9 +968,9 @@ def cmd_attempt_start(args: argparse.Namespace) -> int:
         emit({"ok": False, "errors": ["audit plan/system inventory is invalid; run validate-plan first", *combined_errors]}, args.format)
         return 2
     feature, probe = find_feature_probe(plan, args.feature_id, args.probe_id)
-    if (feature.get("dependency_sensitive") or probe.get("probe_intent") == "environment_start") and not str(args.repro_command or "").strip():
+    if (feature.get("dependency_sensitive") or probe.get("probe_intent") in PREFLIGHT_INTENTS) and not str(args.repro_command or "").strip():
         emit(with_heads({"ok": False, "errors": [
-            f"{feature['feature_id']}/{probe['probe_id']} requires --repro-command because it is startup/dependency-sensitive"
+            f"{feature['feature_id']}/{probe['probe_id']} requires --repro-command because it is preflight/dependency-sensitive"
         ]}, paths), args.format)
         return 2
     existing_attempt_events = read_events(paths["log"])
@@ -928,8 +978,9 @@ def cmd_attempt_start(args: argparse.Namespace) -> int:
     if attempt_errors:
         emit({"ok": False, "errors": attempt_errors}, args.format)
         return 2
-    if probe.get("probe_intent") != "environment_start" and not startup_health_survived(existing_attempt_events):
-        emit({"ok": False, "errors": ["startup health has not completed SURVIVED; finish the required environment_start probe before feature probes"]}, args.format)
+    preflight_error = preflight_error_for(probe.get("probe_intent", ""), existing_attempt_events)
+    if preflight_error:
+        emit(with_heads({"ok": False, "errors": [preflight_error]}, paths), args.format)
         return 2
     prior_same_probe = [pair for pair in existing_attempts.values() if pair.get("start") and pair["start"].get("probe_id") == args.probe_id]
     if prior_same_probe and not (getattr(args, "changed_variable", None) or getattr(args, "retry_reason", None)):
@@ -1080,19 +1131,18 @@ def cmd_attempt_batch(args: argparse.Namespace) -> int:
         emit(with_heads({"ok": False, "errors": fold_errors}, paths), args.format)
         return 2
     if phase == "START":
-        requested_non_startup = []
+        # Respect preflight ordering even in batch mode. A batch may contain only probes
+        # whose prerequisites were already completed before this batch; this prevents
+        # pre-registering feature probes before identity/isolation evidence exists.
         for spec in specs:
             try:
                 _, planned_probe = find_feature_probe(plan, spec["feature_id"], spec["probe_id"])
             except (KeyError, SystemExit):
                 continue
-            if planned_probe.get("probe_intent") != "environment_start":
-                requested_non_startup.append(spec.get("probe_id"))
-        if requested_non_startup and not startup_health_survived(current):
-            emit(with_heads({"ok": False, "phase": phase, "errors": [
-                "startup health has not completed SURVIVED; finish environment_start before batch-registering feature probes"
-            ]}, paths), args.format)
-            return 2
+            preflight_error = preflight_error_for(planned_probe.get("probe_intent", ""), current)
+            if preflight_error:
+                emit(with_heads({"ok": False, "phase": phase, "errors": [preflight_error]}, paths), args.format)
+                return 2
     payloads: list[dict[str, Any]] = []
     outputs: list[dict[str, Any]] = []
     if phase == "START":
@@ -1103,7 +1153,7 @@ def cmd_attempt_batch(args: argparse.Namespace) -> int:
         for spec in specs:
             feature, probe = find_feature_probe(plan, spec["feature_id"], spec["probe_id"])
             repro = spec.get("repro_command")
-            if (feature.get("dependency_sensitive") or probe.get("probe_intent") == "environment_start") and not str(repro or "").strip():
+            if (feature.get("dependency_sensitive") or probe.get("probe_intent") in PREFLIGHT_INTENTS) and not str(repro or "").strip():
                 errors.append(f"{feature['feature_id']}/{probe['probe_id']} requires repro_command")
             prior_same = [pair for pair in attempts.values() if pair.get("start") and pair["start"].get("probe_id") == spec["probe_id"]]
             prior_same += [x for x in pending_probe_ids if x == spec["probe_id"]]
@@ -1275,6 +1325,38 @@ def cmd_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+REPORTING_MISUSE_PATTERNS = [
+    (re.compile(r"\bverified reality\b", re.I), "'verified reality' is prohibited as a surviving-feature verdict"),
+    (re.compile(r"\b(run\s*\d*|feature|system|capability|function)\s*\(?verified\)?\b", re.I), "'verified' must not replace NOT_FALSIFIED as an audit verdict"),
+    (re.compile(r"\bverdict\s*[:=-]\s*(verified|proven|alive|fully working|confirmed working)\b", re.I), "non-RFF verdict synonym detected"),
+    (re.compile(r"\b(all|every)\s+(features?|functions?|capabilities?)\b[^\n.]{0,80}\b(verified|proven|alive|fully working|confirmed working)\b", re.I), "whole-scope success language overstates finite falsification"),
+]
+
+
+def reporting_language_errors(text: str, label: str) -> list[str]:
+    errors: list[str] = []
+    for pattern, message in REPORTING_MISUSE_PATTERNS:
+        for match in pattern.finditer(text):
+            line_no = text.count("\n", 0, match.start()) + 1
+            errors.append(f"{label}:{line_no}: {message}: {match.group(0)!r}")
+    return errors
+
+
+def cmd_terminology_check(args: argparse.Namespace) -> int:
+    errors: list[str] = []
+    checked: list[str] = []
+    for raw in args.input:
+        path = Path(raw)
+        if not path.exists():
+            errors.append(f"missing input file: {path}")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        errors.extend(reporting_language_errors(text, str(path)))
+        checked.append(str(path))
+    emit({"ok": not errors, "errors": errors, "checked": checked}, args.format)
+    return 0 if not errors else 2
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     paths = audit_paths(args.audit_dir)
     plan = load_json(paths["plan"])
@@ -1345,7 +1427,11 @@ def cmd_report(args: argparse.Namespace) -> int:
         f"- BLOCKED: {counts.get('BLOCKED',0)}",
         f"- INCONCLUSIVE: {counts.get('INCONCLUSIVE',0)}",
         f"- INCOMPLETE: {counts.get('INCOMPLETE',0)}", "",
-        "> `NOT_FALSIFIED` means no counterexample was found in the completed declared matrix. It is not proof of correctness, completeness, or production readiness.", "",
+        "> `NOT_FALSIFIED` means no counterexample was found in the completed declared matrix. It must not be rewritten as a verdict such as \"verified\", \"proven\", \"alive\", or \"fully working\"; it is not proof of correctness, completeness, or production readiness.", "",
+        "## Runtime preflight", "",
+        f"- Declared startup path: {plan.get('target',{}).get('startup_path','')}",
+        f"- Expected runtime identity: {plan.get('target',{}).get('runtime_identity_expectation','')}",
+        f"- Collision surfaces considered: {', '.join(plan.get('target',{}).get('collision_surfaces',[]) or []) or 'documented in environment_collision probe'}", "",
     ]
     if system_lines:
         report += ["## System discovery/coverage", ""] + system_lines[2:] + [""]
@@ -1442,29 +1528,50 @@ def cmd_gate(args: argparse.Namespace) -> int:
             if status == "BUDGET_EXHAUSTED" and h_attempt_counts.get(hid, 0) < h.get("max_attempts", 0):
                 errors.append(f"hypothesis marked BUDGET_EXHAUSTED before consuming declared budget: {hid}")
 
-    # Runtime-entry evidence gates. These cannot cryptographically prove a real surface,
-    # but they make startup and dependency-sensitive paths reproducible and auditable.
+    # Runtime-entry evidence gates. These cannot cryptographically prove a public surface,
+    # but they force reproducible startup, runtime-identity, and environment-isolation evidence.
     feature_by_id = {f.get("feature_id"): f for f in plan.get("features", []) if isinstance(f, dict)}
-    startup_finishes = []
+    finishes_by_intent: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for aid, pair in attempts.items():
         start = pair.get("start") or {}
         finish = pair.get("finish") or {}
         feature = feature_by_id.get(start.get("feature_id"), {})
-        if start.get("probe_intent") == "environment_start":
-            startup_finishes.append(finish)
-        if (feature.get("dependency_sensitive") or start.get("probe_intent") == "environment_start") and not str(start.get("repro_command") or "").strip():
-            errors.append(f"startup/dependency-sensitive attempt lacks repro_command: {aid}")
+        intent = start.get("probe_intent")
+        if intent in PREFLIGHT_INTENTS and finish:
+            finishes_by_intent[intent].append(finish)
+        if (feature.get("dependency_sensitive") or intent in PREFLIGHT_INTENTS) and not str(start.get("repro_command") or "").strip():
+            errors.append(f"preflight/dependency-sensitive attempt lacks repro_command: {aid}")
+        if intent in {"runtime_identity", "environment_collision"} and finish:
+            if not (finish.get("evidence_refs") or finish.get("side_effect_check") or finish.get("persistence_check")):
+                errors.append(f"{intent} attempt lacks corroborating evidence/effect observation: {aid}")
+
+    startup_finishes = finishes_by_intent["environment_start"]
+    identity_finishes = finishes_by_intent["runtime_identity"]
+    collision_finishes = finishes_by_intent["environment_collision"]
     if not startup_finishes:
         errors.append("required environment_start probe never completed")
     elif not any(x.get("result") == "SURVIVED" for x in startup_finishes):
-        # A failed/blocked startup may itself be a valid audit finding, but the rest of the
-        # runtime matrix cannot be treated as executed against a healthy target runtime.
-        non_startup_started = [
-            pair for pair in attempts.values()
-            if (pair.get("start") or {}).get("probe_intent") != "environment_start"
-        ]
+        non_startup_started = [pair for pair in attempts.values() if (pair.get("start") or {}).get("probe_intent") != "environment_start"]
         if non_startup_started:
-            errors.append("feature probes were executed without a SURVIVED startup-health probe")
+            errors.append("non-startup probes were executed without a SURVIVED startup-health probe")
+    if not identity_finishes:
+        errors.append("required runtime_identity probe never completed")
+    elif not any(x.get("result") == "SURVIVED" for x in identity_finishes):
+        warnings.append("runtime identity did not SURVIVE; downstream probes characterize the deployed runtime and must not be described as proof of the intended source implementation")
+    if not collision_finishes:
+        errors.append("required environment_collision probe never completed")
+    elif not any(x.get("result") == "SURVIVED" for x in collision_finishes):
+        errors.append("audit environment collision/isolation did not SURVIVE; feature results may be contaminated by shared mutable resources")
+
+    for aid, pair in attempts.items():
+        start = pair.get("start") or {}
+        if start.get("probe_intent") not in PREFLIGHT_INTENTS:
+            if not startup_health_survived(events):
+                errors.append(f"feature probe executed without healthy startup: {aid}")
+            if not runtime_identity_completed(events):
+                errors.append(f"feature probe executed before runtime identity was observed: {aid}")
+            if not collision_check_survived(events):
+                errors.append(f"feature probe executed before environment collision check SURVIVED: {aid}")
 
     # Ensure every STARTED attempt terminates. This catches crashes/timeouts that were never closed out.
     for aid, pair in attempts.items():
@@ -1515,6 +1622,9 @@ def cmd_gate(args: argparse.Namespace) -> int:
             stale_fields = [k for k, v in current_state.items() if recorded_state.get(k) != v]
             if stale_fields:
                 errors.append("generated report is stale relative to canonical audit state (changed: " + ", ".join(stale_fields) + "); rerun auditctl report")
+        for report_path in (paths["report"], paths["matrix"], paths["coverage"]):
+            if report_path.exists():
+                errors.extend(reporting_language_errors(report_path.read_text(encoding="utf-8", errors="replace"), str(report_path)))
 
     investigation = investigation_summary(paths)
     summary = apply_investigation_verdicts(derive_summary(plan, events), investigation)
@@ -1527,6 +1637,8 @@ def cmd_gate(args: argparse.Namespace) -> int:
             "audit_id": plan.get("audit_id"),
             "completed_at_utc": utc_now(),
             "audit_mode": plan.get("audit_mode", "FEATURE"),
+            "sealed": True,
+            "next_run_policy": "After remediation or a re-audit, use a fresh auditor instance and a new audit workspace; do not append to this sealed run.",
         }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if paths["active"].exists():
             paths["active"].unlink()
@@ -1541,6 +1653,7 @@ def cmd_gate(args: argparse.Namespace) -> int:
         "attempt_count": len(attempts),
         "feature_verdicts": {f["feature_id"]: f["verdict"] for f in summary["features"]},
         "investigation": investigation,
+        "next_run_policy": "If remediation follows this sealed audit, spawn a fresh auditor and initialize a new audit workspace for the next run.",
     }
     emit(result, args.format)
     return 0 if result["ok"] else 2
@@ -1630,6 +1743,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("investigation-status", help="Summarize open/terminal persistent-investigation hypotheses")
     add_common(p)
     p.set_defaults(func=cmd_investigation_status)
+
+    p = sub.add_parser("terminology-check", help="Check a retrospective/summary for forbidden verdict inflation such as calling NOT_FALSIFIED verified or proven")
+    p.add_argument("--input", action="append", required=True, help="Markdown/text file to scan; repeat for multiple files")
+    p.add_argument("--format", choices=("json", "text"), default="json", help="Output format")
+    p.set_defaults(func=cmd_terminology_check)
 
     p = sub.add_parser("summary", help="Summarize attempts and derived feature verdicts")
     add_common(p)

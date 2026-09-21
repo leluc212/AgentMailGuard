@@ -136,6 +136,7 @@ price_table = {
 | `TRIAGE__LLM_CONFIDENCE_THRESHOLD` | `float` | `0.70` | 0.0–1.0 | Small-LLM classifier confidence cutoff |
 | `TRIAGE__SAFE_DEFAULT_CATEGORY` | `string` | `general_inquiry` | Non-empty | Fallback category when all stages fail |
 | `TRIAGE__SAFE_DEFAULT_PRIORITY` | `string` | `normal` | Non-empty | Fallback priority when all stages fail |
+| `TRIAGE__RULES_PATH` | `string` | `config/triage_rules.yaml` | Valid file path | Path to declarative triage rules YAML (R6.8) |
 
 ### 2.9 Thread Summarization Thresholds (`SUMMARIZATION__*`)
 *Threshold-triggered conversation context compression (R8.3, R8.4).*

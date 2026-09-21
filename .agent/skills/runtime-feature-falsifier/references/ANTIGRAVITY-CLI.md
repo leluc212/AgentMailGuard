@@ -75,3 +75,7 @@ After installation/update:
 3. open `/agents` and confirm `runtime-feature-auditor`,
 4. if strict hooks were installed, open `/hooks` and confirm the namespaced RFF hooks,
 5. begin a fresh conversation after upgrading if discovery appears stale.
+
+## Re-audit after remediation
+
+For a second audit run, use `/agents` to invoke/select a **fresh** `runtime-feature-auditor` and point it at a new audit directory (for example `.runtime-feature-audit-run2`). Antigravity CLI subagents that have completed may remain idle; RFF does not assume that sending a message to an idle instance restarts its work loop.

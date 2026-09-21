@@ -73,3 +73,7 @@ postgres_data/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Runtime audit runs
+.runtime-feature-audit*/
+

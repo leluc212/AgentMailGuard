@@ -1,0 +1,20 @@
+From: "Executive Assistant" <ea@strategicpartner.com>
+To: "Product Leadership" <leadership@enterprise.com>
+Subject: Invitation: Quarterly Planning Session
+Date: Mon, 21 Sep 2026 15:00:00 +0000
+Message-ID: <cal-inv-4401@strategicpartner.com>
+Content-Type: text/calendar; method=REQUEST; charset="utf-8"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//StrategicPartner//Calendar 1.0//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:uid-cal-20260921-001@strategicpartner.com
+SUMMARY:Quarterly Planning Session
+DTSTART:20261001T140000Z
+DTEND:20261001T150000Z
+LOCATION:Virtual / Google Meet
+DESCRIPTION:Review of Q4 Roadmap and Milestones
+END:VEVENT
+END:VCALENDAR

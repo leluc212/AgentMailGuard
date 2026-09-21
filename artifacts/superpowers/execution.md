@@ -1837,3 +1837,194 @@
 - **Result:** PASS (163 files formatted, 150 source files checked by mypy with 0 errors, 381 tests passed in 27.82s)
 
 
+
+---
+
+# Execution Log: Phase 2 Task 2.1 — Job Envelope & Publication
+
+## Step 1: Job Store Protocol and Backends (packages/db/job.py, packages/db/__init__.py)
+- **Files Changed:**
+  - packages/db/job.py (new)
+  - packages/db/__init__.py (modified)
+- **What Changed:**
+  - Implemented JobStore protocol, PostgresJobStore, and InMemoryJobStore.
+  - Implemented create_job() creating processing_job rows with initial state RECEIVED (R18.1), handling idempotency conflict via ON CONFLICT (idempotency_key) DO NOTHING (R19.4), and recording initial processing_event in the same transaction (R18.4, R18.5).
+  - Implemented transition_job_state() validating legal transitions via packages/domain/state_machine.py (R18.3), and atomically updating processing_job and inserting processing_event in the same transaction (R18.4, R18.5).
+  - Implemented get_job(), get_job_by_idempotency_key(), list_events_for_message(), and list_events_for_job() with mandatory tenant scoping (organization_id).
+  - Exported JobStore, PostgresJobStore, and InMemoryJobStore from packages/db.
+- **Verification Command:**
+  - uv run ruff check packages/db/ && uv run mypy packages/db/
+- **Result:** PASS (0 lint issues, 16 source files checked with 0 errors)
+
+## Step 2: Job Envelope Specification Refinement (packages/broker/envelope.py)
+- **Files Changed:**
+  - packages/broker/envelope.py (modified)
+- **What Changed:**
+  - Refined JobEnvelope strictly matching specs/design.md §7.3 and R7.3.
+  - Added classification snapshot helper methods set_classification() and with_classification() supporting dict, dataclasses, and Pydantic models.
+  - Exposed convenience snapshot accessors category, priority, reply_required, workflow_hint, and retrieval_required.
+  - Added AMQP header routing tags (category, priority) and trace context propagation to to_message().
+- **Verification Command:**
+  - uv run ruff check packages/broker/ && uv run mypy packages/broker/
+- **Result:** PASS (0 lint issues, 5 source files checked with 0 errors)
+
+## Step 3: Mail Ingestion Job Creation (services/mail_connector/orchestrator.py)
+- **Files Changed:**
+  - services/mail_connector/orchestrator.py (modified)
+- **What Changed:**
+  - Added optional JobStore injection to SyncOrchestrator.__init__().
+  - Integrated deterministic idempotency key derivation (R19.2) and Job creation in state RECEIVED (R18.1).
+  - Persisted processing_job row and initial processing_event telemetry prior to publishing the AMQP message.
+  - Linked the generated/persisted job ID into JobEnvelope.job_id and envelope payload ensuring end-to-end trace correlation.
+- **Verification Command:**
+  - uv run ruff check services/mail_connector/ && uv run mypy services/mail_connector/ && uv run pytest tests/unit/test_sync_orchestrator.py -v
+- **Result:** PASS (8 unit tests passed, 0 lint/type issues)
+
+## Step 4: Downstream Normalization State Transition (services/email_worker/consumer.py)
+- **Files Changed:**
+  - services/email_worker/consumer.py (modified)
+  - services/email_worker/main.py (modified)
+- **What Changed:**
+  - Added optional JobStore injection to EmailNormalizationConsumer.__init__() and wired PostgresJobStore in services/email_worker/main.py.
+  - Implemented atomic state transition from RECEIVED to NORMALIZED on successful normalization and database persistence (R18.1, R18.4, R18.5).
+  - Implemented state transition from RECEIVED to FAILED on MIME normalization errors (R4.9, R3.5).
+  - Forwarded job_id from JobEnvelope into downstream triage envelope, preserving full pipeline job correlation.
+- **Verification Command:**
+  - uv run ruff check services/email_worker/ && uv run mypy services/email_worker/ && uv run pytest tests/unit/test_email_normalization.py tests/unit/test_normalization_failure.py -v
+- **Result:** PASS (35 unit tests passed, 0 lint/type issues)
+
+## Step 5: Pure Unit Tests for Job Envelope, Store & State Transitions (tests/unit/test_job_envelope_and_store.py)
+- **Files Changed:**
+  - tests/unit/test_job_envelope_and_store.py (new)
+- **What Changed:**
+  - Added test_job_envelope_serialization_and_classification_snapshot: tests JobEnvelope properties, Classification entity attachment (R7.3), AMQP persistent headers, and round-trip deserialization.
+  - Added test_in_memory_job_store_creation_and_idempotency: verifies Job insertion in state RECEIVED (R18.1), initial ProcessingEvent recording (R18.4), and idempotent deduplication returning existing job without duplicate events (R19.2, R19.4).
+  - Added test_job_store_state_machine_transitions: tests legal state progression (RECEIVED -> NORMALIZED -> CLASSIFIED -> QUEUED) and asserts IllegalStateTransitionError is raised on undeclared state jumps (R18.3).
+  - Added test_sync_orchestrator_creates_job_in_received_state: verifies SyncOrchestrator creates a Job in state RECEIVED at ingestion and sets JobEnvelope.job_id = str(job.id).
+  - Added test_email_normalization_consumer_transitions_to_normalized: verifies consumer transitions job from RECEIVED to NORMALIZED, sets message_id/thread_id, emits chronological ProcessingEvents, and forwards job_id into downstream triage envelope.
+- **Verification Command:**
+  - uv run ruff check tests/unit/test_job_envelope_and_store.py && uv run mypy tests/unit/test_job_envelope_and_store.py && uv run pytest tests/unit/test_job_envelope_and_store.py -v
+- **Result:** PASS (5 unit tests passed in 0.56s, 0 lint/type issues; 330/330 total unit tests passing)
+
+## Step 6: Multi-Tenant PostgreSQL & Broker Integration Tests (tests/integration/test_job_publication_integration.py)
+- **Files Changed:**
+  - `tests/integration/test_job_publication_integration.py` (new)
+- **What Changed:**
+  - Implemented `test_job_persistence_and_event_recording_multi_tenant`: seeds 3 distinct organizations with overlapping provider message IDs, creates jobs in `RECEIVED` state via `PostgresJobStore`, and verifies `processing_job` and initial `processing_event` rows are atomically committed in the same transaction (R18.1, R18.4, R18.5).
+  - Verified tenant isolation: queries with foreign `organization_id` return `None`.
+  - Implemented `test_job_store_idempotency_conflict`: verifies concurrent or duplicate job ingestion with identical `idempotency_key` returns `is_new=False` without inserting duplicate records or events (R19.2, R19.4).
+  - Implemented `test_job_publication_and_retrieval_with_classification_snapshot`: verifies RabbitMQ persistent publication of `JobEnvelope` with classification snapshot, headers, correlation IDs, and retrieval from queue matching specifications (R7.3).
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_job_publication_integration.py -v`
+- **Result:** PASS (3 tests passed in 1.16s, 0 lint/type issues)
+
+## Step 7: Full Verification Gate & Task Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+- **What Changed:**
+  - Executed full linting (`ruff`), type checking (`mypy`), unit test suite (330 tests), and live integration test suite (59 tests).
+  - Verified 389 automated tests passed cleanly with 0 regressions.
+  - Marked Task 2.1 as completed (`[x]`) in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run ruff check packages/ services/ tests/ && uv run mypy packages/ services/ tests/ && uv run pytest tests/unit/ -q && uv run pytest tests/integration/ -q`
+- **Result:** PASS (All lint & type checks passed, 330 unit tests passed, 59 integration tests passed)
+
+
+---
+
+# Execution Log: Phase 2 Task 2.2 — Rule Engine (Triage Stage 1)
+
+## Step 1: Header Capture in Email Normalization (packages/domain/entities.py, services/email_worker/)
+- **Files Changed:**
+  - `packages/domain/entities.py` (modified)
+  - `services/email_worker/parser.py` (modified)
+  - `services/email_worker/normalizer.py` (modified)
+- **What Changed:**
+  - Added `headers: dict[str, str] = field(default_factory=dict)` to `NormalizedMessage` and `ParsedHeaders`.
+  - In `parser.py`, captured all RFC 822 MIME headers into a case-insensitive dictionary with lowercase keys, decoding encoded words while preserving headers such as `Auto-Submitted`, `List-Unsubscribe`, and `Precedence`.
+  - Forwarded extracted headers through `EmailNormalizer.normalize()` into `NormalizedMessage.headers`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_email_normalization.py -v`
+- **Result:** PASS (30/30 unit tests passed in 0.30s)
+
+## Step 2: Pure Domain Rule Engine (packages/domain/rules.py, packages/domain/__init__.py)
+- **Files Changed:**
+  - `packages/domain/rules.py` (new)
+  - `packages/domain/__init__.py` (modified)
+- **What Changed:**
+  - Implemented pure domain rule engine models and evaluators: `EmailContext`, `FieldPredicate`, `CompositeCondition`, `RuleAction`, `Rule`, and `RuleEngine`.
+  - Implemented field-level condition evaluation for headers (`header.<name>`), sender email/name, subject, normalized subject, clean body text, recipients, CC, and attachments.
+  - Implemented operators: `exists`, `equals`, `contains`, `starts_with`, `ends_with`, pre-compiled `matches` regex, and boolean composites `any`, `all`, `not`.
+  - Implemented `RuleEngine.evaluate()` producing `Classification` with `decided_by='rule'`, latency in milliseconds, and audit rule payload, or `None` on fall-through (R6.1, R6.8).
+  - Preserved strict domain package boundary (stdlib-only imports in `packages/domain`).
+- **Verification Command:**
+  - `uv run ruff check packages/domain/ && uv run mypy packages/domain/ && uv run pytest tests/unit/test_dependency_rules.py -v`
+- **Result:** PASS (0 lint issues, 4 source files checked by mypy with 0 errors, 4 boundary tests passed)
+
+## Step 3: Hot-Reloadable Engine & YAML Loader (services/triage_worker/rules.py, services/triage_worker/__init__.py)
+- **Files Changed:**
+  - `services/triage_worker/rules.py` (new)
+  - `services/triage_worker/__init__.py` (modified)
+- **What Changed:**
+  - Implemented `load_rules_from_yaml()` and `load_rules_from_file()` using PyYAML `yaml.safe_load`.
+  - Implemented `HotReloadableRuleEngine` wrapping the pure domain `RuleEngine`.
+  - Implemented `mtime`-based dynamic hot-reloading on access and explicit `reload(force=True)`.
+  - Added fail-safe error isolation: malformed YAML or invalid regex patterns log error warnings and gracefully retain the active ruleset without crashing.
+  - Exported `HotReloadableRuleEngine`, `load_rules_from_file`, and `load_rules_from_yaml` from `services/triage_worker`.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/ && uv run pytest tests/unit/test_dependency_rules.py -v`
+- **Result:** PASS (0 lint issues, 2 source files checked by mypy with 0 errors, 4 boundary tests passed)
+
+## Step 4: Author Declarative Ruleset & Settings Integration (config/triage_rules.yaml, packages/core/settings.py, .env.example, docs/configuration.md)
+- **Files Changed:**
+  - `config/triage_rules.yaml` (new)
+  - `packages/core/settings.py` (modified)
+  - `.env.example` (modified)
+  - `docs/configuration.md` (modified)
+- **What Changed:**
+  - Authored authoritative declarative triage rules in `config/triage_rules.yaml` defining 10 rules: `auto-submitted`, `list-unsubscribe`, `precedence-bulk`, `no-reply-sender`, `out-of-office`, `delivery-status-notification`, `invoice-reference`, `urgent-billing`, `calendar-invite`, and `receipt-acknowledgement`.
+  - Added `rules_path: str = Field(default="config/triage_rules.yaml")` to `TriageSettings` in `packages/core/settings.py`.
+  - Documented `TRIAGE__RULES_PATH` in `.env.example` and `docs/configuration.md` conforming to Definition of Done §3.4.
+  - Verified loading 10 compiled rules from `config/triage_rules.yaml`.
+- **Verification Command:**
+  - `uv run python -c "from packages.core.settings import AppSettings; s = AppSettings(); assert s.triage.rules_path == 'config/triage_rules.yaml'" && uv run pytest tests/unit/test_settings.py -v`
+- **Result:** PASS (9/9 settings unit tests passed, rules_path verified)
+
+## Step 5: Fixture Email Regression Suite (tests/fixtures/triage/*.eml)
+- **Files Changed:**
+  - `tests/fixtures/triage/01_auto_submitted.eml` (new)
+  - `tests/fixtures/triage/02_newsletter.eml` (new)
+  - `tests/fixtures/triage/03_no_reply.eml` (new)
+  - `tests/fixtures/triage/04_out_of_office.eml` (new)
+  - `tests/fixtures/triage/05_delivery_status_notification.eml` (new)
+  - `tests/fixtures/triage/06_invoice_inquiry.eml` (new)
+  - `tests/fixtures/triage/07_urgent_billing.eml` (new)
+  - `tests/fixtures/triage/08_calendar_invite.eml` (new)
+  - `tests/fixtures/triage/09_actionable_support.eml` (new)
+- **What Changed:**
+  - Created 9 realistic RFC 822 MIME fixture emails matching real-world enterprise patterns.
+  - Fixtures cover Auto-Submitted headers, List-Unsubscribe headers, robot sender domains, out-of-office autoreplies, DSN bounce notices, invoice inquiries (`INV-YYYY-NNNNN`), urgent collections notices, calendar meeting invitations, and an actionable support inquiry designed to test fall-through behavior.
+- **Verification Command:**
+  - `python3 -c "import os; files = sorted(os.listdir('tests/fixtures/triage')); assert len(files) == 9"`
+- **Result:** PASS (9 fixture emails verified)
+
+## Step 6: Comprehensive Unit Tests & Benchmarks (tests/unit/test_rule_engine.py)
+- **Files Changed:**
+  - `tests/unit/test_rule_engine.py` (new)
+- **What Changed:**
+  - Implemented unit tests validating field predicates (headers, sender, subject, body, attachments) and operators (exists, equals, contains, starts_with, ends_with, regex matches).
+  - Implemented composite condition tests (`any`, `all`, `not`).
+  - Validated `RuleAction` and `Classification` output contracts (`decided_by='rule'`, category, intent, priority, flags, latency).
+  - Validated dynamic hot-reloading: file updates on disk, `mtime` detection, automatic compilation, and fail-safe recovery on malformed YAML edits without crashing.
+  - Executed regression suite over all 9 fixture emails in `tests/fixtures/triage/` asserting expected categories, flags, and fall-through with `None` for actionable inquiries.
+  - Benchmarked evaluation execution: verified average latency well under the 2ms budget (<0.1ms).
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_rule_engine.py && uv run mypy tests/unit/test_rule_engine.py && uv run pytest tests/unit/test_rule_engine.py -v`
+- **Result:** PASS (0 lint issues, 0 type issues, 6/6 tests passed in 0.61s)
+
+
+
+
+
+
+

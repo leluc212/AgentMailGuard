@@ -204,12 +204,12 @@
 
 *Deliverable: email → category queue, with the early-exit gate working.*
 
-- [ ] **2.1 Job envelope & publication**
+- [x] **2.1 Job envelope & publication**
   - Envelope per `design.md §7.3` including `trace_id`, `idempotency_key`, `attempt`, and the classification snapshot.
   - `processing_job` row created at ingestion in state `RECEIVED`.
   - _Requirements: R7.3, R18.1, R19.2_
 
-- [ ] **2.2 Rule engine (triage stage 1)**
+- [x] **2.2 Rule engine (triage stage 1)**
   - Declarative, hot-reloadable rule config (sender patterns, `List-Unsubscribe`, `Auto-Submitted`, subject and body patterns) — no hard-coded conditionals.
   - Returns category/intent/priority/flags/confidence.
   - Unit tests per rule plus a regression suite of fixture emails.
