@@ -1,58 +1,64 @@
-# Task Finish Summary: Phase 2 — Task 2.2 Rule Engine (Triage Stage 1)
-
-**Task:** Phase 2 — Triage & Queue Architecture, Task 2.2 Rule engine (triage stage 1)
-**Requirements Covered:** R6.1, R6.8, R24.3
-**Spec Alignment:** `specs/tasks.md Task 2.2`, `specs/requirements.md (R6.1, R6.8, R24.3)`, `specs/design.md §5.3`, `docs/proposal/Technical Proposal — Enterprise RAG-Based Intelligent Email Management and Response System.md §11`
-
----
+# Phase 2 Task 2.3: Lightweight ML Classifier (Triage Stage 2) — Finish Summary
 
 ## 1. Summary of Changes
 
-1. **Email Header Ingestion & Normalization (`packages/domain/entities.py`, `services/email_worker/parser.py`, `services/email_worker/normalizer.py`):**
-   - Added `headers: dict[str, str] = field(default_factory=dict)` to `NormalizedMessage` and `ParsedHeaders`.
-   - Updated MIME parser to extract decoded RFC 822 email headers with lowercase keys for case-insensitive lookup, capturing `Auto-Submitted`, `List-Unsubscribe`, `Precedence`, `Content-Type`, etc.
-   - Forwarded extracted headers into `NormalizedMessage.headers`.
-
-2. **Pure Domain Rule Engine (`packages/domain/rules.py`, `packages/domain/__init__.py`):**
-   - Implemented pure domain models: `EmailContext`, `FieldPredicate`, `CompositeCondition`, `RuleAction`, `Rule`, and `RuleEngine`.
-   - Built declarative field selectors: `header.<name>`, `sender.email`, `sender.name`, `subject`, `subject_normalized`, `body`, `recipients`, `cc`, and `attachments`.
-   - Implemented operators: `exists`, `equals`, `contains`, `starts_with`, `ends_with`, pre-compiled regex `matches`, and composite boolean operators `any`, `all`, `not`.
-   - Implemented `RuleEngine.evaluate()` producing `Classification` with `decided_by='rule'`, latency in milliseconds, and audit rule payload, or `None` on fall-through (R6.1, R6.8).
-   - Strictly conformed to domain boundary rules (100% stdlib).
-
-3. **Hot-Reloadable Engine & YAML Loader (`services/triage_worker/rules.py`, `services/triage_worker/__init__.py`):**
-   - Implemented `load_rules_from_yaml()` and `load_rules_from_file()` using PyYAML.
-   - Implemented `HotReloadableRuleEngine` wrapping the domain engine with dynamic file `mtime` detection on evaluation and explicit `reload(force=True)`.
-   - Added fail-safe error isolation: syntax errors or malformed regex in updated files log warnings and preserve the previous valid active ruleset without crashing.
-
-4. **Authoritative Declarative Ruleset & Settings (`config/triage_rules.yaml`, `packages/core/settings.py`, `.env.example`, `docs/configuration.md`):**
-   - Created `config/triage_rules.yaml` containing 10 production rules: `auto-submitted`, `list-unsubscribe`, `precedence-bulk`, `delivery-status-notification`, `out-of-office`, `no-reply-sender`, `invoice-reference`, `urgent-billing`, `calendar-invite`, and `receipt-acknowledgement`.
-   - Added `rules_path: str = Field(default="config/triage_rules.yaml")` to `TriageSettings`.
-   - Updated `.env.example` and `docs/configuration.md` with `TRIAGE__RULES_PATH`.
-
-5. **Fixture Email Regression Suite & Unit Tests (`tests/fixtures/triage/*.eml`, `tests/unit/test_rule_engine.py`):**
-   - Created 9 realistic RFC 822 MIME fixture emails covering auto-submitted alerts, newsletters, no-reply receipts, out of office, bounces, invoice inquiries, urgent collections notices, calendar invites, and an actionable support inquiry.
-   - Implemented 6 unit tests covering field operators, boolean composites, Classification contracts, hot-reloading with file mutations and syntax recovery, the 9-email regression suite, and sub-2ms latency benchmarking (<0.1ms average).
+- **Dependencies**: Added `scikit-learn>=1.4.0` (with `numpy`, `scipy`, `joblib`) to `pyproject.toml` and synced via `uv sync`.
+- **Configuration**: Added `ml_model_path: str` to `TriageSettings` in `packages/core/settings.py`, documented in `.env.example` and `docs/configuration.md`.
+- **Training Pipeline**: Created `services/triage_worker/training.py` implementing `train_triage_model` and `evaluate_model` using TF-IDF feature extraction (sublinear TF, n-grams 1-2) + Logistic Regression (C=50.0, balanced weights, L-BFGS). Evaluated against the Phase 0 held-out test split (`test.jsonl`), achieving **100% Accuracy and 100% Macro-F1** across all 9 canonical categories (`R6.4`). Serialized artifacts to `artifacts/models/triage_ml_v1.joblib` and `artifacts/models/triage_ml_v1_metrics.json` (`R22.1, R22.12`).
+- **ML Classifier Inference Engine**: Created `services/triage_worker/classifier.py` implementing `MLClassifier` with `load_from_artifact` and `classify(context)` adhering to `design.md §5.3` and `R6.1, NFR3`. Emits structured `Classification` domain entities with calibrated probabilities, priority detection (urgent keywords), reply requirement, workflow hint, and retrieval flags. Measured latency is 8–10 ms, comfortably inside the 20–50 ms NFR3 budget.
+- **Automated Tests**: Created `tests/unit/test_triage_ml.py` with 18 automated unit tests covering artifact loading, inference contract, priority routing, early-exit flags, latency benchmarking, held-out metrics, and edge cases (empty text, massive payloads, Unicode/emojis).
+- **Task Verification**: Marked Task 2.3 complete in `specs/tasks.md`.
 
 ---
 
-## 2. Review Pass (Severity Audit)
+## 2. Review Pass (Blocker / Major / Minor / Nit)
 
-- **Blocker:** None.
-- **Major:** None.
-- **Minor:** None.
-- **Nit:** None.
+- **Blocker**: None.
+- **Major**: None.
+- **Minor**: None.
+- **Nit**: None. All 154 source files pass `ruff check` and `mypy --strict`.
 
 ---
 
 ## 3. Verification Commands Run & Results
 
-| Check | Command | Result |
+| Verification Target | Command | Result |
 |---|---|---|
-| Ruff Linter | `uv run ruff check packages/ services/ tests/` | PASS (0 errors) |
-| Mypy Strict | `uv run mypy packages/ services/ tests/` | PASS (0 errors across 151 source files) |
-| Architectural Boundary | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed) |
-| Rule Engine Tests | `uv run pytest tests/unit/test_rule_engine.py -v` | PASS (6/6 passed in 0.61s) |
-| All Unit Tests | `uv run pytest tests/unit/ -q` | PASS (336 passed) |
-| All Integration Tests | `uv run pytest tests/integration/ -q` | PASS (59 passed) |
-| Total Automated Tests | `make test` | PASS (395 passed, 0 regressions) |
+| Dependencies & Environment | `uv run python -c "import sklearn; print(sklearn.__version__)"` | PASS (`1.9.1`) |
+| Settings & Configuration | `uv run pytest tests/unit/test_settings.py -v` | PASS (9/9 passed) |
+| Model Training & Metrics | `uv run python -m services.triage_worker.training` | PASS (100% Macro-F1, artifacts saved) |
+| Triage ML Unit Tests | `uv run pytest tests/unit/test_triage_ml.py -v` | PASS (18/18 passed in 4.11s) |
+| Architectural Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed) |
+| Full Unit Test Suite | `uv run pytest tests/unit -v` | PASS (354/354 passed) |
+| Integration Test Suite | `uv run pytest tests/integration -v` | PASS (59/59 passed) |
+| Code Style & Types | `uv run ruff check . && uv run mypy services/ packages/ tests/` | PASS (0 errors, 154 files clean) |
+
+---
+
+## 4. Manual Validation Steps
+
+To verify Stage 2 ML classification locally:
+```bash
+# 1. Inspect held-out metrics artifact
+cat artifacts/models/triage_ml_v1_metrics.json
+
+# 2. Run standalone inference test
+uv run python -c "
+from services.triage_worker.classifier import MLClassifier
+from packages.domain.rules import EmailContext
+
+clf = MLClassifier.load_from_artifact()
+ctx = EmailContext(
+    subject='URGENT: Database connection pool exhausted',
+    body_text='Web nodes reporting HTTP 500 error connecting to Postgres. Need immediate assistance.',
+)
+res = clf.classify(ctx)
+print(f'Category: {res.category}, Confidence: {res.confidence}, Priority: {res.priority}, Latency: {res.latency_ms}ms')
+"
+```
+
+---
+
+## 5. Follow-Ups
+
+- Next task in queue is **Phase 2 Task 2.4: Small-LLM fallback (triage stage 3)** using `LLMProvider` with structured outputs.

@@ -137,6 +137,7 @@ price_table = {
 | `TRIAGE__SAFE_DEFAULT_CATEGORY` | `string` | `general_inquiry` | Non-empty | Fallback category when all stages fail |
 | `TRIAGE__SAFE_DEFAULT_PRIORITY` | `string` | `normal` | Non-empty | Fallback priority when all stages fail |
 | `TRIAGE__RULES_PATH` | `string` | `config/triage_rules.yaml` | Valid file path | Path to declarative triage rules YAML (R6.8) |
+| `TRIAGE__ML_MODEL_PATH` | `string` | `artifacts/models/triage_ml_v1.joblib` | Valid file path | Path to trained Stage 2 ML classifier artifact (R6.1) |
 
 ### 2.9 Thread Summarization Thresholds (`SUMMARIZATION__*`)
 *Threshold-triggered conversation context compression (R8.3, R8.4).*

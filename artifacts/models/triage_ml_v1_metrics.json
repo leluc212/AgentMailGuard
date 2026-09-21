@@ -1,0 +1,216 @@
+{
+  "metadata": {
+    "model_name": "tfidf-logistic-v1",
+    "model_version": "1.0.0",
+    "created_at": "2026-09-21T15:57:55.090394+00:00",
+    "git_sha": "be74d6ce6313dbac4ae8e02317034222171ad0b4",
+    "train_samples": 252,
+    "test_samples": 64,
+    "training_duration_seconds": 2.232,
+    "classes": [
+      "acknowledgement",
+      "administration",
+      "automated_notification",
+      "billing",
+      "general_inquiry",
+      "no_response",
+      "sales",
+      "scheduling",
+      "support"
+    ],
+    "metrics": {
+      "accuracy": 1.0,
+      "macro_precision": 1.0,
+      "macro_recall": 1.0,
+      "macro_f1": 1.0
+    }
+  },
+  "evaluation": {
+    "accuracy": 1.0,
+    "macro_precision": 1.0,
+    "macro_recall": 1.0,
+    "macro_f1": 1.0,
+    "classes": [
+      "acknowledgement",
+      "administration",
+      "automated_notification",
+      "billing",
+      "general_inquiry",
+      "no_response",
+      "sales",
+      "scheduling",
+      "support"
+    ],
+    "per_class": {
+      "acknowledgement": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "administration": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "automated_notification": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "billing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 10
+      },
+      "general_inquiry": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "no_response": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "sales": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 9
+      },
+      "scheduling": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 5
+      },
+      "support": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 15
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "acknowledgement",
+        "administration",
+        "automated_notification",
+        "billing",
+        "general_inquiry",
+        "no_response",
+        "sales",
+        "scheduling",
+        "support"
+      ],
+      "matrix": [
+        [
+          5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          10,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          15
+        ]
+      ]
+    },
+    "test_sample_count": 64
+  }
+}

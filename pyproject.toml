@@ -17,6 +17,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "pgvector>=0.2.5",
     "minio>=7.2.0",
+    "scikit-learn>=1.4.0",
 ]
 
 [dependency-groups]

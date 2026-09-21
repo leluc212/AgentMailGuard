@@ -219,6 +219,10 @@ class TriageSettings(BaseModel):
         default="config/triage_rules.yaml",
         description="Path to declarative triage rules YAML (R6.8)",
     )
+    ml_model_path: str = Field(
+        default="artifacts/models/triage_ml_v1.joblib",
+        description="Path to trained ML classifier model artifact (R6.1)",
+    )
 
     @model_validator(mode="after")
     def validate_threshold_order(self) -> "TriageSettings":

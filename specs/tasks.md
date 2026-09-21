@@ -215,7 +215,7 @@
   - Unit tests per rule plus a regression suite of fixture emails.
   - _Requirements: R6.1, R6.8, R24.3_
 
-- [ ] **2.3 Lightweight ML classifier (triage stage 2)**
+- [x] **2.3 Lightweight ML classifier (triage stage 2)**
   - **Depends on task 0.13** — trains on the classification seed set built in Phase 0.
   - TF-IDF or embedding features + linear head; export as a loadable, versioned artifact.
   - Inference path budgeted at 20–50 ms; report held-out macro-F1 at this stage, not only in Phase 7.
