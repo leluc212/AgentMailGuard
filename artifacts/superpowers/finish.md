@@ -1,30 +1,25 @@
-# Phase 2 Task 2.4: Small-LLM Fallback (Triage Stage 3) — Finish Summary
+# Phase 2 Task 2.5: Cascade Orchestration & Thresholds — Finish Summary
 
 ## 1. Summary of Changes
 
-- **LLM Abstractions & Protocol (`packages/llm/protocol.py`)**:
-  - Defined `ModelTier` enum (`FAST`, `ROUTINE`, `STRONG`, `HIGH_CAPABILITY`, `FALLBACK`) per `R15` and `design.md §5.7`.
-  - Defined `ChatMessage` dataclass (`role: str`, `content: str`).
-  - Defined `LLMResult` dataclass (`content: dict`, `model: str`, `tier: ModelTier`, `input_tokens: int`, `output_tokens: int`, `latency_ms: int`, `raw_finish_reason: str`).
-  - Defined `LLMProvider` runtime-checkable protocol with `async def generate(self, *, messages, schema, tier, max_tokens, temperature) -> LLMResult`.
-  - Defined LLM exception hierarchy: `LLMError`, `LLMTimeoutError`, `LLMResponseError`, `LLMSchemaValidationError`.
-- **Deterministic FakeLLMProvider (`packages/llm/fake.py`)**:
-  - Implemented `FakeLLMProvider` complying with `LLMProvider` protocol for offline, hermetic, credential-free CI and testing per `GEMINI.md §8`.
-  - Supports configurable default responses, FIFO queued canned responses, dynamic responder callbacks, failure injection, latency simulation, and call inspection (`recorded_calls`).
-- **HTTP LLM Client (`packages/llm/client.py`)**:
-  - Implemented `HttpLLMProvider` using `httpx.AsyncClient` supporting OpenAI / LiteLLM-compatible `/chat/completions` API.
-  - Implemented tier-to-model resolution (`FAST` / `ROUTINE` -> `gpt-4o-mini`, `STRONG` / `HIGH_CAPABILITY` -> `gpt-4o`, `FALLBACK` -> `claude-3-haiku`).
-  - Enforced structured JSON schema outputs (`response_format={"type": "json_schema", ...}`) and payload validation.
-  - Strictly encapsulated all vendor SDK interactions within `packages/llm/` per `GEMINI.md §4`.
-- **Stage 3 LLM Classifier (`services/triage_worker/llm_classifier.py`)**:
-  - Defined Pydantic schema `LLMTriageOutput` enforcing the 9 canonical categories (`R6.4`), priority cues, reply_required, workflow_hint (`ai`, `template`, `none`), retrieval_required, and confidence bounds [0.0, 1.0].
-  - Authored concise system prompt and `prepare_triage_prompt(ctx)` handling body truncation to 2000 chars and header extraction (`Auto-Submitted`, `List-Unsubscribe`).
-  - Implemented `LLMTriageClassifier` with `classify(context)` and `classify_sync(context)` mapping outputs to domain `Classification` entity with `decided_by='llm'`.
-  - Implemented `safe_default(error_message)` helper meeting `R6.11` safe fallback with review flag.
+- **Classification Database Layer (`packages/db/classification.py`, `packages/db/__init__.py`)**:
+  - Defined `ClassificationResultRow` dataclass mapping directly to table `classification_result`.
+  - Implemented `ClassificationStore` Protocol (`save_classification`, `get_classification`, `get_latest_classification_by_message`, `list_classifications_by_message`).
+  - Implemented `PostgresClassificationStore` enforcing strict tenant isolation with mandatory `organization_id` filters (`R5.3`, `R6.7`).
+  - Implemented hermetic `InMemoryClassificationStore` for test isolation per `GEMINI.md §8`.
+- **Dynamic Threshold Management (`services/triage_worker/thresholds.py`, `services/triage_worker/__init__.py`)**:
+  - Implemented `ThresholdManager` with hierarchical lookup precedence: `Org + Category > Org default > Global Category > Global default` (`R6.9`).
+  - Enabled dynamic per-tenant and per-category threshold configuration without application restart (`load_organization_settings`, `set_organization_category_threshold`).
+  - Added strict confidence validation `[0.0, 1.0]` and supported triage stages (`rule`, `ml`, `llm`).
+- **Cascade Orchestration Engine (`services/triage_worker/cascade.py`, `services/triage_worker/__init__.py`)**:
+  - Implemented `CascadingTriageEngine` orchestrating Stage 1 (Deterministic Rules) -> Stage 2 (Lightweight ML) -> Stage 3 (Small LLM) per `R6.1`.
+  - Enforced strict early exit: execution stops at the first stage meeting threshold; later stages are never invoked (`R6.2`).
+  - Implemented safe default fallback (`category='general_inquiry'`, `priority='normal'`, `reply_required=True`, `confidence=0.0`, `decided_by='default'`) with `review_flag=True` when all stages fail or miss thresholds (`R6.11`).
+  - Captured full per-stage audit records (`StageExecutionRecord`) and persisted final results with model, latency, and stage telemetry (`R6.7`).
 - **Automated Tests**:
-  - Created `tests/unit/test_llm_provider.py` (11 tests) testing protocol conformance, FakeLLMProvider mock facilities, and HttpLLMProvider with `httpx.MockTransport` covering success, timeout, HTTP 429, and invalid JSON.
-  - Created `tests/unit/test_triage_stage3.py` (12 tests) testing `LLMTriageOutput` validation, category synonym normalization, prompt formatting, end-to-end `LLMTriageClassifier` async and sync invocation, multi-type context coercion, exception handling, and safe default fallback.
-- **Task Verification**: Marked Task 2.4 complete in `specs/tasks.md`.
+  - Authored `tests/unit/test_triage_cascade.py` (12 tests) testing rule short-circuits, ML short-circuits, LLM fallbacks, safe defaults with review flags, hierarchical threshold overrides, dynamic JSON settings loading, and in-memory persistence.
+  - Authored `tests/integration/test_classification_store_postgres.py` (4 tests) validating live PostgreSQL table insertion, retrieval, multi-tenant isolation, chronological listing, and `decided_by` CHECK constraints.
+- **Task Verification**: Marked Task 2.5 complete in `specs/tasks.md`.
 
 ---
 
@@ -33,7 +28,7 @@
 - **Blocker**: None.
 - **Major**: None.
 - **Minor**: None.
-- **Nit**: None. All 160 source files pass `ruff check` and `mypy --strict`.
+- **Nit**: None. All 165 source files pass `ruff check` and `mypy --strict`.
 
 ---
 
@@ -41,40 +36,33 @@
 
 | Verification Target | Command | Result |
 |---|---|---|
-| Provider Protocol & Unit Tests | `uv run pytest tests/unit/test_llm_provider.py -v` | PASS (11/11 passed in 0.92s) |
-| Stage 3 Classifier Unit Tests | `uv run pytest tests/unit/test_triage_stage3.py -v` | PASS (12/12 passed in 0.90s) |
+| Cascade Unit Tests | `uv run pytest tests/unit/test_triage_cascade.py -v` | PASS (12/12 passed in 2.63s) |
+| PostgreSQL Store Integration Tests | `uv run pytest tests/integration/test_classification_store_postgres.py -v` | PASS (4/4 passed in 1.25s) |
 | Architectural Boundaries Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed) |
-| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (436/436 passed in 18.2s) |
-| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests` | PASS (0 errors, 160 files clean) |
+| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (452/452 passed in 19.8s) |
+| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests` | PASS (0 errors, 165 files clean) |
 
 ---
 
 ## 4. Manual Validation Steps
 
-To verify Stage 3 LLM classification locally using `FakeLLMProvider`:
+To test the cascade short-circuiting and threshold engine locally:
 ```bash
 uv run python -c "
-from services.triage_worker.llm_classifier import LLMTriageClassifier
-from packages.llm.fake import FakeLLMProvider
-from packages.domain.rules import EmailContext
+from services.triage_worker.cascade import CascadingTriageEngine
+from services.triage_worker.thresholds import ThresholdManager
+from packages.domain.rules import Rule, EmailContext, SenderDomainEvaluator, RuleAction
 
-fake_llm = FakeLLMProvider(default_response={
-    'category': 'administration',
-    'intent': 'password_reset',
-    'priority': 'normal',
-    'reply_required': True,
-    'workflow_hint': 'ai',
-    'retrieval_required': True,
-    'confidence': 0.95,
-})
+rule = Rule(id='r1', condition=SenderDomainEvaluator(allowed_domains=['vip.com']), action=RuleAction(category='sales', priority='urgent', reply_required=True))
+engine = CascadingTriageEngine(rules=[rule])
 
-clf = LLMTriageClassifier(provider=fake_llm)
-ctx = EmailContext(
-    subject='Cannot log into customer portal',
-    body_text='My team member is locked out of their account. Can you help reset their credentials?',
-)
-res = clf.classify_sync(ctx)
-print(f'Category: {res.category}, Intent: {res.intent}, Priority: {res.priority}, DecidedBy: {res.decided_by}, Model: {res.model}')
+ctx_vip = EmailContext(subject='Deal Inquiry', body_text='Big contract', sender='ceo@vip.com')
+res_vip = engine.triage_sync(ctx_vip)
+print('VIP message -> decided_by:', res_vip.classification.decided_by, 'category:', res_vip.classification.category)
+
+ctx_anon = EmailContext(subject='Hello', body_text='Random note', sender='user@unknown.com')
+res_anon = engine.triage_sync(ctx_anon)
+print('Unknown message -> decided_by:', res_anon.classification.decided_by, 'review_flag:', res_anon.classification.review_flag)
 "
 ```
 
@@ -82,4 +70,4 @@ print(f'Category: {res.category}, Intent: {res.intent}, Priority: {res.priority}
 
 ## 5. Follow-Ups
 
-- Next task in queue is **Phase 2 Task 2.5: Cascade orchestration & thresholds** (`R6.2, R6.7, R6.9, R6.11`) integrating Stage 1 (Rules), Stage 2 (ML), and Stage 3 (LLM) into a unified triage pipeline.
+- Next task in queue is **Phase 2 Task 2.6: Category taxonomy** (`R6.4`) validating the canonical taxonomy (`support`, `sales`, `billing`, `administration`, `scheduling`, `general_inquiry`, `automated_notification`, `acknowledgement`, `no_response`).

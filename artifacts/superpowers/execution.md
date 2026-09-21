@@ -2162,3 +2162,91 @@
 - **What Changed:**
   - Marked Task 2.4 complete (`[x]`).
 - **Result:** PASS
+
+# Execution Log: Phase 2 Task 2.5 — Cascade Orchestration & Thresholds
+
+## Step 1: Implement Classification Database Store
+- **Files Changed:**
+  - `packages/db/classification.py` (new)
+  - `packages/db/__init__.py`
+- **What Changed:**
+  - Defined `ClassificationResultRow` dataclass matching table `classification_result` with conversions to/from pure domain `Classification` entities.
+  - Defined runtime-checkable `ClassificationStore` Protocol (`save_classification`, `get_classification`, `get_latest_classification_by_message`, `list_classifications_by_message`).
+  - Implemented `PostgresClassificationStore` using parameterized queries with strict multi-tenant `organization_id` scoping per R5.3 and R6.7.
+  - Implemented `InMemoryClassificationStore` for hermetic offline testing per GEMINI.md §8.
+  - Exported all symbols from `packages.db`.
+- **Verification Command:**
+  - `uv run ruff check packages/db/ && uv run mypy packages/db/ && uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (0 lint errors, 0 mypy errors, all dependency boundary rules passed)
+
+## Step 2: Implement Configurable Threshold Manager
+- **Files Changed:**
+  - `services/triage_worker/thresholds.py` (new)
+  - `services/triage_worker/__init__.py`
+- **What Changed:**
+  - Implemented `ThresholdManager` providing hierarchical confidence threshold lookups with strict precedence: `Org + Category > Org default > Global Category > Global default` (`R6.9`).
+  - Added runtime re-configuration methods (`set_organization_threshold`, `set_organization_category_threshold`, `set_global_category_threshold`, `load_organization_settings`) allowing per-org and per-category tuning without redeploying code.
+  - Added validation ensuring thresholds fall strictly within `[0.0, 1.0]` and restricting stages to `rule`, `ml`, and `llm`.
+  - Exported `ThresholdManager` and `OrganizationThresholdOverrides` in `services.triage_worker`.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
+- **Result:** PASS (0 lint errors, 0 mypy errors)
+
+## Step 3: Implement Cascading Triage Engine
+- **Files Changed:**
+  - `services/triage_worker/cascade.py` (new)
+  - `services/triage_worker/__init__.py`
+- **What Changed:**
+  - Implemented `CascadingTriageEngine` orchestrating Stage 1 (Deterministic Rules) -> Stage 2 (Lightweight ML) -> Stage 3 (Small LLM) per R6.1.
+  - Enforced strict early short-circuiting: when any stage meets its confidence threshold, downstream stages are never executed (R6.2).
+  - Implemented safe default fallback (`category='general_inquiry'`, `priority='normal'`, `reply_required=True`, `confidence=0.0`, `decided_by='default'`) with `review_flag=True` if all stages abstain or fail (R6.11).
+  - Wired optional persistence to `ClassificationStore` saving stage, latency, model, and raw output (R6.7).
+  - Added `StageExecutionRecord` telemetry capturing full audit trail across all evaluated stages.
+  - Exported `CascadingTriageEngine`, `CascadeResult`, and `StageExecutionRecord` in `services.triage_worker`.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/ && uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (0 lint errors, 0 mypy errors, all boundary tests passed)
+
+## Step 4: Author Cascade Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_triage_cascade.py` (new)
+- **What Changed:**
+  - Authored 12 automated unit tests validating:
+    - Stage 1 rule short-circuiting ensuring ML and LLM are never invoked (R6.2).
+    - Stage 2 ML short-circuiting on low rule confidence ensuring LLM is never called.
+    - Stage 3 LLM fallback invocation when rules and ML abstain or miss thresholds.
+    - Safe default assignment (`category='general_inquiry'`, `priority='normal'`, `reply_required=True`, `confidence=0.0`, `decided_by='default'`, `review_flag=True`) with `stages_attempted` telemetry when all stages fail (R6.11).
+    - Hierarchical threshold resolution precedence (`Org+Category > Org default > Global Category > Global default`) and dynamic JSONB settings loading without restart (R6.9).
+    - Audit trail and persistence to `InMemoryClassificationStore` (R6.7).
+    - Synchronous wrapper `triage_sync` and invalid input rejection (`TypeError`).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_triage_cascade.py -v`
+- **Result:** PASS (12/12 passed in 2.63s)
+
+## Step 5: Author PostgreSQL Integration Test Suite
+- **Files Changed:**
+  - `tests/integration/test_classification_store_postgres.py` (new)
+- **What Changed:**
+  - Authored 4 integration tests against live PostgreSQL container on port 5433 verifying:
+    - End-to-end insertion and retrieval of classification results in `classification_result` table.
+    - Tenant isolation ensuring queries with different `organization_id` return None (R5.3).
+    - Latest classification resolution and chronological listing for multi-attempt messages.
+    - Database CHECK constraint verification on `decided_by IN ('rule', 'ml', 'llm', 'default')`.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_classification_store_postgres.py -v`
+- **Result:** PASS (4/4 passed in 1.25s)
+
+## Step 6: Full Regression Verification & Task 2.5 Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Validated full test suite (452 unit and integration tests passing).
+  - Validated strict static type checking with mypy and code formatting with ruff.
+  - Validated architectural boundary rules (AST dependency rules).
+  - Marked Task 2.5 complete in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests`
+- **Result:** PASS (452 passed, 0 lint errors, 0 type errors)
+

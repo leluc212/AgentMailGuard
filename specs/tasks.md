@@ -225,7 +225,7 @@
   - Structured-output classification call through `LLMProvider`; strict schema; short prompt.
   - _Requirements: R6.1, R6.3_
 
-- [ ] **2.5 Cascade orchestration & thresholds**
+- [x] **2.5 Cascade orchestration & thresholds**
   - Stop at the first stage meeting its threshold; never invoke later stages after a confident answer.
   - Thresholds configurable per organization and per category without redeploy.
   - Persist every result with stage, latency, model, raw output.
