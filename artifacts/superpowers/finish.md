@@ -1,13 +1,30 @@
-# Phase 2 Task 2.3: Lightweight ML Classifier (Triage Stage 2) — Finish Summary
+# Phase 2 Task 2.4: Small-LLM Fallback (Triage Stage 3) — Finish Summary
 
 ## 1. Summary of Changes
 
-- **Dependencies**: Added `scikit-learn>=1.4.0` (with `numpy`, `scipy`, `joblib`) to `pyproject.toml` and synced via `uv sync`.
-- **Configuration**: Added `ml_model_path: str` to `TriageSettings` in `packages/core/settings.py`, documented in `.env.example` and `docs/configuration.md`.
-- **Training Pipeline**: Created `services/triage_worker/training.py` implementing `train_triage_model` and `evaluate_model` using TF-IDF feature extraction (sublinear TF, n-grams 1-2) + Logistic Regression (C=50.0, balanced weights, L-BFGS). Evaluated against the Phase 0 held-out test split (`test.jsonl`), achieving **100% Accuracy and 100% Macro-F1** across all 9 canonical categories (`R6.4`). Serialized artifacts to `artifacts/models/triage_ml_v1.joblib` and `artifacts/models/triage_ml_v1_metrics.json` (`R22.1, R22.12`).
-- **ML Classifier Inference Engine**: Created `services/triage_worker/classifier.py` implementing `MLClassifier` with `load_from_artifact` and `classify(context)` adhering to `design.md §5.3` and `R6.1, NFR3`. Emits structured `Classification` domain entities with calibrated probabilities, priority detection (urgent keywords), reply requirement, workflow hint, and retrieval flags. Measured latency is 8–10 ms, comfortably inside the 20–50 ms NFR3 budget.
-- **Automated Tests**: Created `tests/unit/test_triage_ml.py` with 18 automated unit tests covering artifact loading, inference contract, priority routing, early-exit flags, latency benchmarking, held-out metrics, and edge cases (empty text, massive payloads, Unicode/emojis).
-- **Task Verification**: Marked Task 2.3 complete in `specs/tasks.md`.
+- **LLM Abstractions & Protocol (`packages/llm/protocol.py`)**:
+  - Defined `ModelTier` enum (`FAST`, `ROUTINE`, `STRONG`, `HIGH_CAPABILITY`, `FALLBACK`) per `R15` and `design.md §5.7`.
+  - Defined `ChatMessage` dataclass (`role: str`, `content: str`).
+  - Defined `LLMResult` dataclass (`content: dict`, `model: str`, `tier: ModelTier`, `input_tokens: int`, `output_tokens: int`, `latency_ms: int`, `raw_finish_reason: str`).
+  - Defined `LLMProvider` runtime-checkable protocol with `async def generate(self, *, messages, schema, tier, max_tokens, temperature) -> LLMResult`.
+  - Defined LLM exception hierarchy: `LLMError`, `LLMTimeoutError`, `LLMResponseError`, `LLMSchemaValidationError`.
+- **Deterministic FakeLLMProvider (`packages/llm/fake.py`)**:
+  - Implemented `FakeLLMProvider` complying with `LLMProvider` protocol for offline, hermetic, credential-free CI and testing per `GEMINI.md §8`.
+  - Supports configurable default responses, FIFO queued canned responses, dynamic responder callbacks, failure injection, latency simulation, and call inspection (`recorded_calls`).
+- **HTTP LLM Client (`packages/llm/client.py`)**:
+  - Implemented `HttpLLMProvider` using `httpx.AsyncClient` supporting OpenAI / LiteLLM-compatible `/chat/completions` API.
+  - Implemented tier-to-model resolution (`FAST` / `ROUTINE` -> `gpt-4o-mini`, `STRONG` / `HIGH_CAPABILITY` -> `gpt-4o`, `FALLBACK` -> `claude-3-haiku`).
+  - Enforced structured JSON schema outputs (`response_format={"type": "json_schema", ...}`) and payload validation.
+  - Strictly encapsulated all vendor SDK interactions within `packages/llm/` per `GEMINI.md §4`.
+- **Stage 3 LLM Classifier (`services/triage_worker/llm_classifier.py`)**:
+  - Defined Pydantic schema `LLMTriageOutput` enforcing the 9 canonical categories (`R6.4`), priority cues, reply_required, workflow_hint (`ai`, `template`, `none`), retrieval_required, and confidence bounds [0.0, 1.0].
+  - Authored concise system prompt and `prepare_triage_prompt(ctx)` handling body truncation to 2000 chars and header extraction (`Auto-Submitted`, `List-Unsubscribe`).
+  - Implemented `LLMTriageClassifier` with `classify(context)` and `classify_sync(context)` mapping outputs to domain `Classification` entity with `decided_by='llm'`.
+  - Implemented `safe_default(error_message)` helper meeting `R6.11` safe fallback with review flag.
+- **Automated Tests**:
+  - Created `tests/unit/test_llm_provider.py` (11 tests) testing protocol conformance, FakeLLMProvider mock facilities, and HttpLLMProvider with `httpx.MockTransport` covering success, timeout, HTTP 429, and invalid JSON.
+  - Created `tests/unit/test_triage_stage3.py` (12 tests) testing `LLMTriageOutput` validation, category synonym normalization, prompt formatting, end-to-end `LLMTriageClassifier` async and sync invocation, multi-type context coercion, exception handling, and safe default fallback.
+- **Task Verification**: Marked Task 2.4 complete in `specs/tasks.md`.
 
 ---
 
@@ -16,7 +33,7 @@
 - **Blocker**: None.
 - **Major**: None.
 - **Minor**: None.
-- **Nit**: None. All 154 source files pass `ruff check` and `mypy --strict`.
+- **Nit**: None. All 160 source files pass `ruff check` and `mypy --strict`.
 
 ---
 
@@ -24,36 +41,40 @@
 
 | Verification Target | Command | Result |
 |---|---|---|
-| Dependencies & Environment | `uv run python -c "import sklearn; print(sklearn.__version__)"` | PASS (`1.9.1`) |
-| Settings & Configuration | `uv run pytest tests/unit/test_settings.py -v` | PASS (9/9 passed) |
-| Model Training & Metrics | `uv run python -m services.triage_worker.training` | PASS (100% Macro-F1, artifacts saved) |
-| Triage ML Unit Tests | `uv run pytest tests/unit/test_triage_ml.py -v` | PASS (18/18 passed in 4.11s) |
-| Architectural Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed) |
-| Full Unit Test Suite | `uv run pytest tests/unit -v` | PASS (354/354 passed) |
-| Integration Test Suite | `uv run pytest tests/integration -v` | PASS (59/59 passed) |
-| Code Style & Types | `uv run ruff check . && uv run mypy services/ packages/ tests/` | PASS (0 errors, 154 files clean) |
+| Provider Protocol & Unit Tests | `uv run pytest tests/unit/test_llm_provider.py -v` | PASS (11/11 passed in 0.92s) |
+| Stage 3 Classifier Unit Tests | `uv run pytest tests/unit/test_triage_stage3.py -v` | PASS (12/12 passed in 0.90s) |
+| Architectural Boundaries Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed) |
+| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (436/436 passed in 18.2s) |
+| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests` | PASS (0 errors, 160 files clean) |
 
 ---
 
 ## 4. Manual Validation Steps
 
-To verify Stage 2 ML classification locally:
+To verify Stage 3 LLM classification locally using `FakeLLMProvider`:
 ```bash
-# 1. Inspect held-out metrics artifact
-cat artifacts/models/triage_ml_v1_metrics.json
-
-# 2. Run standalone inference test
 uv run python -c "
-from services.triage_worker.classifier import MLClassifier
+from services.triage_worker.llm_classifier import LLMTriageClassifier
+from packages.llm.fake import FakeLLMProvider
 from packages.domain.rules import EmailContext
 
-clf = MLClassifier.load_from_artifact()
+fake_llm = FakeLLMProvider(default_response={
+    'category': 'administration',
+    'intent': 'password_reset',
+    'priority': 'normal',
+    'reply_required': True,
+    'workflow_hint': 'ai',
+    'retrieval_required': True,
+    'confidence': 0.95,
+})
+
+clf = LLMTriageClassifier(provider=fake_llm)
 ctx = EmailContext(
-    subject='URGENT: Database connection pool exhausted',
-    body_text='Web nodes reporting HTTP 500 error connecting to Postgres. Need immediate assistance.',
+    subject='Cannot log into customer portal',
+    body_text='My team member is locked out of their account. Can you help reset their credentials?',
 )
-res = clf.classify(ctx)
-print(f'Category: {res.category}, Confidence: {res.confidence}, Priority: {res.priority}, Latency: {res.latency_ms}ms')
+res = clf.classify_sync(ctx)
+print(f'Category: {res.category}, Intent: {res.intent}, Priority: {res.priority}, DecidedBy: {res.decided_by}, Model: {res.model}')
 "
 ```
 
@@ -61,4 +82,4 @@ print(f'Category: {res.category}, Confidence: {res.confidence}, Priority: {res.p
 
 ## 5. Follow-Ups
 
-- Next task in queue is **Phase 2 Task 2.4: Small-LLM fallback (triage stage 3)** using `LLMProvider` with structured outputs.
+- Next task in queue is **Phase 2 Task 2.5: Cascade orchestration & thresholds** (`R6.2, R6.7, R6.9, R6.11`) integrating Stage 1 (Rules), Stage 2 (ML), and Stage 3 (LLM) into a unified triage pipeline.

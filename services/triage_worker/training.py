@@ -103,8 +103,7 @@ def evaluate_model(
     """
     test_texts = [prepare_text(item.subject, item.body) for item in test_items]
     test_labels = [
-        str(getattr(item.gold_category, "value", item.gold_category))
-        for item in test_items
+        str(getattr(item.gold_category, "value", item.gold_category)) for item in test_items
     ]
 
     # Classes recognized by the model
@@ -187,8 +186,7 @@ def train_triage_model(
 
     train_texts = [prepare_text(item.subject, item.body) for item in train_items]
     train_labels = [
-        str(getattr(item.gold_category, "value", item.gold_category))
-        for item in train_items
+        str(getattr(item.gold_category, "value", item.gold_category)) for item in train_items
     ]
 
     # Validate all canonical categories represented

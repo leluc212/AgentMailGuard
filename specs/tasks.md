@@ -221,7 +221,7 @@
   - Inference path budgeted at 20–50 ms; report held-out macro-F1 at this stage, not only in Phase 7.
   - _Requirements: R6.1, R22.1, NFR3_
 
-- [ ] **2.4 Small-LLM fallback (triage stage 3)**
+- [x] **2.4 Small-LLM fallback (triage stage 3)**
   - Structured-output classification call through `LLMProvider`; strict schema; short prompt.
   - _Requirements: R6.1, R6.3_
 

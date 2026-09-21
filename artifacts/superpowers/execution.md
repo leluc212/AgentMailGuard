@@ -2091,5 +2091,74 @@
   - `uv run pytest tests/unit/test_triage_ml.py -v && uv run pytest tests/unit -v && uv run pytest tests/integration -v`
 - **Result:** PASS (18/18 new triage ML tests passed; full test suite: 354 unit + 59 integration = 413 passed, 0 failures)
 
+# Execution Log: Phase 2 Task 2.4 — Small-LLM Fallback (Triage Stage 3)
 
+## Step 1: Define LLMProvider protocol and types
+- **Files Changed:**
+  - `packages/llm/protocol.py` (new)
+  - `packages/llm/__init__.py`
+- **What Changed:**
+  - Defined `ModelTier` enum (`FAST`, `ROUTINE`, `STRONG`, `HIGH_CAPABILITY`, `FALLBACK`) per `R15` and `design.md §5.7`.
+  - Defined `ChatMessage` dataclass representing conversational messages.
+  - Defined `LLMResult` dataclass carrying schema-validated content, model ID, tier, token counts, and latency.
+  - Defined `LLMProvider` runtime-checkable protocol with `async def generate(self, *, messages, schema, tier, max_tokens, temperature) -> LLMResult`.
+  - Exported core types in `packages/llm/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check packages/llm/ && uv run mypy packages/llm/`
+- **Result:** PASS (0 lint errors, 0 mypy errors)
 
+## Step 2: Implement FakeLLMProvider for offline testing
+- **Files Changed:**
+  - `packages/llm/fake.py` (new)
+  - `packages/llm/__init__.py`
+- **What Changed:**
+  - Implemented `FakeLLMProvider` complying with `LLMProvider` protocol (GEMINI.md §8).
+  - Supports configurable default responses, FIFO queued canned responses, dynamic responder callbacks, failure injection, latency simulation, and call inspection (`recorded_calls`).
+- **Verification Command:**
+  - `uv run ruff check packages/llm/ && uv run mypy packages/llm/`
+- **Result:** PASS (0 lint errors, 0 mypy errors)
+
+## Step 3: Implement HttpLLMProvider (OpenAI-compatible)
+- **Files Changed:**
+  - `packages/llm/client.py` (new)
+  - `packages/llm/__init__.py`
+  - `packages/llm/protocol.py`
+- **What Changed:**
+  - Implemented `HttpLLMProvider` using `httpx.AsyncClient` supporting OpenAI / LiteLLM-compatible `/chat/completions` API.
+  - Implemented tier-to-model resolution (`FAST` / `ROUTINE` -> `gpt-4o-mini`, `STRONG` / `HIGH_CAPABILITY` -> `gpt-4o`, `FALLBACK` -> `claude-3-haiku`).
+  - Added structured JSON schema output support via `response_format` and JSON validation.
+  - Added latency measurement, token usage extraction, and error hierarchy (`LLMError`, `LLMTimeoutError`, `LLMResponseError`, `LLMSchemaValidationError`).
+- **Verification Command:**
+  - `uv run ruff check packages/llm/ && uv run mypy packages/llm/ && uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (0 lint errors, 0 mypy errors, all dependency boundaries pass)
+
+## Step 4: Implement Stage 3 LLMTriageClassifier
+- **Files Changed:**
+  - `services/triage_worker/llm_classifier.py` (new)
+  - `services/triage_worker/__init__.py`
+- **What Changed:**
+  - Defined Pydantic schema `LLMTriageOutput` enforcing the 9 canonical categories, priority cues, reply_required, workflow_hint (`ai`, `template`, `none`), retrieval_required, and confidence bounds.
+  - Authored concise system prompt and `prepare_triage_prompt(ctx)` handling body truncation to 2000 chars and header extraction (`Auto-Submitted`, `List-Unsubscribe`).
+  - Implemented `LLMTriageClassifier` with `classify(context)` and `classify_sync(context)` mapping outputs to domain `Classification` entity with `decided_by='llm'`.
+  - Implemented `safe_default(error_message)` helper meeting R6.11 safe fallback with review flag.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
+- **Result:** PASS (0 lint errors, 0 mypy errors)
+
+## Step 5: Author comprehensive automated test suite
+- **Files Changed:**
+  - `tests/unit/test_llm_provider.py` (new)
+  - `tests/unit/test_triage_stage3.py` (new)
+- **What Changed:**
+  - Created `tests/unit/test_llm_provider.py` testing protocol conformance, FakeLLMProvider mock behaviors, and HttpLLMProvider with `httpx.MockTransport` covering success, timeout, HTTP 429, and invalid JSON.
+  - Created `tests/unit/test_triage_stage3.py` testing `LLMTriageOutput` validation, category synonym normalization, prompt formatting, end-to-end `LLMTriageClassifier` async and sync invocation, multi-type context coercion, exception handling, and safe default fallback.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_llm_provider.py tests/unit/test_triage_stage3.py -v && uv run pytest tests/unit tests/integration -q`
+- **Result:** PASS (23/23 new tests passed; full test suite: 436 tests passed, 0 failures)
+
+## Step 6: Mark Task Complete
+- **Files Changed:**
+  - `specs/tasks.md`
+- **What Changed:**
+  - Marked Task 2.4 complete (`[x]`).
+- **Result:** PASS

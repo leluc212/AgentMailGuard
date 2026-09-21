@@ -1,5 +1,11 @@
 """Package initialization for services/triage_worker."""
 
+from services.triage_worker.classifier import MLClassifier
+from services.triage_worker.llm_classifier import (
+    LLMTriageClassifier,
+    LLMTriageOutput,
+    prepare_triage_prompt,
+)
 from services.triage_worker.rules import (
     HotReloadableRuleEngine,
     load_rules_from_file,
@@ -8,6 +14,10 @@ from services.triage_worker.rules import (
 
 __all__ = [
     "HotReloadableRuleEngine",
+    "LLMTriageClassifier",
+    "LLMTriageOutput",
+    "MLClassifier",
     "load_rules_from_file",
     "load_rules_from_yaml",
+    "prepare_triage_prompt",
 ]
