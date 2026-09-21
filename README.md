@@ -1,6 +1,7 @@
-# AgentMailGuard (`rag-email`)
+# Enterprise RAG-Based Intelligent Email Management System (`rag-email`)
 
-> **Enterprise RAG-Based Intelligent Email Management and Response System**
+> **Core Intelligence & Autonomous Response Engine**
+> Operating within the **AgentMailGuard** Defense & Email Protection Ecosystem
 >
 > *Classify first. Retrieve only when required. Generate only when necessary.*
 
@@ -14,13 +15,70 @@
 
 ---
 
-## 1. Overview & Governing Architecture
+## 1. System Boundary: Core Engine vs. AgentMailGuard
 
-**AgentMailGuard** is a specification-driven, enterprise-grade email management and autonomous response pipeline. It bridges inbound enterprise mailboxes (Gmail, Microsoft Graph, IMAP) with intelligent routing, thread-aware conversation tracking, hybrid knowledge retrieval (FTS + vector ANN), and controlled LLM drafting.
+To ensure clear architectural boundaries and enterprise-grade reliability, this repository represents the **Core System (`rag-email`)**, designed to work in synergy with the **AgentMailGuard** security perimeter.
+
+```
+                          AGENTMAILGUARD (Security & Threat Defense Perimeter)
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                                  │
+ │  Inbound Email ──▶ [ Perimeter Gateway ] ──▶ [ Malware / Phishing Filter ]                       │
+ │                                             │                                                    │
+ │                                             ▼                                                    │
+ │                                     [ Prompt-Injection & Jailbreak Defense ]                     │
+ │                                             │                                                    │
+ │                                             ▼                                                    │
+ │                                     [ Inbound DLP & Secret Detection ]                           │
+ │                                             │                                                    │
+ └─────────────────────────────────────────────┼────────────────────────────────────────────────────┘
+                                               │ (Sanitized & Verified Inbound Traffic)
+                                               ▼
+               CORE SYSTEM: RAG-EMAIL INTELLIGENCE & MANAGEMENT (This Codebase)
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                                  │
+ │  ┌─────────────────────────┐        ┌─────────────────────────┐        ┌───────────────────────┐ │
+ │  │ Multi-Provider Ingestion│──Push─▶│ Canonical Normalizer    │──Jobs─▶│ Cascading Triage      │ │
+ │  │ (Gmail, Graph, IMAP)    │        │ (MIME, Threading, MinIO)│        │ (Rules ➔ ML ➔ LLM)    │ │
+ │  └─────────────────────────┘        └─────────────────────────┘        └───────────┬───────────┘ │
+ │                                                                                    │             │
+ │                                                                                    ▼             │
+ │  ┌─────────────────────────┐        ┌─────────────────────────┐        ┌───────────────────────┐ │
+ │  │ LLM Response Drafting   │◀───────│ Hybrid RAG Engine       │◀───────│ Category / Priority   │ │
+ │  │ (Single-call, Grounded) │        │ (pgvector + FTS + RRF)  │        │ Work Queue Dispatch   │ │
+ │  └───────────┬─────────────┘        └─────────────────────────┘        └───────────────────────┘ │
+ │                                                                                                  │
+ └──────────────┼───────────────────────────────────────────────────────────────────────────────────┘
+                │ (Generated Draft & Structured Context Audit)
+                ▼
+                          AGENTMAILGUARD (Security & Threat Defense Perimeter)
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                                  │
+ │  Drafted Reply ──▶ [ Outbound DLP & Leak Scanner ] ──▶ [ Human/Compliance Sign-off ] ──▶ Dispatch│
+ │                                                                                                  │
+ └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Architectural Responsibilities
+
+| Dimension | AgentMailGuard (Security Perimeter) | Core System (`rag-email`) (This Codebase) |
+|---|---|---|
+| **Core Objective** | Threat defense, perimeter security, and data leakage protection | High-throughput email ingestion, triage, retrieval, and LLM drafting |
+| **Inbound Security** | Phishing detection, malware detonation, prompt injection filtering | Assumes verified traffic; executes MIME normalization and thread tracking |
+| **Triage & Routing** | Threat categorization, quarantine, and security policy checks | Business categorization, urgency assignment, and early-exit routing |
+| **Knowledge & RAG** | Out of scope | Multi-tenant hybrid search (PostgreSQL FTS + `pgvector` HNSW + RRF) |
+| **Outbound Controls**| DLP scanning, PII redaction verification, compliance sign-off | Context-grounded response generation with strict citation verification |
+| **Boundary Rule** | Cross-cutting security subsystem (`GEMINI.md §6`) | Core business workflow and AI execution engine |
+
+---
+
+## 2. Overview & Governing Architecture
+
+The core **`rag-email`** system is a specification-driven, enterprise-grade email management and autonomous response pipeline. It bridges inbound enterprise mailboxes (Gmail, Microsoft Graph, IMAP) with intelligent routing, thread-aware conversation tracking, hybrid knowledge retrieval, and controlled LLM drafting.
 
 ### The Governing Principle
 
-Most enterprise email automation systems fail economically because they run naive LLM inference and vector embedding across **every** incoming email. AgentMailGuard enforces strict cost discipline:
+Most enterprise email automation systems fail economically because they run naive LLM inference and vector embedding across **every** incoming email. Our core engine enforces strict cost discipline:
 
 ```
 100,000 Inbound Emails/Day
@@ -34,11 +92,12 @@ Most enterprise email automation systems fail economically because they run naiv
   └── 35,000 Actionable Inquiries (35%) ──▶ AI Generation (~24,500 trigger Hybrid RAG)
 ```
 
-Inference compute is budgeted strictly where it creates business value.
+Inference compute is budgeted strictly where it creates business value:
+> **Classify first. Retrieve only when required. Generate only when necessary.**
 
 ---
 
-## 2. End-to-End Pipeline Architecture
+## 3. End-to-End Pipeline Architecture
 
 ```
 ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
@@ -98,7 +157,7 @@ Inference compute is budgeted strictly where it creates business value.
 
 ---
 
-## 3. Key System Features
+## 4. Key System Features
 
 ### Multi-Provider Ingestion & Sync Checkpoints
 - Native adapters for **Gmail** (Cloud Pub/Sub push + `historyId` sync), **Microsoft Graph** (`@odata.deltaLink` change notifications), and **IMAP** (`UIDVALIDITY` sync).
@@ -129,7 +188,7 @@ Inference compute is budgeted strictly where it creates business value.
 
 ---
 
-## 4. Tech Stack
+## 5. Tech Stack
 
 | Component | Technology | Description |
 |---|---|---|
@@ -143,7 +202,7 @@ Inference compute is budgeted strictly where it creates business value.
 
 ---
 
-## 5. Repository Structure
+## 6. Repository Structure
 
 ```
 .
@@ -183,7 +242,7 @@ Inference compute is budgeted strictly where it creates business value.
 
 ---
 
-## 6. Quickstart & Local Setup
+## 7. Quickstart & Local Setup
 
 ### Prerequisites
 - Python 3.12+ and [`uv`](https://docs.astral.sh/uv/)
@@ -193,6 +252,7 @@ Inference compute is budgeted strictly where it creates business value.
 ```bash
 git clone https://github.com/leluc212/AgentMailGuard.git
 cd AgentMailGuard
+git checkout RAG_Email_System
 uv sync
 ```
 
@@ -224,7 +284,7 @@ make test
 
 ---
 
-## 7. Configuration Reference
+## 8. Configuration Reference
 
 All settings are configured through environment variables or `.env` files using Pydantic Settings validation. Refer to [docs/configuration.md](docs/configuration.md) and [.env.example](.env.example) for comprehensive options.
 
@@ -237,7 +297,7 @@ Key settings groups:
 
 ---
 
-## 8. License & Status
+## 9. License & Status
 
 Developed under the **Enterprise RAG-Based Intelligent Email Management and Response System** specification.
 Architectural compliance: Clean Architecture, Domain-Driven Design, strict tenant data isolation, zero mock-only stubs.
