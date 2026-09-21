@@ -137,7 +137,12 @@ def get_message_store(request: Request) -> Any:
 
 def get_storage_client(request: Request) -> Any:
     """Retrieve object storage client from app.state if available."""
-    return getattr(request.app.state, "storage_client", None)
+    client = getattr(request.app.state, "storage_client", None)
+    if client is not None:
+        return client
+    from packages.core.storage import get_storage_client as create_storage_client
+
+    return create_storage_client()
 
 
 def get_job_publisher(request: Request) -> Any:

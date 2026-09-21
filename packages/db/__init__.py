@@ -7,6 +7,11 @@ from packages.db.checkpoint import (
 )
 from packages.db.connection import create_db_pool, create_pool_from_settings
 from packages.db.idempotency import PostgresIdempotencyBackend
+from packages.db.job import (
+    InMemoryJobStore,
+    JobStore,
+    PostgresJobStore,
+)
 from packages.db.mailbox import (
     InMemoryMailboxStore,
     MailboxStore,
@@ -43,16 +48,19 @@ __all__ = [
     "AttachmentRecord",
     "CheckpointStore",
     "InMemoryCheckpointStore",
+    "InMemoryJobStore",
     "InMemoryMailboxStore",
     "InMemoryMessageStore",
     "InMemorySubscriptionStore",
     "InMemoryThreadStore",
+    "JobStore",
     "MailboxStore",
     "MessageInsertResult",
     "MessageStore",
     "Migration",
     "PostgresCheckpointStore",
     "PostgresIdempotencyBackend",
+    "PostgresJobStore",
     "PostgresMailboxStore",
     "PostgresMessageStore",
     "PostgresSubscriptionStore",

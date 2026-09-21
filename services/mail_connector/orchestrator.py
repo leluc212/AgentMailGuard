@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
 from packages.adapters.exceptions import AuthExpired, RateLimited
 from packages.adapters.protocol import MailProviderAdapter
@@ -22,8 +23,10 @@ from packages.core.idempotency import derive_idempotency_key
 from packages.core.settings import AppSettings
 from packages.core.storage import StorageProtocol
 from packages.db.checkpoint import CheckpointStore
+from packages.db.job import JobStore
 from packages.db.mailbox import MailboxStore
-from packages.domain.entities import Checkpoint, Mailbox
+from packages.domain.entities import Checkpoint, Job, Mailbox
+from packages.domain.state_machine import JobState
 from packages.observability.metrics import PipelineMetrics
 from packages.observability.tracing import trace_span
 
@@ -64,6 +67,7 @@ class SyncOrchestrator:
         publisher: PublisherProtocol,
         adapter_resolver: Callable[[Mailbox], MailProviderAdapter] | None = None,
         mailbox_store: MailboxStore | None = None,
+        job_store: JobStore | None = None,
         archiver: RawPayloadArchiver | None = None,
         metrics: PipelineMetrics | None = None,
         settings: AppSettings | None = None,
@@ -74,6 +78,7 @@ class SyncOrchestrator:
         self.publisher = publisher
         self.adapter_resolver = adapter_resolver or get_adapter_for_mailbox
         self.mailbox_store = mailbox_store
+        self.job_store = job_store
         self.settings = settings or AppSettings()
         self.archiver = archiver or RawPayloadArchiver(
             storage_client=self.storage_client,
@@ -219,21 +224,50 @@ class SyncOrchestrator:
                                     provider=mailbox.provider
                                 ).observe(float(archived_ref.size_bytes))
 
-                        # 2. Publish persistent JobEnvelope to email.normalize (R3.1)
+                        # 2. Derive deterministic idempotency key (R19.2)
                         idem_key = derive_idempotency_key(
                             organization_id=mailbox.organization_id,
                             mailbox_id=mailbox.id,
                             provider_message_id=raw.provider_message_id,
                             operation_type="normalize",
                         )
+
+                        # 3. Create processing_job in state RECEIVED (R18.1, Task 2.1)
+                        job_id_val = str(uuid4())
+                        if self.job_store is not None:
+                            ingest_job = Job(
+                                id=UUID(job_id_val),
+                                organization_id=mailbox.organization_id,
+                                message_id=None,
+                                thread_id=None,
+                                job_type="email_pipeline",
+                                state=JobState.RECEIVED.value,
+                                idempotency_key=idem_key,
+                            )
+                            persisted_job, _ = await self.job_store.create_job(
+                                job=ingest_job,
+                                initial_event_payload={
+                                    "provider": mailbox.provider,
+                                    "provider_message_id": raw.provider_message_id,
+                                    "mailbox_id": str(mailbox.id),
+                                    "raw_object_key": archived_ref.object_key,
+                                },
+                            )
+                            job_id_val = str(persisted_job.id)
+
+                        # 4. Publish persistent JobEnvelope to email.normalize (R3.1, R7.3, §7.3)
                         envelope = JobEnvelope(
+                            job_id=job_id_val,
                             idempotency_key=idem_key,
                             organization_id=str(mailbox.organization_id),
                             mailbox_id=str(mailbox.id),
                             message_id=raw.provider_message_id,
                             thread_id=raw.provider_thread_id or "",
                             job_type="normalize_email",
+                            attempt=0,
+                            classification={},
                             payload={
+                                "job_id": job_id_val,
                                 "raw_object_key": archived_ref.object_key,
                                 "raw_bucket": archived_ref.bucket,
                                 "sha256": archived_ref.sha256,

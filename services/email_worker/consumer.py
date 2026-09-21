@@ -19,9 +19,10 @@ from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
 
 from packages.broker.consumer import BaseConsumer, FatalError
 from packages.broker.envelope import JobEnvelope
-from packages.broker.publisher import MessagePublisher
 from packages.core.settings import BrokerSettings, RetryLadderSettings
 from packages.core.storage import StorageProtocol
+from packages.db.job import JobStore
+from packages.domain.state_machine import JobState
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from services.email_worker.normalizer import EmailNormalizer, NormalizationContext
 from services.email_worker.persister import EmailPersister
@@ -45,10 +46,11 @@ class EmailNormalizationConsumer(BaseConsumer):
         retry_settings: RetryLadderSettings | None = None,
         prefetch_count: int | None = None,
         connection: AbstractRobustConnection | None = None,
-        publisher: MessagePublisher | None = None,
+        publisher: Any = None,
         triage_exchange: str | None = None,
         triage_routing_key: str | None = None,
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
+        job_store: JobStore | None = None,
     ) -> None:
         settings = broker_settings or BrokerSettings()
         super().__init__(
@@ -62,6 +64,7 @@ class EmailNormalizationConsumer(BaseConsumer):
         self.normalizer = normalizer
         self.persister = persister
         self.storage_client = storage_client
+        self.job_store = job_store
         self.triage_exchange = triage_exchange or settings.exchange_email_triage
         self.triage_routing_key = triage_routing_key or settings.queue_triage
 
@@ -152,6 +155,21 @@ class EmailNormalizationConsumer(BaseConsumer):
                 provider_message_id,
                 envelope.job_id,
             )
+            if self.job_store is not None and self._is_valid_uuid(envelope.job_id):
+                try:
+                    await self.job_store.transition_job_state(
+                        organization_id=org_id,
+                        job_id=UUID(envelope.job_id),
+                        target_state=JobState.FAILED,
+                        error_message=(
+                            f"MIME normalization failed for message {provider_message_id}"
+                        ),
+                        payload={"provider_message_id": provider_message_id},
+                    )
+                except Exception as job_err:
+                    logger.warning(
+                        "Failed to transition job %s to FAILED: %s", envelope.job_id, job_err
+                    )
             raise FatalError(f"MIME normalization failed for message {provider_message_id}")
 
         # 5. Duplicate suppression (R4.8: treat as no-op success, emit no new job)
@@ -162,7 +180,27 @@ class EmailNormalizationConsumer(BaseConsumer):
             )
             return
 
-        # 6. Publish to downstream triage queue on normalization success
+        # 6. Atomically transition job to NORMALIZED (R18.1, R18.4, R18.5)
+        if self.job_store is not None and self._is_valid_uuid(envelope.job_id):
+            try:
+                await self.job_store.transition_job_state(
+                    organization_id=org_id,
+                    job_id=UUID(envelope.job_id),
+                    target_state=JobState.NORMALIZED,
+                    message_id=persist_result.message.message_id,
+                    thread_id=persist_result.message.thread_id,
+                    payload={
+                        "message_id": str(persist_result.message.message_id),
+                        "thread_id": str(persist_result.message.thread_id),
+                        "attachments_count": len(att_refs),
+                    },
+                )
+            except Exception as job_err:
+                logger.warning(
+                    "Failed to transition job %s to NORMALIZED: %s", envelope.job_id, job_err
+                )
+
+        # 7. Publish to downstream triage queue on normalization success (R7.3)
         if self._publisher is not None:
             triage_payload: dict[str, Any] = {
                 "message_id": str(persist_result.message.message_id),
@@ -174,6 +212,7 @@ class EmailNormalizationConsumer(BaseConsumer):
                 "received_at": persist_result.message.received_at.isoformat(),
             }
             triage_envelope = JobEnvelope(
+                job_id=envelope.job_id,
                 trace_id=envelope.trace_id,
                 idempotency_key=f"triage:{org_id}:{mbx_id}:{provider_message_id}",
                 organization_id=str(org_id),
@@ -181,6 +220,8 @@ class EmailNormalizationConsumer(BaseConsumer):
                 message_id=str(persist_result.message.message_id),
                 thread_id=str(persist_result.message.thread_id),
                 job_type="triage_email",
+                attempt=0,
+                classification={},
                 payload=triage_payload,
             )
             await self._publisher.publish(

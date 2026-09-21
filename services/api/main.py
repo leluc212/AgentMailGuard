@@ -121,7 +121,19 @@ def create_app(
             logger.warning("Message publisher initialization deferred or failed: %s", exc)
             app_instance.state.publisher = None
 
-        yield {"db_pool": db_pool, "publisher": publisher}
+        # 4. Initialize Object Storage client
+        storage_client = None
+        try:
+            from packages.core.storage import get_storage_client
+
+            storage_client = get_storage_client(active_settings.object_storage)
+            app_instance.state.storage_client = storage_client
+            logger.info("Storage client attached to app state")
+        except Exception as exc:
+            logger.warning("Storage client initialization failed: %s", exc)
+            app_instance.state.storage_client = None
+
+        yield {"db_pool": db_pool, "publisher": publisher, "storage_client": storage_client}
 
         # 4. Shutdown cleanup
         logger.info("Shutting down API application lifespan")

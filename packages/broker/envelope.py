@@ -5,6 +5,7 @@ Standard JSON envelope attached to every message in the asynchronous processing 
 
 import json
 import uuid
+from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -48,6 +49,48 @@ class JobEnvelope(BaseModel):
         description="UTC timestamp when job was enqueued",
     )
 
+    @property
+    def category(self) -> str | None:
+        """Extracted classification category snapshot (R7.3)."""
+        return self.classification.get("category")
+
+    @property
+    def priority(self) -> str:
+        """Extracted classification priority snapshot (R7.3)."""
+        return str(self.classification.get("priority", "normal"))
+
+    @property
+    def reply_required(self) -> bool:
+        """Extracted reply_required gate decision (R6.5, R7.3)."""
+        return bool(self.classification.get("reply_required", True))
+
+    @property
+    def workflow_hint(self) -> str:
+        """Extracted workflow_hint decision ('ai', 'template', 'none') (R6.12, R7.3)."""
+        return str(self.classification.get("workflow_hint", "ai"))
+
+    @property
+    def retrieval_required(self) -> bool:
+        """Extracted retrieval_required gate decision (R6.6, R7.3)."""
+        return bool(self.classification.get("retrieval_required", True))
+
+    def set_classification(self, classification: Any) -> None:
+        """Attach classification snapshot to envelope from dict or Classification entity (R7.3)."""
+        if is_dataclass(classification) and not isinstance(classification, type):
+            self.classification = asdict(classification)
+        elif isinstance(classification, dict):
+            self.classification = classification.copy()
+        elif hasattr(classification, "model_dump"):
+            self.classification = classification.model_dump()
+        else:
+            raise TypeError(f"Unsupported classification type: {type(classification)}")
+
+    def with_classification(self, classification: Any) -> "JobEnvelope":
+        """Return a copy of the envelope with updated classification snapshot (R7.3)."""
+        clone = self.model_copy(deep=True)
+        clone.set_classification(classification)
+        return clone
+
     def to_message(self, headers: dict[str, Any] | None = None) -> aio_pika.Message:
         """Serialize envelope into a persistent aio-pika AMQP Message (R3.1).
 
@@ -68,6 +111,10 @@ class JobEnvelope(BaseModel):
         msg_headers.setdefault("job_id", self.job_id)
         if self.mailbox_id:
             msg_headers.setdefault("mailbox_id", self.mailbox_id)
+        if self.category:
+            msg_headers.setdefault("category", self.category)
+        if self.priority:
+            msg_headers.setdefault("priority", self.priority)
 
         # Inject OpenTelemetry W3C trace context (R21.1)
         try:
