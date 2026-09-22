@@ -20,6 +20,7 @@ from packages.db.draft import DraftStore
 from packages.domain.entities import Classification, Job, NormalizedMessage
 from packages.domain.rules import EmailContext
 from packages.domain.templates import TemplateRegistry
+from packages.observability.metrics import PipelineMetrics, get_metrics
 from services.triage_worker.classifier import MLClassifier
 from services.triage_worker.gate import EarlyExitGate, GateDecision
 from services.triage_worker.llm_classifier import LLMTriageClassifier
@@ -80,7 +81,9 @@ class CascadingTriageEngine:
         template_registry: TemplateRegistry | None = None,
         draft_store: DraftStore | None = None,
         gate: EarlyExitGate | None = None,
+        metrics: PipelineMetrics | None = None,
     ) -> None:
+        self.metrics = metrics or get_metrics()
         self.rule_engine = rule_engine or HotReloadableRuleEngine()
         self.ml_classifier = ml_classifier
         self.llm_classifier = llm_classifier or LLMTriageClassifier()
@@ -91,6 +94,7 @@ class CascadingTriageEngine:
         self.gate = gate or EarlyExitGate(
             template_registry=template_registry,
             draft_store=draft_store,
+            metrics=self.metrics,
         )
 
     def _coerce_context(
@@ -385,6 +389,18 @@ class CascadingTriageEngine:
             )
 
         decided_stage = final_classification.decided_by
+
+        # Record triage classification metrics (R21.4, design.md §10)
+        org_metric_str = str(effective_org_id) if effective_org_id else "default"
+        self.metrics.emails_classified_total.labels(
+            organization=org_metric_str,
+            category=final_classification.category,
+            priority=final_classification.priority,
+            decided_by=final_classification.decided_by,
+        ).inc()
+        self.metrics.classification_latency_ms.labels(
+            stage=final_classification.decided_by,
+        ).observe(float(total_latency))
 
         # =========================================================================
         # Persistence (R6.7)

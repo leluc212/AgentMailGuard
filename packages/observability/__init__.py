@@ -11,6 +11,13 @@ from packages.observability.context import (
     reset_correlation_context,
     set_correlation_context,
 )
+from packages.observability.funnel import (
+    FunnelOutcome,
+    FunnelReport,
+    RAGMode,
+    compute_funnel_reconciliation,
+    record_funnel_outcome,
+)
 from packages.observability.health import (
     HealthRegistry,
     ReadinessCheck,
@@ -47,14 +54,18 @@ from packages.observability.tracing import (
 __all__ = [
     "CORRELATION_KEYS",
     "CorrelationFilter",
+    "FunnelOutcome",
+    "FunnelReport",
     "GracefulShutdownCoordinator",
     "HealthRegistry",
     "ObservabilityServer",
     "PipelineMetrics",
+    "RAGMode",
     "ReadinessCheck",
     "StructuredJSONFormatter",
     "bind_log_context",
     "clear_correlation_context",
+    "compute_funnel_reconciliation",
     "create_health_router",
     "create_pipeline_metrics",
     "extract_trace_context",
@@ -66,6 +77,7 @@ __all__ = [
     "init_tracer",
     "inject_trace_context",
     "record_ai_cost",
+    "record_funnel_outcome",
     "reset_correlation_context",
     "set_correlation_context",
     "setup_logging",

@@ -1,95 +1,64 @@
-# Phase 2 Task 2.8: Deterministic Template Reply Path — Finish Summary
+# Superpowers Finish Document: Phase 2 Task 2.9 — Funnel Instrumentation
 
-## 1. Summary of Changes
-
-- **Domain State Machine & Entities (`packages/domain/state_machine.py`, `packages/domain/entities.py`, `packages/domain/__init__.py`)**:
-  - Added `JobState.DRAFTED` to allowed targets in `TRANSITIONS[JobState.CLASSIFIED]` for direct state machine transitions upon template reply rendering.
-  - Defined `GeneratedDraft` dataclass entity in `packages/domain/entities.py` matching PostgreSQL `generated_draft` table (`id`, `organization_id`, `job_id`, `message_id`, `thread_id`, `action`, `subject`, `body`, `confidence`, `citations`, `citation_mismatch`, `model_name`, `model_tier`, `escalation_reason`, `prompt_version`, `input_tokens`, `output_tokens`, `cost_estimate`, `status`, `provider_ref`, `created_at`).
-  - Exported all symbols in `packages.domain`.
-- **Pure Domain Templates & Variable Substitution Engine (`packages/domain/templates.py`, `tests/unit/test_templates_domain.py`)**:
-  - Implemented `TemplateDefinition` and `TemplateRenderResult`.
-  - Implemented mustache-style variable substitution (`{{ variable }}` and `{{ object.field }}`) for message attributes (`subject`, `sender_name`, `sender_email`, `message_id`, `thread_id`, etc.) and arbitrary `business_data` attributes with safe fallback for missing values.
-  - Implemented `TemplateRegistry` with `(category, intent)` case-insensitive lookup, dictionary/JSON deserialization, and disk file resolution.
-  - Verified pure standard library compliance (zero external dependencies in `packages/domain`).
-- **Approved Versioned Template Files & Declarative Configuration (`prompts/templates/`, `config/templates.yaml`, `services/triage_worker/template_loader.py`)**:
-  - Authored version 1 approved text template files:
-    - `prompts/templates/acknowledgement.v1.txt` for `(acknowledgement, receipt_confirmation)`
-    - `prompts/templates/scheduling_ack.v1.txt` for `(scheduling, meeting_accepted)`
-  - Created declarative YAML registry `config/templates.yaml`.
-  - Implemented `HotReloadableTemplateRegistry` in `services/triage_worker/template_loader.py` with mtime checking and error isolation.
-- **Draft Persistence Store (`packages/db/draft.py`, `packages/db/__init__.py`, `tests/unit/test_draft_store.py`)**:
-  - Defined `DraftStore` protocol exposing `create_draft`, `get_draft`, `list_drafts_for_job`, `list_drafts_for_thread`.
-  - Implemented `InMemoryDraftStore` for unit testing and `PostgresDraftStore` using parameterized tenant-scoped queries on `generated_draft`.
-- **Early-Exit Gate & Pipeline Runner Integration (`services/triage_worker/gate.py`, `services/triage_worker/cascade.py`, `tests/unit/test_template_gate.py`)**:
-  - Added `GateAction.TEMPLATE_REPLY` to `GateAction`.
-  - Integrated `TemplateRegistry` and `DraftStore` into `EarlyExitGate`:
-    - If `workflow_hint == 'template'` and template matches: renders draft, sets zero-AI flags (`should_retrieve=False`, `should_generate=False`), transitions job to `DRAFTED` (`R6.13`), persists draft, returns `GateAction.TEMPLATE_REPLY`.
-    - If `workflow_hint == 'template'` and no template matches: falls back to `workflow_hint='ai'` (`R6.14`), transitions job to `QUEUED`, never blocking actionable replies.
-  - Updated `GatedPipelineRunner` to assert zero calls to retrieval, reranking, and generation on `TEMPLATE_REPLY`.
-  - Proved that early exit (`COMPLETED`), template reply (`DRAFTED`), and AI generation (`QUEUED`) are mutually exclusive and exhaustive over all mail (`R6.15`).
-- **PostgreSQL Integration Tests (`tests/integration/test_template_gate_postgres.py`)**:
-  - Verified live database persistence of `processing_job` (`DRAFTED`), `processing_event`, and `generated_draft`.
-  - Verified live fallback to `QUEUED` when template is missing.
-  - Verified strict multi-tenant isolation across organizations.
-- **Task Verification**: Marked Task 2.8 complete in `specs/tasks.md`.
+**Spec Alignment:** `specs/requirements.md §R6.10, §R6.15, §R21.4, §NFR14` · `specs/design.md §5.3, §10`
 
 ---
 
-## 2. Review Pass (Blocker / Major / Minor / Nit)
+## 1. Summary of Accomplishments
 
-- **Blocker**: None.
-- **Major**: None.
-- **Minor**: None.
-- **Nit**: None. All 183 source files pass `ruff check` and `mypy --strict`.
+1. **Prometheus Metrics Extension (`packages/observability/metrics.py`)**:
+   - Added `emails_early_exit_total` Counter with labels `["organization", "category", "reason"]`.
+   - Added `triage_funnel_outcomes_total` Counter with labels `["organization", "category", "outcome", "rag_mode"]`.
+   - Verified `emails_templated_total` and `emails_generated_total` are exported alongside each other on `/metrics`.
+
+2. **Funnel Reconciliation Module (`packages/observability/funnel.py`)**:
+   - Implemented `FunnelOutcome` (`early_exit`, `template`, `ai_generation`) and `RAGMode` (`none`, `rag`, `no_rag`) enums.
+   - Implemented `FunnelReport` frozen dataclass and `compute_funnel_reconciliation(metrics, organization=None)`.
+   - Guaranteed zero residual invariant:
+     $$\text{residual} = \text{total\_triaged} - (\text{early\_exit} + \text{template} + \text{ai\_generation}) = 0$$
+   - Exported symbols from `packages.observability`.
+
+3. **Triage Worker & Early-Exit Gate Instrumentation (`services/triage_worker/gate.py`, `cascade.py`)**:
+   - Injected `metrics: PipelineMetrics | None = None` into `EarlyExitGate` and `CascadingTriageEngine`.
+   - Added `_record_metrics` helper executing on all decision outcomes (`EARLY_EXIT`, `TEMPLATE_REPLY`, `PROCEED_RAG`, `PROCEED_NO_RAG`) across both in-memory and PostgreSQL-persisted evaluation methods.
+   - Emitted `emails_classified_total` and `classification_latency_ms` on cascade completion.
+
+4. **Testing & Verification (`tests/unit/test_funnel_metrics.py`, `tests/integration/test_funnel_metrics_integration.py`)**:
+   - Unit tests covering 100k-email reference dataset simulation verifying exact 45.0% / 20.0% / 35.0% realization and 70.0% RAG share of AI traffic with 0 residual.
+   - Integration tests executing against live PostgreSQL container verifying DB state persistence and `/metrics` Prometheus payload.
+   - 542/542 tests passing across entire repo suite.
+
+5. **Documentation (`docs/observability.md`)**:
+   - Documented metric instruments, funnel outcome reconciliation rules, and PromQL queries for the Grafana Funnel Dashboard (`R21.7`, `R21.8`).
 
 ---
 
-## 3. Verification Commands Run & Results
+## 2. Verification Command & Results
 
-| Verification Target | Command | Result |
-|---|---|---|
-| State Machine Unit Tests | `uv run pytest tests/unit/test_state_machine.py -v` | PASS (23/23 passed in 0.12s) |
-| Template Domain Unit Tests | `uv run pytest tests/unit/test_templates_domain.py -v` | PASS (10/10 passed in 0.10s) |
-| Architectural Boundary Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed in 0.67s) |
-| Draft Store Unit Tests | `uv run pytest tests/unit/test_draft_store.py -v` | PASS (1/1 passed in 0.10s) |
-| Template Gate Unit Tests | `uv run pytest tests/unit/test_template_gate.py -v` | PASS (4/4 passed in 2.34s) |
-| PostgreSQL Template Gate Integration | `uv run pytest tests/integration/test_template_gate_postgres.py -v` | PASS (3/3 passed in 2.50s) |
-| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (534/534 passed in 28.2s) |
-| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests evaluation` | PASS (0 errors, 183 files clean) |
-
----
-
-## 4. Manual Validation Steps
-
-To verify the deterministic template reply path locally:
 ```bash
-uv run python -c "
-from packages.domain.entities import EmailAddress, Job, Classification, NormalizedMessage
-from packages.domain.state_machine import JobState
-from services.triage_worker.template_loader import load_templates_from_file
-from services.triage_worker.gate import EarlyExitGate, GateAction
+# Unit & Integration Tests for Funnel Metrics
+.venv/bin/pytest tests/unit/test_funnel_metrics.py tests/integration/test_funnel_metrics_integration.py -v
 
-registry = load_templates_from_file('config/templates.yaml')
-gate = EarlyExitGate(template_registry=registry)
+# Full Test Suite
+.venv/bin/pytest tests/unit tests/integration -q
 
-job = Job(state=JobState.CLASSIFIED, organization_id='org-alpha')
-cls = Classification(category='acknowledgement', intent='receipt_confirmation', reply_required=True, workflow_hint='template', retrieval_required=False)
-msg = {'subject': 'Support Request', 'sender_name': 'Sarah Connor', 'message_id': 'msg-999'}
-biz = {'order_id': 'ORD-777'}
-
-dec = gate.evaluate_decision(job, cls, message=msg, business_data=biz)
-assert dec.action == GateAction.TEMPLATE_REPLY
-assert dec.job.state == JobState.DRAFTED
-assert dec.should_retrieve is False
-assert dec.should_generate is False
-assert dec.rendered_draft is not None
-assert 'Sarah Connor' in dec.rendered_draft.body
-print('Deterministic template manual test passed successfully!')
-"
+# Linter & Type Check
+.venv/bin/ruff check .
+.venv/bin/mypy packages services
 ```
 
+**Results:**
+- `tests/unit/test_funnel_metrics.py`: 7/7 PASS
+- `tests/integration/test_funnel_metrics_integration.py`: 1/1 PASS
+- Total test suite: 542 passed in 35.68s
+- Ruff: All checks passed
+- Mypy: Success: no issues found in 104 source files
+
 ---
 
-## 5. Follow-Ups
+## 3. Next Tasks
 
-- Next task in queue is **Phase 2 Task 2.9: Funnel instrumentation** (`R6.10, R6.15, R21.4, NFR14`) tracking counters for all three outcomes (`early_exit`, `templated`, `generated`) and `emails_templated_total` Prometheus metric.
+- Next task in queue is **Phase 2 Task 2.10: Category-aware routing** (`R7.1, R7.2, R7.4, R7.6`):
+  - Publish to `email.<category>.<priority>`.
+  - Normal and priority lanes with independent consumer scaling.
+  - Dynamic category queue declaration at startup with unconsumed queue warning.

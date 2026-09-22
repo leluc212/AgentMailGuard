@@ -17,8 +17,10 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     # Counters
     assert m.emails_received_total is not None
     assert m.emails_classified_total is not None
+    assert m.emails_early_exit_total is not None
     assert m.emails_templated_total is not None
     assert m.emails_generated_total is not None
+    assert m.triage_funnel_outcomes_total is not None
     assert m.failed_jobs_total is not None
     assert m.retry_jobs_total is not None
     assert m.input_tokens_total is not None

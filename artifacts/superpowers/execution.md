@@ -2456,6 +2456,69 @@
   - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
 - **Result:** PASS (534 passed, 0 lint errors, 0 type errors)
 
+# Execution Log: Phase 2 Task 2.9 — Funnel Instrumentation
+
+## Step 1: Metrics Extension & Instrumentation
+- **Files Changed:**
+  - `packages/observability/metrics.py`
+  - `tests/unit/test_observability_metrics.py`
+- **What Changed:**
+  - Added `emails_early_exit_total` Counter (`["organization", "category", "reason"]`) to `PipelineMetrics`.
+  - Added `triage_funnel_outcomes_total` Counter (`["organization", "category", "outcome", "rag_mode"]`) for complete funnel accounting.
+  - Verified `emails_templated_total` and `emails_generated_total` are exported side by side on `/metrics`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_observability_metrics.py -v`
+- **Result:** PASS (3/3 tests passed)
+
+## Step 2: Funnel Reconciliation Module
+- **Files Changed:**
+  - `packages/observability/funnel.py` (new)
+  - `packages/observability/__init__.py`
+- **What Changed:**
+  - Defined `FunnelOutcome` (`early_exit`, `template`, `ai_generation`) and `RAGMode` (`none`, `rag`, `no_rag`) enums.
+  - Implemented `FunnelReport` and `compute_funnel_reconciliation(metrics, organization=None)`.
+  - Enforced zero residual invariant: $\text{residual} = \text{total\_triaged} - (\text{early\_exit} + \text{template} + \text{ai\_generation}) = 0$.
+  - Re-exported funnel symbols from `packages.observability`.
+- **Verification Command:**
+  - `.venv/bin/python -c "from packages.observability import FunnelOutcome, FunnelReport, RAGMode, compute_funnel_reconciliation; print('OK')"`
+- **Result:** PASS
+
+## Step 3: Triage Worker & Early-Exit Gate Instrumentation
+- **Files Changed:**
+  - `services/triage_worker/gate.py`
+  - `services/triage_worker/cascade.py`
+- **What Changed:**
+  - Injected `metrics: PipelineMetrics | None = None` into `EarlyExitGate` and `CascadingTriageEngine`.
+  - Implemented `_record_metrics` in `EarlyExitGate` to atomically increment `triage_funnel_outcomes_total`, `emails_early_exit_total`, and `emails_templated_total` on every gate transition.
+  - Recorded `emails_classified_total` and `classification_latency_ms` on cascade completion.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_early_exit_gate.py tests/unit/test_template_gate.py -v`
+- **Result:** PASS (14/14 tests passed)
+
+## Step 4: Comprehensive Unit & Integration Tests
+- **Files Changed:**
+  - `tests/unit/test_funnel_metrics.py` (new)
+  - `tests/integration/test_funnel_metrics_integration.py` (new)
+- **What Changed:**
+  - Authored 7 unit tests verifying counter registrations, gate action metric emissions, multi-tenant isolation, zero-traffic edge cases, and 100k-email reference dataset simulation (45k early exit, 20k template, 35k AI generation with 24.5k RAG and 10.5k no-RAG) proving zero residual and exact percentages.
+  - Authored live PostgreSQL integration test verifying database state persistence (`COMPLETED`, `DRAFTED`, `QUEUED`), Prometheus text exposition format, and live reconciliation.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_funnel_metrics.py tests/integration/test_funnel_metrics_integration.py -v`
+- **Result:** PASS (8/8 tests passed)
+
+## Step 5: Observability Documentation & Full Verification
+- **Files Changed:**
+  - `docs/observability.md` (new)
+  - `specs/tasks.md`
+- **What Changed:**
+  - Created `docs/observability.md` detailing the funnel architecture, metric definitions, and PromQL queries for the Grafana Funnel Dashboard.
+  - Marked Task 2.9 complete (`[x]`) in `specs/tasks.md`.
+  - Validated full test suite (542/542 tests green), ruff clean, mypy clean.
+- **Verification Command:**
+  - `.venv/bin/ruff check . && .venv/bin/mypy packages services && .venv/bin/pytest tests/unit tests/integration`
+- **Result:** PASS (542/542 passed)
+
+
 
 
 

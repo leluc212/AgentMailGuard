@@ -39,6 +39,8 @@ from packages.domain.templates import (
     TemplateRegistry,
     TemplateRenderResult,
 )
+from packages.observability.funnel import FunnelOutcome, RAGMode, record_funnel_outcome
+from packages.observability.metrics import PipelineMetrics, get_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -196,10 +198,64 @@ class EarlyExitGate:
         job_store: JobStore | None = None,
         template_registry: TemplateRegistry | None = None,
         draft_store: DraftStore | None = None,
+        metrics: PipelineMetrics | None = None,
     ) -> None:
         self.job_store = job_store
         self.template_registry = template_registry
         self.draft_store = draft_store
+        self.metrics = metrics or get_metrics()
+
+    def _record_metrics(
+        self,
+        action: GateAction,
+        org_id: UUID | str,
+        category: str,
+        reason: str,
+        template_id: str | None = None,
+    ) -> None:
+        """Record funnel accounting and specific gate metrics (R6.10, R6.15, R21.4)."""
+        org_str = str(org_id)
+        if action == GateAction.EARLY_EXIT:
+            record_funnel_outcome(
+                self.metrics,
+                organization=org_str,
+                category=category,
+                outcome=FunnelOutcome.EARLY_EXIT,
+                rag_mode=RAGMode.NONE,
+            )
+            self.metrics.emails_early_exit_total.labels(
+                organization=org_str,
+                category=category,
+                reason=reason,
+            ).inc()
+        elif action == GateAction.TEMPLATE_REPLY:
+            record_funnel_outcome(
+                self.metrics,
+                organization=org_str,
+                category=category,
+                outcome=FunnelOutcome.TEMPLATE,
+                rag_mode=RAGMode.NONE,
+            )
+            self.metrics.emails_templated_total.labels(
+                organization=org_str,
+                template_id=template_id or "unknown",
+            ).inc()
+        elif action == GateAction.PROCEED_RAG:
+            record_funnel_outcome(
+                self.metrics,
+                organization=org_str,
+                category=category,
+                outcome=FunnelOutcome.AI_GENERATION,
+                rag_mode=RAGMode.RAG,
+            )
+        elif action == GateAction.PROCEED_NO_RAG:
+            record_funnel_outcome(
+                self.metrics,
+                organization=org_str,
+                category=category,
+                outcome=FunnelOutcome.AI_GENERATION,
+                rag_mode=RAGMode.NO_RAG,
+            )
 
     def evaluate_decision(
         self,
@@ -260,6 +316,12 @@ class EarlyExitGate:
                 JobState.COMPLETED,
                 payload=payload,
                 trace_id=active_trace_id,
+            )
+            self._record_metrics(
+                action=action,
+                org_id=job.organization_id,
+                category=classification.category,
+                reason=reason,
             )
             return GateDecision(
                 action=action,
@@ -337,6 +399,13 @@ class EarlyExitGate:
                 payload=payload,
                 trace_id=active_trace_id,
             )
+            self._record_metrics(
+                action=action,
+                org_id=job.organization_id,
+                category=classification.category,
+                reason=reason,
+                template_id=matched_template.id,
+            )
 
             return GateDecision(
                 action=action,
@@ -398,6 +467,12 @@ class EarlyExitGate:
             target_state,
             payload=payload,
             trace_id=active_trace_id,
+        )
+        self._record_metrics(
+            action=action,
+            org_id=job.organization_id,
+            category=effective_cls.category,
+            reason=reason,
         )
 
         return GateDecision(
@@ -496,6 +571,12 @@ class EarlyExitGate:
                 message_id=current_job.message_id,
                 thread_id=current_job.thread_id,
             )
+            self._record_metrics(
+                action=action,
+                org_id=job.organization_id,
+                category=classification.category,
+                reason=reason,
+            )
             return GateDecision(
                 action=action,
                 job=final_job,
@@ -584,6 +665,13 @@ class EarlyExitGate:
                 message_id=current_job.message_id,
                 thread_id=current_job.thread_id,
             )
+            self._record_metrics(
+                action=action,
+                org_id=job.organization_id,
+                category=classification.category,
+                reason=reason,
+                template_id=matched_template.id,
+            )
 
             return GateDecision(
                 action=action,
@@ -646,6 +734,12 @@ class EarlyExitGate:
             payload=payload,
             message_id=current_job.message_id,
             thread_id=current_job.thread_id,
+        )
+        self._record_metrics(
+            action=action,
+            org_id=job.organization_id,
+            category=effective_cls.category,
+            reason=reason,
         )
 
         return GateDecision(

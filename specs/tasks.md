@@ -249,7 +249,7 @@
   - Verify the three outcomes (early exit / template / AI) are mutually exclusive and exhaustive over actionable mail.
   - _Requirements: R6.12, R6.13, R6.14, R6.15_
 
-- [ ] **2.9 Funnel instrumentation**
+- [x] **2.9 Funnel instrumentation**
   - Counters for all three outcomes so the realized funnel reconciles against the 45% / 20% / 35% assumption with no residual bucket, plus the ~70% RAG share of AI traffic.
   - `emails_templated_total` exported alongside `emails_generated_total`.
   - _Requirements: R6.10, R6.15, R21.4, NFR14_
