@@ -306,21 +306,21 @@ class TestCascadeEngineGateIntegration:
     @pytest.mark.asyncio
     async def test_cascade_triage_and_gate_early_exit(self) -> None:
         """Rule matching noreply leads directly to early exit in cascade."""
-        rule = Rule.from_dict({
-            "id": "rule_noreply",
-            "when": {"sender": {"contains": "alerts.acme.com"}},
-            "then": {
-                "category": "automated_notification",
-                "priority": "low",
-                "reply_required": False,
-                "retrieval_required": False,
-                "workflow_hint": "none",
-                "confidence": 1.0,
-            },
-        })
-        engine = CascadingTriageEngine(
-            rule_engine=HotReloadableRuleEngine(initial_rules=[rule])
+        rule = Rule.from_dict(
+            {
+                "id": "rule_noreply",
+                "when": {"sender": {"contains": "alerts.acme.com"}},
+                "then": {
+                    "category": "automated_notification",
+                    "priority": "low",
+                    "reply_required": False,
+                    "retrieval_required": False,
+                    "workflow_hint": "none",
+                    "confidence": 1.0,
+                },
+            }
         )
+        engine = CascadingTriageEngine(rule_engine=HotReloadableRuleEngine(initial_rules=[rule]))
         job = Job(
             id=uuid4(),
             organization_id=uuid4(),
@@ -342,21 +342,21 @@ class TestCascadeEngineGateIntegration:
 
     def test_cascade_triage_and_gate_sync(self) -> None:
         """Sync wrapper triage_and_gate_sync functions correctly."""
-        rule = Rule.from_dict({
-            "id": "rule_sales",
-            "when": {"sender": {"contains": "prospect.com"}},
-            "then": {
-                "category": "sales",
-                "priority": "urgent",
-                "reply_required": True,
-                "retrieval_required": True,
-                "workflow_hint": "ai",
-                "confidence": 1.0,
-            },
-        })
-        engine = CascadingTriageEngine(
-            rule_engine=HotReloadableRuleEngine(initial_rules=[rule])
+        rule = Rule.from_dict(
+            {
+                "id": "rule_sales",
+                "when": {"sender": {"contains": "prospect.com"}},
+                "then": {
+                    "category": "sales",
+                    "priority": "urgent",
+                    "reply_required": True,
+                    "retrieval_required": True,
+                    "workflow_hint": "ai",
+                    "confidence": 1.0,
+                },
+            }
         )
+        engine = CascadingTriageEngine(rule_engine=HotReloadableRuleEngine(initial_rules=[rule]))
         job = Job(
             id=uuid4(),
             organization_id=uuid4(),

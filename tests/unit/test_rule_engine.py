@@ -90,36 +90,40 @@ def test_composite_conditions_any_all_not() -> None:
     )
 
     # 'any' condition: one matches, one does not
-    cond_any = parse_condition({
-        "any": [
-            {"header.auto-submitted": {"exists": True}},
-            {"header.list-unsubscribe": {"exists": True}},
-        ]
-    })
+    cond_any = parse_condition(
+        {
+            "any": [
+                {"header.auto-submitted": {"exists": True}},
+                {"header.list-unsubscribe": {"exists": True}},
+            ]
+        }
+    )
     assert cond_any.evaluate(context) is True
 
     # 'all' condition: one matches, one does not -> False
-    cond_all_fail = parse_condition({
-        "all": [
-            {"header.auto-submitted": {"exists": True}},
-            {"header.list-unsubscribe": {"exists": True}},
-        ]
-    })
+    cond_all_fail = parse_condition(
+        {
+            "all": [
+                {"header.auto-submitted": {"exists": True}},
+                {"header.list-unsubscribe": {"exists": True}},
+            ]
+        }
+    )
     assert cond_all_fail.evaluate(context) is False
 
     # 'all' condition: both match -> True
-    cond_all_pass = parse_condition({
-        "all": [
-            {"header.list-unsubscribe": {"exists": True}},
-            {"sender.email": {"contains": "newsletter"}},
-        ]
-    })
+    cond_all_pass = parse_condition(
+        {
+            "all": [
+                {"header.list-unsubscribe": {"exists": True}},
+                {"sender.email": {"contains": "newsletter"}},
+            ]
+        }
+    )
     assert cond_all_pass.evaluate(context) is True
 
     # 'not' condition: negates matching predicate
-    cond_not = parse_condition({
-        "not": {"header.auto-submitted": {"exists": True}}
-    })
+    cond_not = parse_condition({"not": {"header.auto-submitted": {"exists": True}}})
     assert cond_not.evaluate(context) is True
 
 

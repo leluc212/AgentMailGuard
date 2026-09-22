@@ -53,7 +53,12 @@ class IllegalStateTransitionError(Exception):
 TRANSITIONS: dict[JobState, set[JobState]] = {
     JobState.RECEIVED: {JobState.NORMALIZED, JobState.FAILED},
     JobState.NORMALIZED: {JobState.CLASSIFIED, JobState.FAILED},
-    JobState.CLASSIFIED: {JobState.QUEUED, JobState.COMPLETED, JobState.FAILED},
+    JobState.CLASSIFIED: {
+        JobState.QUEUED,
+        JobState.COMPLETED,
+        JobState.DRAFTED,
+        JobState.FAILED,
+    },
     JobState.QUEUED: {JobState.CONTEXT_READY, JobState.FAILED},
     JobState.CONTEXT_READY: {JobState.GENERATING, JobState.FAILED},
     JobState.GENERATING: {JobState.DRAFTED, JobState.RETRY_PENDING, JobState.FAILED},

@@ -1,23 +1,37 @@
-# Phase 2 Task 2.7: Early-Exit Gate — The Cost Lever — Finish Summary
+# Phase 2 Task 2.8: Deterministic Template Reply Path — Finish Summary
 
 ## 1. Summary of Changes
 
-- **Early-Exit Gate Engine (`services/triage_worker/gate.py`, `services/triage_worker/__init__.py`)**:
-  - Implemented `GateAction(StrEnum)` (`EARLY_EXIT`, `PROCEED_NO_RAG`, `PROCEED_RAG`).
-  - Implemented `GateDecision` dataclass recording action, job state, processing event, and explicit execution flags: `should_embed`, `should_retrieve`, `should_rerank`, `should_generate`.
-  - Implemented `EarlyExitGate` supporting pure in-memory `evaluate_decision` and atomic database-persisted `evaluate_and_persist`:
-    - If `reply_required == false`: directly transitions from `CLASSIFIED` to `COMPLETED` (`R6.5`). Zero AI execution flags set.
-    - If `retrieval_required == false`: transitions to `QUEUED` with `should_retrieve=False` (`R6.6`), skipping hybrid RAG.
-    - If `retrieval_required == true`: transitions to `QUEUED` with `should_retrieve=True`, executing full RAG pipeline.
-  - Implemented `DownstreamPipelineHooks(Protocol)` and `GatedPipelineRunner` asserting zero calls on early exit or retrieval bypass.
-  - Exported all gate symbols in `services.triage_worker`.
-- **Cascade Integration (`services/triage_worker/cascade.py`)**:
-  - Integrated `EarlyExitGate` into `CascadingTriageEngine`.
-  - Implemented `triage_and_gate` (async) and `triage_and_gate_sync` (sync wrapper) methods, coupling triage classification with immediate gate evaluation.
-- **Automated Tests**:
-  - Authored `tests/unit/test_early_exit_gate.py` (10 unit tests) covering no-reply early-exit with zero mock calls, retrieval bypass with selective generation, full RAG paths, state progression from `NORMALIZED` and `CLASSIFIED`, illegal transition protection, in-memory store persistence, and cascade integration.
-  - Authored `tests/integration/test_early_exit_gate_postgres.py` (3 integration tests) verifying live PostgreSQL updates to `COMPLETED` and `QUEUED`, `processing_event` audit logs, and strict multi-tenant isolation.
-- **Task Verification**: Marked Task 2.7 complete in `specs/tasks.md`.
+- **Domain State Machine & Entities (`packages/domain/state_machine.py`, `packages/domain/entities.py`, `packages/domain/__init__.py`)**:
+  - Added `JobState.DRAFTED` to allowed targets in `TRANSITIONS[JobState.CLASSIFIED]` for direct state machine transitions upon template reply rendering.
+  - Defined `GeneratedDraft` dataclass entity in `packages/domain/entities.py` matching PostgreSQL `generated_draft` table (`id`, `organization_id`, `job_id`, `message_id`, `thread_id`, `action`, `subject`, `body`, `confidence`, `citations`, `citation_mismatch`, `model_name`, `model_tier`, `escalation_reason`, `prompt_version`, `input_tokens`, `output_tokens`, `cost_estimate`, `status`, `provider_ref`, `created_at`).
+  - Exported all symbols in `packages.domain`.
+- **Pure Domain Templates & Variable Substitution Engine (`packages/domain/templates.py`, `tests/unit/test_templates_domain.py`)**:
+  - Implemented `TemplateDefinition` and `TemplateRenderResult`.
+  - Implemented mustache-style variable substitution (`{{ variable }}` and `{{ object.field }}`) for message attributes (`subject`, `sender_name`, `sender_email`, `message_id`, `thread_id`, etc.) and arbitrary `business_data` attributes with safe fallback for missing values.
+  - Implemented `TemplateRegistry` with `(category, intent)` case-insensitive lookup, dictionary/JSON deserialization, and disk file resolution.
+  - Verified pure standard library compliance (zero external dependencies in `packages/domain`).
+- **Approved Versioned Template Files & Declarative Configuration (`prompts/templates/`, `config/templates.yaml`, `services/triage_worker/template_loader.py`)**:
+  - Authored version 1 approved text template files:
+    - `prompts/templates/acknowledgement.v1.txt` for `(acknowledgement, receipt_confirmation)`
+    - `prompts/templates/scheduling_ack.v1.txt` for `(scheduling, meeting_accepted)`
+  - Created declarative YAML registry `config/templates.yaml`.
+  - Implemented `HotReloadableTemplateRegistry` in `services/triage_worker/template_loader.py` with mtime checking and error isolation.
+- **Draft Persistence Store (`packages/db/draft.py`, `packages/db/__init__.py`, `tests/unit/test_draft_store.py`)**:
+  - Defined `DraftStore` protocol exposing `create_draft`, `get_draft`, `list_drafts_for_job`, `list_drafts_for_thread`.
+  - Implemented `InMemoryDraftStore` for unit testing and `PostgresDraftStore` using parameterized tenant-scoped queries on `generated_draft`.
+- **Early-Exit Gate & Pipeline Runner Integration (`services/triage_worker/gate.py`, `services/triage_worker/cascade.py`, `tests/unit/test_template_gate.py`)**:
+  - Added `GateAction.TEMPLATE_REPLY` to `GateAction`.
+  - Integrated `TemplateRegistry` and `DraftStore` into `EarlyExitGate`:
+    - If `workflow_hint == 'template'` and template matches: renders draft, sets zero-AI flags (`should_retrieve=False`, `should_generate=False`), transitions job to `DRAFTED` (`R6.13`), persists draft, returns `GateAction.TEMPLATE_REPLY`.
+    - If `workflow_hint == 'template'` and no template matches: falls back to `workflow_hint='ai'` (`R6.14`), transitions job to `QUEUED`, never blocking actionable replies.
+  - Updated `GatedPipelineRunner` to assert zero calls to retrieval, reranking, and generation on `TEMPLATE_REPLY`.
+  - Proved that early exit (`COMPLETED`), template reply (`DRAFTED`), and AI generation (`QUEUED`) are mutually exclusive and exhaustive over all mail (`R6.15`).
+- **PostgreSQL Integration Tests (`tests/integration/test_template_gate_postgres.py`)**:
+  - Verified live database persistence of `processing_job` (`DRAFTED`), `processing_event`, and `generated_draft`.
+  - Verified live fallback to `QUEUED` when template is missing.
+  - Verified strict multi-tenant isolation across organizations.
+- **Task Verification**: Marked Task 2.8 complete in `specs/tasks.md`.
 
 ---
 
@@ -26,7 +40,7 @@
 - **Blocker**: None.
 - **Major**: None.
 - **Minor**: None.
-- **Nit**: None. All 176 source files pass `ruff check` and `mypy --strict`.
+- **Nit**: None. All 183 source files pass `ruff check` and `mypy --strict`.
 
 ---
 
@@ -34,44 +48,43 @@
 
 | Verification Target | Command | Result |
 |---|---|---|
-| Gate Unit Tests | `uv run pytest tests/unit/test_early_exit_gate.py -v` | PASS (10/10 passed in 1.70s) |
-| PostgreSQL Gate Integration Tests | `uv run pytest tests/integration/test_early_exit_gate_postgres.py -v` | PASS (3/3 passed in 2.43s) |
-| Architectural Boundaries Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed in 0.69s) |
-| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (515/515 passed in 24.1s) |
-| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests evaluation` | PASS (0 errors, 176 files clean) |
+| State Machine Unit Tests | `uv run pytest tests/unit/test_state_machine.py -v` | PASS (23/23 passed in 0.12s) |
+| Template Domain Unit Tests | `uv run pytest tests/unit/test_templates_domain.py -v` | PASS (10/10 passed in 0.10s) |
+| Architectural Boundary Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed in 0.67s) |
+| Draft Store Unit Tests | `uv run pytest tests/unit/test_draft_store.py -v` | PASS (1/1 passed in 0.10s) |
+| Template Gate Unit Tests | `uv run pytest tests/unit/test_template_gate.py -v` | PASS (4/4 passed in 2.34s) |
+| PostgreSQL Template Gate Integration | `uv run pytest tests/integration/test_template_gate_postgres.py -v` | PASS (3/3 passed in 2.50s) |
+| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (534/534 passed in 28.2s) |
+| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests evaluation` | PASS (0 errors, 183 files clean) |
 
 ---
 
 ## 4. Manual Validation Steps
 
-To verify early-exit gate logic locally:
+To verify the deterministic template reply path locally:
 ```bash
 uv run python -c "
-from packages.domain.entities import Job, Classification
+from packages.domain.entities import EmailAddress, Job, Classification, NormalizedMessage
 from packages.domain.state_machine import JobState
+from services.triage_worker.template_loader import load_templates_from_file
 from services.triage_worker.gate import EarlyExitGate, GateAction
 
-gate = EarlyExitGate()
-job = Job(state=JobState.CLASSIFIED, organization_id='test-org')
+registry = load_templates_from_file('config/templates.yaml')
+gate = EarlyExitGate(template_registry=registry)
 
-# Test 1: No reply required -> COMPLETED immediately (R6.5)
-cls_noreply = Classification(category='automated_notification', reply_required=False, retrieval_required=False)
-dec_noreply = gate.evaluate_decision(job, cls_noreply)
-assert dec_noreply.action == GateAction.EARLY_EXIT
-assert dec_noreply.job.state == JobState.COMPLETED
-assert dec_noreply.should_embed is False
-assert dec_noreply.should_retrieve is False
-assert dec_noreply.should_generate is False
+job = Job(state=JobState.CLASSIFIED, organization_id='org-alpha')
+cls = Classification(category='acknowledgement', intent='receipt_confirmation', reply_required=True, workflow_hint='template', retrieval_required=False)
+msg = {'subject': 'Support Request', 'sender_name': 'Sarah Connor', 'message_id': 'msg-999'}
+biz = {'order_id': 'ORD-777'}
 
-# Test 2: Retrieval not required -> QUEUED with zero RAG (R6.6)
-cls_scheduling = Classification(category='scheduling', reply_required=True, retrieval_required=False)
-dec_scheduling = gate.evaluate_decision(job, cls_scheduling)
-assert dec_scheduling.action == GateAction.PROCEED_NO_RAG
-assert dec_scheduling.job.state == JobState.QUEUED
-assert dec_scheduling.should_retrieve is False
-assert dec_scheduling.should_generate is True
-
-print('Early exit gate manual test passed successfully!')
+dec = gate.evaluate_decision(job, cls, message=msg, business_data=biz)
+assert dec.action == GateAction.TEMPLATE_REPLY
+assert dec.job.state == JobState.DRAFTED
+assert dec.should_retrieve is False
+assert dec.should_generate is False
+assert dec.rendered_draft is not None
+assert 'Sarah Connor' in dec.rendered_draft.body
+print('Deterministic template manual test passed successfully!')
 "
 ```
 
@@ -79,4 +92,4 @@ print('Early exit gate manual test passed successfully!')
 
 ## 5. Follow-Ups
 
-- Next task in queue is **Phase 2 Task 2.8: Deterministic template reply path — the missing 20%** (`R6.12, R6.13, R6.14, R6.15`) implementing the template registry keyed by `(category, intent)` with variable substitution, rendering directly to `DRAFTED` with zero retrieval and zero generation calls.
+- Next task in queue is **Phase 2 Task 2.9: Funnel instrumentation** (`R6.10, R6.15, R21.4, NFR14`) tracking counters for all three outcomes (`early_exit`, `templated`, `generated`) and `emails_templated_total` Prometheus metric.

@@ -12,6 +12,7 @@ from packages.domain.entities import (
     DraftRef,
     EmailAddress,
     EmailThread,
+    GeneratedDraft,
     Job,
     Mailbox,
     NormalizedMessage,
@@ -51,6 +52,13 @@ from packages.domain.taxonomy import (
     normalize_category,
     validate_category,
 )
+from packages.domain.templates import (
+    TemplateDefinition,
+    TemplateRegistry,
+    TemplateRenderResult,
+    build_template_context,
+    substitute_variables,
+)
 
 __all__ = [
     "CANONICAL_CATEGORIES",
@@ -69,6 +77,7 @@ __all__ = [
     "EmailAddress",
     "EmailContext",
     "EmailThread",
+    "GeneratedDraft",
     "IllegalStateTransitionError",
     "Job",
     "JobState",
@@ -85,13 +94,17 @@ __all__ = [
     "Subscription",
     "SyncResult",
     "TaxonomyRegistry",
+    "TemplateDefinition",
+    "TemplateRegistry",
+    "TemplateRenderResult",
     "ThreadRef",
+    "build_template_context",
     "get_category_definition",
     "get_default_registry",
     "is_valid_category",
     "normalize_category",
+    "substitute_variables",
     "transition_job",
     "validate_category",
     "validate_transition",
 ]
-

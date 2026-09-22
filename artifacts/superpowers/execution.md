@@ -2367,18 +2367,95 @@
   - `uv run pytest tests/integration/test_early_exit_gate_postgres.py -v`
 - **Result:** PASS (3/3 passed in 2.43s)
 
-## Step 5: Full Regression Verification & Task 2.7 Sign-Off
+# Execution Log: Phase 2 Task 2.8 — Deterministic Template Reply Path
+
+## Step 1: Update Domain State Machine & Entities
 - **Files Changed:**
+  - `packages/domain/state_machine.py`
+  - `packages/domain/entities.py`
+  - `packages/domain/__init__.py`
+  - `tests/unit/test_state_machine.py`
+- **What Changed:**
+  - Added `JobState.DRAFTED` to allowed target states in `TRANSITIONS[JobState.CLASSIFIED]` to support deterministic template replies transitioning directly to `DRAFTED`.
+  - Added `GeneratedDraft` dataclass entity in `packages/domain/entities.py` matching the `generated_draft` database schema.
+  - Updated `tests/unit/test_state_machine.py` (25 total legal transitions, verified `CLASSIFIED -> DRAFTED`, replaced illegal transition test).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_state_machine.py -v`
+- **Result:** PASS (23/23 passed in 0.12s)
+
+## Step 2: Implement Template Domain & Variable Substitution Engine
+- **Files Changed:**
+  - `packages/domain/templates.py` (new)
+  - `packages/domain/__init__.py`
+  - `tests/unit/test_templates_domain.py` (new)
+- **What Changed:**
+  - Implemented `TemplateDefinition`, `TemplateRenderResult`, `substitute_variables`, `build_template_context`, and `TemplateRegistry` in pure domain stdlib.
+  - Supported mustache-style variable substitution (`{{ variable }}` and `{{ object.field }}`) for message fields and business data fields.
+  - Authored unit test suite covering variable extraction, dot-notation traversal, fallback defaults, and registry operations.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_templates_domain.py -v && uv run pytest tests/unit/test_dependency_rules.py -v`
+- **Result:** PASS (10/10 passed in 0.10s, 4/4 dependency rules passed in 0.67s)
+
+## Step 3: Approved Versioned Template Files & Default Configuration
+- **Files Changed:**
+  - `prompts/templates/acknowledgement.v1.txt` (new)
+  - `prompts/templates/scheduling_ack.v1.txt` (new)
+  - `config/templates.yaml` (new)
+  - `services/triage_worker/template_loader.py` (new)
+  - `services/triage_worker/__init__.py`
+- **What Changed:**
+  - Created version 1 approved text template files for `(acknowledgement, receipt_confirmation)` and `(scheduling, meeting_accepted)`.
+  - Created declarative `config/templates.yaml` registering these templates.
+  - Implemented `HotReloadableTemplateRegistry` and YAML loaders in `services/triage_worker/template_loader.py`.
+- **Verification Command:**
+  - `uv run python -c "from services.triage_worker.template_loader import load_templates_from_file; r = load_templates_from_file('config/templates.yaml'); assert len(r.templates) == 2"`
+- **Result:** PASS
+
+## Step 4: Implement Draft Persistence Store
+- **Files Changed:**
+  - `packages/db/draft.py` (new)
+  - `packages/db/__init__.py`
+  - `tests/unit/test_draft_store.py` (new)
+- **What Changed:**
+  - Defined `DraftStore` protocol exposing `create_draft`, `get_draft`, `list_drafts_for_job`, `list_drafts_for_thread`.
+  - Implemented `InMemoryDraftStore` for isolated unit testing.
+  - Implemented `PostgresDraftStore` using tenant-scoped parameterized SQL queries against `generated_draft` table.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_draft_store.py -v`
+- **Result:** PASS (1/1 passed in 0.10s)
+
+## Step 5: Gate Integration & Downstream Zero-Call Assertions
+- **Files Changed:**
+  - `services/triage_worker/gate.py`
+  - `services/triage_worker/cascade.py`
+  - `tests/unit/test_template_gate.py` (new)
+- **What Changed:**
+  - Added `GateAction.TEMPLATE_REPLY` to `GateAction`.
+  - Extended `EarlyExitGate` to evaluate and render deterministic template replies when `workflow_hint == 'template'`, setting `JobState.DRAFTED` and zero-AI flags (`should_retrieve=False`, `should_generate=False`).
+  - Added seamless fallback to `workflow_hint='ai'` when template is missing in registry, transitioning to `QUEUED` without blocking.
+  - Extended `GatedPipelineRunner` to verify zero AI calls on `TEMPLATE_REPLY`.
+  - Verified mutual exclusivity and exhaustiveness of all three funnel outcomes (early exit, template reply, AI generation).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_template_gate.py -v`
+- **Result:** PASS (4/4 passed in 2.34s)
+
+## Step 6: PostgreSQL Integration Tests & Full Suite Regression Verification
+- **Files Changed:**
+  - `tests/integration/test_template_gate_postgres.py` (new)
   - `specs/tasks.md`
-  - `artifacts/superpowers/execution.md`
   - `artifacts/superpowers/finish.md`
 - **What Changed:**
-  - Validated full test suite (515 unit and integration tests passing).
-  - Validated strict static type checking with mypy and code formatting with ruff across 176 source files.
-  - Marked Task 2.7 complete in `specs/tasks.md`.
+  - Authored 3 integration tests against live PostgreSQL container verifying:
+    - Atomically transitioning job to `DRAFTED`, recording `processing_event`, and persisting draft into `generated_draft`.
+    - Fallback from missing template to `QUEUED` AI generation.
+    - Multi-tenant draft isolation across organizations.
+  - Validated full test suite (534/534 tests green).
+  - Validated static type checking (`mypy --strict`) and code style (`ruff`).
+  - Marked Task 2.8 complete in `specs/tasks.md`.
 - **Verification Command:**
   - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
-- **Result:** PASS (515 passed, 0 lint errors, 0 type errors)
+- **Result:** PASS (534 passed, 0 lint errors, 0 type errors)
+
 
 
 

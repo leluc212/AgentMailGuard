@@ -16,8 +16,10 @@ from typing import Any
 from uuid import UUID
 
 from packages.db.classification import ClassificationStore
+from packages.db.draft import DraftStore
 from packages.domain.entities import Classification, Job, NormalizedMessage
 from packages.domain.rules import EmailContext
+from packages.domain.templates import TemplateRegistry
 from services.triage_worker.classifier import MLClassifier
 from services.triage_worker.gate import EarlyExitGate, GateDecision
 from services.triage_worker.llm_classifier import LLMTriageClassifier
@@ -75,6 +77,8 @@ class CascadingTriageEngine:
         llm_classifier: LLMTriageClassifier | None = None,
         threshold_manager: ThresholdManager | None = None,
         classification_store: ClassificationStore | None = None,
+        template_registry: TemplateRegistry | None = None,
+        draft_store: DraftStore | None = None,
         gate: EarlyExitGate | None = None,
     ) -> None:
         self.rule_engine = rule_engine or HotReloadableRuleEngine()
@@ -82,7 +86,12 @@ class CascadingTriageEngine:
         self.llm_classifier = llm_classifier or LLMTriageClassifier()
         self.threshold_manager = threshold_manager or ThresholdManager()
         self.classification_store = classification_store
-        self.gate = gate or EarlyExitGate()
+        self.template_registry = template_registry
+        self.draft_store = draft_store
+        self.gate = gate or EarlyExitGate(
+            template_registry=template_registry,
+            draft_store=draft_store,
+        )
 
     def _coerce_context(
         self,
@@ -451,8 +460,9 @@ class CascadingTriageEngine:
         persist: bool = False,
         persist_job: bool = False,
         trace_id: str | None = None,
+        business_data: dict[str, Any] | None = None,
     ) -> tuple[CascadeResult, GateDecision]:
-        """Classify message through cascade and evaluate early-exit gate on the job (R6.5, R6.6)."""
+        """Classify message through cascade and evaluate gate on job (R6.5, R6.6, R6.12–R6.15)."""
         cascade_res = await self.triage(
             context=context,
             organization_id=organization_id,
@@ -464,12 +474,16 @@ class CascadingTriageEngine:
                 job=job,
                 classification=cascade_res.classification,
                 trace_id=trace_id,
+                message=context,
+                business_data=business_data,
             )
         else:
             gate_decision = self.gate.evaluate_decision(
                 job=job,
                 classification=cascade_res.classification,
                 trace_id=trace_id,
+                message=context,
+                business_data=business_data,
             )
         return cascade_res, gate_decision
 
@@ -480,7 +494,9 @@ class CascadingTriageEngine:
         organization_id: UUID | str | None = None,
         message_id: UUID | str | None = None,
         persist: bool = False,
+        persist_job: bool = False,
         trace_id: str | None = None,
+        business_data: dict[str, Any] | None = None,
     ) -> tuple[CascadeResult, GateDecision]:
         """Synchronous convenience wrapper for triage_and_gate."""
         try:
@@ -498,7 +514,9 @@ class CascadingTriageEngine:
                         organization_id=organization_id,
                         message_id=message_id,
                         persist=persist,
+                        persist_job=persist_job,
                         trace_id=trace_id,
+                        business_data=business_data,
                     ),
                 )
                 return future.result()
@@ -510,7 +528,8 @@ class CascadingTriageEngine:
                     organization_id=organization_id,
                     message_id=message_id,
                     persist=persist,
+                    persist_job=persist_job,
                     trace_id=trace_id,
+                    business_data=business_data,
                 )
             )
-

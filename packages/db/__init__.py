@@ -12,6 +12,11 @@ from packages.db.classification import (
     PostgresClassificationStore,
 )
 from packages.db.connection import create_db_pool, create_pool_from_settings
+from packages.db.draft import (
+    DraftStore,
+    InMemoryDraftStore,
+    PostgresDraftStore,
+)
 from packages.db.idempotency import PostgresIdempotencyBackend
 from packages.db.job import (
     InMemoryJobStore,
@@ -55,8 +60,10 @@ __all__ = [
     "CheckpointStore",
     "ClassificationResultRow",
     "ClassificationStore",
+    "DraftStore",
     "InMemoryCheckpointStore",
     "InMemoryClassificationStore",
+    "InMemoryDraftStore",
     "InMemoryJobStore",
     "InMemoryMailboxStore",
     "InMemoryMessageStore",
@@ -69,6 +76,7 @@ __all__ = [
     "Migration",
     "PostgresCheckpointStore",
     "PostgresClassificationStore",
+    "PostgresDraftStore",
     "PostgresIdempotencyBackend",
     "PostgresJobStore",
     "PostgresMailboxStore",

@@ -1,0 +1,8 @@
+Hello {{ sender_name }},
+
+This email confirms that your meeting request regarding "{{ subject }}" has been accepted and scheduled on our calendar.
+
+Message Reference: {{ message_id }}
+
+Best regards,
+Scheduling & Operations Team

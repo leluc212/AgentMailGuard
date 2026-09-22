@@ -344,6 +344,33 @@ class DraftRef:
     provider_thread_id: str | None = None
 
 
+@dataclass
+class GeneratedDraft:
+    """Generated draft reply entity (R5.2, R16.1, R16.4, design.md §6.1)."""
+
+    id: UUID = field(default_factory=uuid4)
+    organization_id: UUID | str = ""
+    message_id: UUID | str = ""
+    thread_id: UUID | str = ""
+    action: str = "reply"  # reply | forward | escalate
+    body: str = ""
+    subject: str | None = None
+    job_id: UUID | str | None = None
+    confidence: float | None = None
+    citations: list[dict[str, Any]] = field(default_factory=list)
+    citation_mismatch: bool = False
+    model_name: str | None = None
+    model_tier: str | None = None
+    escalation_reason: str | None = None
+    prompt_version: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_estimate: float = 0.0
+    status: str = "draft"  # draft | approved | rejected | dispatched
+    provider_ref: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
 @dataclass(frozen=True)
 class SentRef:
     """Reference to a message dispatched through the provider mailbox (R1.1, R1.4, R17.4)."""

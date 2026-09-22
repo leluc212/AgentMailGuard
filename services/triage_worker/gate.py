@@ -1,35 +1,53 @@
-"""Early-exit gate and selective AI routing engine (R6.5, R6.6, design.md §5.3, §8).
+"""Early-Exit Gate and cost optimization governor for email triage (R6.5, R6.6, R6.12–R6.15).
 
-Requirements:
-- R6.5: IF reply_required = false, THEN THE SYSTEM SHALL transition the job
-  directly to COMPLETED and SHALL NOT perform embedding, retrieval, reranking, or generation.
-- R6.6: IF retrieval_required = false, THEN THE SYSTEM SHALL skip the hybrid RAG call
-  and build context from thread and business data only.
-- R18.1–R18.5: Atomic state machine transitions and audit event generation.
+Implements the three mutually exclusive economic routing outcomes:
+1. Early exit (reply_required == false) -> Job transitions to COMPLETED. Zero retrieval,
+   zero rerank, zero generation (R6.5). (~45% of inbound mail)
+2. Deterministic template reply (workflow_hint == 'template') -> Approved template rendered
+   and persisted; Job transitions directly to DRAFTED with zero retrieval and zero generation
+   (R6.12, R6.13). If no template matches (category, intent), falls back to workflow_hint='ai'
+   so replies are never blocked (R6.14). (~20% of inbound mail)
+3. Actionable AI generation (workflow_hint == 'ai') -> Job transitions to QUEUED (R6.6, R7.1).
+   Selective hybrid RAG is performed only if retrieval_required == true. (~35% of inbound mail)
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
+from packages.db.draft import DraftStore
 from packages.db.job import JobStore
-from packages.domain.entities import Classification, Job, ProcessingEvent
+from packages.domain.entities import (
+    Classification,
+    GeneratedDraft,
+    Job,
+    NormalizedMessage,
+    ProcessingEvent,
+)
+from packages.domain.rules import EmailContext
 from packages.domain.state_machine import (
     IllegalStateTransitionError,
     JobState,
     transition_job,
+)
+from packages.domain.templates import (
+    TemplateDefinition,
+    TemplateRegistry,
+    TemplateRenderResult,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class GateAction(StrEnum):
-    """Routing action decided by the early-exit gate."""
+    """Routing action decided by the early-exit gate (R6.5, R6.6, R6.12–R6.15)."""
 
     EARLY_EXIT = "early_exit"
+    TEMPLATE_REPLY = "template_reply"
     PROCEED_NO_RAG = "proceed_no_rag"
     PROCEED_RAG = "proceed_rag"
 
@@ -50,6 +68,8 @@ class GateDecision:
     should_rerank: bool
     should_generate: bool
     reason: str
+    rendered_draft: GeneratedDraft | None = None
+    template_result: TemplateRenderResult | None = None
 
 
 @runtime_checkable
@@ -74,7 +94,7 @@ class DownstreamPipelineHooks(Protocol):
 
 
 class GatedPipelineRunner:
-    """Downstream pipeline coordinator enforcing selective AI execution (R6.5, R6.6)."""
+    """Downstream pipeline coordinator enforcing selective AI execution (R6.5, R6.6, R6.13)."""
 
     def __init__(self, hooks: DownstreamPipelineHooks) -> None:
         self.hooks = hooks
@@ -96,6 +116,22 @@ class GatedPipelineRunner:
                 "rerank_performed": False,
                 "generation_performed": False,
                 "reply": None,
+            }
+
+        if decision.action == GateAction.TEMPLATE_REPLY:
+            # Zero AI work: deterministic template reply rendered directly to DRAFTED (R6.13)
+            reply_body = (
+                decision.rendered_draft.body
+                if decision.rendered_draft
+                else (decision.template_result.body if decision.template_result else None)
+            )
+            return {
+                "status": "drafted_template_reply",
+                "embedding_performed": False,
+                "retrieval_performed": False,
+                "rerank_performed": False,
+                "generation_performed": False,
+                "reply": reply_body,
             }
 
         retrieved_chunks: list[Any] = []
@@ -123,23 +159,55 @@ class GatedPipelineRunner:
         }
 
 
-class EarlyExitGate:
-    """Early-Exit Gate implementing the primary cost governor of the system (R6.5, R6.6).
+def _extract_ids_from_message(
+    job: Job,
+    message: NormalizedMessage | EmailContext | dict[str, Any] | None,
+) -> tuple[UUID | str, UUID | str]:
+    """Extract or fallback message_id and thread_id."""
+    msg_id: UUID | str = (
+        getattr(message, "message_id", None)
+        or (message.get("message_id") if isinstance(message, dict) else None)
+        or job.message_id
+        or uuid4()
+    )
 
-    Rules:
-    1. reply_required == false -> Transition directly to COMPLETED. Zero retrieval, zero generation.
-    2. retrieval_required == false -> Transition to QUEUED. Skip hybrid RAG; context is thread+biz.
-    3. retrieval_required == true -> Transition to QUEUED. Full hybrid RAG context assembly.
+    th_id: UUID | str = (
+        getattr(message, "thread_id", None)
+        or (message.get("thread_id") if isinstance(message, dict) else None)
+        or job.thread_id
+        or uuid4()
+    )
+
+    return msg_id, th_id
+
+
+class EarlyExitGate:
+    """Early-Exit Gate implementing the primary cost governor of the system (R6.5–R6.15).
+
+    Three mutually exclusive outcomes:
+    1. reply_required == false -> Transition to COMPLETED. Zero retrieval, zero generation (R6.5).
+    2. workflow_hint == 'template' -> Render template and transition to DRAFTED.
+       Zero retrieval, zero generation (R6.12, R6.13). Fall back to 'ai' if missing (R6.14).
+    3. workflow_hint == 'ai' -> Transition to QUEUED. Downstream AI generation (R6.6, R7.1).
     """
 
-    def __init__(self, job_store: JobStore | None = None) -> None:
+    def __init__(
+        self,
+        job_store: JobStore | None = None,
+        template_registry: TemplateRegistry | None = None,
+        draft_store: DraftStore | None = None,
+    ) -> None:
         self.job_store = job_store
+        self.template_registry = template_registry
+        self.draft_store = draft_store
 
     def evaluate_decision(
         self,
         job: Job,
         classification: Classification,
         trace_id: str | None = None,
+        message: NormalizedMessage | EmailContext | dict[str, Any] | None = None,
+        business_data: dict[str, Any] | None = None,
     ) -> GateDecision:
         """Pure in-memory state transition and gate decision evaluation.
 
@@ -147,6 +215,8 @@ class EarlyExitGate:
             job: Current job entity. Must be at NORMALIZED or CLASSIFIED state.
             classification: Classification outcome from triage cascade.
             trace_id: Optional distributed trace identifier.
+            message: Optional normalized message or context for template variable substitution.
+            business_data: Optional business data dictionary for variable substitution.
 
         Returns:
             GateDecision containing transitioned job, emitted event, and execution flags.
@@ -173,9 +243,8 @@ class EarlyExitGate:
                 JobState.COMPLETED if not classification.reply_required else JobState.QUEUED,
             )
 
-        # 2. Gate Decision branch
-        if not classification.reply_required:
-            # Case 1: Early Exit -> straight to COMPLETED (R6.5)
+        # Outcome 1: Early Exit -> straight to COMPLETED (R6.5)
+        if not classification.reply_required or classification.workflow_hint == "none":
             action = GateAction.EARLY_EXIT
             reason = "no_reply_required"
             payload = {
@@ -199,7 +268,7 @@ class EarlyExitGate:
                 classification=classification,
                 reply_required=False,
                 retrieval_required=False,
-                workflow_hint=classification.workflow_hint,
+                workflow_hint="none",
                 should_embed=False,
                 should_retrieve=False,
                 should_rerank=False,
@@ -207,9 +276,99 @@ class EarlyExitGate:
                 reason=reason,
             )
 
-        # Case 2 & 3: Actionable mail -> transition to QUEUED
+        # Outcome 2: Deterministic template reply (R6.12, R6.13, R6.14)
+        matched_template: TemplateDefinition | None = None
+        if classification.workflow_hint == "template" and self.template_registry:
+            matched_template = self.template_registry.find_template(
+                classification.category,
+                classification.intent,
+            )
+
+        if (
+            classification.workflow_hint == "template"
+            and self.template_registry is not None
+            and matched_template is not None
+        ):
+            action = GateAction.TEMPLATE_REPLY
+            reason = "deterministic_template_reply"
+            rendered_result = self.template_registry.render(
+                matched_template,
+                message=message or {},
+                business_data=business_data or {},
+            )
+
+            msg_id, th_id = _extract_ids_from_message(job, message)
+            draft = GeneratedDraft(
+                id=uuid4(),
+                organization_id=job.organization_id,
+                job_id=job.id,
+                message_id=msg_id,
+                thread_id=th_id,
+                action="reply",
+                subject=rendered_result.subject,
+                body=rendered_result.body,
+                confidence=classification.confidence,
+                citations=[],
+                citation_mismatch=False,
+                model_name="template",
+                model_tier="template",
+                escalation_reason=None,
+                prompt_version=f"{matched_template.id}:{matched_template.version}",
+                input_tokens=0,
+                output_tokens=0,
+                cost_estimate=0.0,
+                status="draft",
+            )
+
+            payload = {
+                "template_reply": True,
+                "template_id": matched_template.id,
+                "template_version": matched_template.version,
+                "category": classification.category,
+                "intent": classification.intent,
+                "confidence": classification.confidence,
+                "decided_by": classification.decided_by,
+                "draft_id": str(draft.id),
+            }
+
+            final_job, event = transition_job(
+                current_job,
+                JobState.DRAFTED,
+                payload=payload,
+                trace_id=active_trace_id,
+            )
+
+            return GateDecision(
+                action=action,
+                job=final_job,
+                event=event,
+                classification=classification,
+                reply_required=True,
+                retrieval_required=False,
+                workflow_hint="template",
+                should_embed=False,
+                should_retrieve=False,
+                should_rerank=False,
+                should_generate=False,
+                reason=reason,
+                rendered_draft=draft,
+                template_result=rendered_result,
+            )
+
+        # Outcome 3: Actionable mail with AI Generation (or template fallback to 'ai')
+        # If workflow_hint was 'template' but no template matched, fall back to 'ai' (R6.14)
+        effective_workflow_hint = "ai"
+        effective_cls = classification
+        if classification.workflow_hint == "template" and matched_template is None:
+            logger.info(
+                "No template matched for (%s, %s). Falling back to workflow_hint='ai' (R6.14).",
+                classification.category,
+                classification.intent,
+            )
+            effective_cls = replace(classification, workflow_hint="ai")
+
         target_state = JobState.QUEUED
-        if not classification.retrieval_required:
+        if not effective_cls.retrieval_required:
             action = GateAction.PROCEED_NO_RAG
             reason = "retrieval_not_required"
             should_retrieve = False
@@ -222,16 +381,16 @@ class EarlyExitGate:
             should_embed = True
             should_rerank = True
 
-        should_generate = classification.workflow_hint != "none"
+        should_generate = True
 
         payload = {
-            "category": classification.category,
-            "intent": classification.intent,
-            "priority": classification.priority,
-            "retrieval_required": classification.retrieval_required,
-            "workflow_hint": classification.workflow_hint,
-            "confidence": classification.confidence,
-            "decided_by": classification.decided_by,
+            "category": effective_cls.category,
+            "intent": effective_cls.intent,
+            "priority": effective_cls.priority,
+            "retrieval_required": effective_cls.retrieval_required,
+            "workflow_hint": effective_workflow_hint,
+            "confidence": effective_cls.confidence,
+            "decided_by": effective_cls.decided_by,
         }
 
         final_job, event = transition_job(
@@ -245,10 +404,10 @@ class EarlyExitGate:
             action=action,
             job=final_job,
             event=event,
-            classification=classification,
+            classification=effective_cls,
             reply_required=True,
-            retrieval_required=classification.retrieval_required,
-            workflow_hint=classification.workflow_hint,
+            retrieval_required=effective_cls.retrieval_required,
+            workflow_hint=effective_workflow_hint,
             should_embed=should_embed,
             should_retrieve=should_retrieve,
             should_rerank=should_rerank,
@@ -262,22 +421,29 @@ class EarlyExitGate:
         classification: Classification,
         job_store: JobStore | None = None,
         trace_id: str | None = None,
+        message: NormalizedMessage | EmailContext | dict[str, Any] | None = None,
+        business_data: dict[str, Any] | None = None,
+        draft_store: DraftStore | None = None,
     ) -> GateDecision:
-        """Evaluate gate and persist state transition and event atomically to JobStore.
+        """Evaluate gate and persist state transition, event, and draft atomically.
 
         Args:
             job: Current job entity.
             classification: Classification outcome.
             job_store: Optional job store override (defaults to instance job_store).
             trace_id: Optional trace ID.
+            message: Optional normalized message or context for template variable substitution.
+            business_data: Optional business data dictionary for variable substitution.
+            draft_store: Optional draft store override (defaults to instance draft_store).
 
         Returns:
-            GateDecision with updated job and persisted event.
+            GateDecision with updated job, persisted event, and persisted draft (if template).
         """
         store = job_store or self.job_store
         if not store:
             raise ValueError("A valid JobStore must be provided for evaluate_and_persist")
 
+        active_draft_store = draft_store or self.draft_store
         active_trace_id = trace_id or job.trace_id
 
         # 1. Progress to CLASSIFIED in DB if currently NORMALIZED
@@ -303,8 +469,8 @@ class EarlyExitGate:
                 JobState.COMPLETED if not classification.reply_required else JobState.QUEUED,
             )
 
-        # 2. Gate Decision & DB Transition
-        if not classification.reply_required:
+        # Outcome 1: Early Exit
+        if not classification.reply_required or classification.workflow_hint == "none":
             action = GateAction.EARLY_EXIT
             reason = "no_reply_required"
             payload = {
@@ -337,7 +503,7 @@ class EarlyExitGate:
                 classification=classification,
                 reply_required=False,
                 retrieval_required=False,
-                workflow_hint=classification.workflow_hint,
+                workflow_hint="none",
                 should_embed=False,
                 should_retrieve=False,
                 should_rerank=False,
@@ -345,9 +511,110 @@ class EarlyExitGate:
                 reason=reason,
             )
 
-        # Actionable path
+        # Outcome 2: Deterministic template reply
+        matched_template: TemplateDefinition | None = None
+        if classification.workflow_hint == "template" and self.template_registry:
+            matched_template = self.template_registry.find_template(
+                classification.category,
+                classification.intent,
+            )
+
+        if (
+            classification.workflow_hint == "template"
+            and self.template_registry is not None
+            and matched_template is not None
+        ):
+            action = GateAction.TEMPLATE_REPLY
+            reason = "deterministic_template_reply"
+            rendered_result = self.template_registry.render(
+                matched_template,
+                message=message or {},
+                business_data=business_data or {},
+            )
+
+            msg_id, th_id = _extract_ids_from_message(job, message)
+            draft = GeneratedDraft(
+                id=uuid4(),
+                organization_id=job.organization_id,
+                job_id=job.id,
+                message_id=msg_id,
+                thread_id=th_id,
+                action="reply",
+                subject=rendered_result.subject,
+                body=rendered_result.body,
+                confidence=classification.confidence,
+                citations=[],
+                citation_mismatch=False,
+                model_name="template",
+                model_tier="template",
+                escalation_reason=None,
+                prompt_version=f"{matched_template.id}:{matched_template.version}",
+                input_tokens=0,
+                output_tokens=0,
+                cost_estimate=0.0,
+                status="draft",
+            )
+
+            # Persist draft to store if available
+            persisted_draft = draft
+            if active_draft_store is not None:
+                persisted_draft = await active_draft_store.create_draft(draft)
+
+            payload = {
+                "template_reply": True,
+                "template_id": matched_template.id,
+                "template_version": matched_template.version,
+                "category": classification.category,
+                "intent": classification.intent,
+                "confidence": classification.confidence,
+                "decided_by": classification.decided_by,
+                "draft_id": str(persisted_draft.id),
+                "trace_id": active_trace_id,
+            }
+
+            final_job, event = await store.transition_job_state(
+                organization_id=current_job.organization_id,
+                job_id=current_job.id,
+                target_state=JobState.DRAFTED,
+                payload=payload,
+                result_ref={
+                    "draft_id": str(persisted_draft.id),
+                    "template_id": matched_template.id,
+                },
+                message_id=current_job.message_id,
+                thread_id=current_job.thread_id,
+            )
+
+            return GateDecision(
+                action=action,
+                job=final_job,
+                event=event,
+                classification=classification,
+                reply_required=True,
+                retrieval_required=False,
+                workflow_hint="template",
+                should_embed=False,
+                should_retrieve=False,
+                should_rerank=False,
+                should_generate=False,
+                reason=reason,
+                rendered_draft=persisted_draft,
+                template_result=rendered_result,
+            )
+
+        # Outcome 3: Actionable mail with AI Generation (or fallback)
+        effective_workflow_hint = "ai"
+        effective_cls = classification
+        if classification.workflow_hint == "template" and matched_template is None:
+            logger.info(
+                "No template matched for (%s, %s). Falling back to workflow_hint='ai' (R6.14).",
+                classification.category,
+                classification.intent,
+            )
+            effective_cls = replace(classification, workflow_hint="ai")
+
         target_state = JobState.QUEUED
-        if not classification.retrieval_required:
+        if not effective_cls.retrieval_required:
             action = GateAction.PROCEED_NO_RAG
             reason = "retrieval_not_required"
             should_retrieve = False
@@ -360,16 +627,16 @@ class EarlyExitGate:
             should_embed = True
             should_rerank = True
 
-        should_generate = classification.workflow_hint != "none"
+        should_generate = True
 
         payload = {
-            "category": classification.category,
-            "intent": classification.intent,
-            "priority": classification.priority,
-            "retrieval_required": classification.retrieval_required,
-            "workflow_hint": classification.workflow_hint,
-            "confidence": classification.confidence,
-            "decided_by": classification.decided_by,
+            "category": effective_cls.category,
+            "intent": effective_cls.intent,
+            "priority": effective_cls.priority,
+            "retrieval_required": effective_cls.retrieval_required,
+            "workflow_hint": effective_workflow_hint,
+            "confidence": effective_cls.confidence,
+            "decided_by": effective_cls.decided_by,
         }
 
         final_job, event = await store.transition_job_state(
@@ -385,10 +652,10 @@ class EarlyExitGate:
             action=action,
             job=final_job,
             event=event,
-            classification=classification,
+            classification=effective_cls,
             reply_required=True,
-            retrieval_required=classification.retrieval_required,
-            workflow_hint=classification.workflow_hint,
+            retrieval_required=effective_cls.retrieval_required,
+            workflow_hint=effective_workflow_hint,
             should_embed=should_embed,
             should_retrieve=should_retrieve,
             should_rerank=should_rerank,

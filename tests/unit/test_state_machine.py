@@ -54,8 +54,15 @@ def test_all_declared_legal_transitions() -> None:
             assert dst == to_state
             total_transitions += 1
 
-    # Exactly 24 declared legal transitions in specs/design.md §8
-    assert total_transitions == 24
+    # Exactly 25 declared legal transitions (including CLASSIFIED -> DRAFTED)
+    assert total_transitions == 25
+
+
+def test_classified_to_drafted_transition() -> None:
+    """Verify CLASSIFIED -> DRAFTED transition for deterministic template reply (R6.13)."""
+    src, dst = validate_transition(JobState.CLASSIFIED, JobState.DRAFTED)
+    assert src == JobState.CLASSIFIED
+    assert dst == JobState.DRAFTED
 
 
 @pytest.mark.parametrize(
@@ -65,7 +72,7 @@ def test_all_declared_legal_transitions() -> None:
         (JobState.RECEIVED, JobState.GENERATING),
         (JobState.RECEIVED, JobState.COMPLETED),
         (JobState.NORMALIZED, JobState.GENERATING),
-        (JobState.CLASSIFIED, JobState.DRAFTED),
+        (JobState.CLASSIFIED, JobState.DISPATCHED),
         (JobState.QUEUED, JobState.DISPATCHED),
         (JobState.CONTEXT_READY, JobState.COMPLETED),
         (JobState.GENERATING, JobState.RECEIVED),

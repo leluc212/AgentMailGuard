@@ -68,23 +68,18 @@ class EmailContext:
 
         recipients = data.get("recipients") or []
         rec_emails = [
-            (r.get("email", "") if isinstance(r, dict) else str(r)).lower()
-            for r in recipients
+            (r.get("email", "") if isinstance(r, dict) else str(r)).lower() for r in recipients
         ]
 
         cc = data.get("cc") or []
-        cc_emails = [
-            (c.get("email", "") if isinstance(c, dict) else str(c)).lower()
-            for c in cc
-        ]
+        cc_emails = [(c.get("email", "") if isinstance(c, dict) else str(c)).lower() for c in cc]
 
         raw_headers = data.get("headers") or {}
         headers_lower = {str(k).lower(): str(v) for k, v in raw_headers.items()}
 
         attachments = data.get("attachments") or []
         att_filenames = [
-            a.get("filename", "") if isinstance(a, dict) else str(a)
-            for a in attachments
+            a.get("filename", "") if isinstance(a, dict) else str(a) for a in attachments
         ]
 
         return cls(
@@ -232,14 +227,16 @@ class FieldPredicate:
         return True
 
 
-KNOWN_OPERATORS = frozenset({
-    "matches",
-    "equals",
-    "contains",
-    "starts_with",
-    "ends_with",
-    "exists",
-})
+KNOWN_OPERATORS = frozenset(
+    {
+        "matches",
+        "equals",
+        "contains",
+        "starts_with",
+        "ends_with",
+        "exists",
+    }
+)
 
 
 @dataclass(frozen=True)

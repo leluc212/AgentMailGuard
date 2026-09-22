@@ -241,7 +241,7 @@
   - `retrieval_required == false` ⇒ RAG is skipped downstream.
   - _Requirements: R6.5, R6.6_
 
-- [ ] **2.8 Deterministic template reply path — the missing 20%**
+- [x] **2.8 Deterministic template reply path — the missing 20%**
   - Emit `workflow_hint ∈ {template, ai, none}` from the cascade alongside `reply_required` and `retrieval_required`.
   - Template registry keyed by `(category, intent)` with variable substitution from message and business fields; versioned template files.
   - `workflow_hint='template'` ⇒ render and go to `DRAFTED` with **zero** retrieval and **zero** generation calls; assert this in tests.
