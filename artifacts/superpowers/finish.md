@@ -1,21 +1,23 @@
-# Phase 2 Task 2.6: Category Taxonomy — Finish Summary
+# Phase 2 Task 2.7: Early-Exit Gate — The Cost Lever — Finish Summary
 
 ## 1. Summary of Changes
 
-- **Canonical Domain Taxonomy (`packages/domain/taxonomy.py`, `packages/domain/__init__.py`)**:
-  - Implemented `Category(StrEnum)` strictly defining all 9 mandatory categories specified in `R6.4`:
-    `support`, `sales`, `billing`, `administration`, `scheduling`, `general_inquiry`, `automated_notification`, `acknowledgement`, `no_response`.
-  - Implemented `CategoryDefinition` dataclass specifying category descriptions, default reply requirements, default retrieval requirements, workflow hints, priorities, intent taxonomies, auto-send eligibility, and aliases.
-  - Implemented `TaxonomyRegistry` allowing dynamic tenant-level category customization and custom intent mappings while guaranteeing the 9 baseline canonical categories remain intact.
-  - Implemented category normalization and validation functions (`normalize_category`, `validate_category`, `is_valid_category`, `get_category_definition`).
-  - Exported all taxonomy constructs in `packages.domain` conforming strictly to domain architectural boundaries (stdlib + `packages/core` only).
-- **Worker & Evaluation Integration (`services/triage_worker/`, `evaluation/datasets/`)**:
-  - Updated Stage 2 ML classifier (`services/triage_worker/classifier.py`) to import `NO_REPLY_CATEGORIES`, `RETRIEVAL_CATEGORIES`, and `normalize_category` directly from `packages.domain.taxonomy`.
-  - Updated Stage 3 LLM fallback classifier (`services/triage_worker/llm_classifier.py`) to use `CANONICAL_CATEGORIES`, `normalize_category`, and `is_valid_category` from `packages.domain.taxonomy` in its Pydantic validator.
-  - Updated evaluation schemas (`evaluation/datasets/schemas.py`) to alias `ClassificationCategory = Category` from `packages.domain.taxonomy`.
-- **Automated Tests (`tests/unit/test_category_taxonomy.py`)**:
-  - Authored 50 unit tests covering mandatory R6.4 category conformance, string enum direct comparison, category definitions completeness, default routing flags, alias normalization, strict validation, tenant registry extensions, and architectural import boundaries.
-- **Task Verification**: Marked Task 2.6 complete in `specs/tasks.md`.
+- **Early-Exit Gate Engine (`services/triage_worker/gate.py`, `services/triage_worker/__init__.py`)**:
+  - Implemented `GateAction(StrEnum)` (`EARLY_EXIT`, `PROCEED_NO_RAG`, `PROCEED_RAG`).
+  - Implemented `GateDecision` dataclass recording action, job state, processing event, and explicit execution flags: `should_embed`, `should_retrieve`, `should_rerank`, `should_generate`.
+  - Implemented `EarlyExitGate` supporting pure in-memory `evaluate_decision` and atomic database-persisted `evaluate_and_persist`:
+    - If `reply_required == false`: directly transitions from `CLASSIFIED` to `COMPLETED` (`R6.5`). Zero AI execution flags set.
+    - If `retrieval_required == false`: transitions to `QUEUED` with `should_retrieve=False` (`R6.6`), skipping hybrid RAG.
+    - If `retrieval_required == true`: transitions to `QUEUED` with `should_retrieve=True`, executing full RAG pipeline.
+  - Implemented `DownstreamPipelineHooks(Protocol)` and `GatedPipelineRunner` asserting zero calls on early exit or retrieval bypass.
+  - Exported all gate symbols in `services.triage_worker`.
+- **Cascade Integration (`services/triage_worker/cascade.py`)**:
+  - Integrated `EarlyExitGate` into `CascadingTriageEngine`.
+  - Implemented `triage_and_gate` (async) and `triage_and_gate_sync` (sync wrapper) methods, coupling triage classification with immediate gate evaluation.
+- **Automated Tests**:
+  - Authored `tests/unit/test_early_exit_gate.py` (10 unit tests) covering no-reply early-exit with zero mock calls, retrieval bypass with selective generation, full RAG paths, state progression from `NORMALIZED` and `CLASSIFIED`, illegal transition protection, in-memory store persistence, and cascade integration.
+  - Authored `tests/integration/test_early_exit_gate_postgres.py` (3 integration tests) verifying live PostgreSQL updates to `COMPLETED` and `QUEUED`, `processing_event` audit logs, and strict multi-tenant isolation.
+- **Task Verification**: Marked Task 2.7 complete in `specs/tasks.md`.
 
 ---
 
@@ -24,7 +26,7 @@
 - **Blocker**: None.
 - **Major**: None.
 - **Minor**: None.
-- **Nit**: None. All 173 source files pass `ruff check` and `mypy --strict`.
+- **Nit**: None. All 176 source files pass `ruff check` and `mypy --strict`.
 
 ---
 
@@ -32,37 +34,44 @@
 
 | Verification Target | Command | Result |
 |---|---|---|
-| Category Taxonomy Unit Tests | `uv run pytest tests/unit/test_category_taxonomy.py -v` | PASS (50/50 passed in 0.23s) |
-| Architectural Boundaries Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed in 0.65s) |
-| Triage Worker Unit Tests | `uv run pytest tests/unit/test_triage_ml.py tests/unit/test_triage_stage3.py tests/unit/test_triage_cascade.py` | PASS (42/42 passed in 4.57s) |
-| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (502/502 passed in 23.4s) |
-| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests evaluation` | PASS (0 errors, 173 files clean) |
+| Gate Unit Tests | `uv run pytest tests/unit/test_early_exit_gate.py -v` | PASS (10/10 passed in 1.70s) |
+| PostgreSQL Gate Integration Tests | `uv run pytest tests/integration/test_early_exit_gate_postgres.py -v` | PASS (3/3 passed in 2.43s) |
+| Architectural Boundaries Guard | `uv run pytest tests/unit/test_dependency_rules.py -v` | PASS (4/4 passed in 0.69s) |
+| Full Test Suite | `uv run pytest tests/unit tests/integration -q` | PASS (515/515 passed in 24.1s) |
+| Code Style & Strict Types | `uv run ruff check . && uv run mypy packages services tests evaluation` | PASS (0 errors, 176 files clean) |
 
 ---
 
 ## 4. Manual Validation Steps
 
-To verify the category taxonomy and normalizer locally:
+To verify early-exit gate logic locally:
 ```bash
 uv run python -c "
-from packages.domain.taxonomy import (
-    Category,
-    CANONICAL_CATEGORIES,
-    normalize_category,
-    get_category_definition,
-    validate_category,
-)
+from packages.domain.entities import Job, Classification
+from packages.domain.state_machine import JobState
+from services.triage_worker.gate import EarlyExitGate, GateAction
 
-assert len(CANONICAL_CATEGORIES) == 9
-for cat in Category:
-    defn = get_category_definition(cat)
-    assert defn is not None
-    print(f'{cat.value}: reply={defn.default_reply_required}, retrieval={defn.default_retrieval_required}, hint={defn.default_workflow_hint}')
+gate = EarlyExitGate()
+job = Job(state=JobState.CLASSIFIED, organization_id='test-org')
 
-assert normalize_category('  TECHNICAL_SUPPORT  ') == 'support'
-assert normalize_category('out_of_office') == 'no_response'
-assert validate_category('tech_support') == 'support'
-print('Taxonomy verification successful!')
+# Test 1: No reply required -> COMPLETED immediately (R6.5)
+cls_noreply = Classification(category='automated_notification', reply_required=False, retrieval_required=False)
+dec_noreply = gate.evaluate_decision(job, cls_noreply)
+assert dec_noreply.action == GateAction.EARLY_EXIT
+assert dec_noreply.job.state == JobState.COMPLETED
+assert dec_noreply.should_embed is False
+assert dec_noreply.should_retrieve is False
+assert dec_noreply.should_generate is False
+
+# Test 2: Retrieval not required -> QUEUED with zero RAG (R6.6)
+cls_scheduling = Classification(category='scheduling', reply_required=True, retrieval_required=False)
+dec_scheduling = gate.evaluate_decision(job, cls_scheduling)
+assert dec_scheduling.action == GateAction.PROCEED_NO_RAG
+assert dec_scheduling.job.state == JobState.QUEUED
+assert dec_scheduling.should_retrieve is False
+assert dec_scheduling.should_generate is True
+
+print('Early exit gate manual test passed successfully!')
 "
 ```
 
@@ -70,4 +79,4 @@ print('Taxonomy verification successful!')
 
 ## 5. Follow-Ups
 
-- Next task in queue is **Phase 2 Task 2.7: Early-exit gate — the cost lever** (`R6.5, R6.6`) ensuring `reply_required == false` transitions straight to `COMPLETED` without retrieval/generation, and `retrieval_required == false` skips RAG.
+- Next task in queue is **Phase 2 Task 2.8: Deterministic template reply path — the missing 20%** (`R6.12, R6.13, R6.14, R6.15`) implementing the template registry keyed by `(category, intent)` with variable substitution, rendering directly to `DRAFTED` with zero retrieval and zero generation calls.

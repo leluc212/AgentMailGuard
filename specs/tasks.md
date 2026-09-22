@@ -236,7 +236,7 @@
   - Implement support, sales, billing, administration, scheduling, general_inquiry, automated_notification, acknowledgement, no_response.
   - _Requirements: R6.4_
 
-- [ ] **2.7 Early-exit gate — the cost lever**
+- [x] **2.7 Early-exit gate — the cost lever**
   - `reply_required == false` ⇒ transition straight to `COMPLETED`; assert in tests that **no** embedding, retrieval, rerank, or generation call is made.
   - `retrieval_required == false` ⇒ RAG is skipped downstream.
   - _Requirements: R6.5, R6.6_

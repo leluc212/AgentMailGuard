@@ -2308,4 +2308,77 @@
   - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
 - **Result:** PASS (502 passed, 0 lint errors, 0 type errors)
 
+# Execution Log: Phase 2 Task 2.7 — Early-Exit Gate — The Cost Lever
+
+## Step 1: Implement Early-Exit Gate Engine
+- **Files Changed:**
+  - `services/triage_worker/gate.py` (new)
+  - `services/triage_worker/__init__.py`
+- **What Changed:**
+  - Implemented `GateAction(StrEnum)` (`EARLY_EXIT`, `PROCEED_NO_RAG`, `PROCEED_RAG`).
+  - Implemented `GateDecision` dataclass recording action, job, event, and explicit execution flags (`should_embed`, `should_retrieve`, `should_rerank`, `should_generate`).
+  - Implemented `EarlyExitGate` providing pure in-memory `evaluate_decision` and database-persisted `evaluate_and_persist` (via `JobStore`).
+  - Implemented legal state transitions:
+    - If `reply_required == false`: transitions directly from `CLASSIFIED` to `COMPLETED` (`R6.5`). Sets all AI execution flags to `False`.
+    - If `retrieval_required == false`: transitions to `QUEUED` with `should_retrieve=False` (`R6.6`).
+    - If `retrieval_required == true`: transitions to `QUEUED` with `should_retrieve=True`.
+  - Implemented `DownstreamPipelineHooks(Protocol)` and `GatedPipelineRunner` asserting zero calls on early exit and selective retrieval bypass.
+  - Exported all gate symbols in `services.triage_worker`.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
+- **Result:** PASS (0 lint errors, 0 type errors)
+
+## Step 2: Wire Gate into Cascading Triage Engine
+- **Files Changed:**
+  - `services/triage_worker/cascade.py`
+- **What Changed:**
+  - Added optional `gate: EarlyExitGate` to `CascadingTriageEngine.__init__`.
+  - Implemented `triage_and_gate` (async) and `triage_and_gate_sync` (sync wrapper) methods, coupling classification output with immediate gate evaluation.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
+- **Result:** PASS (0 lint errors, 0 type errors)
+
+## Step 3: Author Gate Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_early_exit_gate.py` (new)
+- **What Changed:**
+  - Authored 10 comprehensive unit tests validating:
+    - Early exit across all no-reply categories (`automated_notification`, `acknowledgement`, `no_response`) with direct transition to `COMPLETED` (`R6.5`).
+    - Downstream execution barrier asserting 0 calls (call count == 0) to `embed_query`, `retrieve_knowledge`, `rerank_candidates`, and `generate_reply` via `GatedPipelineRunner`.
+    - Legal state progression from `NORMALIZED -> CLASSIFIED -> COMPLETED`.
+    - Selective retrieval bypass when `retrieval_required=False`: 0 calls to embedding, retrieval, and reranking, while generation is executed (`R6.6`).
+    - Full RAG path when `retrieval_required=True`: all stages executed.
+    - Prevention of illegal state transitions (raising `IllegalStateTransitionError`).
+    - Store-backed persistence with `InMemoryJobStore`.
+    - End-to-end integration via `engine.triage_and_gate` and `engine.triage_and_gate_sync`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_early_exit_gate.py -v`
+- **Result:** PASS (10/10 passed in 1.70s)
+
+## Step 4: Author PostgreSQL Gate Integration Test Suite
+- **Files Changed:**
+  - `tests/integration/test_early_exit_gate_postgres.py` (new)
+- **What Changed:**
+  - Authored 3 integration tests against live PostgreSQL container on port 5433 verifying:
+    - Early exit transitions job to `COMPLETED` and atomically writes `processing_event` audit trail (`state_from='CLASSIFIED'`, `state_to='COMPLETED'`).
+    - Actionable job transitions to `QUEUED` with correct retrieval flags.
+    - Tenant isolation: cross-tenant access is rejected with `KeyError`.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_early_exit_gate_postgres.py -v`
+- **Result:** PASS (3/3 passed in 2.43s)
+
+## Step 5: Full Regression Verification & Task 2.7 Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Validated full test suite (515 unit and integration tests passing).
+  - Validated strict static type checking with mypy and code formatting with ruff across 176 source files.
+  - Marked Task 2.7 complete in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
+- **Result:** PASS (515 passed, 0 lint errors, 0 type errors)
+
+
 

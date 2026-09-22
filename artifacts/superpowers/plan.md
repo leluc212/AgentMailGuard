@@ -1,58 +1,62 @@
-# Implementation Plan: Phase 2 Task 2.6 — Category Taxonomy
+# Implementation Plan: Phase 2 Task 2.7 — Early-Exit Gate — The Cost Lever
 
 ### Goal
-Implement the canonical enterprise email classification category taxonomy per `specs/tasks.md` Task 2.6, `specs/requirements.md` criterion `R6.4`, and `specs/design.md §5.3`, anchored on the Technical Proposal §11.
+Implement the Early-Exit Gate per `specs/tasks.md` Task 2.7, `specs/requirements.md` criteria `R6.5` and `R6.6`, and `specs/design.md §5.3` and `§8`.
 
 ### Assumptions
-1. `R6.4` requires at minimum the 9 categories: `support`, `sales`, `billing`, `administration`, `scheduling`, `general_inquiry`, `automated_notification`, `acknowledgement`, `no_response`.
-2. Architecture rule: `packages/domain` imports standard library and `packages/core` only (zero dependencies on database, broker, or external frameworks).
-3. The 9 canonical categories form the immutable baseline taxonomy, while `TaxonomyRegistry` allows tenant-specific extensions or intent customizations.
-4. Downstream triage workers (Stage 2 ML, Stage 3 LLM, Cascade) and evaluation schemas reference `packages/domain/taxonomy.py` as single source of truth.
+1. If `reply_required == false`: The job transitions directly from `CLASSIFIED` to `COMPLETED`. No embedding, retrieval, reranking, or LLM generation is ever called (`R6.5`).
+2. If `retrieval_required == false`: The job transitions to `QUEUED`, but the hybrid RAG retrieval pipeline is bypassed; context is constructed from thread history and business metadata only (`R6.6`).
+3. State transitions must strictly go through `packages.domain.state_machine.transition_job` (`GEMINI.md §4`, `R18.3`).
+4. Database updates go through `JobStore` (`packages/db/job.py`).
 
 ### Plan
 
-1. **Implement Domain Category Taxonomy (`packages/domain/taxonomy.py`, `packages/domain/__init__.py`)**
-   - Files: `packages/domain/taxonomy.py`, `packages/domain/__init__.py`
+1. **Implement Early-Exit Gate (`services/triage_worker/gate.py`, `services/triage_worker/__init__.py`)**
+   - Files: `services/triage_worker/gate.py`, `services/triage_worker/__init__.py`
    - Change:
-     - Define `Category(StrEnum)` with 9 canonical categories (`support`, `sales`, `billing`, `administration`, `scheduling`, `general_inquiry`, `automated_notification`, `acknowledgement`, `no_response`).
-     - Define `CategoryDefinition` dataclass (`category`, `description`, `default_reply_required`, `default_retrieval_required`, `default_workflow_hint`, `default_priority`, `intents`, `auto_send_eligible`, `aliases`).
-     - Define `TaxonomyRegistry` allowing tenant-level extensions while preserving the 9 canonical baseline categories.
-     - Implement lookup and normalization functions: `validate_category`, `normalize_category`, `is_valid_category`, `get_category_definition`.
-     - Export all symbols in `packages/domain/__init__.py`.
-   - Verify: `uv run ruff check packages/domain/ && uv run mypy packages/domain/ && uv run pytest tests/unit/test_dependency_rules.py`
+     - Define `GateAction(StrEnum)` (`EARLY_EXIT`, `PROCEED_NO_RAG`, `PROCEED_RAG`).
+     - Define `GateDecision` dataclass with action, job, event, and execution flags (`should_embed`, `should_retrieve`, `should_rerank`, `should_generate`).
+     - Implement `EarlyExitGate` with `evaluate_decision` (sync/pure) and `evaluate_and_persist` (async DB-backed).
+     - Define `DownstreamPipelineHooks(Protocol)` and `GatedPipelineRunner` asserting zero calls on early exit or retrieval bypass.
+     - Export symbols in `services.triage_worker`.
+   - Verify: `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
 
-2. **Align Triage Worker Classifiers & Evaluation Schemas**
-   - Files: `services/triage_worker/classifier.py`, `services/triage_worker/llm_classifier.py`, `evaluation/datasets/schemas.py`
+2. **Wire Early-Exit Gate into Cascading Triage Engine (`services/triage_worker/cascade.py`)**
+   - Files: `services/triage_worker/cascade.py`
    - Change:
-     - Update `services/triage_worker/classifier.py` to import `NO_REPLY_CATEGORIES` and `RETRIEVAL_CATEGORIES` from `packages.domain.taxonomy`.
-     - Update `services/triage_worker/llm_classifier.py` to use `CANONICAL_CATEGORIES` and `normalize_category` from `packages.domain.taxonomy`.
-     - Update `evaluation/datasets/schemas.py` to alias or wrap `packages.domain.taxonomy.Category`.
-   - Verify: `uv run ruff check services/triage_worker/ evaluation/ && uv run mypy services/triage_worker/ evaluation/`
+     - Add `triage_and_gate` and `triage_and_gate_sync` methods to `CascadingTriageEngine` to integrate classification with gate evaluation.
+   - Verify: `uv run ruff check services/triage_worker/ && uv run mypy services/triage_worker/`
 
-3. **Author Taxonomy Unit Test Suite (`tests/unit/test_category_taxonomy.py`)**
-   - Files: `tests/unit/test_category_taxonomy.py`
+3. **Author Gate Unit Tests (`tests/unit/test_early_exit_gate.py`)**
+   - Files: `tests/unit/test_early_exit_gate.py`
    - Change:
-     - Validate all 9 canonical categories from R6.4 exist and have expected string values.
-     - Validate category definitions, intent taxonomies, default routing flags, and aliases.
-     - Validate category normalization and validation rules.
-     - Validate `TaxonomyRegistry` operations (default registry, lookup, custom category registration, immutability of canonical set).
-     - Validate domain boundary compliance (stdlib/core imports only).
-   - Verify: `uv run pytest tests/unit/test_category_taxonomy.py -v`
+     - Test early-exit on `reply_required=False` with `GatedPipelineRunner`, asserting mock call counts for embed, retrieve, rerank, and generate are strictly 0.
+     - Test retrieval bypass on `retrieval_required=False`, asserting retrieve, rerank, and embed call counts are 0, while generate is called.
+     - Test full RAG path on `retrieval_required=True`, asserting all steps run.
+     - Test legal vs illegal state transitions and telemetry events.
+   - Verify: `uv run pytest tests/unit/test_early_exit_gate.py -v`
 
-4. **Regression Verification & Task 2.6 Sign-off**
+4. **Author PostgreSQL Gate Integration Tests (`tests/integration/test_early_exit_gate_postgres.py`)**
+   - Files: `tests/integration/test_early_exit_gate_postgres.py`
+   - Change:
+     - Author integration tests using `PostgresJobStore` against live PostgreSQL container.
+     - Verify database row updates to `COMPLETED` and `processing_event` audit logs.
+     - Verify multi-tenant isolation.
+   - Verify: `uv run pytest tests/integration/test_early_exit_gate_postgres.py -v`
+
+5. **Full Regression Verification & Task 2.7 Sign-Off**
    - Files: `specs/tasks.md`, `artifacts/superpowers/execution.md`, `artifacts/superpowers/finish.md`
    - Change:
-     - Run full unit and integration test suites.
-     - Verify 0 ruff errors, 0 mypy strict type errors.
-     - Mark Task 2.6 complete (`[x]`) in `specs/tasks.md`.
+     - Run full test suite, ruff, and mypy.
+     - Mark Task 2.7 complete in `specs/tasks.md`.
      - Update execution and finish documentation.
-   - Verify: `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests`
+   - Verify: `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
 
 ### Risks & mitigations
-- **Risk**: Hardcoded strings across existing tests or workers might conflict if casing or whitespace normalization isn't applied.
-  - **Mitigation**: `normalize_category` strips whitespace, converts to lowercase, and maps aliases before validation.
-- **Risk**: Domain boundary violation if non-stdlib packages are imported in `packages/domain/taxonomy.py`.
-  - **Mitigation**: Use stdlib `enum.StrEnum`, `dataclasses`, and `typing`. Verified by `test_dependency_rules.py`.
+- **Risk**: A job at `NORMALIZED` state cannot directly transition to `COMPLETED` according to `TRANSITIONS` table (`NORMALIZED -> CLASSIFIED -> COMPLETED`).
+  - **Mitigation**: `EarlyExitGate` detects `job.state == NORMALIZED` and legally sequences `NORMALIZED -> CLASSIFIED -> COMPLETED`.
+- **Risk**: Concurrent workers or state machine mismatch.
+  - **Mitigation**: Use formal `transition_job` and atomic transactions via `JobStore`.
 
 ### Rollback plan
-- Revert git changes via `git checkout -- packages/ services/ evaluation/ tests/`.
+- Revert git changes via `git checkout -- services/ tests/ specs/tasks.md`.

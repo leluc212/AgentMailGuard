@@ -16,9 +16,10 @@ from typing import Any
 from uuid import UUID
 
 from packages.db.classification import ClassificationStore
-from packages.domain.entities import Classification, NormalizedMessage
+from packages.domain.entities import Classification, Job, NormalizedMessage
 from packages.domain.rules import EmailContext
 from services.triage_worker.classifier import MLClassifier
+from services.triage_worker.gate import EarlyExitGate, GateDecision
 from services.triage_worker.llm_classifier import LLMTriageClassifier
 from services.triage_worker.rules import HotReloadableRuleEngine
 from services.triage_worker.thresholds import ThresholdManager
@@ -74,12 +75,14 @@ class CascadingTriageEngine:
         llm_classifier: LLMTriageClassifier | None = None,
         threshold_manager: ThresholdManager | None = None,
         classification_store: ClassificationStore | None = None,
+        gate: EarlyExitGate | None = None,
     ) -> None:
         self.rule_engine = rule_engine or HotReloadableRuleEngine()
         self.ml_classifier = ml_classifier
         self.llm_classifier = llm_classifier or LLMTriageClassifier()
         self.threshold_manager = threshold_manager or ThresholdManager()
         self.classification_store = classification_store
+        self.gate = gate or EarlyExitGate()
 
     def _coerce_context(
         self,
@@ -438,3 +441,76 @@ class CascadingTriageEngine:
                     persist=persist,
                 )
             )
+
+    async def triage_and_gate(
+        self,
+        job: Job,
+        context: EmailContext | NormalizedMessage | dict[str, Any],
+        organization_id: UUID | str | None = None,
+        message_id: UUID | str | None = None,
+        persist: bool = False,
+        persist_job: bool = False,
+        trace_id: str | None = None,
+    ) -> tuple[CascadeResult, GateDecision]:
+        """Classify message through cascade and evaluate early-exit gate on the job (R6.5, R6.6)."""
+        cascade_res = await self.triage(
+            context=context,
+            organization_id=organization_id,
+            message_id=message_id,
+            persist=persist,
+        )
+        if persist_job and self.gate.job_store:
+            gate_decision = await self.gate.evaluate_and_persist(
+                job=job,
+                classification=cascade_res.classification,
+                trace_id=trace_id,
+            )
+        else:
+            gate_decision = self.gate.evaluate_decision(
+                job=job,
+                classification=cascade_res.classification,
+                trace_id=trace_id,
+            )
+        return cascade_res, gate_decision
+
+    def triage_and_gate_sync(
+        self,
+        job: Job,
+        context: EmailContext | NormalizedMessage | dict[str, Any],
+        organization_id: UUID | str | None = None,
+        message_id: UUID | str | None = None,
+        persist: bool = False,
+        trace_id: str | None = None,
+    ) -> tuple[CascadeResult, GateDecision]:
+        """Synchronous convenience wrapper for triage_and_gate."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    self.triage_and_gate(
+                        job=job,
+                        context=context,
+                        organization_id=organization_id,
+                        message_id=message_id,
+                        persist=persist,
+                        trace_id=trace_id,
+                    ),
+                )
+                return future.result()
+        else:
+            return asyncio.run(
+                self.triage_and_gate(
+                    job=job,
+                    context=context,
+                    organization_id=organization_id,
+                    message_id=message_id,
+                    persist=persist,
+                    trace_id=trace_id,
+                )
+            )
+
