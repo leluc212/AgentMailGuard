@@ -17,6 +17,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from packages.domain.entities import Classification, NormalizedMessage
 from packages.domain.rules import EmailContext
+from packages.domain.taxonomy import (
+    CANONICAL_CATEGORIES as CANONICAL_CATEGORIES,
+)
+from packages.domain.taxonomy import (
+    is_valid_category,
+    normalize_category,
+)
 from packages.llm.client import HttpLLMProvider
 from packages.llm.protocol import (
     ChatMessage,
@@ -27,18 +34,6 @@ from packages.llm.protocol import (
 )
 
 logger = logging.getLogger(__name__)
-
-CANONICAL_CATEGORIES: tuple[str, ...] = (
-    "support",
-    "sales",
-    "billing",
-    "administration",
-    "scheduling",
-    "general_inquiry",
-    "automated_notification",
-    "acknowledgement",
-    "no_response",
-)
 
 SYSTEM_PROMPT = """You are an expert enterprise email triage classifier.
 Analyze the inbound email and return structured JSON adhering to the schema.
@@ -100,13 +95,10 @@ class LLMTriageOutput(BaseModel):
     @classmethod
     def validate_category(cls, v: str) -> str:
         """Normalize category name and enforce canonical category vocabulary (R6.4)."""
-        cleaned = v.strip().lower()
-        if cleaned == "technical_support":
-            cleaned = "support"
-        if cleaned not in CANONICAL_CATEGORIES:
-            raise ValueError(
-                f"Category '{v}' not recognized; must be one of {CANONICAL_CATEGORIES}"
-            )
+        cleaned = normalize_category(v)
+        if not is_valid_category(cleaned):
+            valid_cats = sorted(CANONICAL_CATEGORIES)
+            raise ValueError(f"Category '{v}' not recognized; must be one of {valid_cats}")
         return cleaned
 
 

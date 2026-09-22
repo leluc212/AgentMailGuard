@@ -17,19 +17,14 @@ from sklearn.pipeline import Pipeline
 
 from packages.domain.entities import Classification, NormalizedMessage
 from packages.domain.rules import EmailContext
+from packages.domain.taxonomy import (
+    NO_REPLY_CATEGORIES,
+    RETRIEVAL_CATEGORIES,
+    normalize_category,
+)
 from services.triage_worker.training import DEFAULT_MODEL_PATH, prepare_text
 
 logger = logging.getLogger(__name__)
-
-# Categories where automated reply is not required
-NO_REPLY_CATEGORIES: frozenset[str] = frozenset(
-    {"automated_notification", "no_response", "acknowledgement"}
-)
-
-# Categories that typically require knowledge retrieval for grounded answering
-RETRIEVAL_CATEGORIES: frozenset[str] = frozenset(
-    {"support", "billing", "sales", "administration", "general_inquiry"}
-)
 
 # Common regex pattern for high urgency indicators
 URGENT_PATTERN = re.compile(
@@ -145,9 +140,9 @@ class MLClassifier:
         probs = self._pipeline.predict_proba([text])[0]
         best_idx = int(probs.argmax())
         if self._classes:
-            winning_category = self._classes[best_idx]
+            winning_category = normalize_category(self._classes[best_idx])
         else:
-            winning_category = str(self._pipeline.predict([text])[0])
+            winning_category = normalize_category(str(self._pipeline.predict([text])[0]))
         confidence = float(probs[best_idx])
 
         # Build full class distribution

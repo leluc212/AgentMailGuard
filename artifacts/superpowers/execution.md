@@ -2250,3 +2250,62 @@
   - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests`
 - **Result:** PASS (452 passed, 0 lint errors, 0 type errors)
 
+# Execution Log: Phase 2 Task 2.6 — Category Taxonomy
+
+## Step 1: Implement Domain Category Taxonomy
+- **Files Changed:**
+  - `packages/domain/taxonomy.py` (new)
+  - `packages/domain/__init__.py`
+- **What Changed:**
+  - Implemented `Category(StrEnum)` defining the 9 mandatory categories per R6.4: `support`, `sales`, `billing`, `administration`, `scheduling`, `general_inquiry`, `automated_notification`, `acknowledgement`, `no_response`.
+  - Implemented `CategoryDefinition` dataclass specifying category descriptions, default reply requirements, default retrieval requirements, workflow hints, priorities, intent taxonomies, auto-send eligibility, and aliases.
+  - Implemented `TaxonomyRegistry` allowing tenant-level customization and extensions while guaranteeing the 9 canonical baseline categories remain intact.
+  - Implemented normalization and validation functions (`normalize_category`, `validate_category`, `is_valid_category`, `get_category_definition`).
+  - Exported all taxonomy symbols in `packages.domain`.
+- **Verification Command:**
+  - `uv run ruff check packages/domain/ && uv run mypy packages/domain/ && uv run pytest tests/unit/test_dependency_rules.py`
+- **Result:** PASS (0 lint errors, 0 type errors, all boundary tests passed)
+
+## Step 2: Align Triage Worker Classifiers & Evaluation Schemas
+- **Files Changed:**
+  - `services/triage_worker/classifier.py`
+  - `services/triage_worker/llm_classifier.py`
+  - `evaluation/datasets/schemas.py`
+- **What Changed:**
+  - Updated Stage 2 ML classifier to import `NO_REPLY_CATEGORIES`, `RETRIEVAL_CATEGORIES`, and `normalize_category` directly from `packages.domain.taxonomy`.
+  - Updated Stage 3 LLM fallback classifier to use `CANONICAL_CATEGORIES`, `normalize_category`, and `is_valid_category` from `packages.domain.taxonomy` in its Pydantic validator.
+  - Updated evaluation dataset schemas to alias `ClassificationCategory = Category` from `packages.domain.taxonomy`.
+- **Verification Command:**
+  - `uv run ruff check services/triage_worker/ evaluation/ && uv run mypy services/triage_worker/ evaluation/ && uv run pytest tests/unit/test_triage_ml.py tests/unit/test_triage_stage3.py tests/unit/test_triage_cascade.py`
+- **Result:** PASS (42/42 tests passed, 0 lint/mypy errors)
+
+## Step 3: Author Category Taxonomy Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_category_taxonomy.py` (new)
+- **What Changed:**
+  - Authored 50 unit tests covering:
+    - R6.4 mandatory category conformance and string enum behavior.
+    - Category definition completeness and metadata consistency.
+    - Default routing rules: no-reply categories, actionable categories, retrieval categories, workflow hints.
+    - Normalization of aliases and synonyms (e.g. `technical_support` -> `support`, `out_of_office` -> `no_response`, etc.).
+    - Strict category validation and error handling.
+    - Tenant-level custom category registration via `TaxonomyRegistry`.
+    - Strict architectural domain boundary compliance (stdlib + packages.core only).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_category_taxonomy.py -v`
+- **Result:** PASS (50/50 passed in 0.23s)
+
+## Step 4: Regression Verification & Task 2.6 Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+  - `artifacts/superpowers/execution.md`
+  - `artifacts/superpowers/finish.md`
+- **What Changed:**
+  - Validated full test suite (502 unit and integration tests passing).
+  - Validated strict static type checking with mypy and code formatting with ruff across 173 source files.
+  - Marked Task 2.6 complete in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run pytest tests/unit tests/integration -q && uv run ruff check . && uv run mypy packages services tests evaluation`
+- **Result:** PASS (502 passed, 0 lint errors, 0 type errors)
+
+

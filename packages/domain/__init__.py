@@ -37,11 +37,31 @@ from packages.domain.state_machine import (
     transition_job,
     validate_transition,
 )
+from packages.domain.taxonomy import (
+    CANONICAL_CATEGORIES,
+    CANONICAL_DEFINITIONS,
+    NO_REPLY_CATEGORIES,
+    RETRIEVAL_CATEGORIES,
+    Category,
+    CategoryDefinition,
+    TaxonomyRegistry,
+    get_category_definition,
+    get_default_registry,
+    is_valid_category,
+    normalize_category,
+    validate_category,
+)
 
 __all__ = [
+    "CANONICAL_CATEGORIES",
+    "CANONICAL_DEFINITIONS",
+    "NO_REPLY_CATEGORIES",
+    "RETRIEVAL_CATEGORIES",
     "TRANSITIONS",
     "AttachmentRef",
     "Candidate",
+    "Category",
+    "CategoryDefinition",
     "Checkpoint",
     "Classification",
     "ContextPackage",
@@ -64,7 +84,14 @@ __all__ = [
     "SentRef",
     "Subscription",
     "SyncResult",
+    "TaxonomyRegistry",
     "ThreadRef",
+    "get_category_definition",
+    "get_default_registry",
+    "is_valid_category",
+    "normalize_category",
     "transition_job",
+    "validate_category",
     "validate_transition",
 ]
+

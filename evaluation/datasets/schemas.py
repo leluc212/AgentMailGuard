@@ -11,19 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class ClassificationCategory(StrEnum):
-    """Supported triage categories defined by R6.4."""
-
-    SUPPORT = "support"
-    SALES = "sales"
-    BILLING = "billing"
-    ADMINISTRATION = "administration"
-    SCHEDULING = "scheduling"
-    GENERAL_INQUIRY = "general_inquiry"
-    AUTOMATED_NOTIFICATION = "automated_notification"
-    ACKNOWLEDGEMENT = "acknowledgement"
-    NO_RESPONSE = "no_response"
+from packages.domain.taxonomy import Category as ClassificationCategory
 
 
 class WorkflowHint(StrEnum):
@@ -113,3 +101,13 @@ class RetrievalDatasetItem(BaseModel):
         default_factory=dict,
         description="Additional query metadata",
     )
+
+
+__all__ = [
+    "ClassificationCategory",
+    "ClassificationDatasetItem",
+    "QueryType",
+    "RetrievalDatasetItem",
+    "WorkflowHint",
+]
+

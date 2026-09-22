@@ -232,7 +232,7 @@
   - Safe default + review flag if all stages fail or return malformed output.
   - _Requirements: R6.2, R6.7, R6.9, R6.11_
 
-- [ ] **2.6 Category taxonomy**
+- [x] **2.6 Category taxonomy**
   - Implement support, sales, billing, administration, scheduling, general_inquiry, automated_notification, acknowledgement, no_response.
   - _Requirements: R6.4_
 
