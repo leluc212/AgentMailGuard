@@ -165,9 +165,25 @@ def get_job_publisher(request: Request) -> Any:
     return getattr(request.app.state, "publisher", None)
 
 
+def get_knowledge_store(request: Request) -> Any:
+    """Retrieve KnowledgeStore from app.state or create from db_pool."""
+    store = getattr(request.app.state, "knowledge_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.knowledge import PostgresKnowledgeStore
+
+        return PostgresKnowledgeStore(db_pool)
+    from packages.db.knowledge import InMemoryKnowledgeStore
+
+    return InMemoryKnowledgeStore()
+
+
 MailboxStoreDep = Annotated[Any, Depends(get_mailbox_store)]
 ThreadStoreDep = Annotated[Any, Depends(get_thread_store)]
 MessageStoreDep = Annotated[Any, Depends(get_message_store)]
+KnowledgeStoreDep = Annotated[Any, Depends(get_knowledge_store)]
 JobStoreDep = Annotated[Any, Depends(get_job_store)]
 StorageClientDep = Annotated[Any, Depends(get_storage_client)]
 PublisherDep = Annotated[Any, Depends(get_job_publisher)]

@@ -200,9 +200,7 @@ async def replay_job(
 
     if publisher is not None:
         try:
-            broker_cfg = getattr(
-                publisher, "settings", getattr(publisher, "broker_settings", None)
-            )
+            broker_cfg = getattr(publisher, "settings", getattr(publisher, "broker_settings", None))
             exchange_name = (
                 getattr(broker_cfg, "exchange_email_route", "email.events")
                 if broker_cfg

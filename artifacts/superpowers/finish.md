@@ -1,4 +1,4 @@
-# Finish Summary — Phase 3, Task 3.5: Ingestion Pipeline & Versioning
+# Finish Summary — Phase 3, Task 3.6: Knowledge Upload API
 
 ## Review Pass
 - **Blocker:** None.
@@ -8,40 +8,43 @@
 
 ## Verification Commands & Results
 1. Unit Tests:
-   `uv run pytest tests/unit/test_knowledge_pipeline.py tests/unit/test_knowledge_consumer.py -v`
-   Result: **PASS** (14/14 tests passed in 0.95s)
+   `uv run pytest tests/unit/test_knowledge_api.py -v`
+   Result: **PASS** (10/10 tests passed in 2.01s)
 2. Live PostgreSQL & MinIO Integration Tests:
-   `uv run pytest tests/integration/test_knowledge_worker_e2e.py -v`
-   Result: **PASS** (2/2 tests passed in 1.40s against live PostgreSQL and MinIO)
+   `uv run pytest tests/integration/test_knowledge_api_integration.py -v`
+   Result: **PASS** (2/2 tests passed in 1.50s against live PostgreSQL and MinIO)
 3. Full Project Test Suite:
    `uv run pytest -m "not slow" -q`
-   Result: **PASS** (716 tests passed, 0 failures, 0 regressions)
-4. Code Quality & Type Check:
-   `uv run ruff check packages/knowledge/ services/knowledge_worker/ tests/unit/test_knowledge_pipeline.py tests/unit/test_knowledge_consumer.py tests/integration/test_knowledge_worker_e2e.py`
-   `uv run mypy packages/knowledge/pipeline.py services/knowledge_worker/`
+   Result: **PASS** (728 tests passed, 0 failures, 0 regressions)
+4. OpenAPI 3.1 Specification Validation:
+   `uv run python -m services.api.openapi --check`
+   Result: **PASS** (21 OpenAPI paths valid)
+5. Code Quality & Type Check:
+   `uv run ruff check packages/db/knowledge.py services/api/ tests/unit/test_knowledge_api.py tests/integration/test_knowledge_api_integration.py`
+   `uv run mypy packages/db/knowledge.py services/api/`
    Result: **PASS** (All checks passed, 0 lint/mypy issues)
-5. Architectural Boundaries:
+6. Architectural Boundaries:
    `uv run pytest tests/unit/test_dependency_rules.py -v`
    Result: **PASS** (4/4 dependency rules passed)
 
 ## Summary of Changes
-- **Pipeline Orchestration (`packages/knowledge/pipeline.py`, `packages/knowledge/__init__.py`):**
-  - Implemented `KnowledgeIngestionPipeline` orchestrating full document lifecycle:
-    1. Parse raw bytes or MinIO object (`bucket_knowledge`) into structured elements (R9.1, R9.2).
-    2. Structural chunking with version assignment (R9.3–R9.5).
-    3. Checksum deduplication across versions carrying forward unchanged vectors (R9.9).
-    4. Batch embedding generation via `Embedder.embed_texts` for new/modified chunks only (R9.6, R9.11).
-    5. Single-transaction chunk, GIN `content_tsv`, and vector persistence (R9.7).
-    6. Atomic status flip to `active` followed by pruning of superseded version chunks (R9.8).
-  - Implemented per-document status tracking (`pending`, `parsing`, `chunking`, `embedding`, `active`, `failed`) with failure reasons and rollback on failure (R9.10).
-  - Implemented `IngestionResult` dataclass and domain exceptions (`DocumentNotFoundError`, `UnsupportedDocumentTypeError`, `IngestionError`).
-- **Worker Consumer & Service Entrypoint (`services/knowledge_worker/`):**
-  - Implemented `KnowledgeIngestConsumer` consuming from AMQP queue `knowledge.ingest` with mandatory tenant isolation check (R23.6), fatal error routing for unrecoverable failures (R3.5), and transient error retries.
-  - Implemented `services/knowledge_worker/main.py` daemon service with graceful shutdown coordination, database readiness check, and HTTP health server exposing `/healthz`, `/readyz`, and `/metrics` on port 8003.
-- **Test Harness (`tests/unit/test_knowledge_pipeline.py`, `tests/unit/test_knowledge_consumer.py`, `tests/integration/test_knowledge_worker_e2e.py`):**
-  - 7 pipeline unit tests covering status lifecycle, version N+1 re-ingest, checksum deduplication, and error rollback.
-  - 7 consumer unit tests verifying AMQP envelope handling, tenant enforcement, DLX routing for fatal errors, and retry handling.
-  - 2 live PostgreSQL + MinIO integration tests verifying end-to-end ingestion, version N+1 atomic switch, deduplication, and strict multi-tenant isolation across >=3 tenants (GEMINI.md §8).
+- **Dependency Update (`pyproject.toml`, `uv.lock`):**
+  - Added `python-multipart>=0.0.9` for FastAPI multipart form upload handling.
+- **Database Store Layer (`packages/db/knowledge.py`):**
+  - Added `list_documents(...)` and `delete_document(...)` to `KnowledgeStore` protocol and implementations (`InMemoryKnowledgeStore`, `PostgresKnowledgeStore`).
+  - Added tenant-scoped pagination (`limit`, `offset`) and filtering (`status`, `category`) adhering strictly to `WHERE organization_id = $1` (R5.3, R23.7).
+- **FastAPI Endpoints & Schemas (`services/api/`):**
+  - `services/api/schemas/knowledge.py`: Pydantic V2 response models for document metadata, ingestion status, failure reasons, and pagination.
+  - `services/api/dependencies.py`: Registered `KnowledgeStoreDep`.
+  - `services/api/routers/knowledge.py`:
+    - `POST /v1/knowledge/documents`: Multipart form upload, stores file in MinIO (`bucket_knowledge`), inserts pending record in PostgreSQL, and enqueues ingestion job to `knowledge.ingest` AMQP queue via `MessagePublisher` and `JobEnvelope`, returning HTTP 202 Accepted (R23.7, R5.8).
+    - `GET /v1/knowledge/documents`: Paginated list of documents with ingestion status (R23.7, R23.2).
+    - `GET /v1/knowledge/documents/{id}`: Single document status inspection.
+    - `DELETE /v1/knowledge/documents/{id}`: Document, chunk, and MinIO storage object cleanup.
+  - `services/api/routers/v1.py`: Mounted `knowledge_router` under `/v1`.
+- **Test Harness (`tests/unit/test_knowledge_api.py`, `tests/integration/test_knowledge_api_integration.py`):**
+  - 10 unit tests covering upload validation, unsupported formats, missing headers, queue publishing, pagination, status inspection, and deletion.
+  - 2 live PostgreSQL + MinIO integration tests verifying full upload-to-deletion lifecycle and multi-tenant isolation across >=3 tenants (GEMINI.md §8).
 
 ## Follow-ups
-- Ready to proceed to **Task 3.6: Knowledge upload API** (`POST /v1/knowledge/documents` upload to object storage + enqueue, `GET /v1/knowledge/documents` with ingestion status).
+- Ready to proceed to **Task 3.7: SearchBackend interface** (`Protocol with lexical() and vector() returning Candidate objects carrying both ranks and both scores; contract test suite`).

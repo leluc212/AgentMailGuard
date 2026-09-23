@@ -14,6 +14,7 @@ from packages.core.pagination import PaginatedResponse, paginate
 from services.api.dependencies import get_organization_id
 from services.api.pagination import PaginationParamsDep
 from services.api.routers.jobs import jobs_router
+from services.api.routers.knowledge import knowledge_router
 from services.api.routers.mailboxes import mailbox_router
 from services.api.routers.messages import message_router
 from services.api.routers.threads import thread_router
@@ -27,6 +28,7 @@ v1_router.include_router(mailbox_router)
 v1_router.include_router(thread_router)
 v1_router.include_router(message_router)
 v1_router.include_router(jobs_router)
+v1_router.include_router(knowledge_router)
 
 
 class PingResponse(BaseModel):

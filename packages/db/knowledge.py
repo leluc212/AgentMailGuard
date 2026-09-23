@@ -86,6 +86,28 @@ class KnowledgeStore(Protocol):
         """Retrieve a knowledge document by ID within an organization (R5.3)."""
         ...
 
+    async def list_documents(
+        self,
+        organization_id: UUID | str,
+        status: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[KnowledgeDocument], int]:
+        """List documents for an organization with status and category filters (R23.7, R23.2).
+
+        Returns (items, total_count).
+        """
+        ...
+
+    async def delete_document(
+        self,
+        organization_id: UUID | str,
+        document_id: UUID | str,
+    ) -> bool:
+        """Delete a document and all its chunks within an organization (R5.3)."""
+        ...
+
     async def update_document_status(
         self,
         organization_id: UUID | str,
@@ -214,6 +236,50 @@ class InMemoryKnowledgeStore:
         org_u = _to_uuid(organization_id)
         doc_u = _to_uuid(document_id)
         return self.documents.get((org_u, doc_u))
+
+    async def list_documents(
+        self,
+        organization_id: UUID | str,
+        status: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[KnowledgeDocument], int]:
+        org_u = _to_uuid(organization_id)
+        matching: list[KnowledgeDocument] = []
+        for (o_id, _), doc in self.documents.items():
+            if o_id != org_u:
+                continue
+            if status is not None and doc.status != status:
+                continue
+            if category is not None and doc.category != category:
+                continue
+            matching.append(doc)
+
+        matching.sort(key=lambda d: d.updated_at, reverse=True)
+        total = len(matching)
+        return matching[offset : offset + limit], total
+
+    async def delete_document(
+        self,
+        organization_id: UUID | str,
+        document_id: UUID | str,
+    ) -> bool:
+        org_u = _to_uuid(organization_id)
+        doc_u = _to_uuid(document_id)
+        if (org_u, doc_u) not in self.documents:
+            return False
+        del self.documents[(org_u, doc_u)]
+        # Cascade delete chunks
+        to_del = [
+            cid
+            for (oid, cid), chunk in self.chunks.items()
+            if oid == org_u and _to_uuid(chunk.document_id) == doc_u
+        ]
+        for cid in to_del:
+            self.chunks.pop((org_u, cid), None)
+            self.embeddings.pop((org_u, cid), None)
+        return True
 
     async def update_document_status(
         self,
@@ -520,6 +586,51 @@ class PostgresKnowledgeStore:
             if row:
                 return self._row_to_doc(row)
             return None
+
+    async def list_documents(
+        self,
+        organization_id: UUID | str,
+        status: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[KnowledgeDocument], int]:
+        org_u = _to_uuid(organization_id)
+        limit_val = max(1, min(limit, 100))
+        offset_val = max(0, offset)
+
+        count_query = """
+            SELECT COUNT(*) FROM knowledge_document
+            WHERE organization_id = $1
+              AND ($2::text IS NULL OR status = $2)
+              AND ($3::text IS NULL OR category = $3);
+        """
+        select_query = """
+            SELECT * FROM knowledge_document
+            WHERE organization_id = $1
+              AND ($2::text IS NULL OR status = $2)
+              AND ($3::text IS NULL OR category = $3)
+            ORDER BY updated_at DESC
+            LIMIT $4 OFFSET $5;
+        """
+        async with self.pool.acquire() as conn:
+            total = await conn.fetchval(count_query, org_u, status, category)
+            rows = await conn.fetch(select_query, org_u, status, category, limit_val, offset_val)
+            docs = [self._row_to_doc(r) for r in rows]
+            return docs, int(total or 0)
+
+    async def delete_document(
+        self,
+        organization_id: UUID | str,
+        document_id: UUID | str,
+    ) -> bool:
+        org_u = _to_uuid(organization_id)
+        doc_u = _to_uuid(document_id)
+        query = "DELETE FROM knowledge_document WHERE id = $1 AND organization_id = $2;"
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(query, doc_u, org_u)
+            count = int(result.split()[-1]) if result else 0
+            return count > 0
 
     async def update_document_status(
         self,

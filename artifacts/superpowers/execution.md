@@ -3132,3 +3132,61 @@
   - `uv run pytest tests/integration/test_knowledge_worker_e2e.py -v && uv run pytest -m "not slow" -q`
 - **Result:** PASS (2/2 integration tests passed in 1.40s, 716/716 total suite passed)
 
+# Execution Log: Phase 3 Task 3.6 — Knowledge Upload API
+
+## Step 1: Add python-multipart Dependency
+- **Files Changed:**
+  - `pyproject.toml`
+  - `uv.lock`
+- **What Changed:**
+  - Added `python-multipart>=0.0.9` to `dependencies` in `pyproject.toml` required by FastAPI for multipart form uploads (`UploadFile`, `File`, `Form`).
+  - Synced lockfile using `uv sync`.
+- **Verification Command:**
+  - `uv run python -c "import multipart; print(multipart.__version__)"`
+- **Result:** PASS
+
+## Step 2: Extend KnowledgeStore with Pagination & Deletion
+- **Files Changed:**
+  - `packages/db/knowledge.py`
+- **What Changed:**
+  - Added `list_documents(...)` and `delete_document(...)` method signatures to `KnowledgeStore` protocol.
+  - Implemented `list_documents(...)` in `InMemoryKnowledgeStore` and `PostgresKnowledgeStore` supporting pagination (`limit`, `offset`) and filtering by `status` and `category` scoped strictly to `organization_id` (R5.3, R23.7).
+  - Implemented `delete_document(...)` in both stores supporting cascade removal of document chunks and document metadata within single tenant boundary.
+- **Verification Command:**
+  - `uv run ruff check packages/db/knowledge.py && uv run mypy packages/db/knowledge.py`
+- **Result:** PASS (0 errors)
+
+## Step 3: Implement Knowledge API Schemas, Dependencies & Routers
+- **Files Changed:**
+  - `services/api/schemas/knowledge.py` (new)
+  - `services/api/schemas/__init__.py`
+  - `services/api/dependencies.py`
+  - `services/api/routers/knowledge.py` (new)
+  - `services/api/routers/v1.py`
+- **What Changed:**
+  - Defined Pydantic V2 schemas for `KnowledgeDocumentResponse` and `DocumentUploadResponse` with ISO 8601 timestamps and pagination metadata.
+  - Added `KnowledgeStoreDep` dependency injection provider in `services/api/dependencies.py`.
+  - Implemented `knowledge_router` in `services/api/routers/knowledge.py`:
+    - `POST /v1/knowledge/documents`: Multipart form file upload (PDF, DOCX, HTML, Markdown, Plain Text per R9.2), stores original object in MinIO (`bucket_knowledge`), inserts pending record in PostgreSQL, and enqueues ingestion job to `knowledge.ingest` AMQP queue via `MessagePublisher` and `JobEnvelope`, returning HTTP 202 Accepted (R23.7, R5.8).
+    - `GET /v1/knowledge/documents`: Paginated list of documents with status/category filters and ingestion failure reasons (R23.7, R23.2, R9.10).
+    - `GET /v1/knowledge/documents/{id}`: Single document inspection with status and metadata.
+    - `DELETE /v1/knowledge/documents/{id}`: Document, chunk, and MinIO storage object cleanup.
+  - Mounted `knowledge_router` under `/v1` in `services/api/routers/v1.py`.
+- **Verification Command:**
+  - `uv run python -m services.api.openapi --check`
+- **Result:** PASS (21 paths valid OpenAPI 3.1)
+
+## Step 4: Unit & Integration Test Suite
+- **Files Changed:**
+  - `tests/unit/test_knowledge_api.py` (new)
+  - `tests/integration/test_knowledge_api_integration.py` (new)
+- **What Changed:**
+  - Created 10 unit tests covering upload validation, unsupported MIME type, missing org ID header, queue publishing, list pagination/filtering, detail lookup, 404 handling, and document deletion.
+  - Created 2 live integration tests against PostgreSQL and MinIO:
+    1. Full upload lifecycle: upload document via multipart, verify MinIO object storage, verify database row in pending state, verify AMQP queue publish, list documents, query detail, and delete document + MinIO object.
+    2. Multi-tenant isolation test: 3 distinct tenants uploading documents, proving no cross-tenant leakage for list, get, and delete operations.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_knowledge_api.py tests/integration/test_knowledge_api_integration.py -v`
+- **Result:** PASS (12/12 passed in 3.07s)
+
+

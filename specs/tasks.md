@@ -316,7 +316,7 @@
   - Per-document status with failure reason.
   - _Requirements: R9.1, R9.8, R9.9, R9.10_
 
-- [ ] **3.6 Knowledge upload API**
+- [x] **3.6 Knowledge upload API**
   - `POST /v1/knowledge/documents` (upload to object storage + enqueue), `GET /v1/knowledge/documents` with ingestion status.
   - _Requirements: R23.7, R23.2, R5.8_
 

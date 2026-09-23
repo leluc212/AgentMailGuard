@@ -5,6 +5,10 @@ from services.api.schemas.jobs import (
     JobTimelineResponse,
     ProcessingEventResponse,
 )
+from services.api.schemas.knowledge import (
+    DocumentUploadResponse,
+    KnowledgeDocumentResponse,
+)
 from services.api.schemas.mailboxes import (
     MailboxResponse,
     ResyncRequest,
@@ -25,11 +29,13 @@ from services.api.schemas.threads import (
 
 __all__ = [
     "AttachmentSummaryResponse",
+    "DocumentUploadResponse",
     "EmailAddressResponse",
     "JobDetailResponse",
     "JobReplayRequest",
     "JobReplayResponse",
     "JobTimelineResponse",
+    "KnowledgeDocumentResponse",
     "MailboxResponse",
     "MessageDetailResponse",
     "MessageSummaryInThread",

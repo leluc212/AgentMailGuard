@@ -79,9 +79,7 @@ class JobReplayResponse(BaseModel):
     previous_state: str = Field(description="State before replay.")
     new_state: str = Field(description="New job state (RETRY_PENDING).")
     attempt: int = Field(description="Current attempt counter.")
-    republished: bool = Field(
-        description="Whether the job was republished to the message broker."
-    )
+    republished: bool = Field(description="Whether the job was republished to the message broker.")
     routing_key: str | None = Field(
         default=None, description="Target queue or routing key for redelivery."
     )
