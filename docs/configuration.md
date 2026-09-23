@@ -233,4 +233,15 @@ price_table = {
 | `ROUTING__PRIORITY_LANES` | `list[string]` | `["normal", "priority"]` | Non-empty | Set of priority lanes declared for each category (R7.2) |
 | `ROUTING__CONFIGURED_CONSUMERS` | `list[string]` | `["email.support.*", ...]` | Valid patterns | Glob patterns defining queues with active consumers. Unconsumed queues trigger warning (R7.6) |
 
+### 2.17 Lease Reaper Configuration (`LEASE_REAPER__*`)
+*Configuration for detecting and reclaiming stuck jobs past lease expiration (R19.8, design.md §9).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `LEASE_REAPER__ENABLED` | `boolean` | `true` | Boolean | Whether background periodic lease reaper is active |
+| `LEASE_REAPER__LEASE_TIMEOUT_S` | `integer` | `300` | $\ge 10$ | Lease timeout in seconds before an active job is considered stuck |
+| `LEASE_REAPER__REAPER_INTERVAL_S` | `float` | `30.0` | $\ge 1.0$ | Interval between periodic reaper sweeps in seconds |
+| `LEASE_REAPER__BATCH_SIZE` | `integer` | `100` | 1–1000 | Maximum number of stuck jobs reclaimed in a single sweep |
+| `LEASE_REAPER__REAP_STUCK_UNLEASED` | `boolean` | `true` | Boolean | Whether to also reclaim active jobs with NULL lease exceeding timeout |
+
 

@@ -8,6 +8,7 @@ from packages.broker.backoff import calculate_exponential_backoff, resolve_retry
 from packages.broker.batch_consumer import BaseBatchConsumer, BatchItem
 from packages.broker.consumer import BaseConsumer, FatalError, TransientError
 from packages.broker.envelope import JobEnvelope
+from packages.broker.lease_reaper import LeaseReaper
 from packages.broker.prompt_safety import (
     PromptContaminationError,
     PromptExecutionRecord,
@@ -39,6 +40,7 @@ __all__ = [
     "FatalError",
     "HIGH_PRIORITY_LEVELS",
     "JobEnvelope",
+    "LeaseReaper",
     "MessagePublisher",
     "PromptContaminationError",
     "PromptExecutionRecord",

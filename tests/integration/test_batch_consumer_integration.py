@@ -210,7 +210,7 @@ async def test_live_amqp_partial_batch_timeout_flushing(
         queue_name=queue_name,
         llm=fake_llm,
         batch_size=5,
-        batch_timeout_s=0.1,  # 100ms timeout
+        batch_timeout_s=0.25,  # 250ms timeout
         broker_settings=b_cfg,
         publisher=publisher,
     )

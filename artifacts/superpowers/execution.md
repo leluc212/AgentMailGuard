@@ -2576,3 +2576,79 @@
   - `.venv/bin/pytest tests/unit/test_settings.py tests/integration/test_retry_dead_letter_integration.py -v`
   - `.venv/bin/pytest tests/unit tests/integration -q`
 - **Result:** PASS (602/602 passed)
+
+## Task 2.13: Lease Reaper for Stuck Jobs
+
+### Step 1: Configuration & Telemetry
+- **Files Changed:**
+  - `packages/core/settings.py`
+  - `packages/observability/metrics.py`
+  - `.env.example`
+  - `docs/configuration.md`
+  - `tests/unit/test_observability_metrics.py`
+- **What Changed:**
+  - Added `LeaseReaperSettings` to `packages/core/settings.py` and linked in `AppSettings`.
+  - Added `reaped_leases_total` Prometheus counter with `["action", "state"]` labels to `PipelineMetrics`.
+  - Documented `LEASE_REAPER__*` in `.env.example` and `docs/configuration.md`.
+  - Verified initialization in `tests/unit/test_observability_metrics.py`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_settings.py tests/unit/test_observability_metrics.py -v`
+- **Result:** PASS (14/14 passed)
+
+### Step 2: JobStore Lease Methods
+- **Files Changed:**
+  - `packages/db/job.py`
+  - `tests/unit/test_lease_reaper.py` (new)
+- **What Changed:**
+  - Added `acquire_lease`, `renew_lease`, and `reap_expired_jobs` to `JobStore` protocol.
+  - Implemented atomic PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED` and state transitions (`GENERATING -> RETRY_PENDING`, `FAILED -> DEAD_LETTER`) in `PostgresJobStore`.
+  - Implemented thread-safe lock-guarded lease operations and state transitions in `InMemoryJobStore`.
+  - Added unit tests for lease acquisition, renewal, retry transitions, dead-letter exhaustion, and unleased timeout fallback.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_lease_reaper.py -v`
+- **Result:** PASS (5/5 passed)
+
+### Step 3: Broker Lease Reaper Service
+- **Files Changed:**
+  - `packages/broker/lease_reaper.py` (new)
+  - `packages/broker/__init__.py`
+  - `packages/core/settings.py`
+  - `tests/unit/test_lease_reaper.py`
+- **What Changed:**
+  - Implemented `LeaseReaper` with `reap_once()` sweep, background task lifecycle (`start()`, `stop()`), and graceful cancellation.
+  - Wired optional `MessagePublisher` for routing reaped envelopes to the retry ladder (`publish_to_retry`) or dead-letter queue (`publish_to_dead_letter`).
+  - Emitted `reaped_leases_total` counter labeled by action and initial stuck state.
+  - Exported `LeaseReaper` in `packages/broker`.
+  - Added unit tests for reaper sweep, retry publication, DLQ routing, and background lifecycle.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_lease_reaper.py -v`
+- **Result:** PASS (8/8 passed)
+
+### Step 4: Consumer Integration
+- **Files Changed:**
+  - `packages/broker/consumer.py`
+  - `packages/broker/batch_consumer.py`
+  - `tests/unit/test_lease_reaper.py`
+- **What Changed:**
+  - Integrated automatic lease acquisition on claim via `job_store.acquire_lease` in `BaseConsumer._handle_message`.
+  - Integrated automatic lease acquisition on claim in `BaseBatchConsumer._handle_single_item`.
+  - Added `lease_timeout_s` configuration parameter with default of 300 seconds.
+  - Added unit test verifying lease is acquired on claim in `BaseConsumer`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_batch_consumer.py tests/unit/test_retry_and_dead_letter.py tests/unit/test_lease_reaper.py -v`
+- **Result:** PASS (26/26 passed)
+
+### Step 5: Live Integration Tests & Verification
+- **Files Changed:**
+  - `tests/integration/test_lease_reaper_integration.py` (new)
+  - `tests/integration/test_batch_consumer_integration.py`
+  - `specs/tasks.md`
+- **What Changed:**
+  - Authored live PostgreSQL 16 + RabbitMQ 3.13 integration tests for `LeaseReaper`.
+  - Tested concurrent reaper execution using `SELECT ... FOR UPDATE SKIP LOCKED` across multiple simulated reaper instances.
+  - Tested end-to-end integration: expired generating job reaped into `RETRY_PENDING`, republished to AMQP retry exchange, and reaped into `DEAD_LETTER` upon attempt exhaustion.
+  - Stabilized batch consumer integration test timeout to prevent CPU load flakiness.
+  - Verified complete test suite (unit + integration) and zero mypy/ruff errors.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit tests/integration -q && .venv/bin/mypy packages/ tests/ && .venv/bin/ruff check packages/ tests/`
+- **Result:** PASS (100% tests passed, 0 issues across 153 source files, 0 lint errors)

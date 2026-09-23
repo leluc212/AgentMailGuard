@@ -10,6 +10,7 @@ import logging
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import aio_pika
 from aio_pika.abc import (
@@ -26,6 +27,7 @@ from packages.broker.retry import (
     handle_job_recovery,
     handle_job_terminal_failure,
     handle_job_transient_failure,
+    is_valid_uuid,
 )
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
@@ -58,12 +60,14 @@ class BaseConsumer(ABC):
         connection: AbstractRobustConnection | None = None,
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
         job_store: JobStoreProtocol | None = None,
+        lease_timeout_s: int = 300,
     ) -> None:
         self.queue_name = queue_name
         self.broker_settings = broker_settings or BrokerSettings()
         self.retry_settings = retry_settings or RetryLadderSettings()
         self.shutdown_coordinator = shutdown_coordinator
         self.job_store = job_store
+        self.lease_timeout_s = lease_timeout_s
 
         concurrency_cfg = WorkerConcurrencySettings()
         self.prefetch_count = (
@@ -210,6 +214,19 @@ class BaseConsumer(ABC):
                 # 3.5 Re-deliver recovery: if job is in RETRY_PENDING,
                 # transition to GENERATING (R19.5, R18.2)
                 await handle_job_recovery(envelope=envelope, job_store=self.job_store)
+
+                # 3.6 Acquire lease on claim (R19.8, design.md §9)
+                if self.job_store is not None and is_valid_uuid(envelope.job_id):
+                    try:
+                        await self.job_store.acquire_lease(
+                            organization_id=envelope.organization_id,
+                            job_id=UUID(envelope.job_id),
+                            lease_timeout_s=self.lease_timeout_s,
+                        )
+                    except Exception as lease_err:
+                        logger.warning(
+                            "Failed to acquire lease for job %s: %s", envelope.job_id, lease_err
+                        )
 
                 # 4. Execute consumer processing
                 await self.process_job(envelope, message)

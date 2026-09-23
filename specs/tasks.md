@@ -270,7 +270,7 @@
   - Failure reason and original routing key preserved in DLQ headers.
   - _Requirements: R19.5, R19.6, R3.5, R18.2_
 
-- [ ] **2.13 Lease reaper**
+- [x] **2.13 Lease reaper**
   - Reclaim jobs stuck in a non-terminal state past `lease_expires_at`.
   - _Requirements: R19.8_
 

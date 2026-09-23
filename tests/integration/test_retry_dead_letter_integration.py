@@ -208,8 +208,7 @@ async def test_live_exhausted_retries_transition_failed_and_dead_letter(
     db_pool: asyncpg.Pool,
     broker_channel: AbstractChannel,
 ) -> None:
-    """Verify live retry exhaustion transitions FAILED -> DEAD_LETTER with headers (R19.6, R3.5).
-    """
+    """Verify live retry exhaustion transitions FAILED -> DEAD_LETTER with headers (R19.6, R3.5)."""
     b_settings = BrokerSettings()
     await setup_topology(broker_channel, b_settings)
 

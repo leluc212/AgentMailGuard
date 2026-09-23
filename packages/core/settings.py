@@ -425,6 +425,25 @@ class SubscriptionRenewalSettings(BaseModel):
     )
 
 
+class LeaseReaperSettings(BaseModel):
+    """Lease reaper configuration for recovering stuck jobs (R19.8, design.md §9)."""
+
+    enabled: bool = Field(default=True, description="Enable background lease reaper task")
+    lease_timeout_s: int = Field(
+        default=300, ge=10, description="Lease duration in seconds before a job is considered stuck"
+    )
+    reaper_interval_s: float = Field(
+        default=30.0, ge=0.01, description="Interval between reaper sweeps in seconds"
+    )
+    batch_size: int = Field(
+        default=100, ge=1, le=1000, description="Maximum number of expired jobs reaped per sweep"
+    )
+    reap_stuck_unleased: bool = Field(
+        default=True,
+        description="Whether to also reclaim jobs in active states with NULL lease past timeout",
+    )
+
+
 class AppSettings(BaseSettings):
     """Top-level master settings container supporting environment variable loading."""
 
@@ -458,6 +477,7 @@ class AppSettings(BaseSettings):
     subscription_renewal: SubscriptionRenewalSettings = Field(
         default_factory=SubscriptionRenewalSettings
     )
+    lease_reaper: LeaseReaperSettings = Field(default_factory=LeaseReaperSettings)
 
 
 def assert_embedding_dimension(configured_dim: int, db_column_dim: int) -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -113,6 +113,34 @@ class JobStore(Protocol):
         job_id: UUID | str,
     ) -> list[ProcessingEvent]:
         """List chronological events for a job."""
+        ...
+
+    async def acquire_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        lease_timeout_s: int = 300,
+    ) -> Job | None:
+        """Acquire or extend a lease on an active job (R19.8, design.md §9)."""
+        ...
+
+    async def renew_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        extension_s: int = 300,
+    ) -> Job | None:
+        """Renew or extend the lease expiration timestamp for an active job."""
+        ...
+
+    async def reap_expired_jobs(
+        self,
+        now: datetime | None = None,
+        batch_size: int = 100,
+        unleased_timeout_s: int | None = None,
+        organization_id: UUID | str | None = None,
+    ) -> list[tuple[Job, ProcessingEvent, str]]:
+        """Atomically find and reclaim jobs stuck past lease expiration (R19.8)."""
         ...
 
 
@@ -436,6 +464,242 @@ class PostgresJobStore(JobStore):
             rows = await conn.fetch(query, job_u, org_u)
             return [self._row_to_event(r) for r in rows]
 
+    async def acquire_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        lease_timeout_s: int = 300,
+    ) -> Job | None:
+        """Acquire or extend a lease on an active job (R19.8, design.md §9)."""
+        org_u = _to_uuid(organization_id)
+        job_u = _to_uuid(job_id)
+        now = datetime.now(UTC)
+        lease_expires_at = now + timedelta(seconds=lease_timeout_s)
+
+        query = """
+            UPDATE processing_job
+            SET lease_expires_at = $1,
+                updated_at = $2
+            WHERE id = $3 AND organization_id = $4 AND state NOT IN ('COMPLETED', 'DEAD_LETTER')
+            RETURNING id, organization_id, message_id, thread_id, job_type, state,
+                      attempt, max_attempts, idempotency_key, result_ref, queue_name,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      created_at, updated_at;
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(query, lease_expires_at, now, job_u, org_u)
+            if row is None:
+                return None
+            return self._row_to_job(row)
+
+    async def renew_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        extension_s: int = 300,
+    ) -> Job | None:
+        """Renew or extend the lease expiration timestamp for an active job."""
+        return await self.acquire_lease(organization_id, job_id, lease_timeout_s=extension_s)
+
+    async def reap_expired_jobs(
+        self,
+        now: datetime | None = None,
+        batch_size: int = 100,
+        unleased_timeout_s: int | None = None,
+        organization_id: UUID | str | None = None,
+    ) -> list[tuple[Job, ProcessingEvent, str]]:
+        """Atomically find and reclaim jobs stuck past lease expiration (R19.8)."""
+        current_time = now or datetime.now(UTC)
+        reap_unleased = unleased_timeout_s is not None and unleased_timeout_s > 0
+        unleased_cutoff = (
+            current_time - timedelta(seconds=unleased_timeout_s)
+            if reap_unleased and unleased_timeout_s is not None
+            else current_time
+        )
+        target_org = _opt_uuid(organization_id)
+
+        select_query = """
+            SELECT id, organization_id, message_id, thread_id, job_type, state,
+                   attempt, max_attempts, idempotency_key, result_ref, queue_name,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   created_at, updated_at
+            FROM processing_job
+            WHERE state NOT IN ('COMPLETED', 'DEAD_LETTER')
+              AND (
+                  (lease_expires_at IS NOT NULL AND lease_expires_at <= $1)
+                  OR (
+                      $2::boolean
+                      AND lease_expires_at IS NULL
+                      AND state IN ('GENERATING', 'CONTEXT_READY')
+                      AND updated_at <= $3
+                  )
+              )
+              AND ($5::uuid IS NULL OR organization_id = $5)
+            ORDER BY COALESCE(lease_expires_at, updated_at) ASC
+            LIMIT $4
+            FOR UPDATE SKIP LOCKED;
+        """
+
+        update_job_query = """
+            UPDATE processing_job
+            SET state = $1,
+                attempt = $2,
+                lease_expires_at = NULL,
+                last_error = $3,
+                updated_at = $4
+            WHERE id = $5 AND organization_id = $6
+            RETURNING id, organization_id, message_id, thread_id, job_type, state,
+                      attempt, max_attempts, idempotency_key, result_ref, queue_name,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      created_at, updated_at;
+        """
+
+        insert_event_query = """
+            INSERT INTO processing_event (
+                job_id, message_id, organization_id, event_type,
+                state_from, state_to, payload, trace_id, created_at
+            ) VALUES (
+                $1, $2, $3, 'state_transition',
+                $4, $5, $6::jsonb, $7, $8
+            )
+            RETURNING id, job_id, message_id, organization_id, event_type,
+                      state_from, state_to, payload, trace_id, created_at;
+        """
+
+        results: list[tuple[Job, ProcessingEvent, str]] = []
+
+        async with self.pool.acquire() as conn, conn.transaction():
+            rows = await conn.fetch(
+                select_query,
+                current_time,
+                reap_unleased,
+                unleased_cutoff,
+                batch_size,
+                target_org,
+            )
+
+            for row in rows:
+                current_job = self._row_to_job(row)
+                initial_state = current_job.state
+                next_attempt = current_job.attempt + 1
+                is_exhausted = next_attempt >= current_job.max_attempts
+
+                if is_exhausted:
+                    action = "dead_letter"
+                    error_msg = (
+                        f"Lease expired: job stuck in {initial_state}, "
+                        f"attempts exceeded ({next_attempt}/{current_job.max_attempts})"
+                    )
+                    if current_job.state != JobState.FAILED.value:
+                        transition_job(
+                            current_job,
+                            JobState.FAILED,
+                            payload={"reason": "lease_expired_exhausted"},
+                        )
+                        await conn.fetchrow(
+                            insert_event_query,
+                            _to_uuid(current_job.id),
+                            _opt_uuid(current_job.message_id),
+                            _to_uuid(current_job.organization_id),
+                            initial_state,
+                            JobState.FAILED.value,
+                            _to_json_val({"reason": "lease_expired_exhausted"}),
+                            current_job.trace_id,
+                            current_time,
+                        )
+
+                    _, dead_letter_event = transition_job(
+                        current_job,
+                        JobState.DEAD_LETTER,
+                        payload={
+                            "reason": "lease_expired_exhausted",
+                            "attempt": next_attempt,
+                            "initial_state": initial_state,
+                            "previous_state": initial_state,
+                            "terminal": True,
+                        },
+                    )
+                    final_state = JobState.DEAD_LETTER.value
+                    event_to_record = dead_letter_event
+                else:
+                    action = "reclaimed"
+                    error_msg = f"Lease expired: job was stuck in {initial_state} past timeout"
+                    if current_job.state == JobState.GENERATING.value:
+                        _, retry_event = transition_job(
+                            current_job,
+                            JobState.RETRY_PENDING,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                        )
+                    else:
+                        transition_job(
+                            current_job, JobState.FAILED, payload={"reason": "lease_expired"}
+                        )
+                        await conn.fetchrow(
+                            insert_event_query,
+                            _to_uuid(current_job.id),
+                            _opt_uuid(current_job.message_id),
+                            _to_uuid(current_job.organization_id),
+                            initial_state,
+                            JobState.FAILED.value,
+                            _to_json_val({"reason": "lease_expired"}),
+                            current_job.trace_id,
+                            current_time,
+                        )
+                        _, retry_event = transition_job(
+                            current_job,
+                            JobState.RETRY_PENDING,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                        )
+                    final_state = JobState.RETRY_PENDING.value
+                    event_to_record = retry_event
+
+                upd_row = await conn.fetchrow(
+                    update_job_query,
+                    final_state,
+                    next_attempt,
+                    error_msg,
+                    current_time,
+                    _to_uuid(current_job.id),
+                    _to_uuid(current_job.organization_id),
+                )
+                assert upd_row is not None
+                updated_job = self._row_to_job(upd_row)
+
+                ev_row = await conn.fetchrow(
+                    insert_event_query,
+                    _to_uuid(current_job.id),
+                    _opt_uuid(current_job.message_id),
+                    _to_uuid(current_job.organization_id),
+                    event_to_record.state_from,
+                    event_to_record.state_to,
+                    _to_json_val(event_to_record.payload),
+                    current_job.trace_id,
+                    current_time,
+                )
+                assert ev_row is not None
+                persisted_event = self._row_to_event(ev_row)
+
+                logger.info(
+                    "Reaped expired lease for job %s: %s -> %s (action=%s, attempt=%d/%d)",
+                    current_job.id,
+                    initial_state,
+                    final_state,
+                    action,
+                    next_attempt,
+                    current_job.max_attempts,
+                )
+                results.append((updated_job, persisted_event, action))
+
+        return results
+
     @staticmethod
     def _row_to_job(row: asyncpg.Record) -> Job:
         return Job(
@@ -622,3 +886,214 @@ class InMemoryJobStore(JobStore):
                 for e in self._events
                 if str(e.organization_id) == org_str and str(e.job_id) == job_str
             ]
+
+    async def acquire_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        lease_timeout_s: int = 300,
+    ) -> Job | None:
+        async with self._lock:
+            job = self._jobs.get(str(job_id))
+            if job is None or str(job.organization_id) != str(organization_id):
+                return None
+            if job.state in ("COMPLETED", "DEAD_LETTER"):
+                return None
+
+            now = datetime.now(UTC)
+            job.lease_expires_at = now + timedelta(seconds=lease_timeout_s)
+            job.updated_at = now
+            return job
+
+    async def renew_lease(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        extension_s: int = 300,
+    ) -> Job | None:
+        return await self.acquire_lease(organization_id, job_id, lease_timeout_s=extension_s)
+
+    async def reap_expired_jobs(
+        self,
+        now: datetime | None = None,
+        batch_size: int = 100,
+        unleased_timeout_s: int | None = None,
+        organization_id: UUID | str | None = None,
+    ) -> list[tuple[Job, ProcessingEvent, str]]:
+        async with self._lock:
+            current_time = now or datetime.now(UTC)
+            reap_unleased = unleased_timeout_s is not None and unleased_timeout_s > 0
+            unleased_cutoff = (
+                current_time - timedelta(seconds=unleased_timeout_s)
+                if reap_unleased and unleased_timeout_s is not None
+                else current_time
+            )
+            target_org_str = str(organization_id) if organization_id is not None else None
+
+            expired_candidates: list[Job] = []
+            for j in self._jobs.values():
+                if target_org_str is not None and str(j.organization_id) != target_org_str:
+                    continue
+                if j.state in ("COMPLETED", "DEAD_LETTER"):
+                    continue
+                if (
+                    j.lease_expires_at is not None
+                    and j.lease_expires_at <= current_time
+                    or (
+                        reap_unleased
+                        and j.lease_expires_at is None
+                        and j.state in ("GENERATING", "CONTEXT_READY")
+                        and j.updated_at <= unleased_cutoff
+                    )
+                ):
+                    expired_candidates.append(j)
+
+            expired_candidates.sort(
+                key=lambda j: j.lease_expires_at or j.updated_at or current_time
+            )
+            selected_jobs = expired_candidates[:batch_size]
+
+            results: list[tuple[Job, ProcessingEvent, str]] = []
+            for job in selected_jobs:
+                initial_state = job.state
+                next_attempt = job.attempt + 1
+                is_exhausted = next_attempt >= job.max_attempts
+
+                if is_exhausted:
+                    action = "dead_letter"
+                    error_msg = (
+                        f"Lease expired: job stuck in {initial_state}, "
+                        f"attempts exceeded ({next_attempt}/{job.max_attempts})"
+                    )
+                    if job.state != JobState.FAILED.value:
+                        transition_job(
+                            job, JobState.FAILED, payload={"reason": "lease_expired_exhausted"}
+                        )
+                        ev1 = ProcessingEvent(
+                            id=self._event_id_seq,
+                            job_id=job.id,
+                            message_id=job.message_id,
+                            organization_id=job.organization_id,
+                            event_type="state_transition",
+                            state_from=initial_state,
+                            state_to=JobState.FAILED.value,
+                            payload={"reason": "lease_expired_exhausted"},
+                            trace_id=job.trace_id,
+                            created_at=current_time,
+                        )
+                        self._event_id_seq += 1
+                        self._events.append(ev1)
+
+                    transition_job(
+                        job,
+                        JobState.DEAD_LETTER,
+                        payload={
+                            "reason": "lease_expired_exhausted",
+                            "attempt": next_attempt,
+                            "terminal": True,
+                        },
+                    )
+                    ev_final = ProcessingEvent(
+                        id=self._event_id_seq,
+                        job_id=job.id,
+                        message_id=job.message_id,
+                        organization_id=job.organization_id,
+                        event_type="state_transition",
+                        state_from=JobState.FAILED.value,
+                        state_to=JobState.DEAD_LETTER.value,
+                        payload={
+                            "reason": "lease_expired_exhausted",
+                            "attempt": next_attempt,
+                            "initial_state": initial_state,
+                            "previous_state": initial_state,
+                            "terminal": True,
+                        },
+                        trace_id=job.trace_id,
+                        created_at=current_time,
+                    )
+                    self._event_id_seq += 1
+                    self._events.append(ev_final)
+                else:
+                    action = "reclaimed"
+                    error_msg = f"Lease expired: job was stuck in {initial_state} past timeout"
+                    if job.state == JobState.GENERATING.value:
+                        transition_job(
+                            job,
+                            JobState.RETRY_PENDING,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                        )
+                        ev_final = ProcessingEvent(
+                            id=self._event_id_seq,
+                            job_id=job.id,
+                            message_id=job.message_id,
+                            organization_id=job.organization_id,
+                            event_type="state_transition",
+                            state_from=initial_state,
+                            state_to=JobState.RETRY_PENDING.value,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                            trace_id=job.trace_id,
+                            created_at=current_time,
+                        )
+                        self._event_id_seq += 1
+                        self._events.append(ev_final)
+                    else:
+                        transition_job(job, JobState.FAILED, payload={"reason": "lease_expired"})
+                        ev1 = ProcessingEvent(
+                            id=self._event_id_seq,
+                            job_id=job.id,
+                            message_id=job.message_id,
+                            organization_id=job.organization_id,
+                            event_type="state_transition",
+                            state_from=initial_state,
+                            state_to=JobState.FAILED.value,
+                            payload={"reason": "lease_expired"},
+                            trace_id=job.trace_id,
+                            created_at=current_time,
+                        )
+                        self._event_id_seq += 1
+                        self._events.append(ev1)
+
+                        transition_job(
+                            job,
+                            JobState.RETRY_PENDING,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                        )
+                        ev_final = ProcessingEvent(
+                            id=self._event_id_seq,
+                            job_id=job.id,
+                            message_id=job.message_id,
+                            organization_id=job.organization_id,
+                            event_type="state_transition",
+                            state_from=JobState.FAILED.value,
+                            state_to=JobState.RETRY_PENDING.value,
+                            payload={
+                                "reason": "lease_expired",
+                                "attempt": next_attempt,
+                                "previous_state": initial_state,
+                            },
+                            trace_id=job.trace_id,
+                            created_at=current_time,
+                        )
+                        self._event_id_seq += 1
+                        self._events.append(ev_final)
+
+                job.attempt = next_attempt
+                job.lease_expires_at = None
+                job.last_error = error_msg
+                job.updated_at = current_time
+
+                results.append((job, ev_final, action))
+
+            return results

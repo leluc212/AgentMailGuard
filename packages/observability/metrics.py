@@ -64,6 +64,7 @@ class PipelineMetrics:
     retrieval_underfilled_total: Counter
     subscription_renewals_total: Counter
     raw_payloads_archived_total: Counter
+    reaped_leases_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -193,6 +194,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "raw_payloads_archived_total",
             "Total raw email payloads archived in object storage",
             ["provider", "status"],
+            registry=reg,
+        ),
+        reaped_leases_total=Counter(
+            "reaped_leases_total",
+            "Total stuck jobs reclaimed after lease expiration (R19.8)",
+            ["action", "state"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)

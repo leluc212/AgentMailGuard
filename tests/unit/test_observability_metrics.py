@@ -31,6 +31,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.retrieval_underfilled_total is not None
     assert m.subscription_renewals_total is not None
     assert m.raw_payloads_archived_total is not None
+    assert m.reaped_leases_total is not None
 
     # Histograms
     assert m.classification_latency_ms is not None
