@@ -2784,3 +2784,275 @@
   - `uv run pytest tests/unit tests/integration -m "not slow" -q && uv run mypy packages/broker packages/observability && uv run ruff check packages/broker packages/observability`
 - **Result:** PASS (638/638 passed, 0 mypy issues, 0 ruff errors)
 
+---
+
+# Execution Log: Phase 3 Task 3.1 — Document Parsers
+
+## Step 1: Parser Dependencies Configuration
+- **Files Changed:**
+  - `pyproject.toml`
+- **What Changed:**
+  - Added document parsing dependencies to `dependencies`: `pypdf>=5.0.0`, `python-docx>=1.1.0`, `beautifulsoup4>=4.12.0`, and `markdown-it-py>=3.0.0`.
+  - Ran `uv sync` to update the virtual environment with pure-Python parsing packages and resolution lock.
+- **Verification Command:**
+  - `uv sync`
+- **Result:** PASS (Installed beautifulsoup4, lxml, markdown-it-py, mdurl, pypdf, python-docx, soupsieve with 0 errors)
+
+## Step 2: Knowledge Domain Value Objects & Entities
+- **Files Changed:**
+  - `packages/domain/knowledge.py` (new)
+  - `packages/domain/__init__.py`
+  - `packages/domain/entities.py`
+- **What Changed:**
+  - Defined `ElementType` StrEnum (`HEADING`, `PARAGRAPH`, `LIST_ITEM`, `TABLE`, `CODE_BLOCK`, `BLOCKQUOTE`).
+  - Defined `DocumentElement` dataclass with semantic type, hierarchy level, `heading_path` breadcrumb, enclosing `section`, and metadata dictionary (`page_number`, `table_data`).
+  - Defined `DocumentSection` and `ParsedDocument` with helper methods (`get_heading_hierarchy`, `get_sections`, `get_elements_by_type`, `to_text`).
+  - Defined authoritative `KnowledgeDocument` and `KnowledgeChunk` domain entities strictly adhering to stdlib typing and dataclasses.
+  - Re-exported knowledge symbols across `packages/domain` without breaking dependency boundaries.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_dependency_rules.py -v && uv run ruff check packages/domain && uv run mypy packages/domain`
+- **Result:** PASS (4 passed in test_dependency_rules.py, 0 ruff errors, 0 mypy issues)
+
+## Step 3: Base Parser & Plain Text Parser
+- **Files Changed:**
+  - `packages/knowledge/parsers/base.py` (new)
+  - `packages/knowledge/parsers/text.py` (new)
+  - `tests/unit/test_document_parsers.py` (new)
+- **What Changed:**
+  - Implemented `DocumentParser` ABC providing `can_parse`, abstract `parse`, resilient `decode_content` (multi-encoding fallback), and element factory methods.
+  - Implemented `HeadingStack` hierarchy tracking to compute accurate breadcrumb `heading_path` and immediate `section` context across document depths.
+  - Implemented `PlainTextParser` supporting `.txt` and `text/plain` with structural detection for Setext/Markdown headings, numbered sections, bullet/numbered lists, and paragraphs.
+  - Added unit test suite covering `HeadingStack` operations and `PlainTextParser` heading, list, and paragraph parsing.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_document_parsers.py -v && uv run ruff check packages/knowledge/parsers/base.py packages/knowledge/parsers/text.py && uv run mypy packages/knowledge/parsers/base.py packages/knowledge/parsers/text.py`
+- **Result:** PASS (4/4 tests passed, 0 ruff errors, 0 mypy issues)
+
+## Step 4: Markdown, HTML, PDF & DOCX Parsers
+- **Files Changed:**
+  - `packages/knowledge/parsers/markdown.py` (new)
+  - `packages/knowledge/parsers/html.py` (new)
+  - `packages/knowledge/parsers/pdf.py` (new)
+  - `packages/knowledge/parsers/docx.py` (new)
+  - `tests/unit/test_document_parsers.py`
+- **What Changed:**
+  - Implemented `MarkdownParser` using `markdown-it-py` token stream with tables enabled, accurately extracting headings (H1–H6), nested bullet/ordered lists, code fences, blockquotes, and tables without duplicating paragraphs.
+  - Implemented `HTMLParser` using `BeautifulSoup` with noise stripping (`script`, `style`, `nav`, `footer`) per `rag-eval`, extracting semantic headings, lists, tables with headers, and code blocks.
+  - Implemented `PDFParser` using `pypdf`, extracting page-by-page text with `page_number` metadata per `rag-implementation`, bookmark/outline integration, numbered headings, and corrupt PDF protection.
+  - Implemented `DOCXParser` using `python-docx`, traversing document body elements in document order, mapping Word styles (`Heading 1..9`, `Title`, `List Bullet`/`Number`) and tables.
+  - Added unit tests for all 4 parsers with in-memory synthetic documents and error cases.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_document_parsers.py -v && uv run ruff check packages/knowledge/parsers/ tests/unit/test_document_parsers.py && uv run mypy packages/knowledge/parsers/ tests/unit/test_document_parsers.py`
+- **Result:** PASS (12/12 tests passed, 0 ruff errors, 0 mypy issues)
+
+## Step 5: Parser Registry, Unified API & Comprehensive Tests
+- **Files Changed:**
+  - `packages/knowledge/parsers/registry.py` (new)
+  - `packages/knowledge/parsers/__init__.py` (new)
+  - `packages/knowledge/__init__.py`
+  - `tests/unit/test_document_parsers.py`
+- **What Changed:**
+  - Implemented `ParserRegistry` with automatic MIME type and file extension detection for PDF, DOCX, HTML, Markdown, and plain text.
+  - Implemented `get_parser` and `parse_document` convenience functions and singleton registry.
+  - Re-exported all parser models, registries, and exceptions in `packages/knowledge/parsers` and `packages/knowledge`.
+  - Added unit test suite covering `ParserRegistry` resolution, unsupported type error handling (`UnsupportedDocumentTypeError`), convenience `parse_document` entrypoint, and `ParsedDocument` structure helpers (`get_sections`, `get_heading_hierarchy`, `to_text`).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_document_parsers.py tests/unit/test_dependency_rules.py -v && uv run ruff check packages/ services/ tests/unit/test_document_parsers.py && uv run mypy packages/domain packages/knowledge tests/unit/test_document_parsers.py`
+- **Result:** PASS (21/21 tests passed, 0 ruff errors, 0 mypy issues in 17 source files)
+
+---
+
+# Execution Log: Phase 3 Task 3.2 — Structural Chunker
+
+## Step 1: Tokenizer Dependency Configuration
+- **Files Changed:**
+  - `pyproject.toml`
+- **What Changed:**
+  - Added `tiktoken>=0.7.0` to `dependencies` for BPE token counting (`cl100k_base`).
+  - Ran `uv sync` to update the virtual environment with `tiktoken` and its supporting packages.
+- **Verification Command:**
+  - `uv run python -c "import tiktoken; print(tiktoken.__name__)"`
+- **Result:** PASS (Installed tiktoken 0.14.0 cleanly)
+
+## Step 2: Implement Token Counter Abstraction
+- **Files Changed:**
+  - `packages/knowledge/token_counter.py` (new)
+- **What Changed:**
+  - Implemented `TokenCounter` utilizing `tiktoken` (`cl100k_base` BPE tokenizer) with fallback for robust token counting, encoding, decoding, and truncation per R9.4 and R9.11.
+  - Implemented `truncate_tokens` respecting exact token boundaries.
+- **Verification Command:**
+  - `uv run python -c "from packages.knowledge.token_counter import TokenCounter; tc = TokenCounter(); assert tc.count_tokens('hello world') == 2" && uv run ruff check packages/knowledge/token_counter.py && uv run mypy packages/knowledge/token_counter.py`
+- **Result:** PASS (0 ruff errors, 0 mypy issues)
+
+## Step 3: Implement Structural Chunker Core
+- **Files Changed:**
+  - `packages/knowledge/chunker.py` (new)
+- **What Changed:**
+  - Defined `ChunkerConfig` (defaults: `min_tokens=350, max_tokens=700, overlap_tokens=50`) with validation.
+  - Implemented `StructuralChunker` with `chunk_document` and `chunk_text`.
+  - Implemented semantic boundary aggregation: flushes at heading boundaries when `current_tokens >= min_tokens` or when `max_tokens` would be exceeded.
+  - Implemented oversized element handling: tables split row-by-row with header row replication on every sub-chunk; paragraphs split on sentence/word boundaries.
+  - Implemented configurable token overlap carrying trailing context to subsequent chunks, guarded to guarantee chunks never exceed `max_tokens`.
+  - Derived complete metadata: `document_id`, `chunk_index`, `external_id` (`f"{doc_id}-{index+1:02d}"`), `heading_path`, `section`, `title`, `token_count`, `content_checksum` (`sha256:{hexdigest}`), `page_numbers`, `element_types`, `has_table`, and `has_code`.
+- **Verification Command:**
+  - `uv run ruff check packages/knowledge/chunker.py && uv run mypy packages/knowledge/chunker.py`
+- **Result:** PASS (0 ruff errors, 0 mypy issues)
+
+## Step 4: Re-Export Chunker in Knowledge Package
+- **Files Changed:**
+  - `packages/knowledge/__init__.py`
+- **What Changed:**
+  - Re-exported `StructuralChunker`, `ChunkerConfig`, and `TokenCounter` in `packages/knowledge/__init__.py`.
+  - Verified architectural boundaries via AST dependency rules.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_dependency_rules.py -v && uv run ruff check packages/knowledge && uv run mypy packages/knowledge`
+- **Result:** PASS (4/4 dependency rules passed, 0 lint/mypy issues in 11 files)
+
+## Step 5: Implement Comprehensive Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_structural_chunker.py` (new)
+- **What Changed:**
+  - Implemented all 4 required fixtures per R24.3:
+    1. `test_heading_heavy_document`: 15 nested headings/sections, verified hierarchy and token bounds.
+    2. `test_table_heavy_document`: 60-row table split into sub-chunks, verified column header retention.
+    3. `test_long_unbroken_paragraph`: >1500 tokens without line breaks, verified sentence-level splits without word-chopping.
+    4. `test_tiny_document`: <350 tokens, verified single chunk emission with full metadata.
+  - Implemented edge cases: empty docs, checksum reproducibility (R9.9), overlap continuity, zero overlap, config validation, and metadata enrichment.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_structural_chunker.py -v && uv run pytest -m "not slow" -q`
+- **Result:** PASS (14/14 chunker tests passed; 100% of project test suite passed, 0 regressions)
+
+---
+
+# Execution Log: Phase 3 Task 3.3 — Embedding Service
+
+## Step 1: Core Embedding Configuration & Settings Extension
+- **Files Changed:**
+  - `packages/core/settings.py`
+  - `.env.example`
+  - `docs/configuration.md`
+  - `tests/unit/test_settings.py`
+- **What Changed:**
+  - Extended `EmbeddingSettings` with `base_url`, `api_key`, `mock`, `timeout_s`, `max_retries`, and `retry_delay_s` adhering to Pydantic constraints.
+  - Documented new embedding environment variables in `.env.example` and Section 2.5 of `docs/configuration.md`.
+  - Added assertions for all new fields to `tests/unit/test_settings.py`.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_settings.py -v && uv run ruff check packages/core tests/unit/test_settings.py && uv run mypy packages/core tests/unit/test_settings.py`
+- **Result:** PASS (11/11 tests passed in 0.17s, 0 ruff errors, 0 mypy issues)
+
+## Step 2: Implement Embedder Abstractions, HttpEmbedder & FakeEmbedder
+- **Files Changed:**
+  - `packages/knowledge/embedder.py` (new)
+- **What Changed:**
+  - Defined `EmbeddingResult` data model and `Embedder` protocol.
+  - Defined custom exceptions: `EmbeddingError`, `EmbeddingTimeoutError`, `EmbeddingRateLimitError`, `EmbeddingDimensionMismatchError`.
+  - Implemented `HttpEmbedder` supporting OpenAI-compatible `/embeddings` API, automatic micro-batching, exponential backoff with jitter on 429/5xx, dimension validation against 1536, and Prometheus `embedding_tokens_total` metric accounting (R9.6, R9.11, R21.4, R5.10).
+  - Implemented `FakeEmbedder` generating deterministic unit-normalized 1536-dimensional vectors for offline CI and hermetic testing (GEMINI.md §8, R24.5).
+  - Implemented `get_embedder()` factory function switching between `FakeEmbedder` and `HttpEmbedder` based on settings.
+- **Verification Command:**
+  - `uv run ruff check packages/knowledge/embedder.py && uv run mypy packages/knowledge/embedder.py`
+- **Result:** PASS (0 ruff errors, 0 mypy issues)
+
+## Step 3: Re-Export Embedding Components in Knowledge Package
+- **Files Changed:**
+  - `packages/knowledge/__init__.py`
+- **What Changed:**
+  - Re-exported `Embedder`, `EmbeddingResult`, `HttpEmbedder`, `FakeEmbedder`, `get_embedder`, and exceptions in `packages/knowledge`.
+  - Verified architectural boundaries via AST dependency rules.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_dependency_rules.py -v && uv run ruff check packages/knowledge && uv run mypy packages/knowledge`
+- **Result:** PASS (4/4 dependency rules passed, 0 lint/mypy issues in 12 source files)
+
+## Step 4: Implement Comprehensive Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_embedding_service.py` (new)
+- **What Changed:**
+  - Implemented 18 unit tests covering:
+    - Protocol conformance for `HttpEmbedder` and `FakeEmbedder`.
+    - Single and multi-batch request formatting via `httpx.MockTransport`.
+    - Automatic sequential micro-batching across 150 items with `batch_size=64`.
+    - Empty input handling without network invocations.
+    - `embed_query` convenience method.
+    - Transient retry ladder on 429 rate limit (with `Retry-After`) and 503 server errors.
+    - Immediate fail-fast on 401 client errors without retrying.
+    - Terminal `EmbeddingRateLimitError` upon retry exhaustion.
+    - Dimension mismatch detection (`EmbeddingDimensionMismatchError`) per R5.10.
+    - Prometheus `embedding_tokens_total` metric accounting (R9.11, R21.4).
+    - Determinism, L2 unit-normalization, error injection, and call recording in `FakeEmbedder`.
+    - Mock and live switching in `get_embedder()` factory.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_embedding_service.py -v`
+- **Result:** PASS (18/18 tests passed in 0.79s)
+
+## Step 5: Verification, Full Regression & Task 3.3 Sign-Off
+- **Files Changed:**
+  - `specs/tasks.md`
+- **What Changed:**
+  - Validated zero lint issues (`ruff check`), zero type errors (`mypy`), and clean architectural boundaries.
+  - Ran full test suite across entire repository with 100% pass rate (687 tests, 0 regressions).
+  - Marked Task 3.3 complete (`[x]`) in `specs/tasks.md`.
+- **Verification Command:**
+  - `uv run pytest -m "not slow" -q`
+
+# Execution Log: Phase 3 Task 3.4 — Chunk Persistence & Indexing
+
+## Step 1: Add EmbeddingRecord Domain Entity
+- **Files Changed:**
+  - `packages/domain/knowledge.py`
+  - `packages/domain/__init__.py`
+- **What Changed:**
+  - Added `EmbeddingRecord` entity (`chunk_id`, `organization_id`, `model`, `dim`, `embedding`, `created_at`) aligned with `design.md §6.1` and database schema.
+  - Re-exported `EmbeddingRecord` in `packages/domain/__init__.py`.
+  - Verified architectural boundaries strictly restricting imports to stdlib and `packages/core`.
+- **Verification Command:**
+  - `uv run ruff check packages/domain && uv run mypy packages/domain && uv run pytest tests/unit/test_dependency_rules.py -v`
+- **Result:** PASS (0 ruff issues, 0 mypy issues, 4/4 dependency rules passed)
+
+## Step 2: Implement KnowledgeStore Persistence Layer
+- **Files Changed:**
+  - `packages/db/knowledge.py` (new)
+- **What Changed:**
+  - Implemented `KnowledgeStore` protocol defining operations for knowledge document management, atomic chunk and embedding persistence (R9.7, R5.6, R5.7), tenant isolation (R5.3), and lexical/vector retrieval.
+  - Implemented `PostgresKnowledgeStore` executing chunk insertion with write-time `content_tsv` generation (`setweight(section, 'A') || setweight(content, 'B')`) and `embedding_record` insertion within an atomic single transaction (`async with conn.transaction()`).
+  - Implemented `InMemoryKnowledgeStore` test double supporting document/chunk CRUD, transaction simulation, lexical query matching, and vector cosine distance calculation.
+- **Verification Command:**
+  - `uv run ruff check packages/db/knowledge.py && uv run mypy packages/db/knowledge.py`
+- **Result:** PASS (0 ruff issues, 0 mypy issues)
+
+## Step 3: Re-Export Knowledge Persistence in DB Package
+- **Files Changed:**
+  - `packages/db/__init__.py`
+- **What Changed:**
+  - Re-exported `KnowledgeStore`, `PostgresKnowledgeStore`, and `InMemoryKnowledgeStore` in `packages/db/__init__.py`.
+  - Verified architectural boundaries via AST dependency rules.
+- **Verification Command:**
+  - `uv run ruff check packages/db && uv run mypy packages/db && uv run pytest tests/unit/test_dependency_rules.py -v`
+- **Result:** PASS (0 ruff issues, 0 mypy issues, 4/4 dependency rules passed)
+
+## Step 4: Implement Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_chunk_store.py` (new)
+- **What Changed:**
+  - Implemented 7 unit tests covering `KnowledgeStore` protocol conformance, document lifecycle, atomic batch persistence, input and dimension validation atomicity, cascading chunk deletion with version filtering, strict multi-tenant isolation (R5.3), and lexical/vector retrieval.
+- **Verification Command:**
+  - `uv run ruff check tests/unit/test_chunk_store.py && uv run pytest tests/unit/test_chunk_store.py -v`
+- **Result:** PASS (7/7 tests passed in 0.19s, 0 ruff errors)
+
+## Step 5: Implement Live PostgreSQL Integration Test Suite & Verification
+- **Files Changed:**
+  - `tests/integration/test_chunk_persistence_postgres.py` (new)
+  - `specs/tasks.md`
+- **What Changed:**
+  - Implemented 6 live PostgreSQL integration tests covering:
+    1. Single-transaction chunk and embedding persistence (`test_postgres_chunk_and_embedding_persistence`, R9.7, R5.6).
+    2. Write-time TSVector population verified by inspecting `content_tsv` text tokens.
+    3. Atomic transaction rollback leaving 0 chunks or embeddings on failure (`test_atomic_transaction_rollback_on_failure`, R9.7).
+    4. Write-time `content_tsv` GIN full-text search with section weight 'A' ranking higher than body 'B' (`test_fts_gin_lexical_search_ranking`, R5.6).
+    5. HNSW cosine similarity search via `<=>` operator (`test_hnsw_vector_similarity_search`, R5.7).
+    6. Strict multi-tenant isolation across >=3 tenants with overlapping external IDs (`test_multi_tenant_isolation_three_tenants`, R5.3, GEMINI.md §8).
+    7. Database foreign key cascading deletion (`test_cascading_deletion`).
+  - Added `_parse_embedding()` helper converting `pgvector.Vector` objects to Python `list[float]`.
+  - Marked Task 3.4 complete in `specs/tasks.md`.
+  - Ran full test suite: 700 tests passed, 0 regressions, 0 lint/mypy issues.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_chunk_persistence_postgres.py -v && uv run pytest -m "not slow" -q`
+- **Result:** PASS (6/6 integration tests passed, 700/700 total tests clean)

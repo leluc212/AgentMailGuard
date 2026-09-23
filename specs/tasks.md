@@ -291,21 +291,21 @@
 
 *Deliverable: email → relevant organizational knowledge.*
 
-- [ ] **3.1 Document parsers**
+- [x] **3.1 Document parsers**
   - PDF, DOCX, HTML, Markdown, plain text → text plus document structure (headings, sections, lists).
   - _Requirements: R9.2_
 
-- [ ] **3.2 Structural chunker**
+- [x] **3.2 Structural chunker**
   - Split on semantic boundaries in preference to fixed character counts; target 350–700 tokens with configurable overlap.
   - Emit `heading_path`, `section`, `chunk_index`, `token_count`, `content_checksum`.
   - Unit tests: heading-heavy doc, table-heavy doc, one long unbroken paragraph, tiny doc.
   - _Requirements: R9.3, R9.4, R9.5, R24.3_
 
-- [ ] **3.3 Embedding service**
+- [x] **3.3 Embedding service**
   - Provider-abstracted embedder; batching; retry; records model name and dimension; counts `embedding_tokens_total`.
   - _Requirements: R9.6, R9.11, R21.4_
 
-- [ ] **3.4 Chunk persistence & indexing**
+- [x] **3.4 Chunk persistence & indexing**
   - Write chunk + `content_tsv` in one transaction; write `embedding_record` with the HNSW-indexed vector.
   - _Requirements: R9.7, R5.6, R5.7_
 

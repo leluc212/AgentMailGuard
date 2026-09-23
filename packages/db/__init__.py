@@ -23,6 +23,11 @@ from packages.db.job import (
     JobStore,
     PostgresJobStore,
 )
+from packages.db.knowledge import (
+    InMemoryKnowledgeStore,
+    KnowledgeStore,
+    PostgresKnowledgeStore,
+)
 from packages.db.mailbox import (
     InMemoryMailboxStore,
     MailboxStore,
@@ -65,11 +70,13 @@ __all__ = [
     "InMemoryClassificationStore",
     "InMemoryDraftStore",
     "InMemoryJobStore",
+    "InMemoryKnowledgeStore",
     "InMemoryMailboxStore",
     "InMemoryMessageStore",
     "InMemorySubscriptionStore",
     "InMemoryThreadStore",
     "JobStore",
+    "KnowledgeStore",
     "MailboxStore",
     "MessageInsertResult",
     "MessageStore",
@@ -79,6 +86,7 @@ __all__ = [
     "PostgresDraftStore",
     "PostgresIdempotencyBackend",
     "PostgresJobStore",
+    "PostgresKnowledgeStore",
     "PostgresMailboxStore",
     "PostgresMessageStore",
     "PostgresSubscriptionStore",
