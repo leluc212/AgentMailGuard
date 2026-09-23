@@ -312,6 +312,22 @@ class WorkerConcurrencySettings(BaseModel):
     dispatch_worker_concurrency: int = Field(
         default=5, ge=1, description="Dispatch response workers"
     )
+    micro_batch_size: int = Field(
+        default=5, ge=1, description="Number of jobs pulled together in a micro-batch (R3.6)"
+    )
+    micro_batch_timeout_ms: int = Field(
+        default=50, ge=1, le=5000, description="Max wait time in ms to fill micro-batch (R3.6)"
+    )
+
+    @model_validator(mode="after")
+    def validate_micro_batch_bounds(self) -> "WorkerConcurrencySettings":
+        """Verify micro_batch_size does not exceed prefetch limits."""
+        if self.micro_batch_size > self.default_prefetch:
+            raise ValueError(
+                f"micro_batch_size ({self.micro_batch_size}) cannot exceed "
+                f"default_prefetch ({self.default_prefetch})"
+            )
+        return self
 
 
 class CategoryRoutingSettings(BaseModel):

@@ -275,7 +275,7 @@ class TestEdgeCases:
         ctx = EmailContext(subject="Massive email body test", body_text=large_body)
         res = classifier.classify(ctx)
         assert isinstance(res, Classification)
-        assert res.latency_ms < 600  # Within acceptable budget for massive 250KB payload under CI load
+        assert res.latency_ms < 600  # Within budget for 250KB payload under CI load
 
     def test_unicode_and_emojis(self, classifier: MLClassifier) -> None:
         ctx = EmailContext(

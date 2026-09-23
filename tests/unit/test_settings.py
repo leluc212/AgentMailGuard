@@ -141,3 +141,21 @@ def test_assert_embedding_dimension() -> None:
     # Failure path
     with pytest.raises(ValueError, match="does not match database column width"):
         assert_embedding_dimension(configured_dim=1536, db_column_dim=768)
+
+
+def test_worker_micro_batch_settings_validation() -> None:
+    """Verify micro_batch_size and micro_batch_timeout_ms bounds (R3.6)."""
+    from packages.core.settings import WorkerConcurrencySettings
+
+    cfg = WorkerConcurrencySettings(
+        default_prefetch=10,
+        micro_batch_size=5,
+        micro_batch_timeout_ms=100,
+    )
+    assert cfg.micro_batch_size == 5
+    assert cfg.micro_batch_timeout_ms == 100
+
+    # micro_batch_size cannot exceed prefetch
+    with pytest.raises(ValidationError, match="cannot exceed default_prefetch"):
+        WorkerConcurrencySettings(default_prefetch=4, micro_batch_size=8)
+

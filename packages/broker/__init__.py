@@ -4,8 +4,14 @@ Exports topology declaration, standard job envelopes, persistent publishers,
 and base consumer abstractions.
 """
 
+from packages.broker.batch_consumer import BaseBatchConsumer, BatchItem
 from packages.broker.consumer import BaseConsumer, FatalError, TransientError
 from packages.broker.envelope import JobEnvelope
+from packages.broker.prompt_safety import (
+    PromptContaminationError,
+    PromptExecutionRecord,
+    assert_prompt_isolation,
+)
 from packages.broker.publisher import MessagePublisher
 from packages.broker.routing import (
     CANONICAL_LANES,
@@ -19,14 +25,19 @@ from packages.broker.routing import (
 from packages.broker.topology import BrokerTopology, setup_topology
 
 __all__ = [
+    "BaseBatchConsumer",
     "BaseConsumer",
+    "BatchItem",
     "BrokerTopology",
     "CANONICAL_LANES",
     "FatalError",
     "HIGH_PRIORITY_LEVELS",
     "JobEnvelope",
     "MessagePublisher",
+    "PromptContaminationError",
+    "PromptExecutionRecord",
     "TransientError",
+    "assert_prompt_isolation",
     "format_routing_key",
     "is_queue_consumed",
     "load_categories_from_yaml",
@@ -34,3 +45,4 @@ __all__ = [
     "resolve_priority_lane",
     "setup_topology",
 ]
+

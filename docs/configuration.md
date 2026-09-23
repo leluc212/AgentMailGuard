@@ -175,6 +175,8 @@ price_table = {
 | `CONCURRENCY__AI_WORKER_PRIORITY_PREFETCH` | `integer` | `5` | $\ge 1$ | Priority lane consumer prefetch QoS (bounded latency) |
 | `CONCURRENCY__KNOWLEDGE_WORKER_CONCURRENCY`| `integer` | `2` | $\ge 1$ | Knowledge document ingestion concurrency |
 | `CONCURRENCY__DISPATCH_WORKER_CONCURRENCY` | `integer` | `5` | $\ge 1$ | Outbound mail dispatch concurrency |
+| `CONCURRENCY__MICRO_BATCH_SIZE` | `integer` | `5` | $\ge 1$, $\le$ prefetch | Number of jobs pulled together in a micro-batch (R3.6) |
+| `CONCURRENCY__MICRO_BATCH_TIMEOUT_MS` | `integer` | `50` | 1–5000 | Max wait time in ms before processing partial micro-batch (R3.6) |
 
 ### 2.12 Observability & Telemetry (`TELEMETRY__*`)
 *Logging, OpenTelemetry tracing, Prometheus metrics, and service health (R21, R20.7, R20.8).*

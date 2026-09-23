@@ -260,7 +260,7 @@
   - Startup warning naming any category queue with no configured consumer.
   - _Requirements: R7.1, R7.2, R7.4, R7.6_
 
-- [ ] **2.11 Worker micro-batching**
+- [x] **2.11 Worker micro-batching**
   - Pull N jobs together; each job still gets its own independent inference call.
   - Add an explicit test asserting no prompt ever contains two distinct emails.
   - _Requirements: R3.6, R3.7_
