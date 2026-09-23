@@ -143,6 +143,16 @@ class JobStore(Protocol):
         """Atomically find and reclaim jobs stuck past lease expiration (R19.8)."""
         ...
 
+    async def replay_job(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        payload: dict[str, Any] | None = None,
+        reset_attempts: bool = True,
+    ) -> tuple[Job, ProcessingEvent]:
+        """Atomically replay a DEAD_LETTER job to RETRY_PENDING (R18.7, R23.2)."""
+        ...
+
 
 JobStoreProtocol = JobStore
 
@@ -700,6 +710,114 @@ class PostgresJobStore(JobStore):
 
         return results
 
+    async def replay_job(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        payload: dict[str, Any] | None = None,
+        reset_attempts: bool = True,
+    ) -> tuple[Job, ProcessingEvent]:
+        """Atomically replay a DEAD_LETTER job to RETRY_PENDING (R18.7, R23.2).
+
+        Raises:
+            KeyError: If the job does not exist for the specified organization_id.
+            IllegalStateTransitionError: If the job is not in DEAD_LETTER state.
+        """
+        org_u = _to_uuid(organization_id)
+        job_u = _to_uuid(job_id)
+
+        select_for_update = """
+            SELECT id, organization_id, message_id, thread_id, job_type, state,
+                   attempt, max_attempts, idempotency_key, result_ref, queue_name,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   created_at, updated_at
+            FROM processing_job
+            WHERE id = $1 AND organization_id = $2
+            FOR UPDATE;
+        """
+
+        update_query = """
+            UPDATE processing_job
+            SET state = $1,
+                updated_at = $2,
+                attempt = CASE WHEN $3::boolean THEN 0 ELSE attempt END,
+                last_error = CASE WHEN $3::boolean THEN NULL ELSE last_error END,
+                lease_expires_at = NULL,
+                next_retry_at = NULL
+            WHERE id = $4 AND organization_id = $5
+            RETURNING id, organization_id, message_id, thread_id, job_type, state,
+                      attempt, max_attempts, idempotency_key, result_ref, queue_name,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      created_at, updated_at;
+        """
+
+        insert_event_query = """
+            INSERT INTO processing_event (
+                job_id, message_id, organization_id, event_type,
+                state_from, state_to, payload, trace_id, created_at
+            ) VALUES (
+                $1, $2, $3, 'operator_replay',
+                $4, $5, $6::jsonb, $7, $8
+            )
+            RETURNING id, job_id, message_id, organization_id, event_type,
+                      state_from, state_to, payload, trace_id, created_at;
+        """
+
+        async with self.pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(select_for_update, job_u, org_u)
+            if row is None:
+                raise KeyError(f"Job {job_id} not found for organization {organization_id}")
+
+            current_job = self._row_to_job(row)
+
+            merged_payload = dict(payload or {})
+            merged_payload.setdefault("operator_replay", True)
+            merged_payload.setdefault("reset_attempts", reset_attempts)
+
+            updated_job, event = transition_job(
+                job=current_job,
+                target_state=JobState.RETRY_PENDING,
+                payload=merged_payload,
+                trace_id=current_job.trace_id,
+            )
+
+            now = datetime.now(UTC)
+            upd_row = await conn.fetchrow(
+                update_query,
+                updated_job.state,
+                now,
+                reset_attempts,
+                job_u,
+                org_u,
+            )
+            assert upd_row is not None
+            final_job = self._row_to_job(upd_row)
+
+            target_msg_id = final_job.message_id or event.message_id
+            ev_row = await conn.fetchrow(
+                insert_event_query,
+                job_u,
+                _opt_uuid(target_msg_id),
+                org_u,
+                event.state_from,
+                event.state_to,
+                _to_json_val(event.payload),
+                event.trace_id,
+                event.created_at,
+            )
+            assert ev_row is not None
+            persisted_event = self._row_to_event(ev_row)
+
+            logger.info(
+                "Operator replayed job %s: %s -> %s (event_id=%s, reset_attempts=%s)",
+                job_u,
+                event.state_from,
+                event.state_to,
+                persisted_event.id,
+                reset_attempts,
+            )
+            return final_job, persisted_event
+
     @staticmethod
     def _row_to_job(row: asyncpg.Record) -> Job:
         return Job(
@@ -1097,3 +1215,50 @@ class InMemoryJobStore(JobStore):
                 results.append((job, ev_final, action))
 
             return results
+
+    async def replay_job(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        payload: dict[str, Any] | None = None,
+        reset_attempts: bool = True,
+    ) -> tuple[Job, ProcessingEvent]:
+        """Atomically replay a DEAD_LETTER job to RETRY_PENDING (R18.7, R23.2)."""
+        async with self._lock:
+            job = self._jobs.get(str(job_id))
+            if job is None or str(job.organization_id) != str(organization_id):
+                raise KeyError(f"Job {job_id} not found for organization {organization_id}")
+
+            merged_payload = dict(payload or {})
+            merged_payload.setdefault("operator_replay", True)
+            merged_payload.setdefault("reset_attempts", reset_attempts)
+
+            updated_job, raw_event = transition_job(
+                job=job,
+                target_state=JobState.RETRY_PENDING,
+                payload=merged_payload,
+                trace_id=job.trace_id,
+            )
+
+            if reset_attempts:
+                updated_job.attempt = 0
+                updated_job.last_error = None
+            updated_job.lease_expires_at = None
+            updated_job.next_retry_at = None
+            updated_job.updated_at = datetime.now(UTC)
+
+            event = ProcessingEvent(
+                id=self._event_id_seq,
+                job_id=raw_event.job_id,
+                message_id=raw_event.message_id or updated_job.message_id,
+                organization_id=raw_event.organization_id,
+                event_type="operator_replay",
+                state_from=raw_event.state_from,
+                state_to=raw_event.state_to,
+                payload=raw_event.payload,
+                trace_id=raw_event.trace_id,
+                created_at=raw_event.created_at,
+            )
+            self._event_id_seq += 1
+            self._events.append(event)
+            return updated_job, event

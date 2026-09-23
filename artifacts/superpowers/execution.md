@@ -2652,3 +2652,71 @@
 - **Verification Command:**
   - `.venv/bin/pytest tests/unit tests/integration -q && .venv/bin/mypy packages/ tests/ && .venv/bin/ruff check packages/ tests/`
 - **Result:** PASS (100% tests passed, 0 issues across 153 source files, 0 lint errors)
+
+## Task 2.14: Job Timeline API & Replay
+
+### Step 1: Add Replay and JobStore API Methods
+- **Files Changed:**
+  - `packages/db/job.py`
+- **What Changed:**
+  - Added `replay_job` method signature to `JobStore` protocol.
+  - Implemented atomic `replay_job` in `PostgresJobStore` with `SELECT ... FOR UPDATE` row lock, state transition validation `DEAD_LETTER -> RETRY_PENDING`, optional attempt reset, and audit event insertion.
+  - Implemented thread-safe `replay_job` in `InMemoryJobStore`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_lease_reaper.py -v && .venv/bin/mypy packages/db/job.py`
+- **Result:** PASS (9/9 passed, 0 mypy issues in job.py)
+
+### Step 2: Define Pydantic Schemas for Jobs and Timelines
+- **Files Changed:**
+  - `services/api/schemas/jobs.py` (new)
+  - `services/api/schemas/messages.py`
+  - `services/api/schemas/__init__.py`
+- **What Changed:**
+  - Authored `ProcessingEventResponse`, `JobDetailResponse`, `JobTimelineResponse`, `JobReplayRequest`, and `JobReplayResponse` in `services/api/schemas/jobs.py`.
+  - Added `MessageTimelineResponse` to `services/api/schemas/messages.py` with pagination metadata and chronological events.
+  - Exported new schemas in `services/api/schemas/__init__.py`.
+- **Verification Command:**
+  - `.venv/bin/mypy services/api/schemas/ && .venv/bin/ruff check services/api/schemas/`
+- **Result:** PASS (0 mypy issues, all ruff checks passed)
+
+### Step 3: Implement Dependencies & Endpoints
+- **Files Changed:**
+  - `services/api/dependencies.py`
+  - `services/api/routers/messages.py`
+  - `services/api/routers/jobs.py` (new)
+  - `services/api/routers/v1.py`
+- **What Changed:**
+  - Added `get_job_store` and `JobStoreDep` dependency in `services/api/dependencies.py`.
+  - Implemented `GET /v1/messages/{id}/timeline` in `services/api/routers/messages.py` with message validation, chronological events, and pagination.
+  - Implemented `jobs_router` in `services/api/routers/jobs.py` providing `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/timeline`, and `POST /v1/jobs/{id}/replay` (enforcing `DEAD_LETTER` validation, atomic replay, and optional broker publication).
+  - Registered `jobs_router` in `services/api/routers/v1.py`.
+- **Verification Command:**
+  - `.venv/bin/mypy services/api/ && .venv/bin/ruff check services/api/ && .venv/bin/pytest tests/unit/test_api_skeleton.py -v`
+- **Result:** PASS (0 mypy errors, 0 ruff errors, 16/16 tests passed)
+
+### Step 4: Unit Test Suite for Timeline & Replay
+- **Files Changed:**
+  - `tests/unit/test_job_timeline_and_replay.py` (new)
+- **What Changed:**
+  - Implemented unit tests for `GET /v1/messages/{id}/timeline`: chronological event ordering, current state determination, offset/limit pagination, 404 for missing messages, tenant isolation, and 400 for missing header.
+  - Implemented unit tests for `GET /v1/jobs/{id}` and `GET /v1/jobs/{id}/timeline`.
+  - Implemented unit tests for `POST /v1/jobs/{id}/replay`: valid `DEAD_LETTER -> RETRY_PENDING` transition, attempt reset, audit event persistence, AMQP message republication via mock publisher, preserving attempts when configured, 409 Conflict rejection for non-`DEAD_LETTER` states (`GENERATING`, `COMPLETED`, `QUEUED`, `CONTEXT_READY`), and 404 for unknown jobs.
+- **Verification Command:**
+  - `.venv/bin/mypy tests/unit/test_job_timeline_and_replay.py && .venv/bin/ruff check tests/unit/test_job_timeline_and_replay.py && .venv/bin/pytest tests/unit/test_job_timeline_and_replay.py -v`
+- **Result:** PASS (0 mypy errors, 0 ruff errors, 14/14 tests passed)
+
+### Step 5: Live Integration Tests & Verification
+- **Files Changed:**
+  - `tests/integration/test_job_timeline_and_replay_integration.py` (new)
+  - `packages/broker/publisher.py`
+  - `services/api/routers/jobs.py`
+- **What Changed:**
+  - Authored live PostgreSQL 16 + RabbitMQ 3.13 integration tests for `GET /v1/messages/{id}/timeline` and `POST /v1/jobs/{id}/replay`.
+  - Verified chronological event sequence query from live PostgreSQL table `processing_event`.
+  - Verified operator replay in live PostgreSQL database: atomic state transition `DEAD_LETTER -> RETRY_PENDING`, `attempt` reset to 0, `last_error` cleared, and audit event `operator_replay` logged.
+  - Verified AMQP redelivery: `JobEnvelope` successfully published to live RabbitMQ category queue (`email.support.normal`) ready for worker processing.
+  - Added `broker_settings` property alias on `MessagePublisher` for backward-compatible attribute access.
+  - Ran full static type checking, linting, and regression suite across all 200 source files.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit tests/integration -q && .venv/bin/mypy packages/ services/ tests/ && .venv/bin/ruff check packages/ services/ tests/`
+- **Result:** PASS (100% tests passed: 629/629, 0 issues across 200 source files, 0 lint errors)

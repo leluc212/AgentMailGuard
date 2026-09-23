@@ -1,22 +1,25 @@
-# Final Summary: Task 2.13 — Lease Reaper for Stuck Jobs
+# Final Summary: Task 2.14 — Job Timeline API & Replay
 
 ## Verification Commands Run & Results
-1. `pytest tests/unit/test_settings.py tests/unit/test_observability_metrics.py -v`: **14 passed** (100%)
-2. `pytest tests/unit/test_lease_reaper.py -v`: **8 passed** (100%)
-3. `pytest tests/unit/test_batch_consumer.py tests/unit/test_retry_and_dead_letter.py -v`: **17 passed** (100%)
-4. `pytest tests/integration/test_lease_reaper_integration.py -v`: **2 passed** (100%)
-5. `mypy packages/ tests/`: **0 errors** across 153 source files
-6. `ruff check packages/ tests/`: **0 errors**
-7. `pytest tests/unit tests/integration -q`: **613 passed** (100%)
+1. `pytest tests/unit/test_job_timeline_and_replay.py -v`: **14 passed** (100%)
+2. `pytest tests/integration/test_job_timeline_and_replay_integration.py -v`: **2 passed** (100%)
+3. `pytest tests/unit/test_api_skeleton.py -v`: **16 passed** (100%)
+4. `mypy packages/ services/ tests/`: **0 errors** across 200 source files
+5. `ruff check packages/ services/ tests/`: **0 errors**
+6. `pytest tests/unit tests/integration -q`: **629 passed** (100%)
 
 ## Summary of Changes
-- **Configuration & Telemetry (`packages/core/settings.py`, `packages/observability/metrics.py`)**: Added `LeaseReaperSettings` (`interval_s`, `lease_timeout_s`, `batch_size`, `republish_retry`, `republish_dlq`) and Prometheus counter `reaped_leases_total` labeled by `action` and `state`.
-- **Atomic Job Store Lease Operations (`packages/db/job.py`)**: Implemented `acquire_lease`, `renew_lease`, and `reap_expired_jobs` with multi-tenant filtering. Utilized PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED` for zero-contention, lock-safe concurrent reclamation across multiple workers/reapers. Handled state transitions `GENERATING -> RETRY_PENDING` (or `FAILED -> RETRY_PENDING`) and `FAILED -> DEAD_LETTER` with atomic `ProcessingEvent` audit logging.
-- **Broker Lease Reaper Daemon (`packages/broker/lease_reaper.py`)**: Implemented `LeaseReaper` with single-pass `reap_once()` execution and background loop lifecycle (`start()`, `stop()`). Integrated optional message republishing to the AMQP retry ladder (`publish_to_retry`) and dead-letter queue (`publish_to_dead_letter`).
-- **Consumer Lease Acquisition Integration (`packages/broker/consumer.py`, `packages/broker/batch_consumer.py`)**: Automatically acquired leases upon message claiming in `BaseConsumer._handle_message` and `BaseBatchConsumer._handle_single_item`.
-- **Live Integration Testing (`tests/integration/test_lease_reaper_integration.py`)**: Verified live PostgreSQL 16 `SKIP LOCKED` concurrent reaper execution without double-reaping, and live end-to-end lease recovery routing into AMQP retry ladder and dead-letter queue.
+- **Atomic Job Store Replay Method (`packages/db/job.py`)**: Added `replay_job` to `JobStore` protocol, `PostgresJobStore`, and `InMemoryJobStore`. Enforces `DEAD_LETTER -> RETRY_PENDING` transition using `transition_job`, resets attempt counter to 0 (optional), clears `last_error`, and logs an atomic `ProcessingEvent` with `event_type = 'operator_replay'`.
+- **Pydantic Schemas (`services/api/schemas/jobs.py`, `services/api/schemas/messages.py`, `services/api/schemas/__init__.py`)**: Created `ProcessingEventResponse`, `JobDetailResponse`, `JobTimelineResponse`, `JobReplayRequest`, and `JobReplayResponse`. Extended `MessageTimelineResponse` with chronological events and pagination.
+- **REST API Endpoints & Routers (`services/api/dependencies.py`, `services/api/routers/messages.py`, `services/api/routers/jobs.py`, `services/api/routers/v1.py`)**:
+  - Added `get_job_store` and `JobStoreDep` dependency injection.
+  - Implemented `GET /v1/messages/{id}/timeline` returning ordered `processing_event` records with pagination (R18.6, R23.5, R23.6).
+  - Implemented `jobs_router` with `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/timeline`, and `POST /v1/jobs/{id}/replay` (R18.7, R23.2).
+  - Enforced 409 Conflict rejection when attempting to replay non-`DEAD_LETTER` jobs.
+  - Re-published replayed jobs as `JobEnvelope` to RabbitMQ category queue (`job.queue_name`).
+- **Publisher Setting Compatibility (`packages/broker/publisher.py`)**: Added `broker_settings` property alias to `MessagePublisher` for backward-compatible attribute access.
+- **Automated Tests (`tests/unit/test_job_timeline_and_replay.py`, `tests/integration/test_job_timeline_and_replay_integration.py`)**: Authored 14 unit tests and 2 live PostgreSQL 16 + RabbitMQ 3.13 integration tests verifying event order, tenant scoping, replay transitions, and AMQP redelivery.
 
 ## Next Steps
-- Mark Task 2.13 complete in `specs/tasks.md`.
-- Phase 2 (Triage & Queue Architecture) is now complete!
-- Proceed to Phase 3 — Threading & Context Assembly.
+- Mark Task 2.14 complete in `specs/tasks.md`.
+- Proceed to Task 2.15: Queue metrics (`specs/tasks.md` lines 282–285).

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from services.api.schemas.jobs import ProcessingEventResponse
+
 
 class EmailAddressResponse(BaseModel):
     """Structured email address representation."""
@@ -72,4 +74,23 @@ class MessageDetailResponse(BaseModel):
     )
     attachments: list[AttachmentSummaryResponse] = Field(
         default_factory=list, description="List of attachment metadata records."
+    )
+
+
+class MessageTimelineResponse(BaseModel):
+    """Chronological event history and current processing status for an email message.
+
+    Requirements: R18.6, R23.5, R23.6.
+    """
+
+    message_id: UUID = Field(description="Target email message identifier.")
+    organization_id: UUID = Field(description="Tenant organization UUID.")
+    current_state: str | None = Field(
+        default=None, description="Current lifecycle state of the message/job."
+    )
+    total_events: int = Field(description="Total number of recorded processing events.")
+    limit: int = Field(description="Page size limit applied.")
+    offset: int = Field(description="Page offset applied.")
+    events: list[ProcessingEventResponse] = Field(
+        default_factory=list, description="Chronological processing event history."
     )

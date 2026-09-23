@@ -145,6 +145,21 @@ def get_storage_client(request: Request) -> Any:
     return create_storage_client()
 
 
+def get_job_store(request: Request) -> Any:
+    """Retrieve JobStore from app.state or create from db_pool."""
+    store = getattr(request.app.state, "job_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.job import PostgresJobStore
+
+        return PostgresJobStore(db_pool)
+    from packages.db.job import InMemoryJobStore
+
+    return InMemoryJobStore()
+
+
 def get_job_publisher(request: Request) -> Any:
     """Retrieve message publisher from FastAPI app.state if available."""
     return getattr(request.app.state, "publisher", None)
@@ -153,5 +168,6 @@ def get_job_publisher(request: Request) -> Any:
 MailboxStoreDep = Annotated[Any, Depends(get_mailbox_store)]
 ThreadStoreDep = Annotated[Any, Depends(get_thread_store)]
 MessageStoreDep = Annotated[Any, Depends(get_message_store)]
+JobStoreDep = Annotated[Any, Depends(get_job_store)]
 StorageClientDep = Annotated[Any, Depends(get_storage_client)]
 PublisherDep = Annotated[Any, Depends(get_job_publisher)]

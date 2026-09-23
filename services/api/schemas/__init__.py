@@ -1,5 +1,10 @@
-"""API request and response schemas."""
-
+from services.api.schemas.jobs import (
+    JobDetailResponse,
+    JobReplayRequest,
+    JobReplayResponse,
+    JobTimelineResponse,
+    ProcessingEventResponse,
+)
 from services.api.schemas.mailboxes import (
     MailboxResponse,
     ResyncRequest,
@@ -10,6 +15,7 @@ from services.api.schemas.messages import (
     AttachmentSummaryResponse,
     EmailAddressResponse,
     MessageDetailResponse,
+    MessageTimelineResponse,
 )
 from services.api.schemas.threads import (
     MessageSummaryInThread,
@@ -20,9 +26,15 @@ from services.api.schemas.threads import (
 __all__ = [
     "AttachmentSummaryResponse",
     "EmailAddressResponse",
+    "JobDetailResponse",
+    "JobReplayRequest",
+    "JobReplayResponse",
+    "JobTimelineResponse",
     "MailboxResponse",
     "MessageDetailResponse",
     "MessageSummaryInThread",
+    "MessageTimelineResponse",
+    "ProcessingEventResponse",
     "ResyncRequest",
     "ResyncResponse",
     "ThreadDetailResponse",

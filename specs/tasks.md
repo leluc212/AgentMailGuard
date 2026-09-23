@@ -274,7 +274,7 @@
   - Reclaim jobs stuck in a non-terminal state past `lease_expires_at`.
   - _Requirements: R19.8_
 
-- [ ] **2.14 Job timeline API & replay**
+- [x] **2.14 Job timeline API & replay**
   - `GET /v1/messages/{id}/timeline` returning ordered `processing_event` history.
   - `POST /v1/jobs/{id}/replay` to re-run a dead-lettered job from its last good state.
   - _Requirements: R18.6, R18.7, R23.2_

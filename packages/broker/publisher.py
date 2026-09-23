@@ -37,6 +37,11 @@ class MessagePublisher:
         self._channel = channel
         self._exchanges: dict[str, AbstractExchange] = {}
 
+    @property
+    def broker_settings(self) -> BrokerSettings:
+        """Alias for settings to maintain backwards and cross-module compatibility."""
+        return self.settings
+
     async def connect(self) -> None:
         """Establish connection and channel if not provided externally."""
         if self._connection is None or self._connection.is_closed:
