@@ -1,4 +1,4 @@
-# Finish Summary — Phase 3, Task 3.4: Chunk Persistence & Indexing
+# Finish Summary — Phase 3, Task 3.5: Ingestion Pipeline & Versioning
 
 ## Review Pass
 - **Blocker:** None.
@@ -8,33 +8,40 @@
 
 ## Verification Commands & Results
 1. Unit Tests:
-   `uv run pytest tests/unit/test_chunk_store.py -v`
-   Result: **PASS** (7/7 tests passed in 0.13s)
-2. Live PostgreSQL Integration Tests:
-   `uv run pytest tests/integration/test_chunk_persistence_postgres.py -v`
-   Result: **PASS** (6/6 tests passed in 1.72s against PostgreSQL on port 5433)
+   `uv run pytest tests/unit/test_knowledge_pipeline.py tests/unit/test_knowledge_consumer.py -v`
+   Result: **PASS** (14/14 tests passed in 0.95s)
+2. Live PostgreSQL & MinIO Integration Tests:
+   `uv run pytest tests/integration/test_knowledge_worker_e2e.py -v`
+   Result: **PASS** (2/2 tests passed in 1.40s against live PostgreSQL and MinIO)
 3. Full Project Test Suite:
    `uv run pytest -m "not slow" -q`
-   Result: **PASS** (700 tests passed, 0 failures, 0 regressions)
+   Result: **PASS** (716 tests passed, 0 failures, 0 regressions)
 4. Code Quality & Type Check:
-   `uv run ruff check .`
-   `uv run mypy packages/db/ packages/domain/ tests/unit/test_chunk_store.py tests/integration/test_chunk_persistence_postgres.py`
-   Result: **PASS** (All checks passed, 0 lint/mypy issues across 28 files)
+   `uv run ruff check packages/knowledge/ services/knowledge_worker/ tests/unit/test_knowledge_pipeline.py tests/unit/test_knowledge_consumer.py tests/integration/test_knowledge_worker_e2e.py`
+   `uv run mypy packages/knowledge/pipeline.py services/knowledge_worker/`
+   Result: **PASS** (All checks passed, 0 lint/mypy issues)
 5. Architectural Boundaries:
    `uv run pytest tests/unit/test_dependency_rules.py -v`
    Result: **PASS** (4/4 dependency rules passed)
 
 ## Summary of Changes
-- **Domain Layer (`packages/domain/knowledge.py`, `packages/domain/__init__.py`):**
-  - Added pure dataclass `EmbeddingRecord` entity (`chunk_id`, `organization_id`, `model`, `dim`, `embedding`, `created_at`) aligned with `design.md §6.1` (R5.7).
-- **Database Persistence (`packages/db/knowledge.py`, `packages/db/__init__.py`):**
-  - Implemented `KnowledgeStore` protocol defining document CRUD, single-transaction chunk + embedding persistence (R9.7), tenant isolation (R5.3), and lexical/vector retrieval.
-  - Implemented `PostgresKnowledgeStore` executing chunk insertion with write-time GIN `content_tsv` generation (`setweight(section, 'A') || setweight(content, 'B')`, R9.7, R5.6) and `embedding_record` with `VECTOR(1536)` in one transaction.
-  - Implemented `_parse_embedding()` converting `pgvector.Vector` objects seamlessly to Python `list[float]`.
-  - Implemented `InMemoryKnowledgeStore` test double with transaction rollback simulation, lexical matching, and vector cosine distance.
-- **Test Harness (`tests/unit/test_chunk_store.py`, `tests/integration/test_chunk_persistence_postgres.py`):**
-  - 7 unit tests verifying store protocol, document lifecycle, atomic validation, version-scoped deletions, tenant isolation, and search.
-  - 6 integration tests verifying real PostgreSQL transactions, rollback on failure, GIN tsvector ranking, HNSW `<=>` similarity, multi-tenant isolation across >=3 tenants, and FK cascading deletion.
+- **Pipeline Orchestration (`packages/knowledge/pipeline.py`, `packages/knowledge/__init__.py`):**
+  - Implemented `KnowledgeIngestionPipeline` orchestrating full document lifecycle:
+    1. Parse raw bytes or MinIO object (`bucket_knowledge`) into structured elements (R9.1, R9.2).
+    2. Structural chunking with version assignment (R9.3–R9.5).
+    3. Checksum deduplication across versions carrying forward unchanged vectors (R9.9).
+    4. Batch embedding generation via `Embedder.embed_texts` for new/modified chunks only (R9.6, R9.11).
+    5. Single-transaction chunk, GIN `content_tsv`, and vector persistence (R9.7).
+    6. Atomic status flip to `active` followed by pruning of superseded version chunks (R9.8).
+  - Implemented per-document status tracking (`pending`, `parsing`, `chunking`, `embedding`, `active`, `failed`) with failure reasons and rollback on failure (R9.10).
+  - Implemented `IngestionResult` dataclass and domain exceptions (`DocumentNotFoundError`, `UnsupportedDocumentTypeError`, `IngestionError`).
+- **Worker Consumer & Service Entrypoint (`services/knowledge_worker/`):**
+  - Implemented `KnowledgeIngestConsumer` consuming from AMQP queue `knowledge.ingest` with mandatory tenant isolation check (R23.6), fatal error routing for unrecoverable failures (R3.5), and transient error retries.
+  - Implemented `services/knowledge_worker/main.py` daemon service with graceful shutdown coordination, database readiness check, and HTTP health server exposing `/healthz`, `/readyz`, and `/metrics` on port 8003.
+- **Test Harness (`tests/unit/test_knowledge_pipeline.py`, `tests/unit/test_knowledge_consumer.py`, `tests/integration/test_knowledge_worker_e2e.py`):**
+  - 7 pipeline unit tests covering status lifecycle, version N+1 re-ingest, checksum deduplication, and error rollback.
+  - 7 consumer unit tests verifying AMQP envelope handling, tenant enforcement, DLX routing for fatal errors, and retry handling.
+  - 2 live PostgreSQL + MinIO integration tests verifying end-to-end ingestion, version N+1 atomic switch, deduplication, and strict multi-tenant isolation across >=3 tenants (GEMINI.md §8).
 
 ## Follow-ups
-- Ready to proceed to **Task 3.5: Ingestion pipeline & versioning** (`knowledge.ingest` worker running parse -> chunk -> enrich -> embed -> persist -> `active`, re-ingestion version N+1 atomic flip, checksum deduplication).
+- Ready to proceed to **Task 3.6: Knowledge upload API** (`POST /v1/knowledge/documents` upload to object storage + enqueue, `GET /v1/knowledge/documents` with ingestion status).

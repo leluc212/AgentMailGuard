@@ -26,11 +26,18 @@ from packages.knowledge.parsers import (
     get_parser,
     parse_document,
 )
+from packages.knowledge.pipeline import (
+    DocumentNotFoundError,
+    IngestionError,
+    IngestionResult,
+    KnowledgeIngestionPipeline,
+)
 from packages.knowledge.token_counter import TokenCounter
 
 __all__ = [
     "ChunkerConfig",
     "DOCXParser",
+    "DocumentNotFoundError",
     "DocumentParser",
     "DocumentParsingError",
     "Embedder",
@@ -42,6 +49,9 @@ __all__ = [
     "FakeEmbedder",
     "HTMLParser",
     "HttpEmbedder",
+    "IngestionError",
+    "IngestionResult",
+    "KnowledgeIngestionPipeline",
     "MarkdownParser",
     "PDFParser",
     "ParserRegistry",
@@ -54,5 +64,3 @@ __all__ = [
     "get_parser",
     "parse_document",
 ]
-
-

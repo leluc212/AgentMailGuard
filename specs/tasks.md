@@ -309,7 +309,7 @@
   - Write chunk + `content_tsv` in one transaction; write `embedding_record` with the HNSW-indexed vector.
   - _Requirements: R9.7, R5.6, R5.7_
 
-- [ ] **3.5 Ingestion pipeline & versioning**
+- [x] **3.5 Ingestion pipeline & versioning**
   - `knowledge.ingest` worker running parse → chunk → enrich → embed → persist → `active`.
   - Re-ingestion writes version N+1 then flips status atomically — no window where the document is unsearchable.
   - Unchanged `content_checksum` ⇒ carry the embedding forward, skip re-embedding.

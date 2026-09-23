@@ -3056,3 +3056,79 @@
 - **Verification Command:**
   - `uv run pytest tests/integration/test_chunk_persistence_postgres.py -v && uv run pytest -m "not slow" -q`
 - **Result:** PASS (6/6 integration tests passed, 700/700 total tests clean)
+
+---
+
+# Execution Log: Phase 3 Task 3.5 — Ingestion Pipeline & Versioning
+
+## Step 1: Implement KnowledgeIngestionPipeline Orchestration
+- **Files Changed:**
+  - `packages/knowledge/pipeline.py` (new)
+- **What Changed:**
+  - Implemented `KnowledgeIngestionPipeline` coordinating full lifecycle:
+    1. Content retrieval from MinIO object storage (`bucket_knowledge`) or raw byte buffer.
+    2. Parsing into structured elements using `ParserRegistry` (R9.1, R9.2).
+    3. Structural chunking with version assignment (R9.3–R9.5).
+    4. Checksum-based embedding deduplication across versions (R9.9) - carried forward vectors for unchanged chunks.
+    5. Batch embedding generation via `Embedder.embed_texts` for new/modified chunks (R9.6, R9.11).
+    6. Atomic single-transaction chunk, `content_tsv`, and embedding persistence (R9.7).
+    7. Atomic version switch to `active` followed by pruning of superseded version chunks (R9.8).
+  - Implemented `IngestionResult` dataclass and domain exceptions (`DocumentNotFoundError`, `UnsupportedDocumentTypeError`, `IngestionError`).
+  - Implemented per-document status tracking (`pending`, `parsing`, `chunking`, `embedding`, `active`, `failed`) with failure reasons and target version rollback on failure (R9.10).
+- **Verification Command:**
+  - `uv run ruff check packages/knowledge/pipeline.py && uv run mypy packages/knowledge/pipeline.py`
+- **Result:** PASS (0 ruff errors, 0 mypy errors)
+
+## Step 2: Re-Export Ingestion Pipeline in Knowledge Package
+- **Files Changed:**
+  - `packages/knowledge/__init__.py`
+- **What Changed:**
+  - Re-exported `KnowledgeIngestionPipeline`, `IngestionResult`, `IngestionError`, and `DocumentNotFoundError`.
+  - Verified package exports with ruff and mypy.
+- **Verification Command:**
+  - `uv run ruff check packages/knowledge && uv run mypy packages/knowledge`
+- **Result:** PASS (0 errors)
+
+## Step 3: Implement Knowledge Ingestion AMQP Consumer & Service Entrypoint
+- **Files Changed:**
+  - `services/knowledge_worker/consumer.py` (new)
+  - `services/knowledge_worker/main.py` (new)
+- **What Changed:**
+  - Implemented `KnowledgeIngestConsumer` extending `BaseConsumer`:
+    - Consumes from `queue_knowledge = "knowledge.ingest"`.
+    - Enforces tenant isolation with mandatory `organization_id` header (R23.6).
+    - Unrecoverable parse/format/missing errors raise `FatalError` to DLQ (R3.5).
+    - Embedding timeouts and transient network errors raise `TransientError` to retry ladder.
+  - Implemented `services/knowledge_worker/main.py` daemon service entrypoint:
+    - Graceful shutdown coordinator with database pool and consumer cleanup callbacks.
+    - Database readiness health check on `/readyz`.
+    - FastAPI HTTP server on port 8003 serving `/healthz`, `/readyz`, and Prometheus `/metrics`.
+- **Verification Command:**
+  - `uv run ruff check services/knowledge_worker/ && uv run mypy services/knowledge_worker/`
+- **Result:** PASS (0 errors)
+
+## Step 4: Unit Test Suite for Pipeline and Consumer
+- **Files Changed:**
+  - `tests/unit/test_knowledge_pipeline.py` (new)
+  - `tests/unit/test_knowledge_consumer.py` (new)
+- **What Changed:**
+  - Implemented 7 pipeline unit tests covering happy path, version N+1 re-ingestion, checksum deduplication skipping re-embedding, missing doc error, unsupported MIME error, embedder failure cleanup, and empty document rejection.
+  - Implemented 7 consumer unit tests covering valid envelope processing, missing organization ID fatal error, missing document ID fatal error, document not found fatal error, unsupported document type fatal error, embedding timeout transient error, and unexpected error handling.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_knowledge_pipeline.py tests/unit/test_knowledge_consumer.py -v`
+- **Result:** PASS (14/14 tests passed in 0.95s)
+
+## Step 5: Live PostgreSQL & MinIO End-to-End Integration Suite
+- **Files Changed:**
+  - `tests/integration/test_knowledge_worker_e2e.py` (new)
+  - `specs/tasks.md`
+- **What Changed:**
+  - Implemented 2 live integration tests:
+    1. `test_live_minio_and_postgres_ingestion_lifecycle`: live MinIO document upload, PostgreSQL pending document insertion, async pipeline execution, TSVector verification, version N+1 re-ingestion with section-level checksum deduplication carrying forward vectors, atomic status flip to `active`, and pruning of old version chunks.
+    2. `test_multi_tenant_isolation_three_tenants`: multi-tenant fixture seeding 3 distinct tenants with identical document content, proving zero cross-tenant leakage for document queries, chunk queries, and lexical FTS queries (R5.3, GEMINI.md §8).
+  - Marked Task 3.5 complete in `specs/tasks.md`.
+  - Ran full test suite: 716 tests passed, 0 failures, 0 regressions.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_knowledge_worker_e2e.py -v && uv run pytest -m "not slow" -q`
+- **Result:** PASS (2/2 integration tests passed in 1.40s, 716/716 total suite passed)
+
