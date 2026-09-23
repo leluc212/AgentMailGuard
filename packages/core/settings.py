@@ -283,7 +283,7 @@ class RetryLadderSettings(BaseModel):
 
 
 class WorkerConcurrencySettings(BaseModel):
-    """Per-service queue consumer prefetch and worker concurrency limits (R20.3)."""
+    """Per-service queue consumer prefetch and worker concurrency limits (R20.3, R7.2)."""
 
     default_prefetch: int = Field(default=10, ge=1, description="Default RabbitMQ prefetch count")
     mail_connector_concurrency: int = Field(
@@ -293,12 +293,54 @@ class WorkerConcurrencySettings(BaseModel):
     triage_worker_concurrency: int = Field(
         default=10, ge=1, description="Triage classifier workers"
     )
-    ai_worker_concurrency: int = Field(default=4, ge=1, description="AI generation workers")
+    ai_worker_concurrency: int = Field(default=4, ge=1, description="AI generation workers (base)")
+    ai_worker_normal_concurrency: int = Field(
+        default=4, ge=1, description="AI workers for normal priority lane (R7.2)"
+    )
+    ai_worker_priority_concurrency: int = Field(
+        default=8, ge=1, description="AI workers for priority lane (R7.2)"
+    )
+    ai_worker_normal_prefetch: int = Field(
+        default=10, ge=1, description="RabbitMQ prefetch for normal lane (R7.2)"
+    )
+    ai_worker_priority_prefetch: int = Field(
+        default=5, ge=1, description="RabbitMQ prefetch for priority lane (R7.2)"
+    )
     knowledge_worker_concurrency: int = Field(
         default=2, ge=1, description="Knowledge ingestion workers"
     )
     dispatch_worker_concurrency: int = Field(
         default=5, ge=1, description="Dispatch response workers"
+    )
+
+
+class CategoryRoutingSettings(BaseModel):
+    """Declarative category queues, priority lanes, and unconsumed queue alerts (R7.1–R7.6)."""
+
+    categories_config_path: str = Field(
+        default="config/categories.yaml",
+        description="Path to declarative category taxonomy YAML file (R7.4)",
+    )
+    priority_lanes: list[str] = Field(
+        default_factory=lambda: ["normal", "priority"],
+        description="Declared priority routing lanes (R7.2)",
+    )
+    configured_consumers: list[str] = Field(
+        default_factory=lambda: [
+            "email.support.normal",
+            "email.support.priority",
+            "email.billing.normal",
+            "email.billing.priority",
+            "email.sales.normal",
+            "email.sales.priority",
+            "email.general_inquiry.normal",
+            "email.general_inquiry.priority",
+            "email.administration.normal",
+            "email.administration.priority",
+            "email.scheduling.normal",
+            "email.scheduling.priority",
+        ],
+        description="Queues or patterns that have active consumers configured (R7.6)",
     )
 
 
@@ -377,6 +419,7 @@ class AppSettings(BaseSettings):
     thread_association: ThreadAssociationSettings = Field(default_factory=ThreadAssociationSettings)
     retry: RetryLadderSettings = Field(default_factory=RetryLadderSettings)
     concurrency: WorkerConcurrencySettings = Field(default_factory=WorkerConcurrencySettings)
+    routing: CategoryRoutingSettings = Field(default_factory=CategoryRoutingSettings)
     telemetry: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     subscription_renewal: SubscriptionRenewalSettings = Field(
         default_factory=SubscriptionRenewalSettings

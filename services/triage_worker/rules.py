@@ -62,12 +62,20 @@ class HotReloadableRuleEngine:
         auto_reload: bool = True,
         initial_rules: list[Rule] | None = None,
     ) -> None:
-        self._rules_path: Path | None = Path(rules_path) if rules_path else None
-        self._auto_reload: bool = auto_reload
+        if rules_path is not None:
+            self._rules_path: Path | None = Path(rules_path)
+        elif initial_rules is None and Path("config/triage_rules.yaml").exists():
+            self._rules_path = Path("config/triage_rules.yaml")
+        else:
+            self._rules_path = None
+
+        self._auto_reload: bool = auto_reload and (self._rules_path is not None)
         self._last_mtime: float = 0.0
 
         if initial_rules is not None:
             self._engine: RuleEngine = RuleEngine(rules=initial_rules)
+            if self._rules_path and self._rules_path.exists():
+                self._last_mtime = self._rules_path.stat().st_mtime
         elif self._rules_path and self._rules_path.exists():
             try:
                 self._engine = load_rules_from_file(self._rules_path)

@@ -1,120 +1,126 @@
-# Implementation Plan — Phase 2, Task 2.9: Funnel Instrumentation
+# Implementation Plan: Category-Aware Routing (Phase 2, Task 2.10)
 
-Instruments the triage pipeline and early-exit gate with Prometheus counters to verify the realized email processing funnel against the architectural 45% (early exit) / 20% (template reply) / 35% (AI generation) assumption without a residual bucket, tracks the ~70% RAG share of AI traffic, and exports `emails_templated_total` alongside `emails_generated_total` per `specs/tasks.md` Task 2.9, `specs/requirements.md` (`R6.10, R6.15, R21.4, NFR14`), `specs/design.md §5.3, §10`, and the Technical Proposal.
-
----
+Implement category-aware routing to topic exchange `email.route` using routing key `email.<category>.<priority>`, separate `normal` and `priority` lanes with independent consumer scaling, dynamic declarative queue declaration from configuration at startup, and startup warnings for category queues without configured consumers, fulfilling requirements **R7.1, R7.2, R7.4, R7.6** and `specs/design.md §5.3, §7.1`.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Zero Residual Guarantee (R6.15)**: Every triaged email must map to exactly one of the three primary outcomes:
-> 1. `early_exit` (`reply_required == false` or `workflow_hint == 'none'`, ~45%)
-> 2. `template` (`workflow_hint == 'template'` with matched template, ~20%)
-> 3. `ai_generation` (`workflow_hint == 'ai'`, ~35%)
->
-> Within `ai_generation`, the sub-dimension `rag_mode` (`rag` vs `no_rag`) tracks the ~70% RAG share of AI traffic. The funnel reconciliation formula guarantees:
-> $$\text{early\_exit} + \text{template} + \text{ai\_generation} = \text{total\_triaged} \quad (\text{residual} = 0)$$
+> **Queue Naming & Topic Exchange Bindings:**
+> In accordance with `specs/requirements.md` R7.1 and `specs/design.md §7.1`, queues are declared as `email.<category>.<lane>` (e.g. `email.support.normal`, `email.support.priority`, `email.billing.normal`, etc.) and bound to the topic exchange `email.route` with routing key `email.<category>.<lane>`.
+> Priorities from classification (`urgent`, `high`, `normal`, `low`) resolve to the two fundamental lanes (`priority` vs `normal`), with independent consumer concurrency and prefetch settings per lane (R7.2).
 
----
+> [!NOTE]
+> **Dynamic Startup Category Declarations (R7.4):**
+> A new declarative YAML configuration `config/categories.yaml` allows adding custom categories without code changes. On startup, `setup_topology` dynamically inspects the taxonomy registry and declares corresponding `email.<category>.<lane>` queues in RabbitMQ.
 
-## Open Questions
-
-None. The specifications (`R6.10`, `R6.15`, `R21.4`, `NFR14`, and `design.md §10`) are exhaustive and provide explicit contract definitions.
+> [!WARNING]
+> **Unconsumed Queue Detection (R7.6):**
+> Any declared category queue that does not match a configured consumer pattern (e.g. in `RoutingSettings.configured_consumers`) triggers a startup warning log naming the queue to prevent silent message accumulation.
 
 ---
 
 ## Proposed Changes
 
-### Observability Layer (`packages/observability`)
+ Group files by component, ordering dependencies first.
 
-#### [MODIFY] [metrics.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/observability/metrics.py)
-- Add `emails_early_exit_total` Counter with labels `["organization", "category", "reason"]`.
-- Add `triage_funnel_outcomes_total` Counter with labels `["organization", "category", "outcome", "rag_mode"]`.
-- Ensure `emails_templated_total` (`["organization", "template_id"]`) and `emails_generated_total` (`["organization", "model_tier"]`) remain registered and exported on the `/metrics` endpoint.
+### 1. Configuration & Domain Taxonomy
 
-#### [NEW] [funnel.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/observability/funnel.py)
-- Define `FunnelOutcome` enum (`EARLY_EXIT`, `TEMPLATE`, `AI_GENERATION`) and `RAGMode` enum (`NONE`, `RAG`, `NO_RAG`).
-- Define `FunnelReport` frozen dataclass capturing raw counts, proportions, RAG share, and boolean `is_reconciled`.
-- Implement `compute_funnel_reconciliation(metrics: PipelineMetrics, organization: str | None = None) -> FunnelReport` that aggregates `triage_funnel_outcomes_total` samples from Prometheus registry and verifies zero residual.
-- Implement helper `record_funnel_outcome(...)` for standardized metric emission.
+#### [NEW] [categories.yaml](file:///home/ple/Documents/antigravity/dazzling-bose/config/categories.yaml)
+- Declarative YAML definition for categories, intents, default reply/retrieval flags, and priority defaults.
+- Serves as the configuration source for adding new categories without code changes (R7.4).
 
-#### [MODIFY] [__init__.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/observability/__init__.py)
-- Export `FunnelReport`, `FunnelOutcome`, `RAGMode`, and `compute_funnel_reconciliation`.
+#### [MODIFY] [taxonomy.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/domain/taxonomy.py)
+- Add `load_categories_from_yaml(path: str | Path) -> list[CategoryDefinition]` to `TaxonomyRegistry`.
+- Support dynamically registering categories from YAML on initialization or via function call.
 
----
-
-### Triage Worker (`services/triage_worker`)
-
-#### [MODIFY] [gate.py](file:///home/ple/Documents/antigravity/dazzling-bose/services/triage_worker/gate.py)
-- Inject optional `metrics: PipelineMetrics | None = None` into `EarlyExitGate.__init__` (defaulting to `get_metrics()`).
-- In `EarlyExitGate.evaluate_decision`:
-  - On `GateAction.EARLY_EXIT`: Increment `triage_funnel_outcomes_total(outcome="early_exit", rag_mode="none")` and `emails_early_exit_total(reason=...)`.
-  - On `GateAction.TEMPLATE_REPLY`: Increment `triage_funnel_outcomes_total(outcome="template", rag_mode="none")` and `emails_templated_total(template_id=...)`.
-  - On `GateAction.PROCEED_RAG`: Increment `triage_funnel_outcomes_total(outcome="ai_generation", rag_mode="rag")`.
-  - On `GateAction.PROCEED_NO_RAG`: Increment `triage_funnel_outcomes_total(outcome="ai_generation", rag_mode="no_rag")`.
-
-#### [MODIFY] [cascade.py](file:///home/ple/Documents/antigravity/dazzling-bose/services/triage_worker/cascade.py)
-- Inject optional `metrics: PipelineMetrics | None = None` into `CascadingTriageEngine.__init__`.
-- Pass `metrics` down to `EarlyExitGate`.
-- In `CascadingTriageEngine.triage`:
-  - Increment `emails_classified_total` with `organization`, `category`, `priority`, `decided_by`.
-  - Record `classification_latency_ms` with `stage=decided_stage`.
+#### [MODIFY] [settings.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/core/settings.py)
+- Define `CategoryRoutingSettings`:
+  - `categories_config_path: str = "config/categories.yaml"`
+  - `priority_lanes: list[str] = ["normal", "priority"]`
+  - `configured_consumers: list[str]` (defaulting to standard actionable queues, e.g. `email.support.normal`, `email.support.priority`, `email.billing.normal`, `email.billing.priority`, `email.sales.normal`, `email.sales.priority`, `email.general_inquiry.normal`, `email.general_inquiry.priority`).
+- Enhance `WorkerConcurrencySettings` with independent consumer scaling for lanes (R7.2):
+  - `ai_worker_normal_concurrency: int = 4`
+  - `ai_worker_priority_concurrency: int = 8`
+  - `ai_worker_normal_prefetch: int = 10`
+  - `ai_worker_priority_prefetch: int = 5`
+- Add `routing: CategoryRoutingSettings` to `AppSettings`.
 
 ---
 
-### Tests & Verification (`tests/`)
+### 2. Messaging & Routing Logic
 
-#### [NEW] [test_funnel_metrics.py](file:///home/ple/Documents/antigravity/dazzling-bose/tests/unit/test_funnel_metrics.py)
-- Unit tests validating:
-  1. `PipelineMetrics` registers all required funnel instruments on isolated registry.
-  2. `EarlyExitGate` emits correct labels for each of the 4 gate actions (`EARLY_EXIT`, `TEMPLATE_REPLY`, `PROCEED_RAG`, `PROCEED_NO_RAG`).
-  3. `compute_funnel_reconciliation` mathematical reconciliation on reference 100k email distribution:
-     - 45,000 Early Exit (45.0%)
-     - 20,000 Template Reply (20.0%)
-     - 35,000 AI Generation (35.0%) with 24,500 RAG (70.0% of AI) and 10,500 No-RAG (30.0% of AI).
-     - Asserts `residual == 0` and `is_reconciled == True`.
-  4. Multi-tenant filtering isolates counts by `organization`.
-  5. Zero-count edge cases and invalid state handling.
+#### [NEW] [routing.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/routing.py)
+- Pure routing helpers:
+  - `resolve_priority_lane(priority: str) -> str`: Maps urgency levels (`urgent`, `high`, `priority`) to `"priority"`, others (`normal`, `low`) to `"normal"`.
+  - `format_routing_key(category: str, priority: str) -> str`: Constructs canonical `email.<category>.<lane>` routing key (R7.1).
+  - `is_queue_consumed(queue_name: str, configured_consumers: list[str]) -> bool`: Evaluates exact matches and wildcard patterns (`fnmatch`).
+  - `prepare_route_envelope(envelope: JobEnvelope, classification: Classification | dict[str, Any]) -> tuple[str, JobEnvelope]`: Prepares `generate_reply` envelope with classification snapshot (R7.3) and calculated routing key.
 
-#### [NEW] [test_funnel_metrics_integration.py](file:///home/ple/Documents/antigravity/dazzling-bose/tests/integration/test_funnel_metrics_integration.py)
-- Integration test executing `triage_and_gate` end-to-end against PostgreSQL test DB:
-  1. Process messages resulting in early exit, template reply, and AI generation (with and without RAG).
-  2. Scrape Prometheus exposition payload via `generate_metrics_payload()`.
-  3. Verify presence and formatting of:
-     - `triage_funnel_outcomes_total`
-     - `emails_early_exit_total`
-     - `emails_templated_total`
-     - `emails_generated_total`
-     - `emails_classified_total`
-  4. Verify Prometheus text format matches OpenMetrics / Prometheus specs.
+#### [MODIFY] [topology.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/topology.py)
+- Extend `setup_topology`:
+  - Accept optional `routing_settings: CategoryRoutingSettings | None`.
+  - If `categories_config_path` is present, load definitions into `TaxonomyRegistry`.
+  - For each registered category and priority lane (`normal`, `priority`):
+    - Declare durable queue `email.<category>.<lane>` (with quorum args if enabled).
+    - Bind queue to topic exchange `exchange_email_route` (`email.route`) using routing key `email.<category>.<lane>`.
+  - For each declared category queue:
+    - Check if the queue is covered by `configured_consumers`.
+    - If unconsumed, emit warning log: `logger.warning("Category queue '%s' has no configured consumer (R7.6). Messages may accumulate.", queue_name)`.
+  - Include `category_queues: dict[str, AbstractQueue]` and `unconsumed_queues: list[str]` in `BrokerTopology`.
 
 ---
 
-### Documentation (`docs/`)
+### 3. Triage Worker Service Consumer
 
-#### [NEW] [observability.md](file:///home/ple/Documents/antigravity/dazzling-bose/docs/observability.md)
-- Document all Prometheus metrics names, types, and label dimensions.
-- Document funnel outcome reconciliation formulas, PromQL queries for Grafana Funnel Dashboard (`R21.7`), and alerting thresholds.
+#### [NEW] [consumer.py](file:///home/ple/Documents/antigravity/dazzling-bose/services/triage_worker/consumer.py)
+- Implement `TriageConsumer(BaseConsumer)`:
+  - Consumes from `queue_triage` (`email.triage`).
+  - Runs cascading triage (`TriageCascade.classify`).
+  - Evaluates early-exit gate (`EarlyExitGate.evaluate_and_persist`).
+  - If `EARLY_EXIT`: acknowledges message, no downstream publish.
+  - If `TEMPLATE_REPLY`: generates draft, acknowledges message, no downstream publish.
+  - If `PROCEED_RAG` or `PROCEED_NO_RAG` (actionable AI generation):
+    - Generates routing key `email.<category>.<priority>`.
+    - Updates envelope to `job_type="generate_reply"` with classification snapshot (R7.3).
+    - Publishes to `exchange_email_route` (`email.route`) topic exchange.
+    - Acknowledges message from `email.triage` after side effects are committed.
+
+---
+
+### 4. Documentation & Environment Configuration
+
+#### [MODIFY] [.env.example](file:///home/ple/Documents/antigravity/dazzling-bose/.env.example)
+- Add new configuration keys for category routing and lane-specific concurrency.
+
+#### [MODIFY] [configuration.md](file:///home/ple/Documents/antigravity/dazzling-bose/docs/configuration.md)
+- Document `CategoryRoutingSettings`, `WorkerConcurrencySettings` lane scaling, and `config/categories.yaml`.
+
+#### [MODIFY] [tasks.md](file:///home/ple/Documents/antigravity/dazzling-bose/specs/tasks.md)
+- Mark Task 2.10 `[x]` upon complete verification.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-```bash
-# 1. Run unit tests for funnel metrics
-.venv/bin/pytest -v tests/unit/test_funnel_metrics.py
+1. **Unit Tests:** `tests/unit/test_category_routing.py`
+   - Test priority lane resolution (`urgent`/`high` -> `priority`, `normal`/`low` -> `normal`).
+   - Test routing key construction (`email.<category>.<priority>`).
+   - Test YAML category loading and dynamic taxonomy registration (R7.4).
+   - Test unconsumed queue detection logic (R7.6).
+   - Test independent consumer scaling configuration for normal and priority lanes (R7.2).
+   - Command: `.venv/bin/pytest tests/unit/test_category_routing.py -v`
 
-# 2. Run existing observability unit tests
-.venv/bin/pytest -v tests/unit/test_observability_metrics.py
+2. **Integration Tests:** `tests/integration/test_category_routing_integration.py`
+   - Run with live PostgreSQL and RabbitMQ containers.
+   - Test dynamic category queue declaration at startup in `setup_topology`.
+   - Test topic exchange message routing: publish with routing key `email.billing.priority` and assert message lands in `email.billing.priority` queue.
+   - Test wildcard bindings and lane-specific routing.
+   - Test startup warning log emission for an unconsumed category queue using `caplog` (R7.6).
+   - Test end-to-end `TriageConsumer` processing from `email.triage` to `email.<category>.<priority>` queue.
+   - Command: `.venv/bin/pytest tests/integration/test_category_routing_integration.py -v`
 
-# 3. Run integration tests for funnel metrics and observability
-.venv/bin/pytest -v tests/integration/test_funnel_metrics_integration.py tests/integration/test_observability_e2e.py
-
-# 4. Run linting and type checks
-.venv/bin/ruff check .
-.venv/bin/mypy packages services
-```
-
-### Manual Verification
-- Verify Prometheus exposition output format against standard scraping expectations.
+3. **Full Regression Suite & Linters:**
+   - Command: `.venv/bin/pytest tests/unit tests/integration`
+   - Command: `.venv/bin/ruff check .`
+   - Command: `.venv/bin/mypy packages services tests`

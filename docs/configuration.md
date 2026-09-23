@@ -160,7 +160,7 @@ price_table = {
 | `RETRY__MAX_RETRIES` | `integer` | `3` | 1–10 | Maximum delivery retries before DLX routing |
 
 ### 2.11 Worker Concurrency & Prefetch (`CONCURRENCY__*`)
-*Independent worker scaling signals (R20.3).*
+*Independent worker scaling signals and priority lane sizing (R20.3, R7.2).*
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
@@ -168,7 +168,11 @@ price_table = {
 | `CONCURRENCY__MAIL_CONNECTOR_CONCURRENCY` | `integer` | `5` | $\ge 1$ | Mail connector worker concurrency |
 | `CONCURRENCY__EMAIL_WORKER_CONCURRENCY` | `integer` | `10` | $\ge 1$ | Email processor worker concurrency |
 | `CONCURRENCY__TRIAGE_WORKER_CONCURRENCY` | `integer` | `10` | $\ge 1$ | Triage worker concurrency |
-| `CONCURRENCY__AI_WORKER_CONCURRENCY` | `integer` | `4` | $\ge 1$ | AI draft generation worker concurrency |
+| `CONCURRENCY__AI_WORKER_CONCURRENCY` | `integer` | `4` | $\ge 1$ | Default AI draft generation worker concurrency |
+| `CONCURRENCY__AI_WORKER_NORMAL_CONCURRENCY` | `integer` | `4` | $\ge 1$ | Normal priority lane worker concurrency (R7.2) |
+| `CONCURRENCY__AI_WORKER_PRIORITY_CONCURRENCY` | `integer` | `8` | $\ge 1$ | Priority lane worker concurrency (2x normal scaling) |
+| `CONCURRENCY__AI_WORKER_NORMAL_PREFETCH` | `integer` | `10` | $\ge 1$ | Normal priority lane consumer prefetch QoS |
+| `CONCURRENCY__AI_WORKER_PRIORITY_PREFETCH` | `integer` | `5` | $\ge 1$ | Priority lane consumer prefetch QoS (bounded latency) |
 | `CONCURRENCY__KNOWLEDGE_WORKER_CONCURRENCY`| `integer` | `2` | $\ge 1$ | Knowledge document ingestion concurrency |
 | `CONCURRENCY__DISPATCH_WORKER_CONCURRENCY` | `integer` | `5` | $\ge 1$ | Outbound mail dispatch concurrency |
 
@@ -213,5 +217,14 @@ price_table = {
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `THREAD_ASSOCIATION__WINDOW_DAYS` | `integer` | `14` | 1–365 | Time window in days for matching threads by normalized subject and overlapping participants |
+
+### 2.16 Category Routing & Priority Lanes (`ROUTING__*`)
+*Declarative category topology and priority lane configuration (R7.1, R7.2, R7.4, R7.6).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `ROUTING__CATEGORIES_CONFIG_PATH` | `string` | `config/categories.yaml` | Non-empty | Path to declarative category taxonomy YAML file (R7.4) |
+| `ROUTING__PRIORITY_LANES` | `list[string]` | `["normal", "priority"]` | Non-empty | Set of priority lanes declared for each category (R7.2) |
+| `ROUTING__CONFIGURED_CONSUMERS` | `list[string]` | `["email.support.*", ...]` | Valid patterns | Glob patterns defining queues with active consumers. Unconsumed queues trigger warning (R7.6) |
 
 

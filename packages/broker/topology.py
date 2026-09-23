@@ -5,7 +5,7 @@ and dead-letter queues per specs/design.md §7.1 and §7.2.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import aio_pika
@@ -15,7 +15,16 @@ from aio_pika.abc import (
     AbstractQueue,
 )
 
-from packages.core.settings import BrokerSettings, RetryLadderSettings
+from packages.broker.routing import (
+    is_queue_consumed,
+    load_categories_from_yaml,
+)
+from packages.core.settings import (
+    BrokerSettings,
+    CategoryRoutingSettings,
+    RetryLadderSettings,
+)
+from packages.domain.taxonomy import get_default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +39,18 @@ class BrokerTopology:
     # Queues
     queues: dict[str, AbstractQueue]
 
+    # Category and priority queues (R7.1, R7.4)
+    category_queues: dict[str, AbstractQueue] = field(default_factory=dict)
+
+    # Category queues that have no configured consumer (R7.6)
+    unconsumed_queues: list[str] = field(default_factory=list)
+
 
 async def setup_topology(
     channel: AbstractChannel,
     broker_settings: BrokerSettings | None = None,
     retry_settings: RetryLadderSettings | None = None,
+    routing_settings: CategoryRoutingSettings | None = None,
 ) -> BrokerTopology:
     """Declare all messaging exchanges, queues, and bindings idempotently (R3.2).
 
@@ -54,6 +70,10 @@ async def setup_topology(
     """
     b_cfg = broker_settings or BrokerSettings()
     r_cfg = retry_settings or RetryLadderSettings()
+    rt_cfg = routing_settings or CategoryRoutingSettings()
+
+    if rt_cfg.categories_config_path:
+        load_categories_from_yaml(rt_cfg.categories_config_path)
 
     logger.info("Declaring RabbitMQ topology idempotently...")
 
@@ -185,9 +205,49 @@ async def setup_topology(
 
         queues[queue_name] = q_retry
 
+    # -------------------------------------------------------------------------
+    # 5. Declare Category-Aware Routing Queues and Bindings (R7.1, R7.2, R7.4)
+    # -------------------------------------------------------------------------
+    category_queues: dict[str, AbstractQueue] = {}
+    unconsumed_queues: list[str] = []
+
+    registry = get_default_registry()
+    all_categories = registry.all_categories()
+    priority_lanes = rt_cfg.priority_lanes or ["normal", "priority"]
+
+    for category in all_categories:
+        for lane in priority_lanes:
+            queue_name = f"email.{category}.{lane}"
+            q_cat = await channel.declare_queue(
+                queue_name, durable=True, arguments=common_args
+            )
+            # Bind to topic exchange email.route with routing key email.<category>.<lane>
+            await q_cat.bind(
+                exchanges[b_cfg.exchange_email_route], routing_key=queue_name
+            )
+            queues[queue_name] = q_cat
+            category_queues[queue_name] = q_cat
+
+    # -------------------------------------------------------------------------
+    # 6. Check for Unconsumed Category Queues (R7.6)
+    # -------------------------------------------------------------------------
+    for q_name in category_queues:
+        if not is_queue_consumed(q_name, rt_cfg.configured_consumers):
+            logger.warning(
+                "Category queue '%s' has no configured consumer (R7.6). Messages may accumulate.",
+                q_name,
+            )
+            unconsumed_queues.append(q_name)
+
     logger.info(
-        "RabbitMQ topology successfully declared: %d exchanges, %d queues",
+        "RabbitMQ topology successfully declared: %d exchanges, %d queues (%d category queues)",
         len(exchanges),
         len(queues),
+        len(category_queues),
     )
-    return BrokerTopology(exchanges=exchanges, queues=queues)
+    return BrokerTopology(
+        exchanges=exchanges,
+        queues=queues,
+        category_queues=category_queues,
+        unconsumed_queues=unconsumed_queues,
+    )

@@ -1,0 +1,171 @@
+# Declarative Category Taxonomy Configuration (R6.4, R7.4)
+# Allows adding new categories or overriding defaults without code changes.
+# Any category defined here will automatically have its corresponding queues
+# (email.<category>.normal, email.<category>.priority) declared at startup.
+
+categories:
+  - category: support
+    description: "Technical bugs, crashes, incidents, or hardware/software troubleshooting."
+    default_reply_required: true
+    default_retrieval_required: true
+    default_workflow_hint: ai
+    default_priority: normal
+    intents:
+      - bug_report
+      - incident
+      - technical_troubleshooting
+      - feature_assistance
+    aliases:
+      - technical_support
+      - tech_support
+      - bug
+      - issue
+      - troubleshooting
+
+  - category: sales
+    description: "Volume quotes, pricing queries, demo requests, enterprise licensing, partnerships."
+    default_reply_required: true
+    default_retrieval_required: true
+    default_workflow_hint: ai
+    default_priority: normal
+    intents:
+      - quote_request
+      - pricing_inquiry
+      - demo_request
+      - enterprise_licensing
+      - partnership
+    aliases:
+      - lead
+      - pricing
+      - quote
+      - demo
+      - procurement
+
+  - category: billing
+    description: "Invoices, payment receipts, charges, refunds, payment method updates."
+    default_reply_required: true
+    default_retrieval_required: true
+    default_workflow_hint: ai
+    default_priority: normal
+    intents:
+      - invoice_inquiry
+      - payment_failure
+      - refund_request
+      - tax_exemption
+      - receipt_lookup
+    aliases:
+      - invoice
+      - payment
+      - finance
+      - subscription
+      - charge
+
+  - category: administration
+    description: "Account setup, user provisioning, password resets, permissions, audit exports."
+    default_reply_required: true
+    default_retrieval_required: true
+    default_workflow_hint: template
+    default_priority: normal
+    intents:
+      - password_reset
+      - user_provisioning
+      - permissions
+      - account_setup
+      - audit_export
+    aliases:
+      - admin
+      - account
+      - access
+      - user_management
+      - provisioning
+
+  - category: scheduling
+    description: "Meeting requests, calendar invitations, scheduling availability, demo bookings."
+    default_reply_required: true
+    default_retrieval_required: false
+    default_workflow_hint: template
+    default_priority: normal
+    intents:
+      - meeting_request
+      - calendar_invitation
+      - reschedule
+      - availability
+      - meeting_accepted
+    aliases:
+      - calendar
+      - meeting
+      - appointment
+      - booking
+
+  - category: general_inquiry
+    description: "General questions about company, services, or unclassified general inquiries."
+    default_reply_required: true
+    default_retrieval_required: true
+    default_workflow_hint: ai
+    default_priority: normal
+    intents:
+      - general_faq
+      - company_info
+      - press_inquiry
+      - office_hours
+      - contact_info
+    aliases:
+      - inquiry
+      - general
+      - faq
+      - info
+      - other
+      - general_question
+
+  - category: automated_notification
+    description: "System alerts, newsletters, CI/CD reports, noreply updates."
+    default_reply_required: false
+    default_retrieval_required: false
+    default_workflow_hint: none
+    default_priority: low
+    intents:
+      - system_alert
+      - newsletter
+      - ci_cd
+      - marketing
+      - status_update
+    aliases:
+      - notification
+      - alert
+      - automated
+      - system_notification
+
+  - category: acknowledgement
+    description: "Standalone thank-you emails, receipt/delivery confirmations."
+    default_reply_required: false
+    default_retrieval_required: false
+    default_workflow_hint: none
+    default_priority: low
+    intents:
+      - receipt_confirmation
+      - thank_you
+      - delivery_confirmation
+      - ticket_ack
+    aliases:
+      - ack
+      - confirmation
+      - receipt
+      - received
+
+  - category: no_response
+    description: "Out-of-office autoreplies, vacation notices, spam, unsolicited promotional outreach."
+    default_reply_required: false
+    default_retrieval_required: false
+    default_workflow_hint: none
+    default_priority: low
+    intents:
+      - out_of_office
+      - vacation_notice
+      - spam
+      - unsolicited
+      - bounce
+    aliases:
+      - ooo
+      - autoreply
+      - auto_reply
+      - ignore

@@ -4,6 +4,7 @@ from services.triage_worker.cascade import (
     StageExecutionRecord,
 )
 from services.triage_worker.classifier import MLClassifier
+from services.triage_worker.consumer import TriageConsumer
 from services.triage_worker.gate import (
     DownstreamPipelineHooks,
     EarlyExitGate,
@@ -47,6 +48,7 @@ __all__ = [
     "OrganizationThresholdOverrides",
     "StageExecutionRecord",
     "ThresholdManager",
+    "TriageConsumer",
     "load_rules_from_file",
     "load_rules_from_yaml",
     "load_templates_from_file",

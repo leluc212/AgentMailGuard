@@ -253,6 +253,40 @@ class TaxonomyRegistry:
         for alias in definition.aliases:
             self._aliases[alias.strip().lower()] = normalized_name
 
+    def register_from_dict(self, data: dict[str, Any]) -> CategoryDefinition:
+        """Parse dictionary definition and register into taxonomy (R7.4)."""
+        if "category" not in data or not str(data["category"]).strip():
+            raise ValueError("Category dictionary must contain non-empty 'category' key")
+        category = str(data["category"]).strip().lower()
+        defn = CategoryDefinition(
+            category=category,
+            description=str(data.get("description", "")),
+            default_reply_required=bool(data.get("default_reply_required", True)),
+            default_retrieval_required=bool(data.get("default_retrieval_required", True)),
+            default_workflow_hint=str(data.get("default_workflow_hint", "ai")),
+            default_priority=str(data.get("default_priority", "normal")),
+            intents=tuple(data.get("intents", ())),
+            auto_send_eligible=bool(data.get("auto_send_eligible", False)),
+            aliases=tuple(data.get("aliases", ())),
+        )
+        self.register_category(defn)
+        return defn
+
+    def register_categories(
+        self, definitions: list[CategoryDefinition | dict[str, Any]]
+    ) -> list[CategoryDefinition]:
+        """Register multiple category definitions (R7.4)."""
+        results: list[CategoryDefinition] = []
+        for item in definitions:
+            if isinstance(item, CategoryDefinition):
+                self.register_category(item)
+                results.append(item)
+            elif isinstance(item, dict):
+                results.append(self.register_from_dict(item))
+            else:
+                raise TypeError(f"Expected CategoryDefinition or dict, got {type(item)}")
+        return results
+
     def get(self, category: str | Category) -> CategoryDefinition | None:
         """Retrieve category definition by canonical name or alias."""
         normalized = self.normalize(category)

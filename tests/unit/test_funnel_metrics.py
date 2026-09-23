@@ -16,6 +16,7 @@ from packages.observability.funnel import (
     record_funnel_outcome,
 )
 from packages.observability.metrics import (
+    PipelineMetrics,
     create_pipeline_metrics,
     generate_metrics_payload,
 )
@@ -24,14 +25,14 @@ from services.triage_worker.gate import EarlyExitGate, GateAction
 
 
 @pytest.fixture
-def isolated_metrics():
+def isolated_metrics() -> PipelineMetrics:
     """Create an isolated Prometheus metrics container on a fresh registry."""
     reg = CollectorRegistry(auto_describe=True)
     return create_pipeline_metrics(registry=reg)
 
 
 @pytest.fixture
-def sample_template_registry():
+def sample_template_registry() -> TemplateRegistry:
     """Create an in-memory template registry with sample templates."""
     reg = TemplateRegistry()
     reg.register(
@@ -47,7 +48,7 @@ def sample_template_registry():
     return reg
 
 
-def test_funnel_metrics_registration(isolated_metrics):
+def test_funnel_metrics_registration(isolated_metrics: PipelineMetrics) -> None:
     """Verify all funnel accounting counters are registered on the collector registry (R21.4)."""
     m = isolated_metrics
 
@@ -68,7 +69,9 @@ def test_funnel_metrics_registration(isolated_metrics):
     m.emails_generated_total.labels(organization="org-1", model_tier="fast").inc()
 
 
-def test_early_exit_gate_metrics_emission_all_outcomes(isolated_metrics, sample_template_registry):
+def test_early_exit_gate_metrics_emission_all_outcomes(
+    isolated_metrics: PipelineMetrics, sample_template_registry: TemplateRegistry
+) -> None:
     """Verify EarlyExitGate increments correct counters for each of the 4 gate actions."""
     m = isolated_metrics
     gate = EarlyExitGate(template_registry=sample_template_registry, metrics=m)
@@ -147,7 +150,9 @@ def test_early_exit_gate_metrics_emission_all_outcomes(isolated_metrics, sample_
     assert report.rag_share_of_ai == 0.5
 
 
-def test_cascading_triage_engine_classification_metrics(isolated_metrics):
+def test_cascading_triage_engine_classification_metrics(
+    isolated_metrics: PipelineMetrics,
+) -> None:
     """Verify CascadingTriageEngine records classification count and latency."""
     m = isolated_metrics
     engine = CascadingTriageEngine(metrics=m)
@@ -172,7 +177,9 @@ def test_cascading_triage_engine_classification_metrics(isolated_metrics):
     assert "classification_latency_ms" in payload_str
 
 
-def test_funnel_reconciliation_exact_mathematical_reference(isolated_metrics):
+def test_funnel_reconciliation_exact_mathematical_reference(
+    isolated_metrics: PipelineMetrics,
+) -> None:
     """Verify mathematical reconciliation on reference 100,000 emails per design.md and NFR14.
 
     Reference numbers:
@@ -239,7 +246,9 @@ def test_funnel_reconciliation_exact_mathematical_reference(isolated_metrics):
     assert abs(report.rag_share_of_ai - 0.70) < 1e-6
 
 
-def test_funnel_reconciliation_multi_tenant_isolation(isolated_metrics):
+def test_funnel_reconciliation_multi_tenant_isolation(
+    isolated_metrics: PipelineMetrics,
+) -> None:
     """Verify multi-tenant isolation in funnel calculations."""
     m = isolated_metrics
     org_a = "tenant-alpha"
@@ -280,7 +289,9 @@ def test_funnel_reconciliation_multi_tenant_isolation(isolated_metrics):
     assert report_all.is_reconciled is True
 
 
-def test_funnel_reconciliation_zero_emails_edge_case(isolated_metrics):
+def test_funnel_reconciliation_zero_emails_edge_case(
+    isolated_metrics: PipelineMetrics,
+) -> None:
     """Verify zero traffic edge case gracefully returns zero counts without division by zero."""
     m = isolated_metrics
     report = compute_funnel_reconciliation(m)
@@ -294,7 +305,9 @@ def test_funnel_reconciliation_zero_emails_edge_case(isolated_metrics):
     assert report.is_reconciled is True
 
 
-def test_emails_templated_total_exported_alongside_emails_generated_total(isolated_metrics):
+def test_emails_templated_total_exported_alongside_emails_generated_total(
+    isolated_metrics: PipelineMetrics,
+) -> None:
     """Verify emails_templated_total exported alongside emails_generated_total (R21.4)."""
     m = isolated_metrics
     org = "enterprise-corp"

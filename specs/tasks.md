@@ -254,7 +254,7 @@
   - `emails_templated_total` exported alongside `emails_generated_total`.
   - _Requirements: R6.10, R6.15, R21.4, NFR14_
 
-- [ ] **2.10 Category-aware routing**
+- [x] **2.10 Category-aware routing**
   - Publish to `email.<category>.<priority>`; `normal` and `priority` lanes with independent consumer scaling.
   - New categories addable by configuration; queues declared at startup.
   - Startup warning naming any category queue with no configured consumer.
