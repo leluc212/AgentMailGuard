@@ -3189,4 +3189,54 @@
   - `uv run pytest tests/unit/test_knowledge_api.py tests/integration/test_knowledge_api_integration.py -v`
 - **Result:** PASS (12/12 passed in 3.07s)
 
+# Execution Log: Phase 3 Task 3.7 — SearchBackend Interface
+
+## Step 1: Implement Retrieval Data Models
+- **Files Changed:**
+  - `packages/retrieval/models.py` (new)
+- **What Changed:**
+  - Defined `RetrievalQuery`:
+    - Captures `semantic_text`, `lexical_terms`, `identifiers`, `filters`, and optional `query_vector`.
+    - Implemented helper properties `organization_id`, `category`, and `status` for pre-filtering (R10.4).
+    - Implemented `lexical_text` property prioritizing exact identifiers and keywords (R12.3).
+  - Defined `Candidate`:
+    - Full dataclass carrying `chunk_id`, `document_id`, `content`, `metadata`.
+    - Supports both ranks (`lexical_rank`, `vector_rank`), both scores (`lexical_score`, `vector_score`), `fused_score`, and `rerank_score` (R10.8).
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_retrieval_models.py -v`
+- **Result:** PASS (4/4 passed in 0.05s)
+
+## Step 2: Implement SearchBackend Protocol
+- **Files Changed:**
+  - `packages/retrieval/protocol.py` (new)
+  - `packages/retrieval/__init__.py`
+- **What Changed:**
+  - Defined runtime-checkable `SearchBackend` Protocol declaring:
+    - `async def lexical(self, q: RetrievalQuery, top_n: int = 20) -> list[Candidate]`
+    - `async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[Candidate]`
+  - Specified contractual guarantees: in-query metadata filtering (R10.4), tenant isolation (R5.3), and single-branch rank/score population (R10.8).
+  - Re-exported models and protocol in `packages/retrieval/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check packages/retrieval/ && uv run mypy packages/retrieval/`
+- **Result:** PASS (0 errors)
+
+## Step 3: Implement FakeSearchBackend & Reusable Contract Suite
+- **Files Changed:**
+  - `packages/retrieval/fake.py` (new)
+  - `packages/retrieval/testing.py` (new)
+- **What Changed:**
+  - Implemented `FakeSearchBackend`:
+    - In-memory chunk corpus indexed by `chunk_id`.
+    - Strict multi-tenant isolation (`WHERE organization_id == q.organization_id`).
+    - Status (`active`) and category pre-filtering.
+    - Exact identifier matching (`INV-...`, etc., R12.3) and keyword scoring for `lexical()`.
+    - Dense vector cosine similarity calculation for `vector()`.
+    - Fault injection hooks (`simulate_lexical_error`, `simulate_vector_error`, delays) for resilience testing.
+  - Implemented `SearchBackendContractSuite(ABC)`:
+    - Standardized test harness covering protocol check, lexical rank/score, vector rank/score, top-N limiting, multi-tenant isolation, status/category filtering, verbatim identifier matching, and empty result handling.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_search_backend_contract.py -v`
+- **Result:** PASS (11/11 contract tests passed in 0.19s)
+
+
 

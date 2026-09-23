@@ -1,4 +1,4 @@
-# Finish Summary — Phase 3, Task 3.6: Knowledge Upload API
+# Finish Summary — Phase 3, Task 3.7: SearchBackend Interface
 
 ## Review Pass
 - **Blocker:** None.
@@ -7,44 +7,35 @@
 - **Nit:** None.
 
 ## Verification Commands & Results
-1. Unit Tests:
-   `uv run pytest tests/unit/test_knowledge_api.py -v`
-   Result: **PASS** (10/10 tests passed in 2.01s)
-2. Live PostgreSQL & MinIO Integration Tests:
-   `uv run pytest tests/integration/test_knowledge_api_integration.py -v`
-   Result: **PASS** (2/2 tests passed in 1.50s against live PostgreSQL and MinIO)
-3. Full Project Test Suite:
-   `uv run pytest -m "not slow" -q`
-   Result: **PASS** (728 tests passed, 0 failures, 0 regressions)
-4. OpenAPI 3.1 Specification Validation:
-   `uv run python -m services.api.openapi --check`
-   Result: **PASS** (21 OpenAPI paths valid)
-5. Code Quality & Type Check:
-   `uv run ruff check packages/db/knowledge.py services/api/ tests/unit/test_knowledge_api.py tests/integration/test_knowledge_api_integration.py`
-   `uv run mypy packages/db/knowledge.py services/api/`
-   Result: **PASS** (All checks passed, 0 lint/mypy issues)
-6. Architectural Boundaries:
+1. Retrieval Model & Contract Suite Unit Tests:
+   `uv run pytest tests/unit/test_retrieval_models.py tests/unit/test_search_backend_contract.py -v`
+   Result: **PASS** (15/15 tests passed in 0.19s)
+2. Dependency & Architectural Boundaries:
    `uv run pytest tests/unit/test_dependency_rules.py -v`
    Result: **PASS** (4/4 dependency rules passed)
+3. Code Quality & Type Check:
+   `uv run ruff check packages/retrieval/ tests/unit/test_retrieval_models.py tests/unit/test_search_backend_contract.py`
+   `uv run mypy packages/retrieval/ tests/unit/test_retrieval_models.py tests/unit/test_search_backend_contract.py`
+   Result: **PASS** (7 source files checked, 0 errors)
+4. Full Project Test Suite:
+   `uv run pytest -m "not slow" -q`
+   Result: **PASS** (743 tests passed, 0 failures, 0 regressions)
 
 ## Summary of Changes
-- **Dependency Update (`pyproject.toml`, `uv.lock`):**
-  - Added `python-multipart>=0.0.9` for FastAPI multipart form upload handling.
-- **Database Store Layer (`packages/db/knowledge.py`):**
-  - Added `list_documents(...)` and `delete_document(...)` to `KnowledgeStore` protocol and implementations (`InMemoryKnowledgeStore`, `PostgresKnowledgeStore`).
-  - Added tenant-scoped pagination (`limit`, `offset`) and filtering (`status`, `category`) adhering strictly to `WHERE organization_id = $1` (R5.3, R23.7).
-- **FastAPI Endpoints & Schemas (`services/api/`):**
-  - `services/api/schemas/knowledge.py`: Pydantic V2 response models for document metadata, ingestion status, failure reasons, and pagination.
-  - `services/api/dependencies.py`: Registered `KnowledgeStoreDep`.
-  - `services/api/routers/knowledge.py`:
-    - `POST /v1/knowledge/documents`: Multipart form upload, stores file in MinIO (`bucket_knowledge`), inserts pending record in PostgreSQL, and enqueues ingestion job to `knowledge.ingest` AMQP queue via `MessagePublisher` and `JobEnvelope`, returning HTTP 202 Accepted (R23.7, R5.8).
-    - `GET /v1/knowledge/documents`: Paginated list of documents with ingestion status (R23.7, R23.2).
-    - `GET /v1/knowledge/documents/{id}`: Single document status inspection.
-    - `DELETE /v1/knowledge/documents/{id}`: Document, chunk, and MinIO storage object cleanup.
-  - `services/api/routers/v1.py`: Mounted `knowledge_router` under `/v1`.
-- **Test Harness (`tests/unit/test_knowledge_api.py`, `tests/integration/test_knowledge_api_integration.py`):**
-  - 10 unit tests covering upload validation, unsupported formats, missing headers, queue publishing, pagination, status inspection, and deletion.
-  - 2 live PostgreSQL + MinIO integration tests verifying full upload-to-deletion lifecycle and multi-tenant isolation across >=3 tenants (GEMINI.md §8).
+- **Data Models (`packages/retrieval/models.py`):**
+  - Implemented `RetrievalQuery` capturing semantic context, keywords, verbatim extracted identifiers (R12.3), tenant and metadata filters (R10.4), and optional dense vector.
+  - Implemented `Candidate` conforming to `specs/design.md §5.5` and R10.8, transparently carrying lexical rank/score, vector rank/score, RRF fused score, rerank score, content, and chunk/document metadata.
+- **Protocol Definition (`packages/retrieval/protocol.py`, `packages/retrieval/__init__.py`):**
+  - Defined runtime-checkable `SearchBackend` Protocol declaring `lexical(q, top_n)` and `vector(q, top_n)` (R10.7).
+  - Enforced migration seam allowing drop-in backend implementations (`PostgresSearchBackend`, `OpenSearchBackend`) without touching pipeline orchestration code.
+- **Conforming Test Implementation (`packages/retrieval/fake.py`):**
+  - Implemented `FakeSearchBackend` with tenant isolation (`organization_id`), document status and category filtering, identifier exact matching, and cosine similarity.
+  - Added fault injection hooks for downstream degradation and resilience testing (R10.6, R10.9).
+- **Reusable Contract Test Harness (`packages/retrieval/testing.py`):**
+  - Implemented abstract `SearchBackendContractSuite(ABC)` with 10 comprehensive contract tests enforcing protocol satisfaction, rank and score types, top-N limiting, multi-tenant isolation, metadata preservation, and status/category filtering.
+- **Unit Tests (`tests/unit/test_retrieval_models.py`, `tests/unit/test_search_backend_contract.py`):**
+  - Verified `RetrievalQuery` and `Candidate` dataclasses.
+  - Inherited `SearchBackendContractSuite` using `FakeSearchBackend` to verify full suite compliance.
 
 ## Follow-ups
-- Ready to proceed to **Task 3.7: SearchBackend interface** (`Protocol with lexical() and vector() returning Candidate objects carrying both ranks and both scores; contract test suite`).
+- Ready to proceed to **Task 3.8: PostgresSearchBackend** (`Implement the hybrid SQL from design.md §5.5; filters inside each branch; mitigate filtered-ANN under-fill R10.10; multi-tenant integration test R10.11`).

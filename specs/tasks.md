@@ -320,7 +320,7 @@
   - `POST /v1/knowledge/documents` (upload to object storage + enqueue), `GET /v1/knowledge/documents` with ingestion status.
   - _Requirements: R23.7, R23.2, R5.8_
 
-- [ ] **3.7 SearchBackend interface**
+- [x] **3.7 SearchBackend interface**
   - Protocol with `lexical()` and `vector()` returning `Candidate` objects carrying both ranks and both scores.
   - Contract test suite the PostgreSQL implementation must pass — and any future backend.
   - _Requirements: R10.7, R10.8_
