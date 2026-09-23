@@ -12,6 +12,7 @@ import logging
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -32,6 +33,7 @@ from packages.broker.retry import (
 )
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
+from packages.observability.metrics import PipelineMetrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from packages.observability.tracing import extract_trace_context, trace_span
 
@@ -69,6 +71,7 @@ class BaseBatchConsumer(BaseConsumer):
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
         job_store: JobStoreProtocol | None = None,
         lease_timeout_s: int = 300,
+        metrics: PipelineMetrics | None = None,
     ) -> None:
         concurrency_cfg = WorkerConcurrencySettings()
         effective_prefetch = (
@@ -91,6 +94,7 @@ class BaseBatchConsumer(BaseConsumer):
             shutdown_coordinator=shutdown_coordinator,
             job_store=job_store,
             lease_timeout_s=lease_timeout_s,
+            metrics=metrics,
         )
 
         self.batch_size = effective_batch_size
@@ -249,6 +253,10 @@ class BaseBatchConsumer(BaseConsumer):
         message = item.raw_message
         origin_exchange = message.exchange or ""
         origin_routing_key = message.routing_key or self.queue_name
+
+        # Record queue wait time metric (R7.5, R21.4)
+        wait_ms = max(0.0, (datetime.now(UTC) - envelope.enqueued_at).total_seconds() * 1000.0)
+        self.metrics.queue_wait_ms.labels(queue=self.queue_name).observe(wait_ms)
 
         headers_dict = dict(message.headers) if message.headers else {}
         parent_ctx = extract_trace_context(headers_dict)

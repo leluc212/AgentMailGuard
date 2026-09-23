@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from packages.broker.retry import (
 )
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
+from packages.observability.metrics import PipelineMetrics, get_metrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from packages.observability.tracing import extract_trace_context, trace_span
 
@@ -61,6 +63,7 @@ class BaseConsumer(ABC):
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
         job_store: JobStoreProtocol | None = None,
         lease_timeout_s: int = 300,
+        metrics: PipelineMetrics | None = None,
     ) -> None:
         self.queue_name = queue_name
         self.broker_settings = broker_settings or BrokerSettings()
@@ -68,6 +71,7 @@ class BaseConsumer(ABC):
         self.shutdown_coordinator = shutdown_coordinator
         self.job_store = job_store
         self.lease_timeout_s = lease_timeout_s
+        self.metrics = metrics or get_metrics()
 
         concurrency_cfg = WorkerConcurrencySettings()
         self.prefetch_count = (
@@ -177,6 +181,10 @@ class BaseConsumer(ABC):
 
         origin_exchange = message.exchange or ""
         origin_routing_key = message.routing_key or self.queue_name
+
+        # Record queue wait time metric (R7.5, R21.4)
+        wait_ms = max(0.0, (datetime.now(UTC) - envelope.enqueued_at).total_seconds() * 1000.0)
+        self.metrics.queue_wait_ms.labels(queue=self.queue_name).observe(wait_ms)
 
         # 1. Restore OpenTelemetry trace context across AMQP hop (R21.1)
         headers_dict = dict(message.headers) if message.headers else {}

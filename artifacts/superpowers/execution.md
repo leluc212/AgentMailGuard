@@ -2720,3 +2720,67 @@
 - **Verification Command:**
   - `.venv/bin/pytest tests/unit tests/integration -q && .venv/bin/mypy packages/ services/ tests/ && .venv/bin/ruff check packages/ services/ tests/`
 - **Result:** PASS (100% tests passed: 629/629, 0 issues across 200 source files, 0 lint errors)
+
+## Task 2.15: Queue Metrics
+
+### Step 1: Observability Metrics Registration
+- **Files Changed:**
+  - `packages/observability/metrics.py`
+- **What Changed:**
+  - Expanded `QUEUE_WAIT_BUCKETS` with high-backlog ranges up to 60,000ms: `(5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0)`.
+  - Added `queue_consumers` Gauge labeled with `["queue"]` for active consumer tracking.
+  - Confirmed `queue_depth` Gauge and `queue_wait_ms` Histogram with `["queue"]` label per R7.5, R20.5, R21.4.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_observability_metrics.py -v && uv run ruff check packages/observability/metrics.py && uv run mypy packages/observability/metrics.py`
+- **Result:** PASS (3/3 passed, 0 lint/mypy errors)
+
+### Step 2: Consumer Wait Time Recording
+- **Files Changed:**
+  - `packages/broker/consumer.py`
+  - `packages/broker/batch_consumer.py`
+- **What Changed:**
+  - Added `metrics` parameter to `BaseConsumer.__init__` and `BaseBatchConsumer.__init__`, defaulting to `get_metrics()`.
+  - In `BaseConsumer._handle_message`, recorded `queue_wait_ms` histogram observation from `envelope.enqueued_at` upon message receipt.
+  - In `BaseBatchConsumer._handle_single_item`, recorded `queue_wait_ms` histogram observation from `envelope.enqueued_at` upon item claim.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_broker.py tests/unit/test_batch_consumer.py -v && uv run ruff check packages/broker/consumer.py packages/broker/batch_consumer.py && uv run mypy packages/broker/consumer.py packages/broker/batch_consumer.py`
+- **Result:** PASS (17/17 passed, 0 lint/mypy errors)
+
+### Step 3: Queue Depth Monitor Implementation
+- **Files Changed:**
+  - `packages/broker/queue_monitor.py` (new)
+  - `packages/broker/__init__.py`
+- **What Changed:**
+  - Implemented `get_monitored_queues()` discovering all core pipeline queues (`email.sync`, `email.normalize`, `email.triage`, `email.dispatch`, `knowledge.ingest`, `email.dead_letter`), retry tier queues (`email.retry.30s`, `email.retry.5m`, `email.retry.30m`), and taxonomy category priority lanes (`email.<category>.<lane>`).
+  - Implemented `QueueMonitor` using passive queue declaration (`channel.declare_queue(queue_name, passive=True)`) to sample `message_count` and `consumer_count` without modifying queues or consuming messages.
+  - Handled missing queues gracefully by setting depth to 0 and reopening the channel.
+  - Implemented background async polling loop (`start(interval_seconds=10.0)`, `stop()`) with graceful shutdown callback integration.
+  - Re-exported `QueueMonitor` and `get_monitored_queues` in `packages/broker/__init__.py`.
+- **Verification Command:**
+  - `uv run ruff check packages/broker/queue_monitor.py packages/broker/__init__.py && uv run mypy packages/broker/queue_monitor.py packages/broker/__init__.py`
+- **Result:** PASS (0 lint/mypy errors)
+
+### Step 4: Unit Test Suite
+- **Files Changed:**
+  - `tests/unit/test_queue_metrics.py` (new)
+  - `packages/broker/batch_consumer.py`
+- **What Changed:**
+  - Implemented 7 unit tests: wait time observation in `BaseConsumer`, wait time observation in `BaseBatchConsumer`, gauge updates in `QueueMonitor`, missing queue channel recovery, queue discovery completeness across all categories, poller start/stop lifecycle, and clock skew negative wait clamping.
+- **Verification Command:**
+  - `uv run pytest tests/unit/test_queue_metrics.py -v && uv run ruff check tests/unit/test_queue_metrics.py`
+- **Result:** PASS (7/7 passed, 0 lint errors)
+
+### Step 5: Live Integration Tests & Verification
+- **Files Changed:**
+  - `tests/integration/test_queue_metrics_integration.py` (new)
+  - `specs/tasks.md`
+- **What Changed:**
+  - Authored live integration tests against RabbitMQ 3.13:
+    1. `test_live_queue_depth_sampling`: Published messages to `email.support.normal` and `email.dead_letter`, sampled depths with `QueueMonitor`, and verified exact gauge values.
+    2. `test_live_queue_wait_time_and_metrics_endpoint`: Published a message with a past `enqueued_at`, consumed it, verified `queue_wait_ms` histogram sum and count, and verified `/metrics` Prometheus exposition text payload containing both metrics and labels.
+  - Marked Task 2.15 complete `[x]` in `specs/tasks.md`.
+  - Ran full test suite across entire repository to verify Phase 2 gate.
+- **Verification Command:**
+  - `uv run pytest tests/unit tests/integration -m "not slow" -q && uv run mypy packages/broker packages/observability && uv run ruff check packages/broker packages/observability`
+- **Result:** PASS (638/638 passed, 0 mypy issues, 0 ruff errors)
+

@@ -1,45 +1,44 @@
-# Implementation Plan — Phase 2 Task 2.14: Job Timeline API & Replay
+# Implementation Plan — Phase 2 Task 2.15: Queue Metrics
 
-**Spec Alignment:** `specs/requirements.md` (R18.6, R18.7, R23.2, R23.5, R23.6) · `specs/tasks.md` Task 2.14 · `specs/design.md §8, §9` · `GEMINI.md`
+**Spec Alignment:** `specs/requirements.md` (R7.5, R21.4, R20.5) · `specs/tasks.md` Task 2.15 · `specs/design.md §7, §10` · `GEMINI.md`
 
 ---
 
 ## 1. Goal & Architecture Overview
 
-Expose REST API endpoints to:
-1. Retrieve ordered `processing_event` audit history for any message (`GET /v1/messages/{id}/timeline`) per R18.6 and R23.5.
-2. Replay a `DEAD_LETTER` job from its last good state via an operator endpoint (`POST /v1/jobs/{id}/replay`) per R18.7 and R23.2.
-3. Provide single job inspection (`GET /v1/jobs/{id}`) and job event timeline (`GET /v1/jobs/{id}/timeline`) under tenant scoping per R23.2 and R23.6.
+Export per-queue depth (pending message count) and wait time (latency from enqueue to consumer claim) as Prometheus metrics exposed at `/metrics`, satisfying requirements for pipeline telemetry (R7.5, R21.4) and infrastructure autoscaling signals (R20.5).
 
 ```
-                           OPERATOR / UI
-                             │         │
-       GET /v1/messages/{id}/timeline  POST /v1/jobs/{id}/replay
-                             │         │
-                             ▼         ▼
-                      ┌──────────────────────┐
-                      │    FastAPI Server    │
-                      │  (mandatory org_id)  │
-                      └───────┬──────┬───────┘
-                              │      │
-           ┌──────────────────┘      └──────────────────┐
-           │ list_events_for_message                    │ replay_job (atomic)
-           ▼                                            ▼
-┌─────────────────────────┐                  ┌─────────────────────────┐
-│     PostgreSQL 16       │                  │   JobStore.replay_job   │
-│ - processing_event      │                  │ - verify DEAD_LETTER    │
-│   (ordered created_at)  │                  │ - state -> RETRY_PENDING│
-│ - email_message         │                  │ - reset attempt count   │
-└─────────────────────────┘                  │ - insert replay event   │
-                                             └────────────┬────────────┘
-                                                          │
-                                                          ▼ publish envelope
-                                             ┌─────────────────────────┐
-                                             │     RabbitMQ 3.13       │
-                                             │ - exchange_email_route  │
-                                             │ - routing_key:          │
-                                             │   job.queue_name        │
-                                             └─────────────────────────┘
+               PROMETHEUS SCRAPER / AUTOSCALER (KEDA)
+                               │
+                      GET /metrics (HTTP)
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │  FastAPI /metrics    │
+                    │  CollectorRegistry   │
+                    └──────────▲───────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            │                                     │
+   queue_depth (Gauge)                   queue_wait_ms (Histogram)
+            │                                     │
+            │ set(message_count)                  │ observe(wait_ms)
+            │                                     │
+ ┌───────────────────────┐             ┌─────────────────────────┐
+ │     QueueMonitor      │             │ BaseConsumer / Batch    │
+ │  (async AMQP poller)  │             │ (upon message claim)    │
+ └──────────┬────────────┘             └────────────┬────────────┘
+            │                                       │
+            │ passive declare                       │ (now - enqueued_at)
+            ▼                                       ▼
+ ┌───────────────────────────────────────────────────────────────┐
+ │                         RabbitMQ 3.13                         │
+ │ - email.sync, email.normalize, email.triage, email.dispatch   │
+ │ - email.<category>.<priority> (e.g. email.support.normal)     │
+ │ - email.retry.30s, email.retry.5m, email.retry.30m            │
+ │ - email.dead_letter                                           │
+ └───────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -47,135 +46,97 @@ Expose REST API endpoints to:
 ## 2. User Review Required
 
 > [!IMPORTANT]
-> - `POST /v1/jobs/{id}/replay` enforces strict state validation: only jobs in `DEAD_LETTER` state may be replayed. Attempting to replay an active (`GENERATING`, `CONTEXT_READY`) or final successful (`COMPLETED`) job returns HTTP `409 Conflict`.
-> - Replay atomically transitions `DEAD_LETTER -> RETRY_PENDING` (explicitly declared in `packages/domain/state_machine.py`) and resets `attempt = 0` and `last_error = None` so the replayed job enjoys a fresh retry budget.
-> - When `MessagePublisher` is attached to the API application state, the replayed job is immediately packaged into a `JobEnvelope` and published to the destination queue (`job.queue_name`), where consumers transition it back to `GENERATING` via `handle_job_recovery`.
+> - **AMQP Passive Declaration:** Queue depths are sampled passively via `aio_pika.Channel.declare_queue(queue_name, passive=True)`. This queries RabbitMQ broker metadata without altering queues, consuming messages, or requiring management HTTP credentials/ports.
+> - **Error Resilience:** In AMQP 0-9-1, passively declaring a non-existent queue raises `ChannelNotFoundEntity` and closes the channel. The `QueueMonitor` explicitly catches this, logs a debug note, sets `queue_depth` to 0, and reopens the channel so other queues continue sampling without interruption.
+> - **Autoscaling Metric Conformity:** The gauge is named `queue_depth` with label `["queue"]`, matching `R21.4` and `specs/design.md §10`, allowing autoscalers (KEDA / Prometheus Adapter) to query `queue_depth{queue="..."}` directly.
 
 ---
 
-## 3. Step-by-Step Implementation Steps
+## 3. Proposed Changes
 
-### Step 1: Add Replay and JobStore API Methods
-- **Files to Modify:**
-  - `packages/db/job.py`
-- **Actions:**
-  - Add `replay_job` to `JobStore` protocol:
-    ```python
-    async def replay_job(
-        self,
-        organization_id: UUID | str,
-        job_id: UUID | str,
-        payload: dict[str, Any] | None = None,
-        reset_attempts: bool = True,
-    ) -> tuple[Job, ProcessingEvent]: ...
-    ```
-  - Implement atomic `replay_job` in `PostgresJobStore`:
-    - Row-level lock: `SELECT ... FROM processing_job WHERE id = $1 AND organization_id = $2 FOR UPDATE`.
-    - Enforce current state is `DEAD_LETTER`; if not, raise `IllegalStateTransitionError`.
-    - Transition state to `RETRY_PENDING` using `packages.domain.state_machine.transition_job`.
-    - Update `state = RETRY_PENDING`, `attempt = 0` (if reset_attempts), `last_error = None`, `lease_expires_at = None`, `next_retry_at = None`, `updated_at = now()`.
-    - Insert `processing_event` with `event_type = 'operator_replay'`, `state_from = 'DEAD_LETTER'`, `state_to = 'RETRY_PENDING'`.
-  - Implement thread-safe `replay_job` in `InMemoryJobStore`.
-- **Verification:**
-  - `.venv/bin/pytest tests/unit/test_lease_reaper.py -v`
+### Component 1: Observability Metrics (`packages/observability`)
+
+#### [MODIFY] [packages/observability/metrics.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/observability/metrics.py)
+- Expand `QUEUE_WAIT_BUCKETS` to include high-backlog ranges up to 60s:
+  `(5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0)`.
+- Ensure `queue_depth` (Gauge) and `queue_wait_ms` (Histogram) are properly configured with label `["queue"]`.
+- Add `queue_consumers` (Gauge with label `["queue"]`) to capture active consumer counts.
 
 ---
 
-### Step 2: Define Pydantic Schemas for Jobs and Timelines
-- **Files to Create / Modify:**
-  - `services/api/schemas/jobs.py` (NEW)
-  - `services/api/schemas/messages.py`
-  - `services/api/schemas/__init__.py`
-- **Actions:**
-  - In `services/api/schemas/jobs.py`:
-    - `ProcessingEventResponse`: schema representing `ProcessingEvent` records (`id`, `job_id`, `message_id`, `organization_id`, `event_type`, `state_from`, `state_to`, `payload`, `trace_id`, `created_at`).
-    - `JobDetailResponse`: detailed job metadata (`id`, `organization_id`, `message_id`, `thread_id`, `job_type`, `state`, `attempt`, `max_attempts`, `idempotency_key`, `queue_name`, `priority`, `lease_expires_at`, `last_error`, `created_at`, `updated_at`).
-    - `JobTimelineResponse`: ordered event history for a job.
-    - `JobReplayRequest`: payload schema (`reset_attempts: bool = True`, `reason: str | None = None`).
-    - `JobReplayResponse`: replay response (`job_id: UUID`, `organization_id: UUID`, `previous_state: str`, `new_state: str`, `attempt: int`, `republished: bool`, `routing_key: str | None`, `replayed_at: datetime`).
-  - In `services/api/schemas/messages.py`:
-    - `MessageTimelineResponse`: (`message_id: UUID`, `organization_id: UUID`, `current_state: str | None`, `total_events: int`, `limit: int`, `offset: int`, `events: list[ProcessingEventResponse]`).
-- **Verification:**
-  - `.venv/bin/mypy services/api/schemas/`
+### Component 2: Broker Consumers (`packages/broker`)
+
+#### [MODIFY] [packages/broker/consumer.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/consumer.py)
+- Accept optional `metrics: PipelineMetrics | None = None` in `BaseConsumer.__init__`, defaulting to `get_metrics()`.
+- In `BaseConsumer._handle_message`, after successfully parsing `JobEnvelope`:
+  - Calculate `wait_ms = max(0.0, (datetime.now(UTC) - enqueued_at).total_seconds() * 1000.0)`.
+  - Observe `self.metrics.queue_wait_ms.labels(queue=self.queue_name).observe(wait_ms)`.
+
+#### [MODIFY] [packages/broker/batch_consumer.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/batch_consumer.py)
+- Accept optional `metrics: PipelineMetrics | None = None` in `BaseBatchConsumer.__init__`.
+- In `BaseBatchConsumer._handle_single_item(item)`:
+  - Calculate `wait_ms = max(0.0, (datetime.now(UTC) - item.envelope.enqueued_at).total_seconds() * 1000.0)`.
+  - Observe `self.metrics.queue_wait_ms.labels(queue=self.queue_name).observe(wait_ms)`.
 
 ---
 
-### Step 3: Implement Dependencies & Endpoints
-- **Files to Create / Modify:**
-  - `services/api/dependencies.py`
-  - `services/api/routers/messages.py`
-  - `services/api/routers/jobs.py` (NEW)
-  - `services/api/routers/v1.py`
-- **Actions:**
-  - In `services/api/dependencies.py`:
-    - Add `get_job_store(request: Request) -> Any` and `JobStoreDep`.
-  - In `services/api/routers/messages.py`:
-    - Add `GET /v1/messages/{id}/timeline`:
-      - Verify message exists and matches `org_id` (404 if not found).
-      - Fetch ordered events via `job_store.list_events_for_message(org_id, id)`.
-      - Paginate using `PaginationParamsDep` (R23.6).
-      - Return `MessageTimelineResponse`.
-  - In `services/api/routers/jobs.py`:
-    - Create `jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])`.
-    - `GET /v1/jobs/{id}`: Fetch job details (404 if not found).
-    - `GET /v1/jobs/{id}/timeline`: Return ordered event history for a job.
-    - `POST /v1/jobs/{id}/replay`:
-      - Validate job exists (404 if not found).
-      - Validate job state is `DEAD_LETTER` (409 Conflict if not replayable).
-      - Call `job_store.replay_job(...)`.
-      - If `publisher` in `app.state`: construct `JobEnvelope` and publish to `exchange_email_route` with `routing_key = job.queue_name or "email.triage"`.
-      - Return `JobReplayResponse`.
-  - In `services/api/routers/v1.py`:
-    - Include `jobs_router`.
-- **Verification:**
-  - `.venv/bin/mypy services/api/`
+### Component 3: Queue Depth Monitor (`packages/broker`)
+
+#### [NEW] [packages/broker/queue_monitor.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/queue_monitor.py)
+- Implement `get_monitored_queues(broker_settings=None, routing_settings=None) -> list[str]`:
+  - Discovers core queues (`email.sync`, `email.normalize`, `email.triage`, `email.dispatch`, `knowledge.ingest`, `email.dead_letter`).
+  - Discovers retry queues (`email.retry.30s`, `email.retry.5m`, `email.retry.30m`).
+  - Discovers category priority lanes (`email.<category>.<lane>` for all taxonomy categories and lanes).
+- Implement `QueueMonitor`:
+  - `__init__(connection=None, broker_settings=None, metrics=None, queues=None, shutdown_coordinator=None)`
+  - `async def sample_queue_depths() -> dict[str, int]`:
+    - Iterates over all queues using a dedicated channel.
+    - Runs `declare_queue(queue_name, passive=True)`.
+    - Updates `self.metrics.queue_depth.labels(queue=queue_name).set(q.declaration_result.message_count)`.
+    - Updates `self.metrics.queue_consumers.labels(queue=queue_name).set(q.declaration_result.consumer_count)`.
+    - Re-establishes channel if closed due to non-existent queue.
+    - Returns `{queue_name: message_count}` mapping.
+  - `async def start(interval_seconds: float = 10.0)` / `async def stop()`:
+    - Runs background async polling task.
+    - Clean shutdown via cancellation or `shutdown_coordinator`.
+
+#### [MODIFY] [packages/broker/__init__.py](file:///home/ple/Documents/antigravity/dazzling-bose/packages/broker/__init__.py)
+- Export `QueueMonitor` and `get_monitored_queues`.
 
 ---
 
-### Step 4: Unit Test Suite for Timeline & Replay
-- **Files to Create:**
-  - `tests/unit/test_job_timeline_and_replay.py`
-- **Actions:**
-  - Test `GET /v1/messages/{id}/timeline`:
-    - Chronological ordering of events.
-    - Offset / limit pagination.
-    - 404 for unknown message ID.
-    - Tenant isolation (message belongs to org A, org B request gets 404).
-    - Missing `X-Organization-ID` returns 400.
-  - Test `POST /v1/jobs/{id}/replay`:
-    - Successful replay from `DEAD_LETTER` to `RETRY_PENDING`.
-    - Attempt counter reset to 0.
-    - Event written to timeline with `event_type = 'operator_replay'`.
-    - Message republished via mock publisher.
-    - Replay rejected with 409 Conflict for non-DEAD_LETTER job (e.g. `COMPLETED`, `GENERATING`).
-    - 404 for non-existent job or foreign tenant.
-  - Test `GET /v1/jobs/{id}` and `GET /v1/jobs/{id}/timeline`.
-- **Verification:**
-  - `.venv/bin/pytest tests/unit/test_job_timeline_and_replay.py -v`
+### Component 4: Test Suite
+
+#### [NEW] [tests/unit/test_queue_metrics.py](file:///home/ple/Documents/antigravity/dazzling-bose/tests/unit/test_queue_metrics.py)
+- Unit tests:
+  1. `test_consumer_records_queue_wait_ms`: Verify `BaseConsumer` observes `queue_wait_ms` upon receiving a message with an earlier `enqueued_at`.
+  2. `test_batch_consumer_records_queue_wait_ms`: Verify `BaseBatchConsumer` observes `queue_wait_ms` on individual batch item processing.
+  3. `test_queue_monitor_samples_depths`: Mock channel passive declaration and verify gauges are updated.
+  4. `test_queue_monitor_recovers_missing_queue`: Ensure `ChannelNotFoundEntity` sets depth to 0 and reopens the channel safely.
+  5. `test_get_monitored_queues_completeness`: Verify core, retry, and category queues are included.
+
+#### [NEW] [tests/integration/test_queue_metrics_integration.py](file:///home/ple/Documents/antigravity/dazzling-bose/tests/integration/test_queue_metrics_integration.py)
+- Live integration tests against RabbitMQ 3.13:
+  1. `test_live_queue_depth_sampling`:
+     - Declare topology idempotently.
+     - Publish 3 messages to `email.support.normal` and 2 messages to `email.dead_letter`.
+     - Execute `QueueMonitor.sample_queue_depths()`.
+     - Assert `metrics.queue_depth.labels(queue="email.support.normal") == 3`.
+     - Assert `metrics.queue_depth.labels(queue="email.dead_letter") == 2`.
+  2. `test_live_queue_wait_time_recording_and_metrics_endpoint`:
+     - Publish message with `enqueued_at` set 500ms in the past.
+     - Run a test consumer to consume the message.
+     - Verify `queue_wait_ms` has count >= 1 and sum >= 500ms.
+     - Fetch Prometheus `/metrics` payload and verify `queue_depth` and `queue_wait_ms` lines exist with expected labels.
 
 ---
 
-### Step 5: Live Integration Tests (PostgreSQL 16 & RabbitMQ 3.13)
-- **Files to Create:**
-  - `tests/integration/test_job_timeline_and_replay_integration.py`
-- **Actions:**
-  - Test live `GET /v1/messages/{id}/timeline` against PostgreSQL database with real seeded events.
-  - Test live `POST /v1/jobs/{id}/replay`:
-    - Transitions real PostgreSQL `processing_job` from `DEAD_LETTER` to `RETRY_PENDING`.
-    - Publishes real AMQP envelope to RabbitMQ exchange.
-    - Verifies message appears in destination queue ready for worker consumption.
-- **Verification:**
-  - `.venv/bin/pytest tests/integration/test_job_timeline_and_replay_integration.py -v`
-  - `.venv/bin/pytest tests/unit tests/integration -q`
-  - `.venv/bin/mypy packages/ services/ tests/`
-  - `.venv/bin/ruff check packages/ services/ tests/`
+## 4. Verification Plan
 
----
-
-## 4. Risks & Mitigations
-
-| Risk | Mitigation |
-|---|---|
-| Replaying a job that is already running or succeeded | Enforce explicit check: only `DEAD_LETTER` jobs can be replayed; raise HTTP 409 Conflict otherwise. |
-| Duplicate message publication if publisher fails mid-operation | Database transition and event persistence commit first. If publishing fails, log error and return `republished: false` so operator can retry. |
-| Cross-tenant leakage of message events or job replay | Strict mandatory `get_organization_id` dependency on all routes and query parameters; queries filter by `organization_id`. |
+### Automated Tests
+1. `uv run pytest tests/unit/test_queue_metrics.py tests/unit/test_observability_metrics.py -v`
+2. `uv run pytest tests/integration/test_queue_metrics_integration.py -v`
+3. `uv run ruff check packages/broker packages/observability tests/unit/test_queue_metrics.py tests/integration/test_queue_metrics_integration.py`
+4. `uv run mypy packages/broker packages/observability`
+5. Full Phase 2 verification run:
+   `uv run pytest tests/unit tests/integration -m "not slow" -v`

@@ -15,6 +15,7 @@ from packages.broker.prompt_safety import (
     assert_prompt_isolation,
 )
 from packages.broker.publisher import MessagePublisher
+from packages.broker.queue_monitor import QueueMonitor, get_monitored_queues
 from packages.broker.retry import (
     handle_job_recovery,
     handle_job_terminal_failure,
@@ -44,10 +45,12 @@ __all__ = [
     "MessagePublisher",
     "PromptContaminationError",
     "PromptExecutionRecord",
+    "QueueMonitor",
     "TransientError",
     "assert_prompt_isolation",
     "calculate_exponential_backoff",
     "format_routing_key",
+    "get_monitored_queues",
     "handle_job_recovery",
     "handle_job_terminal_failure",
     "handle_job_transient_failure",

@@ -279,7 +279,7 @@
   - `POST /v1/jobs/{id}/replay` to re-run a dead-lettered job from its last good state.
   - _Requirements: R18.6, R18.7, R23.2_
 
-- [ ] **2.15 Queue metrics**
+- [x] **2.15 Queue metrics**
   - Per-queue depth and wait time exported to Prometheus.
   - _Requirements: R7.5, R21.4, R20.5_
 

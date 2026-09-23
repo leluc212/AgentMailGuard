@@ -28,7 +28,9 @@ RETRIEVAL_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000
 RERANK_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0)
 GENERATION_BUCKETS = (100.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 15000.0)
 END_TO_END_BUCKETS = (500.0, 1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0, 20000.0)
-QUEUE_WAIT_BUCKETS = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 5000.0)
+QUEUE_WAIT_BUCKETS = (
+    5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0
+)
 CALLS_PER_JOB_BUCKETS = (1.0, 2.0, 3.0, 4.0, 5.0)
 PAYLOAD_SIZE_BUCKETS = (
     1024.0,
@@ -78,6 +80,7 @@ class PipelineMetrics:
 
     # --- Gauges (R21.4) ---
     queue_depth: Gauge
+    queue_consumers: Gauge
     retrieval_hit_rate: Gauge
     retrieval_top_k: Gauge
 
@@ -260,6 +263,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
         queue_depth=Gauge(
             "queue_depth",
             "Current pending message depth in queue",
+            ["queue"],
+            registry=reg,
+        ),
+        queue_consumers=Gauge(
+            "queue_consumers",
+            "Current number of active consumers on queue",
             ["queue"],
             registry=reg,
         ),
