@@ -2518,7 +2518,61 @@
   - `.venv/bin/ruff check . && .venv/bin/mypy packages services && .venv/bin/pytest tests/unit tests/integration`
 - **Result:** PASS (542/542 passed)
 
+## Task 2.12: Retry, Backoff & Dead-Letter
 
+### Step 1: Exponential Backoff & Jitter Engine
+- **Files Changed:**
+  - `packages/broker/backoff.py` (new)
+  - `packages/core/settings.py`
+  - `packages/broker/__init__.py`
+  - `tests/unit/test_backoff.py` (new)
+- **What Changed:**
+  - Implemented `calculate_exponential_backoff` with support for 'full', 'equal', 'decorrelated', and 'none' jitter modes.
+  - Implemented `resolve_retry_tier_delay` mapping attempt counts to discrete RabbitMQ retry tiers (30s, 300s, 1800s).
+  - Added backoff settings (`backoff_base_s`, `backoff_factor`, `max_backoff_s`, `jitter_mode`) to `RetryLadderSettings`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_backoff.py -v`
+- **Result:** PASS (6/6 passed)
 
+### Step 2: Retry, Recovery & Dead-Letter Coordinator
+- **Files Changed:**
+  - `packages/broker/retry.py` (new)
+  - `packages/broker/publisher.py`
+  - `packages/broker/__init__.py`
+  - `packages/db/job.py`
+- **What Changed:**
+  - Implemented `handle_job_transient_failure` transitioning `GENERATING -> RETRY_PENDING` and publishing to retry ladder queue.
+  - Implemented `handle_job_recovery` transitioning `RETRY_PENDING -> GENERATING` on redelivery.
+  - Implemented `handle_job_terminal_failure` transitioning `FAILED -> DEAD_LETTER` and publishing to `dlx.email`.
+  - Added `x-failed-at` ISO timestamp header and allowed custom headers in `MessagePublisher.publish_to_dead_letter`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_retry_and_dead_letter.py -v`
+- **Result:** PASS (6/6 passed)
 
+### Step 3: Consumer and Batch Consumer Integration
+- **Files Changed:**
+  - `packages/broker/consumer.py`
+  - `packages/broker/batch_consumer.py`
+- **What Changed:**
+  - Injected optional `job_store` into `BaseConsumer` and `BaseBatchConsumer`.
+  - Automated recovery and failure handling on message consumption.
+  - Enforced manual ack per message and batch item fault isolation.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_batch_consumer.py tests/unit/test_retry_and_dead_letter.py -v`
+- **Result:** PASS (17/17 passed)
 
+### Step 4: Configuration and Live Integration Verification
+- **Files Changed:**
+  - `.env.example`
+  - `docs/configuration.md`
+  - `tests/unit/test_settings.py`
+  - `tests/integration/test_retry_dead_letter_integration.py` (new)
+  - `specs/tasks.md`
+- **What Changed:**
+  - Added retry backoff documentation and example keys.
+  - Authored live integration tests with PostgreSQL 16 and RabbitMQ 3.13 for recovery and DLQ exhaustion.
+  - Marked Task 2.12 complete in `specs/tasks.md`.
+- **Verification Command:**
+  - `.venv/bin/pytest tests/unit/test_settings.py tests/integration/test_retry_dead_letter_integration.py -v`
+  - `.venv/bin/pytest tests/unit tests/integration -q`
+- **Result:** PASS (602/602 passed)

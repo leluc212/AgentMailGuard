@@ -173,9 +173,7 @@ def test_template_registry_render() -> None:
         intent="receipt_confirmation",
         subject="Re: {{ subject }}",
         body=(
-            "Dear {{ sender_name }},\n\n"
-            "We received message {{ message_id }}.\n"
-            "Ref: {{ order_id }}"
+            "Dear {{ sender_name }},\n\nWe received message {{ message_id }}.\nRef: {{ order_id }}"
         ),
     )
     registry.register(t1)

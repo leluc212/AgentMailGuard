@@ -218,13 +218,9 @@ async def setup_topology(
     for category in all_categories:
         for lane in priority_lanes:
             queue_name = f"email.{category}.{lane}"
-            q_cat = await channel.declare_queue(
-                queue_name, durable=True, arguments=common_args
-            )
+            q_cat = await channel.declare_queue(queue_name, durable=True, arguments=common_args)
             # Bind to topic exchange email.route with routing key email.<category>.<lane>
-            await q_cat.bind(
-                exchanges[b_cfg.exchange_email_route], routing_key=queue_name
-            )
+            await q_cat.bind(exchanges[b_cfg.exchange_email_route], routing_key=queue_name)
             queues[queue_name] = q_cat
             category_queues[queue_name] = q_cat
 

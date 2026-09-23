@@ -5,6 +5,7 @@ and standardized job envelopes.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import aio_pika
@@ -168,17 +169,22 @@ class MessagePublisher:
         failure_reason: str,
         origin_routing_key: str,
         origin_exchange: str,
+        extra_headers: dict[str, Any] | None = None,
     ) -> None:
         """Route an unrecoverable job to terminal dead-letter exchange (R3.5, R19.6).
 
-        Preserves original routing key, original exchange, attempt count, and failure reason.
+        Preserves original routing key, original exchange, attempt count, failure reason,
+        and timestamp in AMQP message headers.
         """
-        headers = {
+        headers: dict[str, Any] = {
             "x-original-exchange": origin_exchange,
             "x-original-routing-key": origin_routing_key,
             "x-failure-reason": failure_reason,
             "x-attempt": envelope.attempt,
+            "x-failed-at": datetime.now(UTC).isoformat(),
         }
+        if extra_headers:
+            headers.update(extra_headers)
 
         await self.publish(
             exchange_name=self.settings.exchange_dlx,

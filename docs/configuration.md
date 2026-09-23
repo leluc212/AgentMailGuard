@@ -149,8 +149,8 @@ price_table = {
 | `SUMMARIZATION__KEEP_LATEST_MESSAGES` | `integer` | `2` | $\ge 1$ | Verbatim messages preserved with summary |
 | `SUMMARIZATION__SUMMARIZER_MODEL` | `string` | `gpt-4o-mini` | Non-empty | Model used for generating summaries |
 
-### 2.10 Retry Ladder Intervals (`RETRY__*`)
-*Exponential backoff with dead-lettering (R3.4).*
+### 2.10 Retry Ladder Intervals & Backoff (`RETRY__*`)
+*Exponential backoff with jitter and dead-lettering (R3.4, R19.5, R19.6).*
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
@@ -158,6 +158,10 @@ price_table = {
 | `RETRY__TIER_2_DELAY_S` | `integer` | `300` | > tier_1 | Second retry interval (5 minutes) |
 | `RETRY__TIER_3_DELAY_S` | `integer` | `1800` | > tier_2 | Third retry interval (30 minutes) |
 | `RETRY__MAX_RETRIES` | `integer` | `3` | 1–10 | Maximum delivery retries before DLX routing |
+| `RETRY__BACKOFF_BASE_S` | `float` | `1.0` | $\ge 0.01$ | Base duration in seconds for exponential backoff |
+| `RETRY__BACKOFF_FACTOR` | `float` | `2.0` | $\ge 1.0$ | Exponential growth multiplier per attempt |
+| `RETRY__MAX_BACKOFF_S` | `float` | `1800.0` | $\ge 1.0$ | Ceiling cap for backoff calculation |
+| `RETRY__JITTER_MODE` | `string` | `full` | full, equal, decorrelated, none | Jitter randomization strategy (R19.5) |
 
 ### 2.11 Worker Concurrency & Prefetch (`CONCURRENCY__*`)
 *Independent worker scaling signals and priority lane sizing (R20.3, R7.2).*

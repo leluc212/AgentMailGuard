@@ -258,9 +258,7 @@ def test_funnel_reconciliation_multi_tenant_isolation(
     record_funnel_outcome(
         m, organization=org_a, category="support", outcome=FunnelOutcome.EARLY_EXIT
     )
-    record_funnel_outcome(
-        m, organization=org_a, category="support", outcome=FunnelOutcome.TEMPLATE
-    )
+    record_funnel_outcome(m, organization=org_a, category="support", outcome=FunnelOutcome.TEMPLATE)
 
     # Seed Tenant Beta
     record_funnel_outcome(

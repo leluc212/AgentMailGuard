@@ -286,9 +286,7 @@ class TestBatchAggregationAndExecution:
                 ChatMessage(role="user", content=prompt_content),
             ]
             await llm.generate(messages=messages)
-            recorded_prompts.append(
-                PromptExecutionRecord.from_call(envelope, messages)
-            )
+            recorded_prompts.append(PromptExecutionRecord.from_call(envelope, messages))
 
         consumer = DummyBatchConsumer(
             batch_size=4,
@@ -524,4 +522,3 @@ class TestBatchFaultIsolation:
         # Item was processed during drain
         assert "job-drain" in consumer.jobs_processed
         assert_message_acked(msg)
-

@@ -42,7 +42,6 @@ async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
         await conn.close()
 
 
-
 class LiveBatchWorker(BaseBatchConsumer):
     """Test worker processing email jobs from RabbitMQ in micro-batches."""
 
@@ -96,9 +95,7 @@ class LiveBatchWorker(BaseBatchConsumer):
         ]
 
         await self.llm.generate(messages=messages)
-        self.recorded_prompts.append(
-            PromptExecutionRecord.from_call(envelope, messages)
-        )
+        self.recorded_prompts.append(PromptExecutionRecord.from_call(envelope, messages))
         self.completed_jobs.append(envelope.job_id)
 
 
@@ -166,9 +163,9 @@ async def test_live_amqp_worker_micro_batching_and_prompt_isolation(
 
         # 2. Assert micro-batching occurred (batches aggregated up to 5 jobs - R3.6)
         assert sum(worker.batch_sizes_observed) == 10
-        assert any(
-            size > 1 for size in worker.batch_sizes_observed
-        ), "Expected multi-item micro-batches"
+        assert any(size > 1 for size in worker.batch_sizes_observed), (
+            "Expected multi-item micro-batches"
+        )
         assert all(size <= 5 for size in worker.batch_sizes_observed)
 
         # 3. Assert exactly 10 independent inference calls executed (R3.7)

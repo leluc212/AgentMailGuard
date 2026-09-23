@@ -44,8 +44,7 @@ class PromptExecutionRecord:
             prompt_str = messages
         elif isinstance(messages, list):
             prompt_str = "\n".join(
-                f"[{getattr(m, 'role', 'user')}]: {getattr(m, 'content', str(m))}"
-                for m in messages
+                f"[{getattr(m, 'role', 'user')}]: {getattr(m, 'content', str(m))}" for m in messages
             )
         else:
             prompt_str = str(messages)
@@ -68,9 +67,7 @@ class PromptExecutionRecord:
             msg_id = str(envelope_or_context.get("message_id", ""))
             subject = str(envelope_or_context.get("subject", ""))
             sender = str(
-                envelope_or_context.get("sender_email")
-                or envelope_or_context.get("sender")
-                or ""
+                envelope_or_context.get("sender_email") or envelope_or_context.get("sender") or ""
             )
             body = str(envelope_or_context.get("body_text", envelope_or_context.get("body", "")))
         else:

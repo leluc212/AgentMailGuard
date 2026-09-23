@@ -116,6 +116,9 @@ class JobStore(Protocol):
         ...
 
 
+JobStoreProtocol = JobStore
+
+
 class PostgresJobStore(JobStore):
     """PostgreSQL implementation of JobStore backed by asyncpg connection pool."""
 

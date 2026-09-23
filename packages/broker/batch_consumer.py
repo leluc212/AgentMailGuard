@@ -12,6 +12,7 @@ import logging
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import aio_pika
 from aio_pika.abc import (
@@ -22,11 +23,18 @@ from aio_pika.abc import (
 from packages.broker.consumer import BaseConsumer
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
+from packages.broker.retry import (
+    handle_job_recovery,
+    handle_job_terminal_failure,
+    handle_job_transient_failure,
+)
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
-from packages.observability.metrics import get_metrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from packages.observability.tracing import extract_trace_context, trace_span
+
+if TYPE_CHECKING:
+    from packages.db.job import JobStoreProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,7 @@ class BaseBatchConsumer(BaseConsumer):
         batch_timeout_s: float | None = None,
         connection: AbstractRobustConnection | None = None,
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
+        job_store: JobStoreProtocol | None = None,
     ) -> None:
         concurrency_cfg = WorkerConcurrencySettings()
         effective_prefetch = (
@@ -77,6 +86,7 @@ class BaseBatchConsumer(BaseConsumer):
             prefetch_count=effective_prefetch,
             connection=connection,
             shutdown_coordinator=shutdown_coordinator,
+            job_store=job_store,
         )
 
         self.batch_size = effective_batch_size
@@ -267,6 +277,10 @@ class BaseBatchConsumer(BaseConsumer):
             track_ctx,
         ):
             try:
+                # 3.5 Re-deliver recovery: if job is in RETRY_PENDING,
+                # transition to GENERATING (R19.5, R18.2)
+                await handle_job_recovery(envelope=envelope, job_store=self.job_store)
+
                 # Independent job processing — strictly separate prompt/inference (R3.7)
                 await self.process_job(envelope, message)
 
@@ -278,56 +292,35 @@ class BaseBatchConsumer(BaseConsumer):
                     self.queue_name,
                 )
             except Exception as exc:
-                reason = f"{type(exc).__name__}: {exc}"
                 should_retry = self.is_transient_error(exc) and (
                     envelope.attempt < self.retry_settings.max_retries
                 )
 
                 assert self._publisher is not None
-                metrics = get_metrics()
 
                 if should_retry:
-                    next_attempt = envelope.attempt + 1
-                    delay_s = self.get_retry_delay_s(next_attempt)
-                    retry_envelope = envelope.model_copy(update={"attempt": next_attempt})
-                    effective_exchange = (
-                        origin_exchange or self.broker_settings.exchange_email_route
-                    )
-
-                    await self._publisher.publish_to_retry(
-                        envelope=retry_envelope,
-                        tier_delay_s=delay_s,
-                        origin_exchange=effective_exchange,
-                        origin_routing_key=origin_routing_key,
-                        failure_reason=reason,
-                    )
-                    await message.ack()
-                    metrics.retry_jobs_total.labels(queue=self.queue_name, tier=f"{delay_s}s").inc()
-                    logger.info(
-                        "Job %s failed transiently; routed to retry tier %ds (attempt %d/%d)",
-                        envelope.job_id,
-                        delay_s,
-                        next_attempt,
-                        self.retry_settings.max_retries,
-                    )
-                else:
-                    await self._publisher.publish_to_dead_letter(
+                    await handle_job_transient_failure(
                         envelope=envelope,
-                        failure_reason=reason,
-                        origin_routing_key=origin_routing_key,
+                        exception=exc,
+                        publisher=self._publisher,
+                        retry_settings=self.retry_settings,
                         origin_exchange=origin_exchange,
+                        origin_routing_key=origin_routing_key,
+                        queue_name=self.queue_name,
+                        job_store=self.job_store,
                     )
                     await message.ack()
-                    metrics.failed_jobs_total.labels(
-                        queue=self.queue_name,
-                        job_type=envelope.job_type,
-                        error_type=type(exc).__name__,
-                    ).inc()
-                    logger.error(
-                        "Job %s failed terminally (%s); routed to dead-letter exchange",
-                        envelope.job_id,
-                        reason,
+                else:
+                    await handle_job_terminal_failure(
+                        envelope=envelope,
+                        exception=exc,
+                        publisher=self._publisher,
+                        origin_exchange=origin_exchange,
+                        origin_routing_key=origin_routing_key,
+                        queue_name=self.queue_name,
+                        job_store=self.job_store,
                     )
+                    await message.ack()
 
     async def stop(self) -> None:
         """Cancel subscription, drain in-flight batches, and close channels gracefully."""

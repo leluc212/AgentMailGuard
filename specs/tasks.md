@@ -265,7 +265,7 @@
   - Add an explicit test asserting no prompt ever contains two distinct emails.
   - _Requirements: R3.6, R3.7_
 
-- [ ] **2.12 Retry, backoff & dead-letter**
+- [x] **2.12 Retry, backoff & dead-letter**
   - `GENERATING → RETRY_PENDING → GENERATING` with exponential backoff and jitter; attempts exhausted ⇒ `FAILED → DEAD_LETTER`.
   - Failure reason and original routing key preserved in DLQ headers.
   - _Requirements: R19.5, R19.6, R3.5, R18.2_

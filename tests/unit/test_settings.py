@@ -159,3 +159,23 @@ def test_worker_micro_batch_settings_validation() -> None:
     with pytest.raises(ValidationError, match="cannot exceed default_prefetch"):
         WorkerConcurrencySettings(default_prefetch=4, micro_batch_size=8)
 
+
+def test_retry_ladder_backoff_settings_validation() -> None:
+    """Verify backoff factor, bounds, and jitter mode validation (R19.5)."""
+    cfg = RetryLadderSettings(
+        tier_1_delay_s=30,
+        tier_2_delay_s=300,
+        tier_3_delay_s=1800,
+        backoff_base_s=2.0,
+        backoff_factor=3.0,
+        max_backoff_s=1200.0,
+        jitter_mode="equal",
+    )
+    assert cfg.backoff_base_s == 2.0
+    assert cfg.backoff_factor == 3.0
+    assert cfg.max_backoff_s == 1200.0
+    assert cfg.jitter_mode == "equal"
+
+    # Invalid jitter_mode raises ValidationError
+    with pytest.raises(ValidationError, match="Invalid jitter_mode"):
+        RetryLadderSettings(jitter_mode="unknown_jitter")

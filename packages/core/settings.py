@@ -261,7 +261,7 @@ class ThreadAssociationSettings(BaseModel):
 
 
 class RetryLadderSettings(BaseModel):
-    """Exponential message queue retry intervals (R3.4)."""
+    """Exponential message queue retry intervals (R3.4, R19.5)."""
 
     tier_1_delay_s: int = Field(default=30, ge=1, description="First retry delay in seconds")
     tier_2_delay_s: int = Field(default=300, ge=1, description="Second retry delay in seconds (5m)")
@@ -271,6 +271,19 @@ class RetryLadderSettings(BaseModel):
     max_retries: int = Field(
         default=3, ge=1, le=10, description="Max delivery attempts before dead-lettering"
     )
+    backoff_base_s: float = Field(
+        default=1.0, ge=0.01, description="Base backoff interval in seconds"
+    )
+    backoff_factor: float = Field(
+        default=2.0, ge=1.0, description="Exponential backoff multiplication factor"
+    )
+    max_backoff_s: float = Field(
+        default=1800.0, ge=1.0, description="Maximum ceiling backoff delay in seconds"
+    )
+    jitter_mode: str = Field(
+        default="full",
+        description="Jitter strategy ('full', 'equal', 'decorrelated', 'none')",
+    )
 
     @model_validator(mode="after")
     def validate_retry_progression(self) -> "RetryLadderSettings":
@@ -278,6 +291,11 @@ class RetryLadderSettings(BaseModel):
         if not (self.tier_1_delay_s < self.tier_2_delay_s < self.tier_3_delay_s):
             raise ValueError(
                 "Retry delay progression must be strictly ascending: tier_1 < tier_2 < tier_3"
+            )
+        if self.jitter_mode not in {"full", "equal", "decorrelated", "none"}:
+            raise ValueError(
+                f"Invalid jitter_mode '{self.jitter_mode}'. "
+                "Must be one of 'full', 'equal', 'decorrelated', 'none'."
             )
         return self
 
