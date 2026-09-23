@@ -143,7 +143,7 @@ class ProviderCredentialsSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    """Embedding model and dimensionality configuration (R5.10)."""
+    """Embedding model and dimensionality configuration (R5.10, R9.6, R9.11)."""
 
     model_name: str = Field(
         default="text-embedding-3-small", description="Embedding model identifier"
@@ -153,6 +153,23 @@ class EmbeddingSettings(BaseModel):
     )
     batch_size: int = Field(default=64, ge=1, description="Embedding inference batch size")
     max_tokens: int = Field(default=8191, ge=1, description="Maximum context length for embeddings")
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Base URL for OpenAI-compatible embedding API",
+    )
+    api_key: str | None = Field(default=None, description="API key for embedding service")
+    mock: bool = Field(
+        default=True, description="Enable FakeEmbedder for testing/CI (R24.5)"
+    )
+    timeout_s: float = Field(
+        default=10.0, ge=0.1, description="Embedding request timeout in seconds"
+    )
+    max_retries: int = Field(
+        default=3, ge=0, description="Maximum retry attempts on transient errors"
+    )
+    retry_delay_s: float = Field(
+        default=0.5, ge=0.0, description="Initial retry delay in seconds"
+    )
 
 
 class LLMTiersSettings(BaseModel):

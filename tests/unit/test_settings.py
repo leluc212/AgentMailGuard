@@ -46,6 +46,12 @@ def test_default_app_settings_instantiation() -> None:
     # 5. Embedding
     assert settings.embedding.dimension == 1536
     assert settings.embedding.model_name == "text-embedding-3-small"
+    assert settings.embedding.mock is True
+    assert settings.embedding.base_url == "https://api.openai.com/v1"
+    assert settings.embedding.api_key is None
+    assert settings.embedding.timeout_s == 10.0
+    assert settings.embedding.max_retries == 3
+    assert settings.embedding.retry_delay_s == 0.5
 
     # 6. LLM Tiers & Price Table
     assert settings.llm.fast_model == "gpt-4o-mini"

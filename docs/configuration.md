@@ -89,6 +89,12 @@ All configuration in `rag-email` is read from environment variables (or local `.
 | `EMBEDDING__DIMENSION` | `integer` | `1536` | 1–10000 | Vector dimension; **must equal DB column width** |
 | `EMBEDDING__BATCH_SIZE` | `integer` | `64` | $\ge 1$ | Max chunks embedded per batch call |
 | `EMBEDDING__MAX_TOKENS` | `integer` | `8191` | $\ge 1$ | Max context tokens supported by embedder |
+| `EMBEDDING__BASE_URL` | `string` | `https://api.openai.com/v1` | URL | Base URL for OpenAI-compatible embedding API |
+| `EMBEDDING__API_KEY` | `string` | `null` | Optional | API key for embedding service |
+| `EMBEDDING__MOCK` | `boolean` | `true` | `true/false` | Enable FakeEmbedder for hermetic testing/CI (R24.5) |
+| `EMBEDDING__TIMEOUT_S` | `float` | `10.0` | $\ge 0.1$ | Embedding request timeout in seconds |
+| `EMBEDDING__MAX_RETRIES` | `integer` | `3` | $\ge 0$ | Maximum retry attempts on transient errors |
+| `EMBEDDING__RETRY_DELAY_S` | `float` | `0.5` | $\ge 0.0$ | Initial retry delay in seconds |
 
 > **Startup Dimension Assertion (R5.10):**
 > On service startup, `assert_embedding_dimension(configured, db_column)` validates that `EMBEDDING__DIMENSION` matches the PostgreSQL `embedding_record.embedding VECTOR(n)` column definition. If there is any discrepancy, the service aborts immediately.
