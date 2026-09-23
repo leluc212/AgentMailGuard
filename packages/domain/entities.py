@@ -402,3 +402,43 @@ class EmailThread:
     last_message_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     message_count: int = 1
     status: str = "open"
+
+
+# Re-export knowledge entities for domain package consistency
+from packages.domain.knowledge import (  # noqa: E402
+    DocumentElement,
+    DocumentSection,
+    ElementType,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    ParsedDocument,
+)
+
+__all__ = [
+    "AttachmentRef",
+    "Candidate",
+    "Checkpoint",
+    "Classification",
+    "ContextPackage",
+    "DocumentElement",
+    "DocumentSection",
+    "DraftRef",
+    "ElementType",
+    "EmailAddress",
+    "EmailThread",
+    "GeneratedDraft",
+    "Job",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
+    "Mailbox",
+    "NormalizedMessage",
+    "OutboundReply",
+    "ParsedDocument",
+    "ProcessingEvent",
+    "RawMessage",
+    "RawThread",
+    "SentRef",
+    "Subscription",
+    "SyncResult",
+    "ThreadRef",
+]

@@ -18,6 +18,11 @@ dependencies = [
     "pgvector>=0.2.5",
     "minio>=7.2.0",
     "scikit-learn>=1.4.0",
+    "pypdf>=5.0.0",
+    "python-docx>=1.1.0",
+    "beautifulsoup4>=4.12.0",
+    "markdown-it-py>=3.0.0",
+    "tiktoken>=0.7.0",
 ]
 
 [dependency-groups]
