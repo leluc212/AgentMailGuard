@@ -4,6 +4,14 @@ from packages.llm.anthropic import (
     DEFAULT_ANTHROPIC_MODELS,
     AnthropicLLMProvider,
 )
+from packages.llm.budget import (
+    BudgetedLLMProvider,
+    CallBudgetExceededError,
+    CallBudgetTracker,
+    CallBudgetViolationError,
+    CallKind,
+    CallRecord,
+)
 from packages.llm.client import (
     DEFAULT_LOCAL_MODELS,
     DEFAULT_MODEL_MAP,
@@ -35,6 +43,12 @@ __all__ = [
     "AgentProfile",
     "AgentProfileRegistry",
     "AnthropicLLMProvider",
+    "BudgetedLLMProvider",
+    "CallBudgetExceededError",
+    "CallBudgetTracker",
+    "CallBudgetViolationError",
+    "CallKind",
+    "CallRecord",
     "ChatMessage",
     "ContextPolicy",
     "DEFAULT_ANTHROPIC_MODELS",
