@@ -163,7 +163,7 @@ async def test_tier_escalation_with_string_tier(
     result = await generator.generate_draft(
         sample_context,
         category="support",
-        escalated_tier="high_capability",  # type: ignore[arg-type]
+        escalated_tier="high_capability",
         escalation_reason="manual_override",
     )
 

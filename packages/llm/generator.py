@@ -62,7 +62,7 @@ class SinglePassGenerator:
         category: str | None = None,
         profile: AgentProfile | None = None,
         budget_tracker: CallBudgetTracker | None = None,
-        escalated_tier: ModelTier | None = None,
+        escalated_tier: ModelTier | str | None = None,
         escalation_reason: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 1000,
