@@ -4,6 +4,13 @@ from packages.context.assembly import (
     AssembledThreadContext,
     ThreadContextAssembler,
 )
+from packages.context.builder import (
+    BusinessDataProvider,
+    ContextBuilder,
+    DefaultInstructionProvider,
+    InstructionProvider,
+    StubBusinessDataProvider,
+)
 from packages.context.policy import (
     THREAD_SUMMARY_SCHEMA,
     SummarizationDecision,
@@ -17,6 +24,11 @@ from packages.context.summarizer import (
 __all__ = [
     "THREAD_SUMMARY_SCHEMA",
     "AssembledThreadContext",
+    "BusinessDataProvider",
+    "ContextBuilder",
+    "DefaultInstructionProvider",
+    "InstructionProvider",
+    "StubBusinessDataProvider",
     "SummarizationDecision",
     "SummarizationPolicy",
     "SummarizationResult",
