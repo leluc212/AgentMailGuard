@@ -70,6 +70,7 @@ class PipelineMetrics:
     subscription_renewals_total: Counter
     raw_payloads_archived_total: Counter
     reaped_leases_total: Counter
+    tokens_saved_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -218,6 +219,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "reaped_leases_total",
             "Total stuck jobs reclaimed after lease expiration (R19.8)",
             ["action", "state"],
+            registry=reg,
+        ),
+        tokens_saved_total=Counter(
+            "tokens_saved_total",
+            "Total prompt tokens saved via conversation summarization (R8.7, H3)",
+            ["organization"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)
