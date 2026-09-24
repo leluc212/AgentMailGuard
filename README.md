@@ -23,7 +23,7 @@ To ensure clear architectural boundaries and enterprise-grade reliability, this 
                           AGENTMAILGUARD (Security & Threat Defense Perimeter)
  ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
  │                                                                                                  │
- │  Inbound Email ──▶ [ Perimeter Gateway ] ──▶ [ Malware / Phishing Filter ]                       │
+ │  Inbound Email ──▶ [ Perimeter Gateway ] ──▶ [ Malware / Phishing Filter ]                     │
  │                                             │                                                    │
  │                                             ▼                                                    │
  │                                     [ Prompt-Injection & Jailbreak Defense ]                     │
@@ -35,28 +35,28 @@ To ensure clear architectural boundaries and enterprise-grade reliability, this 
                                                │ (Sanitized & Verified Inbound Traffic)
                                                ▼
                CORE SYSTEM: RAG-EMAIL INTELLIGENCE & MANAGEMENT (This Codebase)
- ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
- │                                                                                                  │
- │  ┌─────────────────────────┐        ┌─────────────────────────┐        ┌───────────────────────┐ │
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                                    │
+ │  ┌─────────────────────────┐         ┌─────────────────────────┐         ┌───────────────────────┐ │
  │  │ Multi-Provider Ingestion│──Push─▶│ Canonical Normalizer    │──Jobs─▶│ Cascading Triage      │ │
- │  │ (Gmail, Graph, IMAP)    │        │ (MIME, Threading, MinIO)│        │ (Rules ➔ ML ➔ LLM)    │ │
- │  └─────────────────────────┘        └─────────────────────────┘        └───────────┬───────────┘ │
- │                                                                                    │             │
- │                                                                                    ▼             │
- │  ┌─────────────────────────┐        ┌─────────────────────────┐        ┌───────────────────────┐ │
+ │  │ (Gmail, Graph, IMAP)    │         │ (MIME, Threading, MinIO)│         │ (Rules ➔ ML ➔ LLM)    │ │
+ │  └─────────────────────────┘         └─────────────────────────┘         └───────────┬───────────┘ │
+ │                                                                                      │             │
+ │                                                                                      ▼             │
+ │  ┌─────────────────────────┐         ┌─────────────────────────┐         ┌───────────────────────┐ │
  │  │ LLM Response Drafting   │◀───────│ Hybrid RAG Engine       │◀───────│ Category / Priority   │ │
- │  │ (Single-call, Grounded) │        │ (pgvector + FTS + RRF)  │        │ Work Queue Dispatch   │ │
- │  └───────────┬─────────────┘        └─────────────────────────┘        └───────────────────────┘ │
- │                                                                                                  │
- └──────────────┼───────────────────────────────────────────────────────────────────────────────────┘
+ │  │ (Single-call, Grounded) │         │ (pgvector + FTS + RRF)  │         │ Work Queue Dispatch   │ │
+ │  └───────────┬─────────────┘         └─────────────────────────┘         └───────────────────────┘ │
+ │              │                                                                                     │
+ └──────────────┼─────────────────────────────────────────────────────────────────────────────────────┘
                 │ (Generated Draft & Structured Context Audit)
                 ▼
                           AGENTMAILGUARD (Security & Threat Defense Perimeter)
- ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
- │                                                                                                  │
+ ┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                                     │
  │  Drafted Reply ──▶ [ Outbound DLP & Leak Scanner ] ──▶ [ Human/Compliance Sign-off ] ──▶ Dispatch│
- │                                                                                                  │
- └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ │                                                                                                     │
+ └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Architectural Responsibilities
@@ -102,7 +102,7 @@ Inference compute is budgeted strictly where it creates business value:
 ```
 ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
 │ Gmail / Graph   │       │  Sync           │       │  RabbitMQ       │
-│ Webhook/PubSub  ├──────▶│  Orchestrator   ├──────▶│  email.normalize│
+│ Webhook/PubSub  ├─────▶│  Orchestrator   ├─────▶│  email.normalize│
 └─────────────────┘       └────────┬────────┘       └────────┬────────┘
                                    │                         │
                                    ▼                         ▼
@@ -125,10 +125,10 @@ Inference compute is budgeted strictly where it creates business value:
                                                              │
                   ┌──────────────────────────────────────────┴──────────────────────────────────────────┐
                   ▼                                          ▼                                          ▼
-     ┌──────────────────────────┐               ┌──────────────────────────┐               ┌──────────────────────────┐
-     │ Stage 1: Rules Engine    │               │ Stage 2: ML Classifier   │               │ Stage 3: Small-LLM       │
+     ┌──────────────────────────┐                ┌──────────────────────────┐                ┌──────────────────────────┐
+     │ Stage 1: Rules Engine    │                │ Stage 2: ML Classifier   │                │ Stage 3: Small-LLM       │
      │ (~1ms, declarative YAML) │──[uncertain]─▶│ (~20-50ms, TF-IDF/Head)  │──[uncertain]─▶│ (~200-300ms fallback)    │
-     └────────────┬─────────────┘               └────────────┬─────────────┘               └────────────┬─────────────┘
+     └────────────┬─────────────┘                └───────────┬──────────────┘                └──────────┬───────────────┘
                   │                                          │                                          │
                   └──────────────────────────────────────────┼──────────────────────────────────────────┘
                                                              ▼
