@@ -363,7 +363,7 @@
   - `retrieval_latency_ms` and `rerank_latency_ms` recorded separately, as histograms.
   - _Requirements: R11.6, R21.4, R21.5, NFR5, NFR6_
 
-- [ ] **3.15 Retrieval debug endpoint**
+- [x] **3.15 Retrieval debug endpoint**
   - `POST /v1/search/debug` returning the constructed query, both branch result lists with ranks, fused scores, rerank scores, and the final selection.
   - _Requirements: R23.3_
 

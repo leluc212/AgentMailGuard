@@ -187,3 +187,59 @@ KnowledgeStoreDep = Annotated[Any, Depends(get_knowledge_store)]
 JobStoreDep = Annotated[Any, Depends(get_job_store)]
 StorageClientDep = Annotated[Any, Depends(get_storage_client)]
 PublisherDep = Annotated[Any, Depends(get_job_publisher)]
+
+
+def get_search_backend(request: Request) -> Any:
+    """Retrieve SearchBackend from app.state or db_pool, defaulting to FakeSearchBackend."""
+    backend = getattr(request.app.state, "search_backend", None)
+    if backend is not None:
+        return backend
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.retrieval.postgres import PostgresSearchBackend
+
+        metrics = getattr(request.app.state, "metrics", None)
+        return PostgresSearchBackend(pool=db_pool, metrics=metrics)
+    from packages.retrieval.fake import FakeSearchBackend
+
+    return FakeSearchBackend()
+
+
+def get_embedder(request: Request) -> Any:
+    """Retrieve Embedder from app.state, defaulting to FakeEmbedder."""
+    embedder = getattr(request.app.state, "embedder", None)
+    if embedder is not None:
+        return embedder
+    from packages.knowledge.embedder import FakeEmbedder
+
+    metrics = getattr(request.app.state, "metrics", None)
+    return FakeEmbedder(metrics=metrics)
+
+
+def get_rerank_service(request: Request) -> Any:
+    """Retrieve RerankService from app.state, defaulting to StubReranker."""
+    service = getattr(request.app.state, "rerank_service", None)
+    if service is not None:
+        return service
+    from packages.retrieval.rerank import RerankService, StubReranker
+
+    metrics = getattr(request.app.state, "metrics", None)
+    reranker = getattr(request.app.state, "reranker", None) or StubReranker()
+    return RerankService(reranker=reranker, metrics=metrics)
+
+
+def get_retrieval_query_builder(request: Request) -> Any:
+    """Retrieve RetrievalQueryBuilder from app.state or instantiate default."""
+    builder = getattr(request.app.state, "query_builder", None)
+    if builder is not None:
+        return builder
+    from packages.retrieval.query_builder import RetrievalQueryBuilder
+
+    return RetrievalQueryBuilder()
+
+
+SearchBackendDep = Annotated[Any, Depends(get_search_backend)]
+EmbedderDep = Annotated[Any, Depends(get_embedder)]
+RerankServiceDep = Annotated[Any, Depends(get_rerank_service)]
+QueryBuilderDep = Annotated[Any, Depends(get_retrieval_query_builder)]
+

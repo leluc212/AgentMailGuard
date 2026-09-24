@@ -21,6 +21,13 @@ from services.api.schemas.messages import (
     MessageDetailResponse,
     MessageTimelineResponse,
 )
+from services.api.schemas.search import (
+    CandidateDebugItem,
+    ConstructedQueryDebug,
+    RetrievalDebugRequest,
+    RetrievalDebugResponse,
+    RetrievalExplanation,
+)
 from services.api.schemas.threads import (
     MessageSummaryInThread,
     ThreadDetailResponse,
@@ -29,6 +36,8 @@ from services.api.schemas.threads import (
 
 __all__ = [
     "AttachmentSummaryResponse",
+    "CandidateDebugItem",
+    "ConstructedQueryDebug",
     "DocumentUploadResponse",
     "EmailAddressResponse",
     "JobDetailResponse",
@@ -43,6 +52,9 @@ __all__ = [
     "ProcessingEventResponse",
     "ResyncRequest",
     "ResyncResponse",
+    "RetrievalDebugRequest",
+    "RetrievalDebugResponse",
+    "RetrievalExplanation",
     "ThreadDetailResponse",
     "ThreadSummaryResponse",
     "TimeWindow",
