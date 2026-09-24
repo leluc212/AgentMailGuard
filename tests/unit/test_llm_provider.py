@@ -12,7 +12,14 @@ from typing import Any
 import httpx
 import pytest
 
-from packages.llm.client import DEFAULT_MODEL_MAP, HttpLLMProvider
+from packages.llm.client import (
+    DEFAULT_LOCAL_MODELS,
+    DEFAULT_MODEL_MAP,
+    DEFAULT_OPENAI_MODELS,
+    HttpLLMProvider,
+    LocalLLMProvider,
+    OpenAILLMProvider,
+)
 from packages.llm.fake import FakeLLMProvider
 from packages.llm.protocol import (
     ChatMessage,
@@ -270,5 +277,98 @@ class TestHttpLLMProvider:
                 messages=[ChatMessage(role="user", content="Hi")],
                 schema={"type": "object"},
             )
+
+        await provider.aclose()
+
+
+class TestOpenAIAndLocalProviders:
+    """Validate OpenAILLMProvider and LocalLLMProvider specializations (R14.7)."""
+
+    def test_protocol_conformance(self) -> None:
+        openai_p = OpenAILLMProvider(api_key="mock-key")
+        local_p = LocalLLMProvider()
+        assert isinstance(openai_p, LLMProvider)
+        assert isinstance(local_p, LLMProvider)
+
+    def test_openai_tier_resolution(self) -> None:
+        openai_p = OpenAILLMProvider(api_key="mock-key")
+        assert openai_p.resolve_model(ModelTier.FAST) == DEFAULT_OPENAI_MODELS[ModelTier.FAST]
+        assert openai_p.resolve_model(ModelTier.ROUTINE) == DEFAULT_OPENAI_MODELS[ModelTier.ROUTINE]
+        assert openai_p.resolve_model(ModelTier.STRONG) == DEFAULT_OPENAI_MODELS[ModelTier.STRONG]
+        assert (
+            openai_p.resolve_model(ModelTier.HIGH_CAPABILITY)
+            == DEFAULT_OPENAI_MODELS[ModelTier.HIGH_CAPABILITY]
+        )
+
+    def test_local_tier_resolution(self) -> None:
+        local_p = LocalLLMProvider()
+        assert local_p.resolve_model(ModelTier.FAST) == DEFAULT_LOCAL_MODELS[ModelTier.FAST]
+        assert local_p.resolve_model(ModelTier.ROUTINE) == DEFAULT_LOCAL_MODELS[ModelTier.ROUTINE]
+        assert local_p.resolve_model(ModelTier.STRONG) == DEFAULT_LOCAL_MODELS[ModelTier.STRONG]
+        assert (
+            local_p.resolve_model(ModelTier.HIGH_CAPABILITY)
+            == DEFAULT_LOCAL_MODELS[ModelTier.HIGH_CAPABILITY]
+        )
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_generation(self) -> None:
+        def mock_handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Authorization"] == "Bearer test-sk-key"
+            payload = {
+                "choices": [
+                    {
+                        "message": {"content": json.dumps({"status": "ok"})},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 15, "completion_tokens": 8},
+            }
+            return httpx.Response(200, json=payload)
+
+        transport = httpx.MockTransport(mock_handler)
+        client = httpx.AsyncClient(transport=transport)
+        provider = OpenAILLMProvider(api_key="test-sk-key", client=client)
+
+        result = await provider.generate(
+            messages=[ChatMessage(role="user", content="Ping")],
+            schema={"type": "object"},
+            tier=ModelTier.FAST,
+        )
+
+        assert result.content == {"status": "ok"}
+        assert result.model == DEFAULT_OPENAI_MODELS[ModelTier.FAST]
+        assert result.input_tokens == 15
+        assert result.output_tokens == 8
+
+        await provider.aclose()
+
+    @pytest.mark.asyncio
+    async def test_local_provider_generation(self) -> None:
+        def mock_handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.host == "localhost"
+            assert request.url.port == 11434
+            payload = {
+                "choices": [
+                    {
+                        "message": {"content": json.dumps({"action": "summarize"})},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+            }
+            return httpx.Response(200, json=payload)
+
+        transport = httpx.MockTransport(mock_handler)
+        client = httpx.AsyncClient(transport=transport)
+        provider = LocalLLMProvider(client=client)
+
+        result = await provider.generate(
+            messages=[ChatMessage(role="user", content="Local prompt")],
+            schema={"type": "object"},
+            tier=ModelTier.FAST,
+        )
+
+        assert result.content == {"action": "summarize"}
+        assert result.model == DEFAULT_LOCAL_MODELS[ModelTier.FAST]
 
         await provider.aclose()

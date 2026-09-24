@@ -191,3 +191,61 @@ class HttpLLMProvider(LLMProvider):
             raw_finish_reason=finish_reason,
             raw_response=data,
         )
+
+
+DEFAULT_OPENAI_MODELS: dict[ModelTier, str] = {
+    ModelTier.FAST: "gpt-4o-mini",
+    ModelTier.ROUTINE: "gpt-4o-mini",
+    ModelTier.STRONG: "gpt-4o",
+    ModelTier.HIGH_CAPABILITY: "gpt-4o",
+    ModelTier.FALLBACK: "gpt-4o-mini",
+}
+
+DEFAULT_LOCAL_MODELS: dict[ModelTier, str] = {
+    ModelTier.FAST: "llama3.2:3b",
+    ModelTier.ROUTINE: "llama3.2:3b",
+    ModelTier.STRONG: "llama3.3:70b",
+    ModelTier.HIGH_CAPABILITY: "llama3.3:70b",
+    ModelTier.FALLBACK: "llama3.2:1b",
+}
+
+
+class OpenAILLMProvider(HttpLLMProvider):
+    """Hosted OpenAI API implementation of the LLMProvider protocol (R14.5, R14.7)."""
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model_map: dict[ModelTier, str] | None = None,
+        timeout_s: float = 10.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+            api_key=api_key or os.getenv("OPENAI_API_KEY") or "",
+            model_map=model_map or DEFAULT_OPENAI_MODELS,
+            timeout_s=timeout_s,
+            client=client,
+        )
+
+
+class LocalLLMProvider(HttpLLMProvider):
+    """OpenAI-compatible local endpoint implementation (e.g. Ollama, vLLM) (R14.5, R14.7)."""
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model_map: dict[ModelTier, str] | None = None,
+        timeout_s: float = 30.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url or os.getenv("LOCAL_LLM_BASE_URL") or "http://localhost:11434/v1",
+            api_key=api_key or os.getenv("LOCAL_LLM_API_KEY") or "",
+            model_map=model_map or DEFAULT_LOCAL_MODELS,
+            timeout_s=timeout_s,
+            client=client,
+        )
+
