@@ -404,7 +404,7 @@
   - Shared contract test suite.
   - _Requirements: R14.5, R14.7, R24.5_
 
-- [ ] **4.6 Agent profile registry**
+- [x] **4.6 Agent profile registry**
   - Profiles specifying `profile, knowledge_domain, response_style, model_tier, context_policy`, prompt template, output schema.
   - Selected by classification category with a configured default fallback.
   - Versioned prompt templates; `prompt_version` recorded on every draft.

@@ -20,6 +20,7 @@ from packages.core.pagination import (
     paginate,
 )
 from packages.core.settings import (
+    AgentProfileSettings,
     AIWorkerSettings,
     APISettings,
     AppSettings,
@@ -60,6 +61,7 @@ from packages.core.storage import (
 __all__ = [
     "AIWorkerSettings",
     "APISettings",
+    "AgentProfileSettings",
     "AppSettings",
     "ArchivedPayloadRef",
     "BrokerSettings",

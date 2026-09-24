@@ -11,16 +11,14 @@ import logging
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field
 
+from packages.domain.entities import ContextPackage
 from packages.llm.protocol import ModelTier
-
-if TYPE_CHECKING:
-    from packages.domain.entities import ContextPackage
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +228,7 @@ class AgentProfileRegistry:
         template = self._jinja_env.get_template(str(rel_template_path))
 
         # Prepare context dict
-        if hasattr(context, "get_ordered_sections"):
-            # ContextPackage instance
+        if isinstance(context, ContextPackage):
             template_vars: dict[str, Any] = {
                 "agent_instructions": (
                     context.agent_instructions

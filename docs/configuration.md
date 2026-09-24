@@ -258,4 +258,15 @@ price_table = {
 | `LEASE_REAPER__BATCH_SIZE` | `integer` | `100` | 1–1000 | Maximum number of stuck jobs reclaimed in a single sweep |
 | `LEASE_REAPER__REAP_STUCK_UNLEASED` | `boolean` | `true` | Boolean | Whether to also reclaim active jobs with NULL lease exceeding timeout |
 
+### 2.18 Agent Profile Registry (`AGENT_PROFILES__*`)
+*Declarative agent profile specialization, prompt templates, and output schemas (R14.1, R14.2, R14.6).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `AGENT_PROFILES__CONFIG_PATH` | `string` | `config/agent_profiles.yaml` | Non-empty | Path to declarative YAML profile definitions (R14.1) |
+| `AGENT_PROFILES__DEFAULT_PROFILE` | `string` | `general_inquiry` | Non-empty | Fallback profile when classification category is unmapped (R14.2) |
+| `AGENT_PROFILES__PROMPTS_DIR` | `string` | `prompts` | Directory | Base directory for versioned Jinja2 prompt templates (R14.6) |
+| `AGENT_PROFILES__SCHEMAS_DIR` | `string` | `schemas` | Directory | Base directory for structured JSON response schemas (R14.1) |
+
+
 

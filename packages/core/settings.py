@@ -478,6 +478,27 @@ class LeaseReaperSettings(BaseModel):
     )
 
 
+class AgentProfileSettings(BaseModel):
+    """Configuration for agent profile registry and prompt templates (R14.1, R14.2)."""
+
+    config_path: str = Field(
+        default="config/agent_profiles.yaml",
+        description="Path to YAML agent profile definitions",
+    )
+    default_profile: str = Field(
+        default="general_inquiry",
+        description="Fallback agent profile when classification category is unmapped",
+    )
+    prompts_dir: str = Field(
+        default="prompts",
+        description="Base directory for prompt templates",
+    )
+    schemas_dir: str = Field(
+        default="schemas",
+        description="Base directory for structured JSON schemas",
+    )
+
+
 class AppSettings(BaseSettings):
     """Top-level master settings container supporting environment variable loading."""
 
@@ -512,6 +533,7 @@ class AppSettings(BaseSettings):
         default_factory=SubscriptionRenewalSettings
     )
     lease_reaper: LeaseReaperSettings = Field(default_factory=LeaseReaperSettings)
+    agent_profiles: AgentProfileSettings = Field(default_factory=AgentProfileSettings)
 
 
 def assert_embedding_dimension(configured_dim: int, db_column_dim: int) -> None:

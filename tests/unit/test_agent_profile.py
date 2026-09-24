@@ -223,3 +223,15 @@ def test_registry_satisfies_instruction_provider_protocol() -> None:
     agent_instr, cat_instr = registry.get_instructions("support")
     assert "enterprise" in agent_instr.lower()
     assert "technical" in cat_instr.lower()
+
+
+def test_agent_profile_settings_defaults() -> None:
+    """Verify AgentProfileSettings defaults on AppSettings (R14.1, R14.2)."""
+    from packages.core.settings import AppSettings
+
+    settings = AppSettings()
+    assert hasattr(settings, "agent_profiles")
+    assert settings.agent_profiles.config_path == "config/agent_profiles.yaml"
+    assert settings.agent_profiles.default_profile == "general_inquiry"
+    assert settings.agent_profiles.prompts_dir == "prompts"
+    assert settings.agent_profiles.schemas_dir == "schemas"
