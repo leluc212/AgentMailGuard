@@ -7,9 +7,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from packages.context.policy import SummarizationPolicy
 from packages.core.settings import SummarizationSettings
 from packages.domain.entities import EmailAddress, NormalizedMessage, ThreadState
-from packages.context.policy import SummarizationPolicy
 
 
 def make_msg(idx: int, thread_id: UUID, org_id: UUID, body: str = "Test body") -> NormalizedMessage:
@@ -87,3 +87,86 @@ def test_summarization_policy_already_summarized_skips_regeneration() -> None:
     decision = policy.evaluate(messages=messages, current_state=current_state)
     assert not decision.should_summarize
     assert decision.reason == "already_summarized"
+
+
+@pytest.mark.asyncio
+async def test_summarizer_zero_llm_calls_on_short_thread() -> None:
+    """Assert in tests that a short thread triggers zero summarization calls (Task 4.2, R8.2)."""
+    from packages.context.summarizer import ThreadSummarizer
+    from packages.db.thread_state import InMemoryThreadStateStore
+    from packages.llm.fake import FakeLLMProvider
+
+    settings = SummarizationSettings(min_messages_threshold=4, context_token_threshold=1500)
+    fake_llm = FakeLLMProvider()
+    store = InMemoryThreadStateStore()
+    summarizer = ThreadSummarizer(llm=fake_llm, store=store, settings=settings)
+
+    thread_id, org_id = uuid4(), uuid4()
+    messages = [make_msg(i, thread_id, org_id, "Short note") for i in range(2)]
+
+    result = await summarizer.summarize_thread(
+        organization_id=org_id,
+        thread_id=thread_id,
+        messages=messages,
+    )
+
+    assert not result.summarized
+    assert len(fake_llm.recorded_calls) == 0
+    assert result.thread_state is None
+    assert len(result.verbatim_messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_summarizer_generates_and_persists_summary_on_threshold() -> None:
+    """Verify that exceeding threshold triggers LLM call and persists thread_state (R8.3, R8.4)."""
+    from packages.context.summarizer import ThreadSummarizer
+    from packages.db.thread_state import InMemoryThreadStateStore
+    from packages.llm.fake import FakeLLMProvider
+
+    settings = SummarizationSettings(min_messages_threshold=3, context_token_threshold=1500)
+    fake_llm = FakeLLMProvider(
+        default_response={
+            "topic": "Billing discrepancy",
+            "current_intent": "refund_request",
+            "summary": "Customer overcharged $20 and requested refund.",
+            "open_questions": ["Receipt copy?"],
+            "resolved_items": ["Customer ID verified"],
+        }
+    )
+    store = InMemoryThreadStateStore()
+    summarizer = ThreadSummarizer(llm=fake_llm, store=store, settings=settings)
+
+    thread_id, org_id = uuid4(), uuid4()
+    messages = [make_msg(i, thread_id, org_id, f"Message {i}") for i in range(4)]
+    latest_id = messages[-1].message_id
+    assert isinstance(latest_id, UUID)
+
+    result = await summarizer.summarize_thread(
+        organization_id=org_id,
+        thread_id=thread_id,
+        messages=messages,
+    )
+
+    assert result.summarized
+    assert len(fake_llm.recorded_calls) == 1
+    assert result.thread_state is not None
+    assert result.thread_state.topic == "Billing discrepancy"
+    assert result.thread_state.summarized_through_message_id == latest_id
+    assert result.thread_state.version == 1
+
+    # Verify persisted in store
+    persisted = await store.get(org_id, thread_id)
+    assert persisted is not None
+    assert persisted.summary == "Customer overcharged $20 and requested refund."
+    assert persisted.summarized_through_message_id == latest_id
+
+    # Second call with same messages triggers NO additional LLM call (R8.4)
+    second_result = await summarizer.summarize_thread(
+        organization_id=org_id,
+        thread_id=thread_id,
+        messages=messages,
+        current_state=persisted,
+    )
+    assert not second_result.summarized
+    assert len(fake_llm.recorded_calls) == 1  # Still 1, no new call!
+
