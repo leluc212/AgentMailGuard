@@ -392,7 +392,7 @@
   - Keep inbound email out of the knowledge corpus by default.
   - _Requirements: R8.5, R8.7, R8.8_
 
-- [ ] **4.4 Context Builder orchestration**
+- [x] **4.4 Context Builder orchestration**
   - Gather thread context, business data (stub until Phase 5), and — only when `retrieval_required` — hybrid RAG.
   - Emit a `ContextPackage` in the fixed order from `design.md §5.4`; static sections first so prompt-prefix caching can apply.
   - Transition `QUEUED → CONTEXT_READY`.

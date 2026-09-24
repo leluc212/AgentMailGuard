@@ -351,7 +351,8 @@ async def test_context_builder_postgres_end_to_end(db_pool: asyncpg.Pool[Any]) -
     )
     assert transition_event.event_type == "state_transition"
     assert transition_event.payload.get("retrieval_performed") is True
-    assert transition_event.payload.get("retrieved_chunks_count") >= 1
+    chunks_count = transition_event.payload.get("retrieved_chunks_count")
+    assert isinstance(chunks_count, int) and chunks_count >= 1
 
 
 @pytest.mark.asyncio
