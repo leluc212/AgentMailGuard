@@ -4,6 +4,7 @@ from packages.adapters.fake import FakeProviderAdapter
 from tests.stubs.embedding import StubEmbedder
 from tests.stubs.llm import LLMGenerationResult, StubLLMProvider
 from tests.stubs.mail_provider import FakeMailProviderAdapter, FakeStoredMessage
+from tests.stubs.rerank import StubReranker
 
 __all__ = [
     "FakeMailProviderAdapter",
@@ -12,4 +13,6 @@ __all__ = [
     "LLMGenerationResult",
     "StubEmbedder",
     "StubLLMProvider",
+    "StubReranker",
 ]
+

@@ -65,6 +65,7 @@ class PipelineMetrics:
     llm_calls_total: Counter
     retrieval_underfilled_total: Counter
     retrieval_degraded_total: Counter
+    rerank_fallback_total: Counter
     subscription_renewals_total: Counter
     raw_payloads_archived_total: Counter
     reaped_leases_total: Counter
@@ -192,6 +193,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "retrieval_degraded_total",
             "Total times hybrid retrieval degraded to a single branch due to failure or timeout",
             ["tenant", "failed_branch"],
+            registry=reg,
+        ),
+        rerank_fallback_total=Counter(
+            "rerank_fallback_total",
+            "Total times cross-encoder reranking fell back to RRF order (R11.5)",
+            ["tenant", "reason"],
             registry=reg,
         ),
         subscription_renewals_total=Counter(

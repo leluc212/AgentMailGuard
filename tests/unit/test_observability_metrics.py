@@ -30,6 +30,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.llm_calls_total is not None
     assert m.retrieval_underfilled_total is not None
     assert m.retrieval_degraded_total is not None
+    assert m.rerank_fallback_total is not None
     assert m.subscription_renewals_total is not None
     assert m.raw_payloads_archived_total is not None
     assert m.reaped_leases_total is not None

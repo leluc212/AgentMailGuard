@@ -342,7 +342,7 @@
   - One branch failing or timing out ⇒ continue on the survivor, record `retrieval_degraded=true`.
   - _Requirements: R10.5, R10.6, R10.9_
 
-- [ ] **3.11 Cross-encoder reranker**
+- [x] **3.11 Cross-encoder reranker**
   - Optional rerank over the fused candidate set; disable-able per organization and per category.
   - Unavailable ⇒ fall back to RRF order, record the fallback.
   - _Requirements: R11.1, R11.2, R11.5_
