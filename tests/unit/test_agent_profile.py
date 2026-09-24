@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 import yaml
 
 
 def test_schema_file_valid_json() -> None:
-    """Verify schemas/reply.v1.json conforms to draft reply schema requirements (design.md §5.7, R16.1)."""
+    """Verify schemas/reply.v1.json conforms to draft reply schema requirements.
+
+    Covers design.md §5.7 and R16.1.
+    """
     schema_path = Path("schemas/reply.v1.json")
     assert schema_path.is_file(), "schemas/reply.v1.json must exist"
 
@@ -41,7 +45,7 @@ def test_prompt_template_files_exist() -> None:
 
 
 def test_agent_profiles_yaml_valid() -> None:
-    """Verify config/agent_profiles.yaml is syntactically valid and defines core profiles (R14.1)."""
+    """Verify config/agent_profiles.yaml is syntactically valid and defines profiles (R14.1)."""
     config_path = Path("config/agent_profiles.yaml")
     assert config_path.is_file(), "config/agent_profiles.yaml must exist"
 
@@ -111,3 +115,111 @@ def test_agent_profile_defaults() -> None:
     assert profile.agent_instructions is None
     assert profile.category_instructions is None
 
+
+def test_registry_resolve_by_category() -> None:
+    """Verify category resolution to specialized profiles (R14.1, R14.2)."""
+    from packages.llm.profile import AgentProfileRegistry
+
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    support_prof = registry.resolve_profile("support")
+    assert support_prof.profile == "technical_support"
+    assert support_prof.knowledge_domain == "support"
+    assert support_prof.prompt_version == "support.v1"
+
+    billing_prof = registry.resolve_profile("billing")
+    assert billing_prof.profile == "billing"
+    assert billing_prof.knowledge_domain == "billing"
+
+
+def test_registry_fallback_to_default() -> None:
+    """Verify unmapped or unknown category falls back to default profile (R14.2)."""
+    from packages.llm.profile import AgentProfileRegistry
+
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    fallback_prof = registry.resolve_profile("non_existent_category")
+    assert fallback_prof.profile == "general_inquiry"
+
+    fallback_none = registry.resolve_profile(None)
+    assert fallback_none.profile == "general_inquiry"
+
+
+def test_registry_schema_loading() -> None:
+    """Verify output schema resolution from file or dict (R14.1)."""
+    from packages.llm.profile import AgentProfileRegistry
+
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    profile = registry.get_profile("technical_support")
+    assert profile is not None
+
+    schema = registry.get_schema(profile)
+    assert isinstance(schema, dict)
+    assert "properties" in schema
+    assert "draft" in schema["required"]
+
+
+def test_registry_render_prompt_with_context_package() -> None:
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from packages.domain.entities import Candidate, ContextPackage, EmailAddress, NormalizedMessage
+    from packages.llm.profile import AgentProfileRegistry
+
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    profile = registry.resolve_profile("support")
+
+    org_id = uuid4()
+    msg = NormalizedMessage(
+        message_id=uuid4(),
+        organization_id=org_id,
+        mailbox_id=uuid4(),
+        thread_id=uuid4(),
+        provider="mock",
+        provider_message_id="msg-1234",
+        sender=EmailAddress(email="dev@example.com", name="Lead Dev"),
+        subject="Database connection failure",
+        subject_normalized="Database connection failure",
+        body_text="Unable to connect to database at host db.local:5432.",
+        body_text_clean="Unable to connect to database at host db.local:5432.",
+        received_at=datetime.now(UTC),
+    )
+    chunk = Candidate(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        content="PostgreSQL listen_addresses must include target interface.",
+        metadata={"title": "DB Guide"},
+        lexical_rank=1,
+        vector_rank=1,
+        lexical_score=0.9,
+        vector_score=0.85,
+        fused_score=0.03,
+        rerank_score=0.95,
+        external_id="DOC-PG-01",
+    )
+    context_pkg = ContextPackage(
+        agent_instructions="You are an enterprise AI assistant.",
+        category_instructions="Address technical questions with structured steps.",
+        current_message=msg,
+        retrieved_chunks=[chunk],
+        business_data={"plan": "Enterprise"},
+    )
+
+    rendered = registry.render_prompt(profile, context_pkg)
+    assert "You are an enterprise AI assistant." in rendered
+    assert "Address technical questions with structured steps." in rendered
+    assert "Database connection failure" in rendered
+    assert "Unable to connect to database at host db.local:5432." in rendered
+    assert "[CITATION: DOC-PG-01]" in rendered
+    assert "plan: Enterprise" in rendered
+
+
+def test_registry_satisfies_instruction_provider_protocol() -> None:
+    """Verify registry satisfies ContextBuilder's InstructionProvider protocol (R14.1, R14.8)."""
+    from packages.context.builder import InstructionProvider
+    from packages.llm.profile import AgentProfileRegistry
+
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    assert isinstance(registry, InstructionProvider)
+
+    agent_instr, cat_instr = registry.get_instructions("support")
+    assert "enterprise" in agent_instr.lower()
+    assert "technical" in cat_instr.lower()

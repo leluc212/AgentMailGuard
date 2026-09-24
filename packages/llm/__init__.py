@@ -16,6 +16,7 @@ from packages.llm.factory import create_llm_provider
 from packages.llm.fake import FakeLLMProvider
 from packages.llm.profile import (
     AgentProfile,
+    AgentProfileRegistry,
     ContextPolicy,
 )
 from packages.llm.protocol import (
@@ -32,6 +33,7 @@ from packages.llm.testing import LLMProviderContractSuite
 
 __all__ = [
     "AgentProfile",
+    "AgentProfileRegistry",
     "AnthropicLLMProvider",
     "ChatMessage",
     "ContextPolicy",
