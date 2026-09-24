@@ -59,6 +59,13 @@ from packages.db.thread import (
     PostgresThreadStore,
     ThreadStore,
 )
+from packages.db.thread_state import (
+    InMemoryThreadStateStore,
+    OptimisticLockError,
+    ThreadStateError,
+    ThreadStateNotFoundError,
+    ThreadStateStore,
+)
 
 __all__ = [
     "AttachmentRecord",
@@ -74,6 +81,7 @@ __all__ = [
     "InMemoryMailboxStore",
     "InMemoryMessageStore",
     "InMemorySubscriptionStore",
+    "InMemoryThreadStateStore",
     "InMemoryThreadStore",
     "JobStore",
     "KnowledgeStore",
@@ -81,6 +89,7 @@ __all__ = [
     "MessageInsertResult",
     "MessageStore",
     "Migration",
+    "OptimisticLockError",
     "PostgresCheckpointStore",
     "PostgresClassificationStore",
     "PostgresDraftStore",
@@ -93,6 +102,9 @@ __all__ = [
     "PostgresThreadStore",
     "SeedSummary",
     "SubscriptionStore",
+    "ThreadStateError",
+    "ThreadStateNotFoundError",
+    "ThreadStateStore",
     "ThreadStore",
     "apply_migrations",
     "create_db_pool",
