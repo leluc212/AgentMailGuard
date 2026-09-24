@@ -332,7 +332,7 @@
   - Integration test must seed **≥3 tenants with overlapping content** and assert the target tenant's full top-N is returned. A single-tenant fixture will pass while production under-retrieves.
   - _Requirements: R10.1, R10.2, R10.4, R10.10, R10.11_
 
-- [ ] **3.9 RRF fusion**
+- [x] **3.9 RRF fusion**
   - `score(d) = Σ 1/(k + rank_r(d))`, configurable `k` (default 60).
   - Pure-function unit tests: disjoint lists, identical lists, single-branch, ties.
   - _Requirements: R10.3, R24.3_
