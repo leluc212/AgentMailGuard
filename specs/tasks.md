@@ -351,7 +351,7 @@
   - Configurable Top-K (default 4–6); hard token budget; truncate only at chunk boundaries.
   - _Requirements: R11.3, R11.4_
 
-- [ ] **3.13 Retrieval query builder**
+- [x] **3.13 Retrieval query builder**
   - **Ships degraded in Phase 3.** `thread_state` does not exist until task 4.1, so build from *current email + classification intent* now, behind a `thread_summary: str | None` parameter that is wired up in task 4.4. Do not block Phase 3 on Phase 4.
   - Build `RetrievalQuery` from current email + thread summary + classification intent — no extra LLM call in the default path.
   - Separate semantic text and lexical terms; regex-configurable identifier extraction (invoice, order, ticket, SKU, container, incident).

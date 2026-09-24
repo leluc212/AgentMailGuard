@@ -64,6 +64,27 @@ class RetrievalQuery:
             return self.semantic_text
         return " ".join(parts)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize RetrievalQuery to dictionary for durable job persistence (R12.6)."""
+        return {
+            "semantic_text": self.semantic_text,
+            "lexical_terms": list(self.lexical_terms),
+            "identifiers": list(self.identifiers),
+            "filters": dict(self.filters),
+            "query_vector": list(self.query_vector) if self.query_vector is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RetrievalQuery:
+        """Deserialize RetrievalQuery from dictionary (R12.6)."""
+        return cls(
+            semantic_text=str(data.get("semantic_text", "")),
+            lexical_terms=list(data.get("lexical_terms", [])),
+            identifiers=list(data.get("identifiers", [])),
+            filters=dict(data.get("filters", {})),
+            query_vector=data.get("query_vector"),
+        )
+
 
 @dataclass
 class Candidate:

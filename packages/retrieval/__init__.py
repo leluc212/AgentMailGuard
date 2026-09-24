@@ -18,6 +18,12 @@ from packages.retrieval.packing import (
 )
 from packages.retrieval.postgres import PostgresSearchBackend
 from packages.retrieval.protocol import SearchBackend
+from packages.retrieval.query_builder import (
+    DEFAULT_IDENTIFIER_PATTERNS,
+    DEFAULT_STOPWORDS,
+    QueryBuilderConfig,
+    RetrievalQueryBuilder,
+)
 from packages.retrieval.rerank import (
     CrossEncoderReranker,
     Reranker,
@@ -40,13 +46,16 @@ __all__ = [
     "Candidate",
     "ContextPacker",
     "CrossEncoderReranker",
+    "DEFAULT_IDENTIFIER_PATTERNS",
     "DEFAULT_RRF_K",
+    "DEFAULT_STOPWORDS",
     "FakeSearchBackend",
     "HybridRetriever",
     "PackedChunk",
     "PackedContext",
     "PackingConfig",
     "PostgresSearchBackend",
+    "QueryBuilderConfig",
     "RerankPolicy",
     "RerankResult",
     "RerankService",
@@ -54,6 +63,7 @@ __all__ = [
     "RerankerUnavailableError",
     "RetrievalError",
     "RetrievalQuery",
+    "RetrievalQueryBuilder",
     "RetrievalResult",
     "SearchBackend",
     "SearchBackendContractSuite",

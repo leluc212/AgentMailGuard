@@ -1,121 +1,110 @@
-# Implementation Plan: Task 3.12 Context Packing
+# Implementation Plan: Task 3.13 Retrieval Query Builder
 
 ## Goal
-Implement **Task 3.12: Context packing** (`packages/retrieval/packing.py`), fulfilling requirements **R11.3** and **R11.4**:
-- Pass a configurable `top-K` to generation, defaulting to 4–6 chunks (default 5).
-- Enforce a maximum retrieved-context token budget (hard ceiling).
-- Truncate strictly at chunk boundaries — never mid-chunk.
-- Provide clean citation IDs and structured formatting for prompt assembly.
+Implement **Task 3.13: Retrieval query builder** (`packages/retrieval/query_builder.py`), fulfilling requirements **R12.1, R12.2, R12.3, R12.4, R12.5, R12.6**:
+- Construct `RetrievalQuery` from `current email + thread summary + classification intent` without extra LLM calls (R12.1, R12.5).
+- Produce semantic query text and discrete lexical keywords as separate outputs (R12.2).
+- Extract structured identifiers (`INV-...`, `ORD-...`, `TICKET-...`, `SKU-...`, `CONT-...`, `INC-...`) via configurable regex and inject them into lexical query (R12.3).
+- Derive tenant, category, and metadata filters from classification (R12.4).
+- Support serialization to/from dictionary for durable job persistence and evaluation replay (R12.6).
+- Support degraded Phase 3 operation (`thread_summary=None`) while providing parameter for Phase 4 wiring.
+- Explicitly test that an identifier-bearing email (e.g. `INV-2026-01829`) retrieves the correct chunk where vector-only retrieval fails.
 
 ---
 
 ## Architecture & Data Flow
 
 ```
-Fused / Reranked Candidates
-             │
-             ▼
-┌─────────────────────────┐
-│ PackingPolicy / Config  │  ◄── [top_k (default 5), token_budget (default 2048)]
-└─────────────────────────┘
-             │
-             ▼
-┌─────────────────────────┐
-│ ContextPacker           │  ◄── TokenCounter (tiktoken BPE / fallback)
-│ - Candidate slice [:top_k]
-│ - Sequential token check│
-│ - Strict chunk boundary │
-│   truncation (never mid)│
-└─────────────────────────┘
-             │
-             ▼
-┌─────────────────────────┐
-│ PackedContext           │
-│ - chunks: [PackedChunk] │
-│ - total_tokens          │
-│ - truncated_by_budget   │
-│ - format_knowledge_sec()│
-└─────────────────────────┘
+NormalizedMessage + Classification (+ thread_summary: str | None)
+                               │
+                               ▼
+                ┌───────────────────────────────┐
+                │ RetrievalQueryBuilder         │
+                ├───────────────────────────────┤
+                │ 1. Regex Identifier Extractor │ ──► identifiers: ["INV-2026-01829", ...]
+                │ 2. Salient Keyword Extractor  │ ──► lexical_terms: ["discrepancy", "addon"]
+                │ 3. Semantic Composer          │ ──► semantic_text: "Intent: ... Email: ..."
+                │ 4. Filter Synthesizer         │ ──► filters: {org_id, category, status}
+                └───────────────────────────────┘
+                               │
+                               ▼
+                         RetrievalQuery
+                   (to_dict / from_dict enabled)
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+      Lexical Branch                        Vector Branch
+   (Exact Match on INV-...)             (Semantic Similarity)
 ```
 
 ---
 
 ## Assumptions
-1. Context packing operates on `Sequence[Candidate]` produced by `SearchBackend` / `HybridRetriever` / `RerankService`.
-2. Token counting uses `TokenCounter` (`packages/knowledge/token_counter.py` backed by `tiktoken` BPE `cl100k_base`) with support for a `TokenCounterProtocol` to allow mocking or custom tokenizers.
-3. If a chunk's addition would breach the `token_budget`, packing terminates at that chunk boundary. No partial or sliced text is ever included (R11.4).
-4. Default `top_k` is 5 (satisfying the 4–6 requirement in R11.3 and design.md §5.5). Default `token_budget` is 2048 tokens.
-5. All operations are pure, in-memory, deterministic, and hermetic without network access.
+1. Phase 3 executes in degraded mode where `thread_summary` is optional (`thread_summary: str | None = None`), ready to be provided by `thread_state` in Phase 4 without breaking the interface.
+2. The default query construction path is purely deterministic (regex + stopword filtering + string assembly), requiring 0 LLM calls (R12.5).
+3. Identifier patterns default to invoice (`INV`, `INVOICE`), order (`ORD`, `ORDER`), ticket (`TICK`, `TICKET`, `TKT`), SKU (`SKU`), container (`CONT`, `CONTAINER`), and incident (`INC`, `INCIDENT`), but can be extended or overridden via `QueryBuilderConfig`.
+4. In `RetrievalQuery`, `to_dict()` and `from_dict()` ensure lossless persistence for job records and replay debugging (R12.6).
 
 ---
 
 ## Plan
 
-### Step 1: Define Context Packing Models & Protocols
-- **Files:** `packages/retrieval/packing.py`, `packages/retrieval/__init__.py`
+### Step 1: Extend `RetrievalQuery` with Serialization
+- **Files:** `packages/retrieval/models.py`
 - **Changes:**
-  - Create `PackedChunk` dataclass: `chunk_id`, `document_id`, `content`, `token_count`, `citation_id`, `metadata`, `fused_score`, `rerank_score`.
-  - Create `PackedContext` dataclass: `chunks`, `total_tokens`, `token_budget`, `top_k`, `truncated_by_budget`, `candidate_count_initial`, `candidate_count_selected`, and `format_knowledge_section()`.
-  - Create `TokenCounterProtocol` (Protocol for `count_tokens(text: str) -> int`).
-  - Create `PackingConfig` dataclass supporting `default_top_k` (default 5), `default_token_budget` (default 2048), and per-tenant / per-category override maps.
-- **Verify:** `uv run python -c "from packages.retrieval.packing import PackedChunk, PackedContext; print('PackedChunk loaded')"`
+  - Add `to_dict()` method returning JSON-serializable dictionary.
+  - Add `@classmethod from_dict(cls, data: dict[str, Any]) -> RetrievalQuery`.
+- **Verify:** `uv run python -c "from packages.retrieval.models import RetrievalQuery; q = RetrievalQuery(semantic_text='test'); assert RetrievalQuery.from_dict(q.to_dict()).semantic_text == 'test'"`
 
-### Step 2: Implement `ContextPacker` Logic
-- **Files:** `packages/retrieval/packing.py`
+### Step 2: Implement `RetrievalQueryBuilder` & Regex Extractor
+- **Files:** `packages/retrieval/query_builder.py`, `packages/retrieval/__init__.py`
 - **Changes:**
-  - Implement `ContextPacker`:
-    - `__init__(token_counter: TokenCounterProtocol | None = None, config: PackingConfig | None = None)`
-    - `pack(candidates: Sequence[Candidate], *, top_k: int | None = None, token_budget: int | None = None, organization_id: str | None = None, category: str | None = None, citation_prefix: str = "") -> PackedContext`
-    - Resolves effective `top_k` and `token_budget`.
-    - Iterates over candidates up to `top_k`.
-    - Computes token count for each chunk.
-    - If `accumulated_tokens + chunk_tokens > token_budget`: marks `truncated_by_budget = True` and breaks without adding the chunk (chunk-boundary truncation).
-    - Assembles `PackedChunk` instances with sequential citations (e.g., `[1]`, `[2]`, ...).
-  - Export all new classes and functions in `packages/retrieval/__init__.py`.
-- **Verify:** `uv run ruff check packages/retrieval/ && uv run mypy packages/retrieval/packing.py`
+  - Define `DEFAULT_IDENTIFIER_PATTERNS` dictionary covering `invoice`, `order`, `ticket`, `sku`, `container`, `incident`.
+  - Define `QueryBuilderConfig` (custom regex patterns, stopwords set, category filter mapping, max keyword count).
+  - Implement `RetrievalQueryBuilder`:
+    - `extract_identifiers(text: str) -> list[str]`
+    - `extract_lexical_keywords(text: str) -> list[str]`
+    - `compose_semantic_text(subject: str, body: str, intent: str | None, thread_summary: str | None) -> str`
+    - `build(...) -> RetrievalQuery` accepting either `(message, classification, thread_summary=None)` or primitive arguments (`subject`, `body_text`, `category`, `intent`, `organization_id`).
+  - Export new symbols in `packages/retrieval/__init__.py`.
+- **Verify:** `uv run ruff check packages/retrieval/ && uv run mypy packages/retrieval/query_builder.py`
 
-### Step 3: Implement Comprehensive Unit Test Suite
-- **Files:** `tests/unit/test_packing.py`
+### Step 3: Implement Comprehensive Unit Tests & Retrieval Verification
+- **Files:** `tests/unit/test_query_builder.py`
 - **Changes:**
-  - Test default top-K (5 chunks returned when budget permits).
-  - Test custom top-K overriding defaults.
-  - Test hard token budget truncation at chunk boundaries:
-    - Candidate 1 (200 tokens) + Candidate 2 (300 tokens) fit in 600 budget.
-    - Candidate 3 (200 tokens) would breach 600 budget -> excluded, `truncated_by_budget=True`.
-    - Assert candidate 3 content does NOT appear in result or partial form.
-  - Test edge cases:
-    - First candidate exceeds total budget -> 0 chunks returned, strictly no mid-chunk text.
-    - Empty candidate list -> empty context with 0 tokens.
-    - Budget exactly equals sum of tokens -> all fit, `truncated_by_budget=False`.
-  - Test citation generation and formatting (`format_knowledge_section()`).
-  - Test tenant and category policy overrides.
-  - Test integration with `TokenCounter` and custom mock counters.
-- **Verify:** `uv run pytest tests/unit/test_packing.py --cov=packages.retrieval.packing --cov-report=term-missing -v` (100% coverage target).
+  - Test identifier extraction across all patterns (`INV-2026-01829`, `ORD-82915`, `TICKET-4401`, `SKU-992-A`, `CONT-1002`, `INC-9912`).
+  - Test lexical keyword extraction with stopword removal and deduplication.
+  - Test semantic text composition with and without `thread_summary` (Phase 3 degraded vs Phase 4).
+  - Test filter synthesis (`organization_id`, `category`, `status='active'`).
+  - Test `to_dict()` / `from_dict()` serialization fidelity (R12.6).
+  - Test zero-LLM assertion (pure synchronous/deterministic, sub-millisecond execution).
+  - **Explicit Retrieval Test:** Construct an email containing `INV-2026-01829`. Query `FakeSearchBackend` configured such that vector branch prefers a generic procedure doc, but lexical branch with the extracted identifier retrieves the exact invoice record. Assert that hybrid RRF fusion selects the exact invoice chunk as #1 candidate, proving identifier superiority.
+- **Verify:** `uv run pytest tests/unit/test_query_builder.py --cov=packages.retrieval.query_builder --cov-report=term-missing -v` (100% coverage target).
 
 ### Step 4: Architectural Integrity & Full Regression Validation
 - **Files:** N/A
 - **Changes:**
-  - Run architectural boundary suite: `uv run pytest tests/unit/test_dependency_rules.py -v`.
-  - Run full non-slow regression suite: `uv run pytest -m "not slow" -q`.
-  - Run static analysis: `uv run ruff check packages/ tests/ && uv run mypy packages/retrieval/ tests/unit/test_packing.py`.
-- **Verify:** All tests pass and zero linter/type errors.
+  - Run architectural boundary checks: `uv run pytest tests/unit/test_dependency_rules.py -v`.
+  - Run full regression suite: `uv run pytest -m "not slow" -q`.
+  - Run static analysis: `uv run ruff check packages/ tests/ && uv run mypy packages/retrieval/ tests/unit/test_query_builder.py`.
+- **Verify:** All tests pass and zero linter/type issues.
 
 ### Step 5: Update Task Queue & Git Commit
 - **Files:** `specs/tasks.md`
 - **Changes:**
-  - Mark Task 3.12 `[x]` in `specs/tasks.md`.
-  - Git commit: `feat(retrieval): context packing with hard token budget [task 3.12] [R11.3, R11.4]`.
+  - Mark Task 3.13 `[x]` in `specs/tasks.md`.
+  - Commit: `feat(retrieval): retrieval query builder and identifier extraction [task 3.13] [R12.1, R12.2, R12.3, R12.4, R12.5, R12.6]`.
 - **Verify:** `git log -1 --stat`
 
 ---
 
 ## Risks & Mitigations
-- **Risk:** Token counting divergence between tiktoken and fallback if tiktoken model files are not locally cached in offline environments.
-  - *Mitigation:* `TokenCounter` in `packages/knowledge/token_counter.py` already includes a resilient whitespace-heuristic fallback (`max(1, int(len(words) * 1.33))`), and `ContextPacker` accepts any injected `TokenCounterProtocol` for deterministic testing.
-- **Risk:** Mid-chunk slicing if an implementer tries to "fit as much as possible".
-  - *Mitigation:* Strict invariant: either the entire chunk fits, or it is rejected entirely (R11.4). Verified explicitly with unit tests.
+- **Risk:** Overly aggressive regexes matching false positive strings.
+  - *Mitigation:* Bounded word boundaries (`\b`), specific standard prefix tags (`INV`, `ORD`, `TICKET`, `SKU`, `CONT`, `INC`), and configurable pattern dictionaries allow tenant-specific overrides without code changes.
+- **Risk:** Missing thread context in Phase 3.
+  - *Mitigation:* Explicitly designed with `thread_summary: str | None = None` parameter so Phase 3 degrades gracefully without thread state, while Phase 4 can plug into the exact same signature.
 
 ---
 
 ## Rollback Plan
-If issues arise, `packages/retrieval/packing.py` and `tests/unit/test_packing.py` can be removed and `packages/retrieval/__init__.py` reverted via `git checkout`.
+If issues arise, `packages/retrieval/query_builder.py` and `tests/unit/test_query_builder.py` can be removed and `packages/retrieval/models.py` reverted via `git checkout`.
