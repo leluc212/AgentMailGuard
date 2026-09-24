@@ -404,6 +404,23 @@ class EmailThread:
     status: str = "open"
 
 
+@dataclass
+class ThreadState:
+    """Summarized conversation state per email thread (R5.2, R8.1, R8.6, design.md §6.1)."""
+
+    thread_id: UUID
+    organization_id: UUID
+    topic: str | None = None
+    current_intent: str | None = None
+    summary: str | None = None
+    open_questions: list[str] = field(default_factory=list)
+    resolved_items: list[str] = field(default_factory=list)
+    summarized_through_message_id: UUID | None = None
+    token_estimate: int | None = None
+    version: int = 1
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
 # Re-export knowledge entities for domain package consistency
 from packages.domain.knowledge import (  # noqa: E402
     DocumentElement,
@@ -441,4 +458,5 @@ __all__ = [
     "Subscription",
     "SyncResult",
     "ThreadRef",
+    "ThreadState",
 ]

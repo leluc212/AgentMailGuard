@@ -24,6 +24,7 @@ from packages.domain.entities import (
     Subscription,
     SyncResult,
     ThreadRef,
+    ThreadState,
 )
 from packages.domain.knowledge import (
     DocumentElement,
@@ -114,6 +115,7 @@ __all__ = [
     "TemplateRegistry",
     "TemplateRenderResult",
     "ThreadRef",
+    "ThreadState",
     "build_template_context",
     "get_category_definition",
     "get_default_registry",
