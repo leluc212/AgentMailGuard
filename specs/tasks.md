@@ -325,7 +325,7 @@
   - Contract test suite the PostgreSQL implementation must pass — and any future backend.
   - _Requirements: R10.7, R10.8_
 
-- [ ] **3.8 PostgresSearchBackend**
+- [x] **3.8 PostgresSearchBackend**
   - Implement the hybrid SQL from `design.md §5.5`; filters (organization, category, document status) applied **inside** each branch.
   - Configurable top-N per branch, default 20.
   - **Filtered-ANN under-fill (read `design.md §5.5` first).** HNSW post-filters, so a tenant-scoped vector query can silently return far fewer than top-N. Detect `count < top_n` ⇒ set `retrieval_underfilled=true` and export the metric; widen via `hnsw.ef_search` / iterative scans before degrading.

@@ -3,17 +3,20 @@
 Requirements:
 - R10.7: SearchBackend interface abstraction.
 - R10.8: Candidate models carrying both ranks and both scores.
-- Task 3.7: SearchBackend interface and contract test suite.
+- R10.1: PostgresSearchBackend implementation.
+- Task 3.7 & 3.8: SearchBackend interface and PostgreSQL implementation.
 """
 
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.models import Candidate, RetrievalQuery
+from packages.retrieval.postgres import PostgresSearchBackend
 from packages.retrieval.protocol import SearchBackend
 from packages.retrieval.testing import SearchBackendContractSuite
 
 __all__ = [
     "Candidate",
     "FakeSearchBackend",
+    "PostgresSearchBackend",
     "RetrievalQuery",
     "SearchBackend",
     "SearchBackendContractSuite",

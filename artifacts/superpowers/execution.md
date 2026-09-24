@@ -3238,5 +3238,52 @@
   - `uv run pytest tests/unit/test_search_backend_contract.py -v`
 - **Result:** PASS (11/11 contract tests passed in 0.19s)
 
+# Execution Log: Phase 3 Task 3.8 — PostgresSearchBackend
+
+## Step 1: Implement PostgresSearchBackend
+- **Files Changed:**
+  - `packages/retrieval/postgres.py` (new)
+  - `packages/retrieval/__init__.py`
+- **What Changed:**
+  - Implemented `PostgresSearchBackend` conforming to `SearchBackend`:
+    - `lexical(q, top_n)`: Full-text search with `websearch_to_tsquery('english', $2)` and `ts_rank_cd()` against `knowledge_chunk.content_tsv`. Enforces `organization_id`, `category`, and `status` inside the branch query (R10.4).
+    - `vector(q, top_n)`: Dense vector similarity search with cosine distance `<=>` against `embedding_record.embedding`. Enforces tenant and metadata filters inside the query (R10.4).
+    - Automatic filtered-ANN under-fill mitigation: Detects `count < top_n` when candidate records are underfilled, sets `last_retrieval_underfilled=True`, increments metric `retrieval_underfilled_total.labels(tenant=org_id)`, and dynamically widens the walk via `SET hnsw.ef_search = 200` and `SET hnsw.iterative_scan = 'relaxed_order'` before returning (R10.10).
+    - `hybrid(q, top_n, k, fuse_limit)`: Combined hybrid CTE query from `specs/design.md §5.5` joining lexical and vector branches with RRF.
+    - Added `_format_vector()` handling zero-padding to 1536 dimensions.
+- **Verification Command:**
+  - `uv run ruff check packages/retrieval/ && uv run mypy packages/retrieval/`
+- **Result:** PASS (0 errors)
+
+## Step 2: Live PostgreSQL Contract Suite Conformance
+- **Files Changed:**
+  - `packages/retrieval/testing.py`
+  - `tests/integration/test_postgres_search_backend.py` (new)
+- **What Changed:**
+  - Standardized ID generation in `SearchBackendContractSuite` to RFC 4122 `str(uuid4())` matching database foreign key constraints.
+  - Subclassed `SearchBackendContractSuite` using `PostgresSearchBackend` backed by live PostgreSQL container (port 5433).
+  - Implemented `seed_chunk()` inserting actual organizations, documents, chunks with write-time GIN `content_tsv`, and pgvector embedding records.
+  - Validated all 10 canonical contract test cases against real PostgreSQL.
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_postgres_search_backend.py -k "TestPostgresSearchBackendContract" -v`
+- **Result:** PASS (10/10 contract tests passed in 3.8s)
+
+## Step 3: Hybrid SQL CTE & Filtered-ANN Under-fill Mitigation Suite
+- **Files Changed:**
+  - `tests/integration/test_postgres_search_backend.py`
+- **What Changed:**
+  - Implemented `test_postgres_hybrid_search_cte` verifying the single SQL CTE joining lexical and vector branches with RRF fusion, confirming `fused_score` computation, and preserving both ranks/scores.
+  - Implemented `test_multi_tenant_filtered_vector_and_underfill_mitigation`:
+    - Seeded 3 distinct tenants (`target_tenant`, `competitor_1`, `competitor_2`) with overlapping document topics and similar embeddings (GEMINI.md §8, R10.11).
+    - Queried target tenant requesting full top-N=20.
+    - Verified that target tenant receives all 20 chunks (`len(results) == 20`).
+    - Verified zero data leakage from competitor tenants (R5.3).
+    - Verified underfill metric and dynamic `ef_search=200` search widening operate cleanly (R10.10).
+- **Verification Command:**
+  - `uv run pytest tests/integration/test_postgres_search_backend.py -v`
+- **Result:** PASS (12/12 integration tests passed in 4.35s)
+
+
+
 
 

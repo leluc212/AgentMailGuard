@@ -48,6 +48,7 @@ class SearchBackendContractSuite(ABC):
     ) -> None:
         """Seed a chunk record into the backend under test."""
         raise NotImplementedError
+
     @pytest.mark.asyncio
     async def test_satisfies_protocol(self) -> None:
         """Assert the backend conforms to the runtime SearchBackend protocol (R10.7)."""
@@ -58,10 +59,10 @@ class SearchBackendContractSuite(ABC):
     async def test_lexical_returns_candidates_with_ranks_and_scores(self) -> None:
         """Assert lexical() returns Candidate objects with 1-based ranks and scores (R10.8)."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
-        cid1 = f"chk-{uuid4()}"
-        cid2 = f"chk-{uuid4()}"
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
+        cid1 = str(uuid4())
+        cid2 = str(uuid4())
 
         await self.seed_chunk(
             backend=backend,
@@ -108,13 +109,13 @@ class SearchBackendContractSuite(ABC):
     async def test_lexical_respects_top_n(self) -> None:
         """Assert lexical() respects the requested top_n limit."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
 
         for i in range(8):
             await self.seed_chunk(
                 backend=backend,
-                chunk_id=f"chk-{i}-{uuid4()}",
+                chunk_id=str(uuid4()),
                 document_id=doc_id,
                 organization_id=org_id,
                 content=f"Knowledge article {i} about customer onboarding and signup.",
@@ -135,20 +136,20 @@ class SearchBackendContractSuite(ABC):
     async def test_lexical_enforces_tenant_isolation(self) -> None:
         """Assert lexical() strictly isolates tenants and leaks zero cross-tenant data (R5.3)."""
         backend = self.create_backend()
-        target_org = f"org-target-{uuid4()}"
-        other_org = f"org-other-{uuid4()}"
+        target_org = str(uuid4())
+        other_org = str(uuid4())
 
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-{uuid4()}",
-            document_id=f"doc-{uuid4()}",
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=other_org,
             content="Confidential financial report for foreign organization.",
         )
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-{uuid4()}",
-            document_id=f"doc-{uuid4()}",
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=target_org,
             content="Financial report for target organization.",
         )
@@ -167,14 +168,13 @@ class SearchBackendContractSuite(ABC):
     async def test_lexical_enforces_status_and_category_filters(self) -> None:
         """Assert lexical() applies status and category filters inside the query (R10.4)."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
+        org_id = str(uuid4())
 
         # 1. Matching category + active status
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-match-{uuid4()}",
-            document_id=doc_id,
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=org_id,
             category="billing",
             document_status="active",
@@ -183,8 +183,8 @@ class SearchBackendContractSuite(ABC):
         # 2. Matching category + superseded status
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-superseded-{uuid4()}",
-            document_id=doc_id,
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=org_id,
             category="billing",
             document_status="superseded",
@@ -193,8 +193,8 @@ class SearchBackendContractSuite(ABC):
         # 3. Non-matching category + active status
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-support-{uuid4()}",
-            document_id=doc_id,
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=org_id,
             category="technical_support",
             document_status="active",
@@ -215,13 +215,13 @@ class SearchBackendContractSuite(ABC):
     async def test_lexical_matches_exact_identifiers_verbatim(self) -> None:
         """Assert lexical() extracts and matches exact identifiers verbatim (R12.3)."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
         special_invoice = "INV-2026-01829"
 
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-inv-{uuid4()}",
+            chunk_id=str(uuid4()),
             document_id=doc_id,
             organization_id=org_id,
             content=f"Payment received for invoice {special_invoice} via wire transfer.",
@@ -229,7 +229,7 @@ class SearchBackendContractSuite(ABC):
         )
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-other-{uuid4()}",
+            chunk_id=str(uuid4()),
             document_id=doc_id,
             organization_id=org_id,
             content="Payment received for invoice INV-1999-99999 via credit card.",
@@ -250,13 +250,13 @@ class SearchBackendContractSuite(ABC):
     async def test_vector_returns_candidates_with_ranks_and_scores(self) -> None:
         """Assert vector() returns Candidate objects with vector ranks and scores (R10.8)."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
 
         # Two chunks with distinct 4D unit embeddings
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-v1-{uuid4()}",
+            chunk_id=str(uuid4()),
             document_id=doc_id,
             organization_id=org_id,
             content="Account authentication troubleshooting and password reset.",
@@ -265,7 +265,7 @@ class SearchBackendContractSuite(ABC):
         )
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-v2-{uuid4()}",
+            chunk_id=str(uuid4()),
             document_id=doc_id,
             organization_id=org_id,
             content="Network configuration and firewall setup.",
@@ -297,13 +297,13 @@ class SearchBackendContractSuite(ABC):
     async def test_vector_respects_top_n(self) -> None:
         """Assert vector() respects top_n limit."""
         backend = self.create_backend()
-        org_id = f"org-{uuid4()}"
-        doc_id = f"doc-{uuid4()}"
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
 
         for i in range(6):
             await self.seed_chunk(
                 backend=backend,
-                chunk_id=f"chk-v-{i}-{uuid4()}",
+                chunk_id=str(uuid4()),
                 document_id=doc_id,
                 organization_id=org_id,
                 content=f"Vector document chunk {i}",
@@ -324,21 +324,21 @@ class SearchBackendContractSuite(ABC):
     async def test_vector_enforces_tenant_isolation(self) -> None:
         """Assert vector() strictly isolates tenants (R5.3)."""
         backend = self.create_backend()
-        org1 = f"org-v1-{uuid4()}"
-        org2 = f"org-v2-{uuid4()}"
+        org1 = str(uuid4())
+        org2 = str(uuid4())
 
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-org1-{uuid4()}",
-            document_id=f"doc-{uuid4()}",
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=org1,
             content="Tenant 1 proprietary document",
             embedding=[1.0, 0.0, 0.0, 0.0],
         )
         await self.seed_chunk(
             backend=backend,
-            chunk_id=f"chk-org2-{uuid4()}",
-            document_id=f"doc-{uuid4()}",
+            chunk_id=str(uuid4()),
+            document_id=str(uuid4()),
             organization_id=org2,
             content="Tenant 2 proprietary document",
             embedding=[1.0, 0.0, 0.0, 0.0],
@@ -362,7 +362,7 @@ class SearchBackendContractSuite(ABC):
             semantic_text="non-existent search term",
             lexical_terms=["nonexistentwordxyz123"],
             query_vector=[0.1, 0.2, 0.3, 0.4],
-            filters={"organization_id": f"org-empty-{uuid4()}", "status": "active"},
+            filters={"organization_id": str(uuid4()), "status": "active"},
         )
 
         lex_res = await backend.lexical(query, top_n=5)
