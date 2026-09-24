@@ -139,7 +139,9 @@ class SinglePassGenerator:
                 if hasattr(effective_tier, "value")
                 else str(effective_tier)
             )
-            if hasattr(self.metrics, "llm_calls_total"):
+            if hasattr(self.metrics, "llm_calls_total") and not (
+                isinstance(budgeted, BudgetedLLMProvider) and budgeted.metrics is self.metrics
+            ):
                 self.metrics.llm_calls_total.labels(kind="generate", model=result.model).inc()
             if hasattr(self.metrics, "generation_latency_ms"):
                 try:

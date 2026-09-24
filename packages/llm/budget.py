@@ -64,7 +64,12 @@ class CallBudgetTracker:
     MAX_REPAIR: int = 1
     BUDGET_CEILING: int = 4
 
-    def __init__(self, job_id: str | None = None) -> None:
+    def __init__(
+        self,
+        job_id: str | None = None,
+        metrics: PipelineMetrics | Any | None = None,
+    ) -> None:
+        self.metrics = metrics
         self.job_id = job_id
         self._calls: list[CallRecord] = []
         self._counts: dict[CallKind, int] = dict.fromkeys(CallKind, 0)
@@ -183,11 +188,12 @@ class CallBudgetTracker:
             "total": self.total_calls,
         }
 
-    def export_metrics(self, metrics: PipelineMetrics | Any) -> None:
+    def export_metrics(self, metrics: PipelineMetrics | Any | None = None) -> None:
         """Export call counts into Prometheus metrics (R21.4)."""
-        if metrics is None or not hasattr(metrics, "llm_calls_per_job"):
+        target_metrics = metrics if metrics is not None else self.metrics
+        if target_metrics is None or not hasattr(target_metrics, "llm_calls_per_job"):
             return
-        histogram = metrics.llm_calls_per_job
+        histogram = target_metrics.llm_calls_per_job
         try:
             for kind in CallKind:
                 histogram.labels(kind=kind.value).observe(self.count(kind))
@@ -204,10 +210,12 @@ class BudgetedLLMProvider(LLMProvider):
         provider: LLMProvider,
         tracker: CallBudgetTracker | None = None,
         default_kind: CallKind = CallKind.GENERATE,
+        metrics: PipelineMetrics | Any | None = None,
     ) -> None:
         self.provider = provider
         self._tracker = tracker if tracker is not None else CallBudgetTracker()
         self.default_kind = default_kind
+        self.metrics = metrics
 
     @property
     def tracker(self) -> CallBudgetTracker:
@@ -251,4 +259,6 @@ class BudgetedLLMProvider(LLMProvider):
             tokens_in=result.input_tokens,
             tokens_out=result.output_tokens,
         )
+        if self.metrics is not None and hasattr(self.metrics, "llm_calls_total"):
+            self.metrics.llm_calls_total.labels(kind=kind.value, model=result.model).inc()
         return result

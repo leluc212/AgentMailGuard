@@ -410,7 +410,7 @@
   - Versioned prompt templates; `prompt_version` recorded on every draft.
   - _Requirements: R14.1, R14.2, R14.6_
 
-- [ ] **4.7 Single-pass generation path & call budget**
+- [x] **4.7 Single-pass generation path & call budget**
   - One retrieval + one **generation** call for a normal email. No planner/critic/writer chain.
   - Assert **exactly one generation call per job** — not "one LLM call per job", which would contradict threshold summarization (4.2) and the triage-LLM fallback (2.4).
   - Enforce the full budget from `design.md §5.7`: ≤1 triage + ≤1 summarization + exactly 1 generation + ≤1 repair. Ceiling 4, common case 1.
