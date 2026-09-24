@@ -347,7 +347,7 @@
   - Unavailable ⇒ fall back to RRF order, record the fallback.
   - _Requirements: R11.1, R11.2, R11.5_
 
-- [ ] **3.12 Context packing**
+- [x] **3.12 Context packing**
   - Configurable Top-K (default 4–6); hard token budget; truncate only at chunk boundaries.
   - _Requirements: R11.3, R11.4_
 

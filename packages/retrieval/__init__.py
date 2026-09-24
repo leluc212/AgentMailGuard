@@ -9,6 +9,13 @@ Requirements:
 
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.models import Candidate, RetrievalQuery
+from packages.retrieval.packing import (
+    ContextPacker,
+    PackedChunk,
+    PackedContext,
+    PackingConfig,
+    TokenCounterProtocol,
+)
 from packages.retrieval.postgres import PostgresSearchBackend
 from packages.retrieval.protocol import SearchBackend
 from packages.retrieval.rerank import (
@@ -31,10 +38,14 @@ from packages.retrieval.testing import SearchBackendContractSuite
 
 __all__ = [
     "Candidate",
+    "ContextPacker",
     "CrossEncoderReranker",
     "DEFAULT_RRF_K",
     "FakeSearchBackend",
     "HybridRetriever",
+    "PackedChunk",
+    "PackedContext",
+    "PackingConfig",
     "PostgresSearchBackend",
     "RerankPolicy",
     "RerankResult",
@@ -47,6 +58,7 @@ __all__ = [
     "SearchBackend",
     "SearchBackendContractSuite",
     "StubReranker",
+    "TokenCounterProtocol",
     "compute_rrf_score",
     "fuse_lexical_and_vector",
     "reciprocal_rank_fusion",
