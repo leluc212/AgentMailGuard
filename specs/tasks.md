@@ -380,7 +380,7 @@
   - Optimistic concurrency on `version`; concurrent workers on one thread must not lose updates (add a concurrency test).
   - _Requirements: R8.1, R8.6_
 
-- [ ] **4.2 Summarization policy**
+- [x] **4.2 Summarization policy**
   - Below threshold ⇒ verbatim recent messages, no summarization call.
   - `message_count > threshold` OR `estimated_context_tokens > threshold` ⇒ (re)summarize; record `summarized_through_message_id`.
   - Assert in tests that a short thread triggers zero summarization calls.
