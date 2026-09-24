@@ -111,13 +111,22 @@ class SinglePassGenerator:
         else:
             tracker = CallBudgetTracker()
 
+        effective_metrics = self.metrics or getattr(self.llm_provider, "metrics", None)
         if isinstance(self.llm_provider, BudgetedLLMProvider):
             if self.llm_provider.tracker is tracker:
                 budgeted = self.llm_provider
             else:
-                budgeted = BudgetedLLMProvider(self.llm_provider.provider, tracker=tracker)
+                budgeted = BudgetedLLMProvider(
+                    self.llm_provider.provider,
+                    tracker=tracker,
+                    metrics=effective_metrics,
+                )
         else:
-            budgeted = BudgetedLLMProvider(self.llm_provider, tracker=tracker)
+            budgeted = BudgetedLLMProvider(
+                self.llm_provider,
+                tracker=tracker,
+                metrics=effective_metrics,
+            )
 
         # 8. Execute generation
         result = await budgeted.generate(
@@ -158,7 +167,8 @@ class SinglePassGenerator:
                 self.metrics.output_tokens_total.labels(model=result.model, tier=tier_label).inc(
                     result.output_tokens
                 )
-            tracker.export_metrics(self.metrics)
+            if budget_tracker is None:
+                tracker.export_metrics(self.metrics)
 
         # 11. Return GenerationResult
         return GenerationResult(

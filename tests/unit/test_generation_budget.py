@@ -550,7 +550,7 @@ async def test_metrics_validation_all_kinds(
         if s.name == "llm_calls_per_job_count"
     }
     for kind_label in ["triage", "summarize", "generate", "repair", "total"]:
-        assert observed_counts.get(kind_label, 0.0) >= 1.0, (
+        assert observed_counts.get(kind_label, 0.0) == 1.0, (
             f"Expected observation for {kind_label!r}"
         )
 
@@ -629,3 +629,38 @@ async def test_integration_context_builder_to_single_pass_generator(
     assert result.content["action"] == "reply"
     assert result.content["knowledge_chunks"] == [chunk_id]
     assert result.content["confidence"] == 0.98
+
+
+@pytest.mark.asyncio
+async def test_metrics_export_idempotency_and_outer_lifecycle(
+    profile_registry: AgentProfileRegistry,
+    canned_reply: dict[str, Any],
+) -> None:
+    """Verify export_metrics is idempotent and generator defers export when tracker is supplied."""
+    reg = CollectorRegistry(auto_describe=True)
+    metrics = create_pipeline_metrics(registry=reg)
+
+    tracker = CallBudgetTracker(job_id="job-idempotency", metrics=metrics)
+    tracker.record_call(CallKind.GENERATE)
+
+    # First export marks _metrics_exported = True
+    assert tracker._metrics_exported is False
+    tracker.export_metrics(metrics)
+    assert tracker._metrics_exported is True
+
+    # Check initial observation count
+    initial_counts = {
+        s.labels["kind"]: s.value
+        for s in list(metrics.llm_calls_per_job.collect())[0].samples
+        if s.name == "llm_calls_per_job_count"
+    }
+    assert initial_counts["generate"] == 1.0
+
+    # Second export call must be a no-op (no duplicate observations)
+    tracker.export_metrics(metrics)
+    subsequent_counts = {
+        s.labels["kind"]: s.value
+        for s in list(metrics.llm_calls_per_job.collect())[0].samples
+        if s.name == "llm_calls_per_job_count"
+    }
+    assert subsequent_counts["generate"] == 1.0

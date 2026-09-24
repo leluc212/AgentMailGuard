@@ -71,6 +71,7 @@ class CallBudgetTracker:
     ) -> None:
         self.metrics = metrics
         self.job_id = job_id
+        self._metrics_exported: bool = False
         self._calls: list[CallRecord] = []
         self._counts: dict[CallKind, int] = dict.fromkeys(CallKind, 0)
 
@@ -190,6 +191,8 @@ class CallBudgetTracker:
 
     def export_metrics(self, metrics: PipelineMetrics | Any | None = None) -> None:
         """Export call counts into Prometheus metrics (R21.4)."""
+        if self._metrics_exported:
+            return
         target_metrics = metrics if metrics is not None else self.metrics
         if target_metrics is None or not hasattr(target_metrics, "llm_calls_per_job"):
             return
@@ -200,6 +203,7 @@ class CallBudgetTracker:
             histogram.labels(kind="total").observe(self.total_calls)
         except (ValueError, TypeError, AttributeError):
             histogram.observe(self.total_calls)
+        self._metrics_exported = True
 
 
 class BudgetedLLMProvider(LLMProvider):
