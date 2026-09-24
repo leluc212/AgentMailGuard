@@ -23,6 +23,7 @@ from packages.llm.protocol import (
     LLMTimeoutError,
     ModelTier,
 )
+from packages.llm.testing import LLMProviderContractSuite
 
 __all__ = [
     "AnthropicLLMProvider",
@@ -35,6 +36,7 @@ __all__ = [
     "HttpLLMProvider",
     "LLMError",
     "LLMProvider",
+    "LLMProviderContractSuite",
     "LLMResponseError",
     "LLMResult",
     "LLMSchemaValidationError",
