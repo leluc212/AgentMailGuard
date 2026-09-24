@@ -252,6 +252,13 @@ async def test_budgeted_llm_provider_explicit_call_kind() -> None:
     assert budgeted.tracker.count(CallKind.TRIAGE) == 1
     assert budgeted.tracker.count(CallKind.GENERATE) == 0
 
+    # Also test passing string call_kind
+    messages2 = [ChatMessage(role="user", content="Summarize")]
+    result2 = await budgeted.generate(messages=messages2, call_kind="summarize")
+    assert result2 is not None
+    assert budgeted.tracker.total_calls == 2
+    assert budgeted.tracker.count(CallKind.SUMMARIZE) == 1
+
 
 @pytest.mark.asyncio
 async def test_budgeted_llm_provider_exceeded_error_prevents_invocation() -> None:

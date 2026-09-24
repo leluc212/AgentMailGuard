@@ -242,11 +242,13 @@ class BudgetedLLMProvider(LLMProvider):
         tier: ModelTier = ModelTier.FAST,
         max_tokens: int = 1000,
         temperature: float = 0.0,
-        call_kind: CallKind | None = None,
+        call_kind: CallKind | str | None = None,
         **params: Any,
     ) -> LLMResult:
         """Execute model generation while enforcing budget checks and accounting."""
-        kind = call_kind or self.default_kind
+        kind = (
+            CallKind(call_kind) if isinstance(call_kind, str) else (call_kind or self.default_kind)
+        )
         self.tracker.check_can_call(kind)
         result = await self.provider.generate(
             messages=messages,
