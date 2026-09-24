@@ -375,7 +375,7 @@
 
 *Deliverable: email + thread + RAG → generated draft.*
 
-- [ ] **4.1 Thread state store**
+- [x] **4.1 Thread state store**
   - `thread_state` read/write with `topic`, `current_intent`, `summary`, `open_questions[]`, `resolved_items[]`.
   - Optimistic concurrency on `version`; concurrent workers on one thread must not lose updates (add a concurrency test).
   - _Requirements: R8.1, R8.6_
