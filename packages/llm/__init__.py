@@ -22,6 +22,10 @@ from packages.llm.client import (
 )
 from packages.llm.factory import create_llm_provider
 from packages.llm.fake import FakeLLMProvider
+from packages.llm.generator import (
+    GenerationResult,
+    SinglePassGenerator,
+)
 from packages.llm.profile import (
     AgentProfile,
     AgentProfileRegistry,
@@ -56,6 +60,7 @@ __all__ = [
     "DEFAULT_MODEL_MAP",
     "DEFAULT_OPENAI_MODELS",
     "FakeLLMProvider",
+    "GenerationResult",
     "HttpLLMProvider",
     "LLMError",
     "LLMProvider",
@@ -67,5 +72,6 @@ __all__ = [
     "LocalLLMProvider",
     "ModelTier",
     "OpenAILLMProvider",
+    "SinglePassGenerator",
     "create_llm_provider",
 ]
