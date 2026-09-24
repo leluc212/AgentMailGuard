@@ -14,6 +14,10 @@ from packages.llm.client import (
 )
 from packages.llm.factory import create_llm_provider
 from packages.llm.fake import FakeLLMProvider
+from packages.llm.profile import (
+    AgentProfile,
+    ContextPolicy,
+)
 from packages.llm.protocol import (
     ChatMessage,
     LLMError,
@@ -27,8 +31,10 @@ from packages.llm.protocol import (
 from packages.llm.testing import LLMProviderContractSuite
 
 __all__ = [
+    "AgentProfile",
     "AnthropicLLMProvider",
     "ChatMessage",
+    "ContextPolicy",
     "DEFAULT_ANTHROPIC_MODELS",
     "DEFAULT_LOCAL_MODELS",
     "DEFAULT_MODEL_MAP",

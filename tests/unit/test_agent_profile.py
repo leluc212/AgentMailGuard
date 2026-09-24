@@ -60,3 +60,54 @@ def test_agent_profiles_yaml_valid() -> None:
     assert tech["context_policy"] == "thread_plus_rag"
     assert tech["prompt_template"] == "prompts/support.v1.j2"
     assert tech["output_schema"] == "schemas/reply.v1.json"
+
+
+def test_agent_profile_creation() -> None:
+    """Verify AgentProfile model instantiation with all required R14.1/R14.6 attributes."""
+    from packages.llm.profile import AgentProfile, ContextPolicy
+    from packages.llm.protocol import ModelTier
+
+    profile = AgentProfile(
+        profile="technical_support",
+        knowledge_domain="support",
+        response_style="professional",
+        model_tier=ModelTier.ROUTINE,
+        context_policy=ContextPolicy.THREAD_PLUS_RAG,
+        prompt_template="prompts/support.v1.j2",
+        output_schema="schemas/reply.v1.json",
+        prompt_version="support.v1",
+        categories=["support", "technical_support"],
+        category_instructions="Troubleshoot technical issues.",
+        description="Support profile",
+    )
+    assert profile.profile == "technical_support"
+    assert profile.knowledge_domain == "support"
+    assert profile.response_style == "professional"
+    assert profile.model_tier == ModelTier.ROUTINE
+    assert profile.context_policy == ContextPolicy.THREAD_PLUS_RAG
+    assert profile.prompt_template == "prompts/support.v1.j2"
+    assert profile.output_schema == "schemas/reply.v1.json"
+    assert profile.prompt_version == "support.v1"
+    assert profile.categories == ["support", "technical_support"]
+    assert profile.category_instructions == "Troubleshoot technical issues."
+
+
+def test_agent_profile_defaults() -> None:
+    """Verify default values for optional AgentProfile fields."""
+    from packages.llm.profile import AgentProfile, ContextPolicy
+    from packages.llm.protocol import ModelTier
+
+    profile = AgentProfile(
+        profile="minimal_profile",
+        knowledge_domain="general",
+        response_style="concise",
+        prompt_template="prompts/general.v1.j2",
+        output_schema="schemas/reply.v1.json",
+        prompt_version="general.v1",
+    )
+    assert profile.model_tier == ModelTier.ROUTINE
+    assert profile.context_policy == ContextPolicy.THREAD_PLUS_RAG
+    assert profile.categories == []
+    assert profile.agent_instructions is None
+    assert profile.category_instructions is None
+
