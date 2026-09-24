@@ -64,6 +64,7 @@ class PipelineMetrics:
     estimated_ai_cost_total: Counter
     llm_calls_total: Counter
     retrieval_underfilled_total: Counter
+    retrieval_degraded_total: Counter
     subscription_renewals_total: Counter
     raw_payloads_archived_total: Counter
     reaped_leases_total: Counter
@@ -185,6 +186,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "retrieval_underfilled_total",
             "Count of filtered HNSW queries returning fewer than top-N candidates",
             ["tenant"],
+            registry=reg,
+        ),
+        retrieval_degraded_total=Counter(
+            "retrieval_degraded_total",
+            "Total times hybrid retrieval degraded to a single branch due to failure or timeout",
+            ["tenant", "failed_branch"],
             registry=reg,
         ),
         subscription_renewals_total=Counter(

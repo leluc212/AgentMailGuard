@@ -337,7 +337,7 @@
   - Pure-function unit tests: disjoint lists, identical lists, single-branch, ties.
   - _Requirements: R10.3, R24.3_
 
-- [ ] **3.10 Concurrent branch execution & degradation**
+- [x] **3.10 Concurrent branch execution & degradation**
   - Run lexical and vector concurrently; per-branch timeout.
   - One branch failing or timing out ⇒ continue on the survivor, record `retrieval_degraded=true`.
   - _Requirements: R10.5, R10.6, R10.9_
