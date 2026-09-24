@@ -1,110 +1,95 @@
-# Implementation Plan: Task 3.13 Retrieval Query Builder
+# Implementation Plan: Task 3.14 Retrieval Latency Metrics
 
 ## Goal
-Implement **Task 3.13: Retrieval query builder** (`packages/retrieval/query_builder.py`), fulfilling requirements **R12.1, R12.2, R12.3, R12.4, R12.5, R12.6**:
-- Construct `RetrievalQuery` from `current email + thread summary + classification intent` without extra LLM calls (R12.1, R12.5).
-- Produce semantic query text and discrete lexical keywords as separate outputs (R12.2).
-- Extract structured identifiers (`INV-...`, `ORD-...`, `TICKET-...`, `SKU-...`, `CONT-...`, `INC-...`) via configurable regex and inject them into lexical query (R12.3).
-- Derive tenant, category, and metadata filters from classification (R12.4).
-- Support serialization to/from dictionary for durable job persistence and evaluation replay (R12.6).
-- Support degraded Phase 3 operation (`thread_summary=None`) while providing parameter for Phase 4 wiring.
-- Explicitly test that an identifier-bearing email (e.g. `INV-2026-01829`) retrieves the correct chunk where vector-only retrieval fails.
+Implement and verify **Task 3.14: Retrieval latency metrics**, fulfilling requirements **R11.6, R21.4, R21.5, NFR5, NFR6**:
+- Record `retrieval_latency_ms` and `rerank_latency_ms` separately as Prometheus histograms (R11.6, R21.4, R21.5).
+- Ensure latency bucket distributions cleanly bracket project SLO targets:
+  - NFR5: Hybrid retrieval target (50–250 ms).
+  - NFR6: Reranking target (20–200 ms).
+- Ensure comprehensive observation across all execution paths: normal hybrid execution, degraded single-branch execution, full branch failure, rerank success, rerank timeout, and rerank error/fallback.
+- Provide helper instrumentation functions for safe, uniform latency recording.
 
 ---
 
 ## Architecture & Data Flow
 
 ```
-NormalizedMessage + Classification (+ thread_summary: str | None)
-                               │
-                               ▼
-                ┌───────────────────────────────┐
-                │ RetrievalQueryBuilder         │
-                ├───────────────────────────────┤
-                │ 1. Regex Identifier Extractor │ ──► identifiers: ["INV-2026-01829", ...]
-                │ 2. Salient Keyword Extractor  │ ──► lexical_terms: ["discrepancy", "addon"]
-                │ 3. Semantic Composer          │ ──► semantic_text: "Intent: ... Email: ..."
-                │ 4. Filter Synthesizer         │ ──► filters: {org_id, category, status}
-                └───────────────────────────────┘
-                               │
-                               ▼
-                         RetrievalQuery
-                   (to_dict / from_dict enabled)
-                               │
-            ┌──────────────────┴──────────────────┐
-            ▼                                     ▼
-      Lexical Branch                        Vector Branch
-   (Exact Match on INV-...)             (Semantic Similarity)
+HybridRetriever.retrieve()                 RerankService.rerank()
+         │                                          │
+         ├────────────────────────┐                 ├────────────────────────┐
+         ▼                        ▼                 ▼                        ▼
+  lexical + vector         total_latency_ms   CrossEncoder / Stub       elapsed_ms
+         │                        │                 │                        │
+         ▼                        ▼                 ▼                        ▼
+  RetrievalResult           Prometheus       RerankResult              Prometheus
+                     retrieval_latency_ms                         rerank_latency_ms
+                     (labels: mode)                               (separate histogram)
 ```
 
 ---
 
 ## Assumptions
-1. Phase 3 executes in degraded mode where `thread_summary` is optional (`thread_summary: str | None = None`), ready to be provided by `thread_state` in Phase 4 without breaking the interface.
-2. The default query construction path is purely deterministic (regex + stopword filtering + string assembly), requiring 0 LLM calls (R12.5).
-3. Identifier patterns default to invoice (`INV`, `INVOICE`), order (`ORD`, `ORDER`), ticket (`TICK`, `TICKET`, `TKT`), SKU (`SKU`), container (`CONT`, `CONTAINER`), and incident (`INC`, `INCIDENT`), but can be extended or overridden via `QueryBuilderConfig`.
-4. In `RetrievalQuery`, `to_dict()` and `from_dict()` ensure lossless persistence for job records and replay debugging (R12.6).
+1. `PipelineMetrics` (`packages/observability/metrics.py`) manages the authoritative Prometheus registry instruments.
+2. `retrieval_latency_ms` and `rerank_latency_ms` are distinct histograms, enabling independent p50/p95/p99 latency calculations without conflating database retrieval time with model inference time (R11.6).
+3. Metric emission never blocks or crashes pipeline execution (guaranteed via `contextlib.suppress(Exception)`).
+4. `retrieval_latency_ms` tracks `mode` (`hybrid`, `degraded`, `failed`), while `rerank_latency_ms` captures overall rerank stage duration.
 
 ---
 
 ## Plan
 
-### Step 1: Extend `RetrievalQuery` with Serialization
-- **Files:** `packages/retrieval/models.py`
+### Step 1: Enhance Latency Recording across All Paths
+- **Files:** `packages/retrieval/retriever.py`, `packages/retrieval/rerank.py`, `packages/observability/metrics.py`
 - **Changes:**
-  - Add `to_dict()` method returning JSON-serializable dictionary.
-  - Add `@classmethod from_dict(cls, data: dict[str, Any]) -> RetrievalQuery`.
-- **Verify:** `uv run python -c "from packages.retrieval.models import RetrievalQuery; q = RetrievalQuery(semantic_text='test'); assert RetrievalQuery.from_dict(q.to_dict()).semantic_text == 'test'"`
+  - In `packages/observability/metrics.py`:
+    - Add helper functions: `record_retrieval_latency(metrics: PipelineMetrics, latency_ms: float, mode: str)` and `record_rerank_latency(metrics: PipelineMetrics, latency_ms: float)`.
+    - Verify `RETRIEVAL_BUCKETS` (10, 25, 50, 100, 250, 500, 1000, 2500, 5000) and `RERANK_BUCKETS` (10, 25, 50, 100, 250, 500, 1000, 2500) accurately encompass NFR5 and NFR6 ranges.
+  - In `packages/retrieval/retriever.py`:
+    - Ensure `retrieval_latency_ms` with `mode="failed"` is observed even when `raise_on_both_failed=True`.
+  - In `packages/retrieval/rerank.py`:
+    - Ensure `rerank_latency_ms` is observed on timeout and exception fallback paths so latency is not missing when operations degrade.
+- **Verify:** `uv run ruff check packages/ && uv run mypy packages/observability/ packages/retrieval/`
 
-### Step 2: Implement `RetrievalQueryBuilder` & Regex Extractor
-- **Files:** `packages/retrieval/query_builder.py`, `packages/retrieval/__init__.py`
+### Step 2: Implement Comprehensive Unit & Latency Metrics Tests
+- **Files:** `tests/unit/test_retrieval_metrics.py`
 - **Changes:**
-  - Define `DEFAULT_IDENTIFIER_PATTERNS` dictionary covering `invoice`, `order`, `ticket`, `sku`, `container`, `incident`.
-  - Define `QueryBuilderConfig` (custom regex patterns, stopwords set, category filter mapping, max keyword count).
-  - Implement `RetrievalQueryBuilder`:
-    - `extract_identifiers(text: str) -> list[str]`
-    - `extract_lexical_keywords(text: str) -> list[str]`
-    - `compose_semantic_text(subject: str, body: str, intent: str | None, thread_summary: str | None) -> str`
-    - `build(...) -> RetrievalQuery` accepting either `(message, classification, thread_summary=None)` or primitive arguments (`subject`, `body_text`, `category`, `intent`, `organization_id`).
-  - Export new symbols in `packages/retrieval/__init__.py`.
-- **Verify:** `uv run ruff check packages/retrieval/ && uv run mypy packages/retrieval/query_builder.py`
+  - Verify `retrieval_latency_ms` and `rerank_latency_ms` exist as distinct instruments in Prometheus registry.
+  - Test independent recording:
+    - Running `HybridRetriever` increments only `retrieval_latency_ms` samples.
+    - Running `RerankService` increments only `rerank_latency_ms` samples.
+    - Running both updates both independently with their respective durations (proving R11.6).
+  - Test degraded modes:
+    - Single-branch failure records `retrieval_latency_ms{mode="degraded"}` and `retrieval_degraded_total`.
+    - Dual-branch failure with exception records `retrieval_latency_ms{mode="failed"}`.
+    - Reranker timeout records `rerank_latency_ms` and `rerank_fallback_total{reason="timeout"}`.
+    - Reranker error records `rerank_latency_ms` and `rerank_fallback_total{reason="error"}`.
+  - Test NFR bucket conformity (50ms, 100ms, 250ms, 500ms) and p50/p95 quantile computability.
+- **Verify:** `uv run pytest tests/unit/test_retrieval_metrics.py --cov=packages.observability.metrics --cov-report=term-missing -v`
 
-### Step 3: Implement Comprehensive Unit Tests & Retrieval Verification
-- **Files:** `tests/unit/test_query_builder.py`
-- **Changes:**
-  - Test identifier extraction across all patterns (`INV-2026-01829`, `ORD-82915`, `TICKET-4401`, `SKU-992-A`, `CONT-1002`, `INC-9912`).
-  - Test lexical keyword extraction with stopword removal and deduplication.
-  - Test semantic text composition with and without `thread_summary` (Phase 3 degraded vs Phase 4).
-  - Test filter synthesis (`organization_id`, `category`, `status='active'`).
-  - Test `to_dict()` / `from_dict()` serialization fidelity (R12.6).
-  - Test zero-LLM assertion (pure synchronous/deterministic, sub-millisecond execution).
-  - **Explicit Retrieval Test:** Construct an email containing `INV-2026-01829`. Query `FakeSearchBackend` configured such that vector branch prefers a generic procedure doc, but lexical branch with the extracted identifier retrieves the exact invoice record. Assert that hybrid RRF fusion selects the exact invoice chunk as #1 candidate, proving identifier superiority.
-- **Verify:** `uv run pytest tests/unit/test_query_builder.py --cov=packages.retrieval.query_builder --cov-report=term-missing -v` (100% coverage target).
-
-### Step 4: Architectural Integrity & Full Regression Validation
+### Step 3: Run Full Regression & Architecture Validation
 - **Files:** N/A
 - **Changes:**
   - Run architectural boundary checks: `uv run pytest tests/unit/test_dependency_rules.py -v`.
   - Run full regression suite: `uv run pytest -m "not slow" -q`.
-  - Run static analysis: `uv run ruff check packages/ tests/ && uv run mypy packages/retrieval/ tests/unit/test_query_builder.py`.
-- **Verify:** All tests pass and zero linter/type issues.
+  - Run static analysis: `uv run ruff check packages/ tests/ && uv run mypy packages/ tests/unit/test_retrieval_metrics.py`.
+- **Verify:** All tests pass with zero regressions.
 
-### Step 5: Update Task Queue & Git Commit
+### Step 4: Update Task Queue & Git Commit
 - **Files:** `specs/tasks.md`
 - **Changes:**
-  - Mark Task 3.13 `[x]` in `specs/tasks.md`.
-  - Commit: `feat(retrieval): retrieval query builder and identifier extraction [task 3.13] [R12.1, R12.2, R12.3, R12.4, R12.5, R12.6]`.
+  - Mark Task 3.14 `[x]` in `specs/tasks.md`.
+  - Git commit: `feat(observability): retrieval and rerank latency histograms [task 3.14] [R11.6, R21.4, R21.5, NFR5, NFR6]`.
 - **Verify:** `git log -1 --stat`
 
 ---
 
 ## Risks & Mitigations
-- **Risk:** Overly aggressive regexes matching false positive strings.
-  - *Mitigation:* Bounded word boundaries (`\b`), specific standard prefix tags (`INV`, `ORD`, `TICKET`, `SKU`, `CONT`, `INC`), and configurable pattern dictionaries allow tenant-specific overrides without code changes.
-- **Risk:** Missing thread context in Phase 3.
-  - *Mitigation:* Explicitly designed with `thread_summary: str | None = None` parameter so Phase 3 degrades gracefully without thread state, while Phase 4 can plug into the exact same signature.
+- **Risk:** High-cardinality label explosion on latency histograms.
+  - *Mitigation:* `retrieval_latency_ms` uses low-cardinality `mode` (`"hybrid"`, `"degraded"`, `"failed"`), and `rerank_latency_ms` has zero extraneous labels. Tenant scoping is tracked on error/degradation counters instead of multi-bucket histograms.
+- **Risk:** Metric recording exceptions causing pipeline failures.
+  - *Mitigation:* All metric observations are guarded with `with contextlib.suppress(Exception):`.
 
 ---
 
 ## Rollback Plan
-If issues arise, `packages/retrieval/query_builder.py` and `tests/unit/test_query_builder.py` can be removed and `packages/retrieval/models.py` reverted via `git checkout`.
+If issues arise, modifications to `retriever.py`, `rerank.py`, and `metrics.py` can be reverted via `git checkout`.

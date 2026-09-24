@@ -34,6 +34,8 @@ from packages.observability.metrics import (
     generate_metrics_payload,
     get_metrics,
     record_ai_cost,
+    record_rerank_latency,
+    record_retrieval_latency,
 )
 from packages.observability.server import (
     ObservabilityServer,
@@ -78,6 +80,8 @@ __all__ = [
     "inject_trace_context",
     "record_ai_cost",
     "record_funnel_outcome",
+    "record_rerank_latency",
+    "record_retrieval_latency",
     "reset_correlation_context",
     "set_correlation_context",
     "setup_logging",

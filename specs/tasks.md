@@ -359,7 +359,7 @@
   - Test explicitly that an identifier-bearing email (e.g. `INV-2026-01829`) retrieves the right chunk where a vector-only query would not.
   - _Requirements: R12.1, R12.2, R12.3, R12.4, R12.5, R12.6_
 
-- [ ] **3.14 Retrieval latency metrics**
+- [x] **3.14 Retrieval latency metrics**
   - `retrieval_latency_ms` and `rerank_latency_ms` recorded separately, as histograms.
   - _Requirements: R11.6, R21.4, R21.5, NFR5, NFR6_
 

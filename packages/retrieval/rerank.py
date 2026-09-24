@@ -327,6 +327,7 @@ class RerankService:
             if self.metrics is not None:
                 org = organization_id or "unknown"
                 with contextlib.suppress(Exception):
+                    self.metrics.rerank_latency_ms.observe(elapsed_ms)
                     self.metrics.rerank_fallback_total.labels(
                         tenant=org, reason="timeout"
                     ).inc()
@@ -352,6 +353,7 @@ class RerankService:
             if self.metrics is not None:
                 org = organization_id or "unknown"
                 with contextlib.suppress(Exception):
+                    self.metrics.rerank_latency_ms.observe(elapsed_ms)
                     self.metrics.rerank_fallback_total.labels(
                         tenant=org, reason=reason
                     ).inc()

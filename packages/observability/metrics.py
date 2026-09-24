@@ -4,6 +4,7 @@ Exposes all standardized pipeline counters, latency histograms with p50/p95/p99 
 and monotonic AI cost calculation per specs/design.md §10.
 """
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -380,3 +381,42 @@ def generate_metrics_payload(registry: CollectorRegistry | None = None) -> tuple
     """
     target_reg = registry or get_metrics().registry
     return generate_latest(target_reg), CONTENT_TYPE_LATEST
+
+
+def record_retrieval_latency(
+    metrics: PipelineMetrics | None,
+    latency_ms: float,
+    mode: str = "hybrid",
+) -> None:
+    """Record hybrid retrieval duration in milliseconds to Prometheus histogram (R11.6, R21.4).
+
+    Parameters
+    ----------
+    metrics : PipelineMetrics | None
+        Target pipeline metrics instance. If None, records to global metrics.
+    latency_ms : float
+        Retrieval latency in milliseconds.
+    mode : str
+        Retrieval mode: 'hybrid', 'degraded', or 'failed'.
+    """
+    m = metrics or get_metrics()
+    with contextlib.suppress(Exception):
+        m.retrieval_latency_ms.labels(mode=mode).observe(latency_ms)
+
+
+def record_rerank_latency(
+    metrics: PipelineMetrics | None,
+    latency_ms: float,
+) -> None:
+    """Record semantic reranking duration in milliseconds to Prometheus histogram (R11.6, R21.4).
+
+    Parameters
+    ----------
+    metrics : PipelineMetrics | None
+        Target pipeline metrics instance. If None, records to global metrics.
+    latency_ms : float
+        Reranking latency in milliseconds.
+    """
+    m = metrics or get_metrics()
+    with contextlib.suppress(Exception):
+        m.rerank_latency_ms.observe(latency_ms)

@@ -218,6 +218,11 @@ class HybridRetriever:
                     ).inc()
 
             if self.raise_on_both_failed:
+                if self.metrics is not None:
+                    with contextlib.suppress(Exception):
+                        self.metrics.retrieval_latency_ms.labels(mode="failed").observe(
+                            total_latency
+                        )
                 raise RetrievalError(
                     f"Both retrieval branches failed for tenant {query.organization_id}: "
                     f"lexical: {lex_err}, vector: {vec_err}"
@@ -290,7 +295,12 @@ class HybridRetriever:
 
         # Record retrieval latency metric (R21.4)
         if self.metrics is not None:
-            mode = "degraded" if retrieval_degraded else "hybrid"
+            if lex_failed and vec_failed:
+                mode = "failed"
+            elif retrieval_degraded:
+                mode = "degraded"
+            else:
+                mode = "hybrid"
             with contextlib.suppress(Exception):
                 self.metrics.retrieval_latency_ms.labels(mode=mode).observe(total_latency)
 
