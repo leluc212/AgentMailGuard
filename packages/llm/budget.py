@@ -8,6 +8,7 @@ exactly 1 generation call, and ≤1 schema-repair retry. Ceiling is 4 calls, com
 
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -83,13 +84,17 @@ class CallBudgetTracker:
         return self._counts.get(kind, 0)
 
     def _max_for_kind(self, kind: CallKind) -> int:
-        limits = {
-            CallKind.TRIAGE: self.MAX_TRIAGE,
-            CallKind.SUMMARIZE: self.MAX_SUMMARIZE,
-            CallKind.GENERATE: self.MAX_GENERATE,
-            CallKind.REPAIR: self.MAX_REPAIR,
-        }
-        return limits.get(kind, 1)
+        match kind:
+            case CallKind.TRIAGE:
+                return self.MAX_TRIAGE
+            case CallKind.SUMMARIZE:
+                return self.MAX_SUMMARIZE
+            case CallKind.GENERATE:
+                return self.MAX_GENERATE
+            case CallKind.REPAIR:
+                return self.MAX_REPAIR
+            case _:
+                return 1
 
     def check_can_call(self, kind: CallKind) -> None:
         """Verify that invoking kind will not breach per-kind limits or the budget ceiling.
@@ -208,6 +213,14 @@ class BudgetedLLMProvider(LLMProvider):
     def tracker(self) -> CallBudgetTracker:
         """Return the underlying CallBudgetTracker instance."""
         return self._tracker
+
+    async def aclose(self) -> None:
+        """Close provider resources if inner provider supports aclose."""
+        aclose_fn = getattr(self.provider, "aclose", None)
+        if callable(aclose_fn):
+            res = aclose_fn()
+            if inspect.isawaitable(res):
+                await res
 
     async def generate(
         self,

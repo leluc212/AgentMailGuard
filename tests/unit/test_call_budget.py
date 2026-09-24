@@ -1,7 +1,7 @@
 """Unit tests for CallBudgetTracker, BudgetedLLMProvider, and invariants (R14.9, §5.7)."""
 
 from dataclasses import FrozenInstanceError
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from prometheus_client import CollectorRegistry
@@ -272,3 +272,37 @@ async def test_budgeted_llm_provider_ceiling_workflow() -> None:
 
     with pytest.raises(CallBudgetExceededError):
         await budgeted.generate(messages=messages, call_kind=CallKind.GENERATE)
+
+
+@pytest.mark.asyncio
+async def test_budgeted_llm_provider_escalated_tier_replaces_call() -> None:
+    """Verify generation with escalated ModelTier.HIGH_CAPABILITY records properly."""
+    fake = FakeLLMProvider()
+    budgeted = BudgetedLLMProvider(provider=fake)
+    messages = [ChatMessage(role="user", content="Escalated generation")]
+
+    result = await budgeted.generate(messages=messages, tier=ModelTier.HIGH_CAPABILITY)
+
+    assert result is not None
+    assert budgeted.tracker.total_calls == 1
+    assert budgeted.tracker.count(CallKind.GENERATE) == 1
+    call_record = budgeted.tracker.calls[0]
+    assert call_record.kind == CallKind.GENERATE
+    assert call_record.tier == ModelTier.HIGH_CAPABILITY
+    assert call_record.model == "fake-strong-model"
+
+
+@pytest.mark.asyncio
+async def test_budgeted_llm_provider_aclose_delegation() -> None:
+    """Verify aclose delegates to inner provider if available."""
+    mock_provider = MagicMock()
+    mock_provider.aclose = AsyncMock()
+    budgeted = BudgetedLLMProvider(provider=mock_provider)
+
+    await budgeted.aclose()
+    mock_provider.aclose.assert_awaited_once()
+
+    # Provider without aclose should complete without error
+    fake = FakeLLMProvider()
+    budgeted_fake = BudgetedLLMProvider(provider=fake)
+    await budgeted_fake.aclose()
