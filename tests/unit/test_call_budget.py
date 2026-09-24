@@ -18,7 +18,7 @@ from packages.llm import (
     LLMError,
     ModelTier,
 )
-from packages.observability.metrics import create_pipeline_metrics
+from packages.observability.metrics import create_pipeline_metrics, generate_metrics_payload
 
 
 def test_call_kind_enum_values() -> None:
@@ -170,18 +170,37 @@ def test_assert_generation_budget_validation() -> None:
     tracker.assert_generation_budget(require_generation=False)
 
 
-def test_export_metrics_with_unlabelled_histogram() -> None:
-    """Verify export_metrics operates gracefully on current unlabelled histogram."""
+def test_export_metrics_with_real_pipeline_metrics() -> None:
+    """Verify export_metrics records labeled histogram metrics to real registry (R14.10)."""
     reg = CollectorRegistry(auto_describe=True)
     metrics = create_pipeline_metrics(registry=reg)
 
     tracker = CallBudgetTracker()
+    tracker.record_call(CallKind.TRIAGE)
     tracker.record_call(CallKind.GENERATE)
     tracker.export_metrics(metrics)
 
+    payload, _ = generate_metrics_payload(reg)
+    payload_str = payload.decode("utf-8")
+    assert 'llm_calls_per_job_bucket{kind="triage"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="generate"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="total"' in payload_str
+
+
+def test_export_metrics_fallback_when_unlabelled() -> None:
+    """Verify export_metrics falls back gracefully if histogram does not support labels."""
+    mock_metrics = MagicMock()
+    mock_metrics.llm_calls_per_job.labels.side_effect = ValueError("No label names were set")
+
+    tracker = CallBudgetTracker()
+    tracker.record_call(CallKind.GENERATE)
+    tracker.export_metrics(mock_metrics)
+
+    mock_metrics.llm_calls_per_job.observe.assert_called_once_with(1)
+
 
 def test_export_metrics_with_kind_labeled_histogram() -> None:
-    """Verify export_metrics observes per-kind and total labels when supported (Task 2 preview)."""
+    """Verify export_metrics observes per-kind and total labels when supported (R14.10)."""
     mock_metrics = MagicMock()
     tracker = CallBudgetTracker()
     tracker.record_call(CallKind.TRIAGE)

@@ -271,6 +271,7 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
         llm_calls_per_job=Histogram(
             "llm_calls_per_job",
             "Distribution of LLM calls made for a single job execution",
+            ["kind"],
             buckets=CALLS_PER_JOB_BUCKETS,
             registry=reg,
         ),

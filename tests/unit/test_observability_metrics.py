@@ -101,3 +101,25 @@ def test_latency_histogram_buckets() -> None:
     assert "generation_latency_ms_bucket" in payload_str
     assert str(CLASSIFICATION_BUCKETS[0]) in payload_str
     assert str(GENERATION_BUCKETS[0]) in payload_str
+
+
+def test_llm_calls_per_job_labels() -> None:
+    """Verify llm_calls_per_job histogram supports 'kind' label (R14.10)."""
+    m = create_pipeline_metrics()
+
+    assert m.llm_calls_per_job is not None
+
+    m.llm_calls_per_job.labels(kind="generate").observe(1)
+    m.llm_calls_per_job.labels(kind="triage").observe(1)
+    m.llm_calls_per_job.labels(kind="summarize").observe(1)
+    m.llm_calls_per_job.labels(kind="repair").observe(1)
+    m.llm_calls_per_job.labels(kind="total").observe(4)
+
+    payload, _ = generate_metrics_payload(m.registry)
+    payload_str = payload.decode("utf-8")
+
+    assert 'llm_calls_per_job_bucket{kind="generate"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="triage"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="summarize"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="repair"' in payload_str
+    assert 'llm_calls_per_job_bucket{kind="total"' in payload_str
