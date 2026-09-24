@@ -248,4 +248,3 @@ class LocalLLMProvider(HttpLLMProvider):
             timeout_s=timeout_s,
             client=client,
         )
-

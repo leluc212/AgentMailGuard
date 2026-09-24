@@ -398,7 +398,7 @@
   - Transition `QUEUED → CONTEXT_READY`.
   - _Requirements: R14.8, R6.6, R18.1_
 
-- [ ] **4.5 LLMProvider abstraction**
+- [x] **4.5 LLMProvider abstraction**
   - `generate(messages, schema, tier, …) -> LLMResult` with content, model, tier, token counts, latency.
   - At least two implementations selectable by config (one hosted API, one OpenAI-compatible/local endpoint) plus a deterministic stub for CI.
   - Shared contract test suite.

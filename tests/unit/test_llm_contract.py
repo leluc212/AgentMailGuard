@@ -80,15 +80,20 @@ class TestOpenAILLMProviderContract(LLMProviderContractSuite):
 
     def create_failing_provider(self, error_kind: str) -> LLMProvider:
         if error_kind == "timeout":
+
             def timeout_handler(request: httpx.Request) -> httpx.Response:
                 raise httpx.TimeoutException("OpenAI timeout")
+
             transport = httpx.MockTransport(timeout_handler)
         elif error_kind == "http_error":
+
             def error_handler(request: httpx.Request) -> httpx.Response:
                 err = {"error": {"message": "OpenAI Internal Server Error"}}
                 return httpx.Response(500, json=err)
+
             transport = httpx.MockTransport(error_handler)
         elif error_kind == "malformed_json":
+
             def malformed_handler(request: httpx.Request) -> httpx.Response:
                 choice = {"message": {"content": "{not valid json"}, "finish_reason": "stop"}
                 return httpx.Response(
@@ -98,6 +103,7 @@ class TestOpenAILLMProviderContract(LLMProviderContractSuite):
                         "usage": {"prompt_tokens": 10, "completion_tokens": 10},
                     },
                 )
+
             transport = httpx.MockTransport(malformed_handler)
         else:
             raise ValueError(f"Unknown error kind: {error_kind}")
@@ -137,14 +143,19 @@ class TestAnthropicLLMProviderContract(LLMProviderContractSuite):
 
     def create_failing_provider(self, error_kind: str) -> LLMProvider:
         if error_kind == "timeout":
+
             def timeout_handler(request: httpx.Request) -> httpx.Response:
                 raise httpx.TimeoutException("Anthropic timeout")
+
             transport = httpx.MockTransport(timeout_handler)
         elif error_kind == "http_error":
+
             def error_handler(request: httpx.Request) -> httpx.Response:
                 return httpx.Response(529, json={"error": {"message": "Anthropic Overloaded"}})
+
             transport = httpx.MockTransport(error_handler)
         elif error_kind == "malformed_json":
+
             def malformed_handler(request: httpx.Request) -> httpx.Response:
                 return httpx.Response(
                     200,
@@ -158,6 +169,7 @@ class TestAnthropicLLMProviderContract(LLMProviderContractSuite):
                         "usage": {"input_tokens": 10, "output_tokens": 10},
                     },
                 )
+
             transport = httpx.MockTransport(malformed_handler)
         else:
             raise ValueError(f"Unknown error kind: {error_kind}")
@@ -192,14 +204,19 @@ class TestLocalLLMProviderContract(LLMProviderContractSuite):
 
     def create_failing_provider(self, error_kind: str) -> LLMProvider:
         if error_kind == "timeout":
+
             def timeout_handler(request: httpx.Request) -> httpx.Response:
                 raise httpx.TimeoutException("Local endpoint timeout")
+
             transport = httpx.MockTransport(timeout_handler)
         elif error_kind == "http_error":
+
             def error_handler(request: httpx.Request) -> httpx.Response:
                 return httpx.Response(502, text="Bad Gateway to Local LLM")
+
             transport = httpx.MockTransport(error_handler)
         elif error_kind == "malformed_json":
+
             def malformed_handler(request: httpx.Request) -> httpx.Response:
                 choice = {"message": {"content": "garbage json"}, "finish_reason": "stop"}
                 return httpx.Response(
@@ -209,6 +226,7 @@ class TestLocalLLMProviderContract(LLMProviderContractSuite):
                         "usage": {"prompt_tokens": 5, "completion_tokens": 5},
                     },
                 )
+
             transport = httpx.MockTransport(malformed_handler)
         else:
             raise ValueError(f"Unknown error kind: {error_kind}")

@@ -99,15 +99,23 @@ All configuration in `rag-email` is read from environment variables (or local `.
 > **Startup Dimension Assertion (R5.10):**
 > On service startup, `assert_embedding_dimension(configured, db_column)` validates that `EMBEDDING__DIMENSION` matches the PostgreSQL `embedding_record.embedding VECTOR(n)` column definition. If there is any discrepancy, the service aborts immediately.
 
-### 2.6 LLM Tiers & Price Table (`LLM__*`)
-*Model routing and inference cost accounting (R15.1, R21.6).*
+### 2.6 LLM Providers, Tiers & Price Table (`LLM__*`)
+*Model routing, provider configuration, and inference cost accounting (R14.5, R14.7, R15.1, R21.6, R24.5).*
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
+| `LLM__PROVIDER` | `string` | `fake` | `fake`, `openai`, `anthropic`, `local` | Active LLMProvider implementation (R14.7, R24.5) |
 | `LLM__FAST_MODEL` | `string` | `gpt-4o-mini` | Non-empty | Tier 1 model for triage & summarization |
 | `LLM__STRONG_MODEL` | `string` | `gpt-4o` | Non-empty | Tier 2 model for complex draft generation |
 | `LLM__FALLBACK_MODEL` | `string` | `claude-3-haiku`| Non-empty | Tier 3 model for retry recovery |
 | `LLM__FORCE_SINGLE_TIER` | `boolean` | `false` | `true/false` | Force strong model only (ablation study R15.6) |
+| `LLM__TIMEOUT_S` | `float` | `15.0` | $\ge 0.1$ | Request timeout for LLM inference calls in seconds |
+| `LLM__OPENAI_API_KEY` | `string` | `null` | Optional | OpenAI API secret key |
+| `LLM__OPENAI_BASE_URL` | `string` | `https://api.openai.com/v1` | URL | OpenAI API base endpoint |
+| `LLM__ANTHROPIC_API_KEY` | `string` | `null` | Optional | Anthropic Claude API key |
+| `LLM__ANTHROPIC_BASE_URL` | `string` | `https://api.anthropic.com/v1` | URL | Anthropic Claude API base endpoint |
+| `LLM__LOCAL_BASE_URL` | `string` | `http://localhost:11434/v1` | URL | OpenAI-compatible local model server base endpoint |
+| `LLM__LOCAL_API_KEY` | `string` | `ollama` | Non-empty | API key for local endpoint |
 
 **Cost Accounting Table (R21.6):**
 The system maintains a configurable per-model price table to convert token usage to estimated inference costs per draft:

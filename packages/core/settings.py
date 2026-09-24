@@ -158,22 +158,39 @@ class EmbeddingSettings(BaseModel):
         description="Base URL for OpenAI-compatible embedding API",
     )
     api_key: str | None = Field(default=None, description="API key for embedding service")
-    mock: bool = Field(
-        default=True, description="Enable FakeEmbedder for testing/CI (R24.5)"
-    )
+    mock: bool = Field(default=True, description="Enable FakeEmbedder for testing/CI (R24.5)")
     timeout_s: float = Field(
         default=10.0, ge=0.1, description="Embedding request timeout in seconds"
     )
     max_retries: int = Field(
         default=3, ge=0, description="Maximum retry attempts on transient errors"
     )
-    retry_delay_s: float = Field(
-        default=0.5, ge=0.0, description="Initial retry delay in seconds"
-    )
+    retry_delay_s: float = Field(default=0.5, ge=0.0, description="Initial retry delay in seconds")
 
 
 class LLMTiersSettings(BaseModel):
-    """Tiered LLM routing and token price table (R15.1, R21.6)."""
+    """Tiered LLM routing, provider configuration, and token price table.
+
+    Covers R14.7, R15.1, R21.6, and R24.5.
+    """
+
+    provider: str = Field(
+        default="fake",
+        description="LLM provider implementation: fake | openai | anthropic | local (R14.7, R24.5)",
+    )
+    openai_api_key: str | None = Field(default=None, description="OpenAI API key")
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1", description="OpenAI API base URL"
+    )
+    anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
+    anthropic_base_url: str = Field(
+        default="https://api.anthropic.com/v1", description="Anthropic API base URL"
+    )
+    local_base_url: str = Field(
+        default="http://localhost:11434/v1", description="Local OpenAI-compatible base URL"
+    )
+    local_api_key: str = Field(default="ollama", description="Local endpoint API key")
+    timeout_s: float = Field(default=15.0, ge=0.1, description="LLM request timeout in seconds")
 
     fast_model: str = Field(
         default="gpt-4o-mini", description="Tier 1 fast model for triage/summarization"

@@ -12,6 +12,7 @@ from packages.llm.client import (
     LocalLLMProvider,
     OpenAILLMProvider,
 )
+from packages.llm.factory import create_llm_provider
 from packages.llm.fake import FakeLLMProvider
 from packages.llm.protocol import (
     ChatMessage,
@@ -44,4 +45,5 @@ __all__ = [
     "LocalLLMProvider",
     "ModelTier",
     "OpenAILLMProvider",
+    "create_llm_provider",
 ]

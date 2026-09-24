@@ -145,9 +145,7 @@ class AnthropicLLMProvider(LLMProvider):
         except httpx.TimeoutException as exc:
             elapsed_ms = max(1, int((time.perf_counter() - start_time) * 1000))
             logger.error("Anthropic call timed out after %d ms for model %s", elapsed_ms, model)
-            raise LLMTimeoutError(
-                f"Anthropic request timed out after {self._timeout_s}s"
-            ) from exc
+            raise LLMTimeoutError(f"Anthropic request timed out after {self._timeout_s}s") from exc
         except httpx.HTTPStatusError as exc:
             elapsed_ms = max(1, int((time.perf_counter() - start_time) * 1000))
             logger.error(
