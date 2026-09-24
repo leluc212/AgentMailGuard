@@ -62,6 +62,7 @@ from packages.db.thread import (
 from packages.db.thread_state import (
     InMemoryThreadStateStore,
     OptimisticLockError,
+    PostgresThreadStateStore,
     ThreadStateError,
     ThreadStateNotFoundError,
     ThreadStateStore,
@@ -99,6 +100,7 @@ __all__ = [
     "PostgresMailboxStore",
     "PostgresMessageStore",
     "PostgresSubscriptionStore",
+    "PostgresThreadStateStore",
     "PostgresThreadStore",
     "SeedSummary",
     "SubscriptionStore",
