@@ -56,8 +56,9 @@ class LLMProvider(Protocol):
         tier: ModelTier = ModelTier.FAST,
         max_tokens: int = 1000,
         temperature: float = 0.0,
+        **params: Any,
     ) -> LLMResult:
-        """Execute a structured completion request against the selected model tier."""
+        """Execute a structured completion request against the selected model tier (R14.5)."""
         ...
 
 

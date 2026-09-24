@@ -83,6 +83,7 @@ class HttpLLMProvider(LLMProvider):
         tier: ModelTier = ModelTier.FAST,
         max_tokens: int = 1000,
         temperature: float = 0.0,
+        **params: Any,
     ) -> LLMResult:
         """Execute a structured completion request against an OpenAI-compatible API."""
         start_time = time.perf_counter()
@@ -95,6 +96,8 @@ class HttpLLMProvider(LLMProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if params:
+            payload.update(params)
 
         if schema is not None:
             payload["response_format"] = {

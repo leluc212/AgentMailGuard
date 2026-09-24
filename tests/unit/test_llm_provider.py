@@ -113,6 +113,20 @@ class TestLLMProtocolAndFakeProvider:
         assert fast_res.model == "fake-fast-model"
         assert strong_res.model == "fake-strong-model"
 
+    @pytest.mark.asyncio
+    async def test_fake_provider_extra_params(self) -> None:
+        """Verify arbitrary params (**params per R14.5) are accepted and recorded."""
+        fake = FakeLLMProvider()
+        result = await fake.generate(
+            messages=[ChatMessage(role="user", content="hello")],
+            tier=ModelTier.FAST,
+            seed=42,
+            custom_option="custom_val",
+        )
+        assert result is not None
+        assert len(fake.recorded_calls) == 1
+        assert fake.recorded_calls[0]["params"] == {"seed": 42, "custom_option": "custom_val"}
+
 
 class TestHttpLLMProvider:
     """Validate HttpLLMProvider behavior against mock HTTP transports."""

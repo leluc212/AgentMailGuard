@@ -67,6 +67,7 @@ class FakeLLMProvider(LLMProvider):
         tier: ModelTier = ModelTier.FAST,
         max_tokens: int = 1000,
         temperature: float = 0.0,
+        **params: Any,
     ) -> LLMResult:
         """Simulate a structured completion generation call."""
         start_time = time.perf_counter()
@@ -78,6 +79,7 @@ class FakeLLMProvider(LLMProvider):
             "tier": tier,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "params": params,
             "timestamp": time.time(),
         }
         self.recorded_calls.append(call_record)
