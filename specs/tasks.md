@@ -386,7 +386,7 @@
   - Assert in tests that a short thread triggers zero summarization calls.
   - _Requirements: R8.2, R8.3, R8.4_
 
-- [ ] **4.3 Thread context assembly**
+- [x] **4.3 Thread context assembly**
   - `summary + latest N relevant messages + current email` once a summary exists.
   - Record tokens saved (pre- vs post-compression estimate) for H3.
   - Keep inbound email out of the knowledge corpus by default.
