@@ -1,7 +1,7 @@
 """Integration tests for PostgresThreadStateStore with live PostgreSQL container (R8.1, R8.6).
 
 Verifies:
-- CRUD operations with all schema attributes (topic, intent, summary, open_questions, resolved_items, etc.)
+- CRUD operations with all schema attributes (topic, intent, summary, q[], res[])
 - Strict multi-tenant isolation across >= 3 tenants (GEMINI.md §8)
 - Optimistic concurrency control detecting version collisions (R8.6)
 - High-concurrency worker updates with zero lost updates
@@ -77,7 +77,9 @@ async def ensure_test_thread(
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO email_thread (id, organization_id, mailbox_id, subject_normalized, message_count, status)
+            INSERT INTO email_thread (
+                id, organization_id, mailbox_id, subject_normalized, message_count, status
+            )
             VALUES ($1, $2, $3, $4, 1, 'open')
             ON CONFLICT (id) DO NOTHING;
             """,
@@ -184,7 +186,7 @@ async def test_postgres_thread_state_multi_tenant_isolation(db_pool: asyncpg.Poo
         assert own_state.summary == f"Secret summary for org {org_id}"
 
         # Cross-tenant read attempts must return None
-        for j, (other_org_id, other_th_id) in enumerate(zip(orgs, threads, strict=True)):
+        for j, (other_org_id, _other_th_id) in enumerate(zip(orgs, threads, strict=True)):
             if i != j:
                 cross_read = await store.get(other_org_id, th_id)
                 assert cross_read is None, f"Tenant {other_org_id} was able to read thread {th_id}!"
@@ -245,7 +247,7 @@ async def test_postgres_thread_state_optimistic_conflict(db_pool: asyncpg.Pool) 
 async def test_postgres_thread_state_concurrent_workers_zero_lost_updates(
     db_pool: asyncpg.Pool,
 ) -> None:
-    """Verify 10 concurrent workers updating thread_state via retry loop lose zero updates (R8.6)."""
+    """Verify 10 concurrent workers updating thread_state lose zero updates (R8.6)."""
     store = PostgresThreadStateStore(db_pool)
 
     org_id = uuid.uuid4()
