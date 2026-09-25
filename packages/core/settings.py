@@ -7,7 +7,10 @@ Implements requirements:
 - R21.6: Model price table for token cost calculation.
 """
 
-from pydantic import BaseModel, Field, model_validator
+import os
+from typing import Any
+
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -499,6 +502,76 @@ class AgentProfileSettings(BaseModel):
     )
 
 
+class ComplexityRouterSettings(BaseModel):
+    """Configuration for ComplexityRouter and model cascade escalation rules.
+
+    References: R15.1, R15.6, design.md §5.7.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable complexity-based model cascade routing (R15.1)",
+    )
+    force_single_tier: bool = Field(
+        default=False,
+        description="Bypass cascade and force single tier for H4 empirical evaluation (R15.6)",
+    )
+    default_tier: str = Field(
+        default="routine",
+        description="Default routine tier for standard email processing (R15.1, R15.2)",
+    )
+    escalated_tier: str = Field(
+        default="high_capability",
+        description="Target tier when complexity triggers escalate (R15.1, R15.3)",
+    )
+    confidence_threshold: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Triage confidence score threshold below which generation escalates (R15.3)",
+    )
+    thread_messages_threshold: int = Field(
+        default=5,
+        ge=1,
+        description="Thread message count threshold triggering escalation (R15.3)",
+    )
+    thread_tokens_threshold: int = Field(
+        default=2000,
+        ge=1,
+        description="Thread token estimate threshold triggering escalation (R15.3)",
+    )
+    min_retrieved_chunks: int = Field(
+        default=2,
+        ge=0,
+        description="Minimum relevant chunks required to avoid escalation (R15.3)",
+    )
+    min_relevance_score: float = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score threshold for retrieved chunks (R15.3)",
+    )
+    multiple_actions_threshold: int = Field(
+        default=2,
+        ge=1,
+        description="Count of detected requested actions triggering escalation (R15.3)",
+    )
+    context_tokens_threshold: int = Field(
+        default=3500,
+        ge=1,
+        description="Total context token estimate triggering escalation (R15.3)",
+    )
+    max_escalations_per_job: int = Field(
+        default=1,
+        ge=0,
+        description="Maximum allowed escalations per job to prevent retry loops (R15.5)",
+    )
+    single_tier_override: str = Field(
+        default="high_capability",
+        description="Model tier to use when force_single_tier is enabled (R15.6)",
+    )
+
+
 class AppSettings(BaseSettings):
     """Top-level master settings container supporting environment variable loading."""
 
@@ -534,6 +607,55 @@ class AppSettings(BaseSettings):
     )
     lease_reaper: LeaseReaperSettings = Field(default_factory=LeaseReaperSettings)
     agent_profiles: AgentProfileSettings = Field(default_factory=AgentProfileSettings)
+    complexity_router: ComplexityRouterSettings = Field(
+        default_factory=ComplexityRouterSettings,
+        validation_alias=AliasChoices("complexity_router", "router"),
+        description="Configuration for complexity routing and model cascading (R15.1, R15.6)",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_router_env(cls, data: Any) -> Any:
+        """Support flat ROUTER_* or ROUTER__* env vars for complexity_router."""
+        if not isinstance(data, dict):
+            return data
+
+        existing = data.get("complexity_router")
+        if existing is None:
+            existing = data.get("router")
+        if isinstance(existing, ComplexityRouterSettings):
+            return data
+
+        router_dict = dict(existing) if isinstance(existing, dict) else {}
+
+        for source in (os.environ, data):
+            for k, v in source.items():
+                k_upper = k.upper()
+                if k_upper.startswith("ROUTER_") and not k_upper.startswith("ROUTER__"):
+                    field_name = k_upper[len("ROUTER_") :].lower()
+                    if (
+                        field_name in ComplexityRouterSettings.model_fields
+                        and field_name not in router_dict
+                    ):
+                        router_dict[field_name] = v
+                elif k_upper.startswith("ROUTER__"):
+                    field_name = k_upper[len("ROUTER__") :].lower()
+                    if (
+                        field_name in ComplexityRouterSettings.model_fields
+                        and field_name not in router_dict
+                    ):
+                        router_dict[field_name] = v
+                elif k_upper.startswith("COMPLEXITY_ROUTER__"):
+                    field_name = k_upper[len("COMPLEXITY_ROUTER__") :].lower()
+                    if (
+                        field_name in ComplexityRouterSettings.model_fields
+                        and field_name not in router_dict
+                    ):
+                        router_dict[field_name] = v
+
+        if router_dict:
+            data["complexity_router"] = router_dict
+        return data
 
 
 def assert_embedding_dimension(configured_dim: int, db_column_dim: int) -> None:

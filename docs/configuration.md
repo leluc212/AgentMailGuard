@@ -268,5 +268,22 @@ price_table = {
 | `AGENT_PROFILES__PROMPTS_DIR` | `string` | `prompts` | Directory | Base directory for versioned Jinja2 prompt templates (R14.6) |
 | `AGENT_PROFILES__SCHEMAS_DIR` | `string` | `schemas` | Directory | Base directory for structured JSON response schemas (R14.1) |
 
+### 2.19 Complexity Router & Model Cascade (`ROUTER_*` / `COMPLEXITY_ROUTER__*`)
+*Complexity-based model cascading, escalation thresholds, and single-tier ablation evaluation (R15.1–R15.6, design.md §5.7).*
 
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `ROUTER_ENABLED` | `boolean` | `true` | Boolean | Enable complexity-based model cascade routing (R15.1) |
+| `ROUTER_FORCE_SINGLE_TIER` | `boolean` | `false` | Boolean | Force single tier for H4 empirical ablation study (R15.6) |
+| `ROUTER_DEFAULT_TIER` | `string` | `routine` | Non-empty | Default routine tier for incoming jobs (R15.1, R15.2) |
+| `ROUTER_ESCALATED_TIER` | `string` | `high_capability` | Non-empty | Target escalated tier when complexity triggers fire (R15.1, R15.3) |
+| `ROUTER_CONFIDENCE_THRESHOLD` | `float` | `0.75` | 0.0–1.0 | Triage confidence score threshold below which generation escalates (R15.3) |
+| `ROUTER_THREAD_MESSAGES_THRESHOLD` | `integer` | `5` | $\ge 1$ | Thread message count threshold triggering escalation (R15.3) |
+| `ROUTER_THREAD_TOKENS_THRESHOLD` | `integer` | `2000` | $\ge 1$ | Thread token estimate threshold triggering escalation (R15.3) |
+| `ROUTER_MIN_RETRIEVED_CHUNKS` | `integer` | `2` | $\ge 0$ | Minimum relevant chunks required to avoid escalation (R15.3) |
+| `ROUTER_MIN_RELEVANCE_SCORE` | `float` | `0.50` | 0.0–1.0 | Minimum relevance score threshold for retrieved chunks (R15.3) |
+| `ROUTER_MULTIPLE_ACTIONS_THRESHOLD` | `integer` | `2` | $\ge 1$ | Count of detected requested actions triggering escalation (R15.3) |
+| `ROUTER_CONTEXT_TOKENS_THRESHOLD` | `integer` | `3500` | $\ge 1$ | Total context token estimate triggering escalation (R15.3) |
+| `ROUTER_MAX_ESCALATIONS_PER_JOB` | `integer` | `1` | $\ge 0$ | Maximum allowed escalations per job to prevent retry loops (R15.5) |
+| `ROUTER_SINGLE_TIER_OVERRIDE` | `string` | `high_capability` | Non-empty | Model tier to use when `force_single_tier` is true (R15.6) |
 
