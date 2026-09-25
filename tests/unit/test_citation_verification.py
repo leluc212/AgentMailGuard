@@ -225,9 +225,7 @@ def test_document_id_is_not_an_accepted_citation() -> None:
     Several chunks share one document_id, so accepting it would let a model name a document
     it saw one line of and have every claim about it counted as grounded.
     """
-    context = _context(
-        _chunk("chunk-1", external_id="DOC-125-08", document_id="doc-kb-01")
-    )
+    context = _context(_chunk("chunk-1", external_id="DOC-125-08", document_id="doc-kb-01"))
 
     verdict = verify_citations(["doc-kb-01"], context)
 
