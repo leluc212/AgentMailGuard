@@ -241,7 +241,8 @@ class ComplexityRouter:
         Args:
             context: Assembled generation context package.
             classification: Optional classification output from triage engine.
-            profile: Optional agent profile specializing response.
+            profile: Optional agent profile specializing response (reserved for future
+                profile-level overrides).
             escalations_performed: Count of escalations already performed for this job.
 
         Returns:

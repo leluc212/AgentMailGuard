@@ -604,3 +604,14 @@ def test_trigger_requested_actions_prefers_clean_body_over_quoted_history() -> N
     assert decision.tier == ModelTier.ROUTINE
     assert decision.is_escalated is False
     assert decision.escalation_reason == EscalationReason.NONE
+
+
+def test_resolve_tier_direct_enum_and_unknown_fallback() -> None:
+    """Verify _resolve_tier handles direct ModelTier instances and unknown string fallbacks."""
+    router = ComplexityRouter()
+    assert router._resolve_tier(ModelTier.HIGH_CAPABILITY) == ModelTier.HIGH_CAPABILITY
+    assert router._resolve_tier(ModelTier.ROUTINE) == ModelTier.ROUTINE
+    assert router._resolve_tier("fast") == ModelTier.FAST
+    assert router._resolve_tier("strong") == ModelTier.STRONG
+    assert router._resolve_tier("fallback") == ModelTier.FALLBACK
+    assert router._resolve_tier("completely_unknown_tier_value") == ModelTier.ROUTINE
