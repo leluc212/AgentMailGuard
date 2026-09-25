@@ -7,6 +7,7 @@ with a single prompt-templated generation call enforcing strict budget tracking.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -110,6 +111,9 @@ class SinglePassGenerator:
             UnvalidatedDraftError: If the payload still fails schema validation after one
                 repair retry, or the repair budget is already spent. The job fails into the
                 retry/DLQ path and no unvalidated draft is ever returned (R16.3).
+            DraftSchemaContractError: If the resolved profile's output schema declares
+                constraints this module cannot enforce. A deployment error, not a model
+                mistake: raised before any call is billed and never repaired.
             LLMError: If underlying model provider fails.
         """
         # 1. Resolve profile
@@ -171,6 +175,9 @@ class SinglePassGenerator:
                 call_kind=CallKind.GENERATE,
             )
         except (DraftValidationError, UnvalidatedDraftError):
+            # Defensive: these are our own subclasses of LLMSchemaValidationError and no
+            # provider raises them, but re-raising keeps the clause below from ever treating
+            # a validation verdict as a provider parse failure and repairing it twice.
             raise
         except LLMSchemaValidationError as exc:
             parse_failure = exc
@@ -269,17 +276,32 @@ class SinglePassGenerator:
             validation_error = str(parse_failure)
 
         self._record_validation_failure("initial")
-        repair_result = await self._repair_draft(
-            budgeted=budgeted,
-            tracker=tracker,
-            messages=messages,
-            invalid_content=invalid_content,
-            validation_error=validation_error,
-            schema=schema,
-            tier=tier,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        try:
+            repair_result = await self._repair_draft(
+                budgeted=budgeted,
+                tracker=tracker,
+                messages=messages,
+                invalid_content=invalid_content,
+                validation_error=validation_error,
+                schema=schema,
+                tier=tier,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except (DraftValidationError, UnvalidatedDraftError):
+            raise
+        except LLMSchemaValidationError as repair_parse_error:
+            # The repair response was itself unparseable — the common double failure, since
+            # an endpoint that ignores the schema directive ignores it twice and a token
+            # truncation recurs at the same limit. It is a validation failure like any other,
+            # so it fails as UnvalidatedDraftError rather than leaking the provider's type.
+            # _repair_draft already counted the failed repair; only the stage is missing.
+            self._record_validation_failure("repair")
+            raise UnvalidatedDraftError(
+                "Repair retry returned an unparseable payload; failing job into the "
+                f"retry/DLQ path without persisting: {repair_parse_error}"
+            ) from repair_parse_error
+
         attempts.append(repair_result)
         try:
             payload = validate_draft_payload(repair_result.content, schema)
@@ -319,38 +341,59 @@ class SinglePassGenerator:
         the exception that actually failed the job — a caller would then retry for the wrong
         reason and lose the signal that the draft was never valid.
         """
-        if not self.metrics:
+        if self.metrics is None:
             return
 
-        try:
-            tier_label = str(tier.value) if hasattr(tier, "value") else str(tier)
-            total_input, total_output, total_latency = self._totals(attempts)
-            model_label = attempts[-1].model if attempts else generate_model
+        tier_label = str(tier.value) if hasattr(tier, "value") else str(tier)
+        total_input, total_output, total_latency = self._totals(attempts)
+        model_label = attempts[-1].model if attempts else generate_model
 
-            if count_generate:
-                self._count_call_directly(budgeted, "generate", generate_model)
+        # Each emission is guarded on its own: one misconfigured collector must not cost the
+        # job every metric after it, least of all the per-job budget export (R14.10).
+        if count_generate:
+            self._guarded(lambda: self._count_call_directly(budgeted, "generate", generate_model))
+
+        # Only observe cost and latency for attempts that actually returned. A call the
+        # provider aborted has unknown timings, and observing a fabricated 0 ms would drag
+        # the latency percentiles down — making failures improve the SLO.
+        if attempts:
             if hasattr(self.metrics, "generation_latency_ms"):
-                try:
-                    self.metrics.generation_latency_ms.labels(
-                        model=model_label, tier=tier_label
-                    ).observe(total_latency)
-                except (ValueError, TypeError, AttributeError):
-                    self.metrics.generation_latency_ms.observe(total_latency)
+                self._guarded(lambda: self._observe_latency(model_label, tier_label, total_latency))
             if hasattr(self.metrics, "input_tokens_total"):
-                self.metrics.input_tokens_total.labels(model=model_label, tier=tier_label).inc(
-                    total_input
+                self._guarded(
+                    lambda: self.metrics.input_tokens_total.labels(  # type: ignore[union-attr]
+                        model=model_label, tier=tier_label
+                    ).inc(total_input)
                 )
             if hasattr(self.metrics, "output_tokens_total"):
-                self.metrics.output_tokens_total.labels(model=model_label, tier=tier_label).inc(
-                    total_output
+                self._guarded(
+                    lambda: self.metrics.output_tokens_total.labels(  # type: ignore[union-attr]
+                        model=model_label, tier=tier_label
+                    ).inc(total_output)
                 )
-            if export_budget:
-                tracker.export_metrics(self.metrics)
-        except Exception:
-            logger.exception(
-                "generation_metrics_emission_failed",
-                extra={"job_id": tracker.job_id},
+        if export_budget:
+            self._guarded(lambda: tracker.export_metrics(self.metrics))
+
+    def _observe_latency(self, model_label: str, tier_label: str, total_latency: int) -> None:
+        """Observe generation latency, falling back to an unlabelled histogram."""
+        assert self.metrics is not None
+        try:
+            self.metrics.generation_latency_ms.labels(model=model_label, tier=tier_label).observe(
+                total_latency
             )
+        except (ValueError, TypeError, AttributeError):
+            self.metrics.generation_latency_ms.observe(total_latency)
+
+    def _guarded(self, emit: Callable[[], Any]) -> None:
+        """Run one metric emission; never raise.
+
+        `_emit_generation_metrics` runs inside a `finally`, so an exception escaping any
+        emission would replace the exception that actually failed the job.
+        """
+        try:
+            emit()
+        except Exception:
+            logger.exception("generation_metric_emission_failed")
 
     async def _repair_draft(
         self,
@@ -399,10 +442,18 @@ class SinglePassGenerator:
                 temperature=temperature,
                 call_kind=CallKind.REPAIR,
             )
+        except LLMSchemaValidationError:
+            # The model produced a completion, it just wasn't parseable — so this call was
+            # billed and must appear in the budget and the call counter, exactly as the
+            # generate leg does. check_can_call(REPAIR) passed above, so this cannot exceed.
+            tracker.record_call(CallKind.REPAIR, tier=str(tier))
+            self._force_count_call(CallKind.REPAIR.value, "unknown")
+            self._record_repair_outcome("failed")
+            raise
         except Exception:
-            # The repair was attempted and paid for; an operator counting failed repairs
-            # needs the ones that died in the provider too, not only the ones that came
-            # back still malformed.
+            # A transport error or timeout is not evidence that anything was generated, so
+            # it is not recorded as a billed call — but the repair did fail, and an operator
+            # counting failed repairs needs those too.
             self._record_repair_outcome("failed")
             raise
         self._count_call_directly(budgeted, "repair", repair_result.model)

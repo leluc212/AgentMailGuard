@@ -372,3 +372,72 @@ class TestOpenAIAndLocalProviders:
         assert result.model == DEFAULT_LOCAL_MODELS[ModelTier.FAST]
 
         await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_refusal_with_null_content_raises_schema_error_not_type_error() -> None:
+    """A `content: null` response must raise LLMSchemaValidationError, never TypeError.
+
+    OpenAI-compatible endpoints send the content key with a JSON null for a refusal, a
+    content-filter block, or a tool-call-only message. `.get("content", "")` returns None
+    for that shape, so json.loads(None) raises and the error handler then subscripts None.
+    A TypeError is not an LLMError, so it escapes every retry classification the pipeline
+    has and bypasses the schema-repair path entirely.
+    """
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {"message": {"role": "assistant", "content": None}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 0},
+            },
+        )
+
+    provider = HttpLLMProvider(
+        base_url="https://api.openai.com/v1",
+        api_key="mock-key",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(mock_handler)),
+    )
+
+    with pytest.raises(LLMSchemaValidationError) as exc_info:
+        await provider.generate(
+            messages=[ChatMessage(role="user", content="hi")],
+            schema={"type": "object"},
+            tier=ModelTier.FAST,
+        )
+
+    # The repair path needs raw_content to be a string it can show back to the model.
+    assert exc_info.value.raw_content == ""
+
+
+@pytest.mark.asyncio
+async def test_missing_content_key_also_yields_string_raw_content() -> None:
+    """A message with no content key at all must behave the same way."""
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "gpt-4o-mini",
+                "choices": [{"message": {"role": "assistant"}, "finish_reason": "stop"}],
+                "usage": {},
+            },
+        )
+
+    provider = HttpLLMProvider(
+        base_url="https://api.openai.com/v1",
+        api_key="mock-key",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(mock_handler)),
+    )
+
+    with pytest.raises(LLMSchemaValidationError) as exc_info:
+        await provider.generate(
+            messages=[ChatMessage(role="user", content="hi")],
+            schema={"type": "object"},
+            tier=ModelTier.FAST,
+        )
+    assert exc_info.value.raw_content == ""

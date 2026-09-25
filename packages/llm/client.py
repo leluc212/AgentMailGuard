@@ -155,7 +155,10 @@ class HttpLLMProvider(LLMProvider):
             raise LLMResponseError(f"Empty choices list received from LLM: {data}")
 
         choice = choices[0]
-        raw_content = choice.get("message", {}).get("content", "")
+        # `or ""` not a default: a refusal, content filter, or tool-call-only message sends
+        # the key present with a JSON null, and a None here would surface as a TypeError
+        # from the parse handler below — not an LLMError, so nothing would retry or repair it.
+        raw_content = choice.get("message", {}).get("content") or ""
         finish_reason = choice.get("finish_reason", "stop")
 
         # Parse structured content

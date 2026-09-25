@@ -460,3 +460,126 @@ def test_canonical_reply_schema_satisfies_the_contract(reply_schema: dict[str, A
         "model_tier": "routine",
     }
     assert validate_draft_payload(payload, schema=reply_schema).action == "reply"
+
+
+@pytest.mark.parametrize(
+    ("divergence", "override"),
+    [
+        ("confidence declared as a string", {"confidence": {"type": "string"}}),
+        ("knowledge_chunks declared as an object", {"knowledge_chunks": {"type": "object"}}),
+        ("draft length capped", {"draft": {"type": "string", "maxLength": 200}}),
+        (
+            "knowledge_chunks made non-empty",
+            {"knowledge_chunks": {"type": "array", "items": {"type": "string"}, "minItems": 1}},
+        ),
+        ("model_tier enum narrowed", {"model_tier": {"type": "string", "enum": ["routine"]}}),
+        (
+            "confidence floor via exclusiveMinimum",
+            {"confidence": {"type": "number", "exclusiveMinimum": 0.5}},
+        ),
+        ("draft pattern imposed", {"draft": {"type": "string", "pattern": "^ACK"}}),
+    ],
+)
+def test_unenforceable_schema_constraints_are_rejected(
+    reply_schema: dict[str, Any],
+    divergence: str,
+    override: dict[str, Any],
+) -> None:
+    """Any constraint the fixed model cannot enforce must be rejected, not quietly ignored.
+
+    The check has to be fail-closed to be worth having: enumerating two known divergences
+    and allowing everything else leaves exactly the silent under-validation it was added to
+    prevent.
+    """
+    schema = json.loads(json.dumps(reply_schema))
+    schema["properties"].update(override)
+
+    with pytest.raises(DraftSchemaContractError):
+        validate_draft_payload(
+            {
+                "action": "reply",
+                "draft": "Hello Alice.",
+                "confidence": 0.9,
+                "knowledge_chunks": ["chunk-1"],
+                "thread_summary_updated": False,
+                "model_tier": "routine",
+            },
+            schema=schema,
+        )
+
+
+def test_schema_permitting_extra_properties_is_rejected(reply_schema: dict[str, Any]) -> None:
+    """additionalProperties: true cannot be honoured by an extra="forbid" model."""
+    schema = json.loads(json.dumps(reply_schema))
+    schema["additionalProperties"] = True
+
+    with pytest.raises(DraftSchemaContractError, match="additionalProperties"):
+        validate_draft_payload(
+            {
+                "action": "reply",
+                "draft": "Hello Alice.",
+                "confidence": 0.9,
+                "knowledge_chunks": ["chunk-1"],
+                "thread_summary_updated": False,
+                "model_tier": "routine",
+            },
+            schema=schema,
+        )
+
+
+def test_schema_with_narrowed_required_list_is_rejected(reply_schema: dict[str, Any]) -> None:
+    """A shorter `required` list is a contract error, not a licence to over-validate.
+
+    DraftReplyPayload demands all six fields unconditionally, so a schema declaring only
+    two would reject a payload that genuinely conforms to it — and burn a repair call doing
+    so. Rejecting the schema names the real fault instead.
+    """
+    schema = json.loads(json.dumps(reply_schema))
+    schema["required"] = ["action", "draft"]
+
+    with pytest.raises(DraftSchemaContractError, match="required"):
+        validate_draft_payload({"action": "reply", "draft": "Hello."}, schema=schema)
+
+
+def test_schema_with_wider_confidence_bounds_is_accepted(reply_schema: dict[str, Any]) -> None:
+    """A WIDER bound is safe: the fixed model is stricter, so nothing escapes validation.
+
+    Rejecting this was a false positive that aborted every job for such a profile while the
+    genuinely dangerous narrowings sailed through.
+    """
+    schema = json.loads(json.dumps(reply_schema))
+    schema["properties"]["confidence"] = {"type": "number", "minimum": -1.0, "maximum": 2.0}
+
+    payload = validate_draft_payload(
+        {
+            "action": "reply",
+            "draft": "Hello Alice.",
+            "confidence": 0.9,
+            "knowledge_chunks": ["chunk-1"],
+            "thread_summary_updated": False,
+            "model_tier": "routine",
+        },
+        schema=schema,
+    )
+    assert payload.confidence == 0.9
+
+
+def test_malformed_property_declaration_is_a_contract_error_not_a_crash(
+    reply_schema: dict[str, Any],
+) -> None:
+    """A property declared as a bare string must not surface as AttributeError."""
+    schema = json.loads(json.dumps(reply_schema))
+    schema["properties"]["action"] = "string"
+
+    with pytest.raises(DraftSchemaContractError):
+        validate_draft_payload(
+            {
+                "action": "reply",
+                "draft": "Hello Alice.",
+                "confidence": 0.9,
+                "knowledge_chunks": ["chunk-1"],
+                "thread_summary_updated": False,
+                "model_tier": "routine",
+            },
+            schema=schema,
+        )

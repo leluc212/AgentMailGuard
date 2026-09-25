@@ -22,6 +22,22 @@ REQUIRED_REPLY_FIELDS: list[str] = [
 ALLOWED_ACTIONS: frozenset[str] = frozenset({"reply", "forward", "escalate", "no_reply"})
 CONFIDENCE_BOUNDS: tuple[float, float] = (0.0, 1.0)
 
+# JSON Schema keywords DraftReplyPayload actually enforces. Anything else in a property
+# declaration would be silently ignored, so the contract check rejects it rather than
+# pretending to honour it. Keeping this list short is the point: this is a fixed six-field
+# contract, not a general JSON Schema implementation.
+ENFORCED_SCHEMA_KEYWORDS: frozenset[str] = frozenset(
+    {"type", "description", "title", "enum", "items", "minimum", "maximum"}
+)
+CANONICAL_PROPERTY_TYPES: dict[str, str] = {
+    "action": "string",
+    "draft": "string",
+    "confidence": "number",
+    "knowledge_chunks": "array",
+    "thread_summary_updated": "boolean",
+    "model_tier": "string",
+}
+
 
 class DraftSchemaContractError(LLMError):
     """Raised when a supplied output schema declares constraints this module cannot enforce.
@@ -66,11 +82,14 @@ class DraftReplyPayload(BaseModel):
 def assert_schema_matches_contract(schema: dict[str, Any] | None) -> None:
     """Verify a supplied schema declares nothing `DraftReplyPayload` cannot enforce.
 
-    `schema` is honoured for its `required` list and its `additionalProperties` restriction;
-    every other constraint is enforced by the fixed `DraftReplyPayload` model. This check
-    closes the gap between those two facts: a schema that declares different properties, a
-    narrower `action` enum, or tighter `confidence` bounds is rejected outright rather than
-    accepted and then under-validated.
+    Fail-closed by design. `DraftReplyPayload` is a fixed six-field model, so any keyword a
+    schema declares that the model does not implement would be silently ignored — which is
+    exactly the silent under-validation this check exists to prevent. Every property is
+    therefore checked against an allow-list of enforced keywords, and anything outside it is
+    rejected rather than assumed harmless.
+
+    A constraint that is *wider* than the model's is accepted: the model is then stricter
+    than the declaration, so nothing escapes validation.
 
     Raises:
         DraftSchemaContractError: If the schema diverges from the enforceable contract.
@@ -78,9 +97,27 @@ def assert_schema_matches_contract(schema: dict[str, Any] | None) -> None:
     if schema is None:
         return
 
+    if schema.get("additionalProperties") is True:
+        raise DraftSchemaContractError(
+            "Output schema sets additionalProperties: true, but DraftReplyPayload is "
+            "extra='forbid'; unknown fields would be rejected, not accepted as declared."
+        )
+
+    required = schema.get("required")
+    if required is not None and set(required) != set(REQUIRED_REPLY_FIELDS):
+        raise DraftSchemaContractError(
+            f"Output schema 'required' is {sorted(required)}, but DraftReplyPayload demands "
+            f"all of {REQUIRED_REPLY_FIELDS} unconditionally. A shorter list would reject "
+            "payloads that genuinely conform to the declared schema."
+        )
+
     properties = schema.get("properties")
-    if not isinstance(properties, dict):
+    if properties is None:
         return
+    if not isinstance(properties, dict):
+        raise DraftSchemaContractError(
+            f"Output schema 'properties' must be an object, got {type(properties).__name__}."
+        )
 
     declared = set(properties)
     canonical = set(REQUIRED_REPLY_FIELDS)
@@ -88,27 +125,77 @@ def assert_schema_matches_contract(schema: dict[str, Any] | None) -> None:
         raise DraftSchemaContractError(
             "Output schema properties diverge from the enforceable draft contract: "
             f"unexpected {sorted(declared - canonical)}, missing {sorted(canonical - declared)}. "
-            "DraftReplyPayload enforces exactly "
-            f"{REQUIRED_REPLY_FIELDS}."
+            f"DraftReplyPayload enforces exactly {REQUIRED_REPLY_FIELDS}."
         )
 
-    action_enum = properties.get("action", {}).get("enum")
-    if action_enum is not None and set(action_enum) != ALLOWED_ACTIONS:
-        raise DraftSchemaContractError(
-            f"Output schema restricts 'action' to {sorted(action_enum)}, but DraftReplyPayload "
-            f"enforces {sorted(ALLOWED_ACTIONS)}; the narrower set would not be enforced."
-        )
+    for name, declaration in properties.items():
+        if not isinstance(declaration, dict):
+            raise DraftSchemaContractError(
+                f"Output schema property {name!r} must be an object, got "
+                f"{type(declaration).__name__}."
+            )
 
-    confidence = properties.get("confidence", {})
-    declared_bounds = (
-        confidence.get("minimum", CONFIDENCE_BOUNDS[0]),
-        confidence.get("maximum", CONFIDENCE_BOUNDS[1]),
-    )
-    if declared_bounds != CONFIDENCE_BOUNDS:
-        raise DraftSchemaContractError(
-            f"Output schema bounds 'confidence' to {declared_bounds}, but DraftReplyPayload "
-            f"enforces {CONFIDENCE_BOUNDS}; the tighter bounds would not be enforced."
-        )
+        unenforced = set(declaration) - ENFORCED_SCHEMA_KEYWORDS
+        if unenforced:
+            raise DraftSchemaContractError(
+                f"Output schema property {name!r} declares {sorted(unenforced)}, which "
+                "DraftReplyPayload does not enforce; it would be silently ignored."
+            )
+
+        declared_type = declaration.get("type")
+        expected_type = CANONICAL_PROPERTY_TYPES[name]
+        if declared_type is not None and declared_type != expected_type:
+            raise DraftSchemaContractError(
+                f"Output schema declares {name!r} as type {declared_type!r}, but "
+                f"DraftReplyPayload enforces {expected_type!r}."
+            )
+
+        enum_values = declaration.get("enum")
+        if enum_values is not None:
+            if name != "action":
+                raise DraftSchemaContractError(
+                    f"Output schema restricts {name!r} to {sorted(enum_values)}, but "
+                    "DraftReplyPayload enforces an enum only on 'action'."
+                )
+            if set(enum_values) != ALLOWED_ACTIONS:
+                raise DraftSchemaContractError(
+                    f"Output schema restricts 'action' to {sorted(enum_values)}, but "
+                    f"DraftReplyPayload enforces {sorted(ALLOWED_ACTIONS)}; the difference "
+                    "would not be enforced."
+                )
+
+        if "items" in declaration and name != "knowledge_chunks":
+            raise DraftSchemaContractError(
+                f"Output schema declares 'items' on {name!r}, which DraftReplyPayload only "
+                "enforces for 'knowledge_chunks'."
+            )
+        if name == "knowledge_chunks":
+            item_type = declaration.get("items", {}).get("type", "string")
+            if item_type != "string":
+                raise DraftSchemaContractError(
+                    f"Output schema declares knowledge_chunks items as {item_type!r}, but "
+                    "DraftReplyPayload enforces a list of strings."
+                )
+
+        minimum = declaration.get("minimum")
+        maximum = declaration.get("maximum")
+        if (minimum is not None or maximum is not None) and name != "confidence":
+            raise DraftSchemaContractError(
+                f"Output schema bounds {name!r}, but DraftReplyPayload enforces numeric "
+                "bounds only on 'confidence'."
+            )
+        if name == "confidence":
+            # Wider is safe (the model is stricter); narrower would go unenforced.
+            if minimum is not None and minimum > CONFIDENCE_BOUNDS[0]:
+                raise DraftSchemaContractError(
+                    f"Output schema sets a 'confidence' floor of {minimum}, tighter than the "
+                    f"{CONFIDENCE_BOUNDS[0]} DraftReplyPayload enforces; it would be ignored."
+                )
+            if maximum is not None and maximum < CONFIDENCE_BOUNDS[1]:
+                raise DraftSchemaContractError(
+                    f"Output schema caps 'confidence' at {maximum}, tighter than the "
+                    f"{CONFIDENCE_BOUNDS[1]} DraftReplyPayload enforces; it would be ignored."
+                )
 
 
 def validate_draft_payload(

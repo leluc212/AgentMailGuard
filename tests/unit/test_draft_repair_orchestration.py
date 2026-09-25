@@ -24,6 +24,7 @@ from packages.llm import (
     CallBudgetTracker,
     CallKind,
     DraftReplyPayload,
+    DraftSchemaContractError,
     FakeLLMProvider,
     LLMSchemaValidationError,
     LLMTimeoutError,
@@ -384,8 +385,9 @@ async def test_failed_job_still_exports_budget_and_token_metrics(
         await generator.generate_draft(sample_context, category="support")
 
     payload = _metrics_payload(metrics)
-    assert 'llm_calls_per_job_count{kind="generate"} 1.0' in payload
-    assert 'llm_calls_per_job_count{kind="repair"} 1.0' in payload
+    # _sum carries the observed value; _count would read 1.0 even for a zero observation.
+    assert 'llm_calls_per_job_sum{kind="generate"} 1.0' in payload
+    assert 'llm_calls_per_job_sum{kind="repair"} 1.0' in payload
     assert "input_tokens_total" in payload
     assert "output_tokens_total" in payload
 
@@ -411,7 +413,7 @@ async def test_repair_call_is_exported_as_a_repair_kind_call(
     payload = _metrics_payload(metrics)
     assert 'llm_calls_total{kind="generate",model="fake-fast-model"} 1.0' in payload
     assert 'llm_calls_total{kind="repair",model="fake-fast-model"} 1.0' in payload
-    assert 'llm_calls_per_job_count{kind="repair"} 1.0' in payload
+    assert 'llm_calls_per_job_sum{kind="repair"} 1.0' in payload
 
 
 @pytest.mark.asyncio
@@ -550,3 +552,217 @@ async def test_parse_failure_still_counts_the_generate_call_in_llm_calls_total(
     ]
     assert generate_lines, f"no llm_calls_total generate series emitted; got:\n{repair_lines}"
     assert repair_lines
+
+
+def _always_raise(error: Exception) -> Any:
+    """Build a responder that raises on every call."""
+
+    def responder(
+        messages: list[Any],
+        schema: dict[str, Any] | None,
+        tier: Any,
+    ) -> dict[str, Any]:
+        raise error
+
+    return responder
+
+
+@pytest.mark.asyncio
+async def test_two_unparseable_responses_raise_unvalidated_draft_error(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+) -> None:
+    """A repair that is also unparseable must fail as UnvalidatedDraftError (R16.3).
+
+    This is the dominant double failure, not an exotic one: an endpoint that ignores the
+    json_schema directive ignores it on the repair call too, and a max_tokens truncation
+    recurs at the same max_tokens. Leaking the provider's own LLMSchemaValidationError here
+    would break generate_draft's documented contract and leave the consumer unable to tell
+    a permanently malformed draft from a transient provider fault.
+    """
+    metrics = create_pipeline_metrics()
+    fake_llm = FakeLLMProvider(
+        responder=_always_raise(
+            LLMSchemaValidationError("unparseable", raw_content="Sure! Here you go...")
+        )
+    )
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(UnvalidatedDraftError):
+        await generator.generate_draft(sample_context, category="support")
+
+    payload = _metrics_payload(metrics)
+    assert 'draft_validation_failures_total{stage="initial"} 1.0' in payload
+    assert 'draft_validation_failures_total{stage="repair"} 1.0' in payload
+    assert 'draft_repairs_total{status="failed"} 1.0' in payload
+
+
+@pytest.mark.asyncio
+async def test_unparseable_repair_still_accounts_for_the_billed_repair_call(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+) -> None:
+    """A repair that produced an unusable response was still billed, so it must be counted.
+
+    Symmetric with the generate leg: the provider aborts before BudgetedLLMProvider records
+    the call, so without an explicit record the per-job histogram claims the job spent one
+    call when it spent two — and that histogram is what proves the R14.9 budget holds.
+    """
+    metrics = create_pipeline_metrics()
+    tracker = CallBudgetTracker(job_id="job-double-parse")
+    fake_llm = FakeLLMProvider(
+        responder=_always_raise(LLMSchemaValidationError("unparseable", raw_content="prose"))
+    )
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(UnvalidatedDraftError):
+        await generator.generate_draft(sample_context, category="support", budget_tracker=tracker)
+
+    assert tracker.count(CallKind.GENERATE) == 1
+    assert tracker.count(CallKind.REPAIR) == 1
+    assert tracker.total_calls == 2
+
+    payload = _metrics_payload(metrics)
+    assert 'llm_calls_total{kind="generate"' in payload
+    assert 'llm_calls_total{kind="repair"' in payload
+
+
+@pytest.mark.asyncio
+async def test_repair_timeout_does_not_record_a_call_that_may_not_have_run(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    malformed_reply: dict[str, Any],
+) -> None:
+    """A transport timeout is not evidence the model produced anything, so it is not billed.
+
+    Distinct from an unparseable response, which proves a completion was generated.
+    """
+    metrics = create_pipeline_metrics()
+    tracker = CallBudgetTracker(job_id="job-repair-timeout")
+    fake_llm = FakeLLMProvider(
+        responder=_return_then_raise(malformed_reply, LLMTimeoutError("repair timed out"))
+    )
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(LLMTimeoutError):
+        await generator.generate_draft(sample_context, category="support", budget_tracker=tracker)
+
+    assert tracker.count(CallKind.GENERATE) == 1
+    assert tracker.count(CallKind.REPAIR) == 0
+    assert 'draft_repairs_total{status="failed"} 1.0' in _metrics_payload(metrics)
+
+
+@pytest.mark.asyncio
+async def test_divergent_profile_schema_fails_before_any_model_call(
+    sample_context: ContextPackage,
+) -> None:
+    """A misconfigured output_schema must fail before a call is billed (R14.9).
+
+    The check sits before the generation call precisely so a deployment error costs nothing
+    and is never mistaken for a model mistake — no validation-failure metric, no repair.
+    """
+    metrics = create_pipeline_metrics()
+    registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
+    divergent = registry.resolve_profile("support").model_copy(
+        update={
+            "profile": "broken_support",
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["reply", "escalate"]},
+                    "draft": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "knowledge_chunks": {"type": "array", "items": {"type": "string"}},
+                    "thread_summary_updated": {"type": "boolean"},
+                    "model_tier": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        }
+    )
+    registry.register(divergent, categories=["broken"])
+    fake_llm = FakeLLMProvider(default_response={"whatever": True})
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(DraftSchemaContractError):
+        await generator.generate_draft(sample_context, category="broken")
+
+    assert fake_llm.recorded_calls == []
+    # A registered counter always emits HELP/TYPE lines, so assert on sample lines only.
+    assert "draft_validation_failures_total{stage=" not in _metrics_payload(metrics)
+
+
+@pytest.mark.asyncio
+async def test_unparsed_generation_does_not_record_a_zero_latency_sample(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    conformant_reply: dict[str, Any],
+) -> None:
+    """A call whose latency is unknown must not be observed as 0 ms.
+
+    Observing zero biases the generation-latency p50/p95 downward, so failures would make
+    the latency SLO look better than it is. Recording nothing is a known gap; recording a
+    fabricated zero is wrong.
+    """
+    metrics = create_pipeline_metrics()
+    fake_llm = FakeLLMProvider(
+        responder=_raise_then_return(
+            LLMSchemaValidationError("unparseable", raw_content="prose"), conformant_reply
+        )
+    )
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    await generator.generate_draft(sample_context, category="support")
+
+    payload = _metrics_payload(metrics)
+    # Exactly one latency observation: the repair attempt, whose latency is real.
+    zero_samples = [
+        line
+        for line in payload.splitlines()
+        if line.startswith("generation_latency_ms_count") and line.endswith(" 1.0")
+    ]
+    assert len(zero_samples) == 1
+    assert 'generation_latency_ms_count{model="unknown"' not in payload
+
+
+@pytest.mark.asyncio
+async def test_one_broken_counter_does_not_silence_the_budget_histogram(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    malformed_reply: dict[str, Any],
+) -> None:
+    """A single misconfigured counter must not cost the job its R14.10 budget export."""
+    metrics = _MetricsWithBrokenCounter(create_pipeline_metrics())
+    fake_llm = FakeLLMProvider(canned_responses=[malformed_reply, dict(malformed_reply)])
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(UnvalidatedDraftError):
+        await generator.generate_draft(sample_context, category="support")
+
+    payload = _metrics_payload(metrics)
+    assert 'llm_calls_per_job_sum{kind="generate"} 1.0' in payload
+    assert 'llm_calls_per_job_sum{kind="repair"} 1.0' in payload
