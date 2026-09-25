@@ -165,3 +165,22 @@ def test_draft_repairs_and_validation_failure_metrics() -> None:
     assert 'draft_repairs_total{status="failed"} 1.0' in payload_str
     assert 'draft_validation_failures_total{stage="initial"} 1.0' in payload_str
     assert 'draft_validation_failures_total{stage="repair"} 1.0' in payload_str
+
+
+def test_citation_verification_metrics() -> None:
+    """Verify the citation grounding counters are registered and emit (R16.5, R21.4)."""
+    m = create_pipeline_metrics()
+
+    assert m.citations_verified_total is not None
+    assert m.citation_mismatches_total is not None
+
+    m.citations_verified_total.labels(category="support").inc()
+    m.citations_verified_total.labels(category="billing").inc()
+    m.citation_mismatches_total.labels(category="support").inc()
+
+    payload, _ = generate_metrics_payload(m.registry)
+    payload_str = payload.decode("utf-8")
+
+    assert 'citations_verified_total{category="support"} 1.0' in payload_str
+    assert 'citations_verified_total{category="billing"} 1.0' in payload_str
+    assert 'citation_mismatches_total{category="support"} 1.0' in payload_str

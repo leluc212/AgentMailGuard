@@ -86,6 +86,8 @@ class PipelineMetrics:
     model_escalations_total: Counter
     draft_repairs_total: Counter
     draft_validation_failures_total: Counter
+    citations_verified_total: Counter
+    citation_mismatches_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -258,6 +260,18 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "draft_validation_failures_total",
             "Total draft schema validation failures by pipeline stage (R16.2, R16.3)",
             ["stage"],
+            registry=reg,
+        ),
+        citations_verified_total=Counter(
+            "citations_verified_total",
+            "Generated drafts whose citations were checked against the supplied context (R16.5)",
+            ["category"],
+            registry=reg,
+        ),
+        citation_mismatches_total=Counter(
+            "citation_mismatches_total",
+            "Generated drafts citing at least one chunk absent from the context (R16.5)",
+            ["category"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)
