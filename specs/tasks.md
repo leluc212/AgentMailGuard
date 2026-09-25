@@ -425,7 +425,7 @@
   - Config switch forcing single-tier operation for the H4 comparison.
   - _Requirements: R15.1, R15.2, R15.3, R15.4, R15.5, R15.6_
 
-- [ ] **4.9 Structured output & validation**
+- [x] **4.9 Structured output & validation**
   - Enforce the schema `{action, draft, confidence, knowledge_chunks[], thread_summary_updated, model_tier}`.
   - Validate → one repair retry → fail into retry/DLQ. Never persist an unvalidated draft.
   - _Requirements: R16.1, R16.2, R16.3_

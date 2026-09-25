@@ -78,6 +78,8 @@ def canned_reply() -> dict[str, Any]:
         "draft": "Hello Alice, you can reset your password from the account settings page.",
         "confidence": 0.95,
         "knowledge_chunks": ["chunk-1"],
+        "thread_summary_updated": False,
+        "model_tier": "routine",
     }
 
 
