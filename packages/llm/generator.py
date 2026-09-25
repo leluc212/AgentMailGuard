@@ -305,32 +305,43 @@ class SinglePassGenerator:
         tracker: CallBudgetTracker,
         export_budget: bool,
     ) -> None:
-        """Emit generation cost and latency metrics, on the success and failure paths alike."""
+        """Emit generation cost and latency metrics, on the success and failure paths alike.
+
+        Never raises. This runs in a `finally`, so an exception escaping here would replace
+        the exception that actually failed the job — a caller would then retry for the wrong
+        reason and lose the signal that the draft was never valid.
+        """
         if not self.metrics:
             return
 
-        tier_label = str(tier.value) if hasattr(tier, "value") else str(tier)
-        total_input, total_output, total_latency = self._totals(attempts)
-        model_label = attempts[-1].model if attempts else generate_model
+        try:
+            tier_label = str(tier.value) if hasattr(tier, "value") else str(tier)
+            total_input, total_output, total_latency = self._totals(attempts)
+            model_label = attempts[-1].model if attempts else generate_model
 
-        self._count_call_directly(budgeted, "generate", generate_model)
-        if hasattr(self.metrics, "generation_latency_ms"):
-            try:
-                self.metrics.generation_latency_ms.labels(
-                    model=model_label, tier=tier_label
-                ).observe(total_latency)
-            except (ValueError, TypeError, AttributeError):
-                self.metrics.generation_latency_ms.observe(total_latency)
-        if hasattr(self.metrics, "input_tokens_total"):
-            self.metrics.input_tokens_total.labels(model=model_label, tier=tier_label).inc(
-                total_input
+            self._count_call_directly(budgeted, "generate", generate_model)
+            if hasattr(self.metrics, "generation_latency_ms"):
+                try:
+                    self.metrics.generation_latency_ms.labels(
+                        model=model_label, tier=tier_label
+                    ).observe(total_latency)
+                except (ValueError, TypeError, AttributeError):
+                    self.metrics.generation_latency_ms.observe(total_latency)
+            if hasattr(self.metrics, "input_tokens_total"):
+                self.metrics.input_tokens_total.labels(model=model_label, tier=tier_label).inc(
+                    total_input
+                )
+            if hasattr(self.metrics, "output_tokens_total"):
+                self.metrics.output_tokens_total.labels(model=model_label, tier=tier_label).inc(
+                    total_output
+                )
+            if export_budget:
+                tracker.export_metrics(self.metrics)
+        except Exception:
+            logger.exception(
+                "generation_metrics_emission_failed",
+                extra={"job_id": tracker.job_id},
             )
-        if hasattr(self.metrics, "output_tokens_total"):
-            self.metrics.output_tokens_total.labels(model=model_label, tier=tier_label).inc(
-                total_output
-            )
-        if export_budget:
-            tracker.export_metrics(self.metrics)
 
     async def _repair_draft(
         self,

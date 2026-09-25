@@ -446,3 +446,66 @@ async def test_content_is_the_validated_payload_not_the_raw_response(
     assert result.content["thread_summary_updated"] is False
     assert result.validated_payload is not None
     assert result.content == result.validated_payload.model_dump()
+
+
+class _ExplodingCounter:
+    """A counter whose label call fails, standing in for a metrics misconfiguration."""
+
+    def labels(self, **kwargs: Any) -> Any:
+        raise ValueError("label cardinality mismatch")
+
+
+class _MetricsWithBrokenCounter:
+    """Real metrics with one counter replaced by a failing one."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.input_tokens_total = _ExplodingCounter()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_metric_failure_does_not_mask_the_real_job_failure(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    malformed_reply: dict[str, Any],
+) -> None:
+    """Emitting metrics must never replace the exception that actually failed the job.
+
+    Metrics are emitted in a `finally`, so an exception raised while recording them would
+    propagate in place of UnvalidatedDraftError and the caller would retry for the wrong
+    reason — losing the one signal that says "this draft was never valid".
+    """
+    metrics = _MetricsWithBrokenCounter(create_pipeline_metrics())
+    fake_llm = FakeLLMProvider(canned_responses=[malformed_reply, dict(malformed_reply)])
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    with pytest.raises(UnvalidatedDraftError):
+        await generator.generate_draft(sample_context, category="support")
+
+
+@pytest.mark.asyncio
+async def test_metric_failure_does_not_break_a_successful_generation(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    conformant_reply: dict[str, Any],
+) -> None:
+    """A broken counter must not turn a valid draft into a failed job either."""
+    metrics = _MetricsWithBrokenCounter(create_pipeline_metrics())
+    fake_llm = FakeLLMProvider(default_response=conformant_reply)
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    result = await generator.generate_draft(sample_context, category="support")
+
+    assert result.content == conformant_reply
+    assert result.validated_payload is not None
