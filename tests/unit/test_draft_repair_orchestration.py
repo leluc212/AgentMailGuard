@@ -509,3 +509,44 @@ async def test_metric_failure_does_not_break_a_successful_generation(
 
     assert result.content == conformant_reply
     assert result.validated_payload is not None
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_still_counts_the_generate_call_in_llm_calls_total(
+    sample_context: ContextPackage,
+    profile_registry: AgentProfileRegistry,
+    conformant_reply: dict[str, Any],
+) -> None:
+    """A generation billed but unparseable must still appear in llm_calls_total (R14.10).
+
+    BudgetedLLMProvider increments llm_calls_total only after the provider returns, so a
+    provider that raises leaves the counter untouched. If the generator also declines to
+    count it, llm_calls_total{kind="generate"} undercounts exactly the failed generations
+    while kind="repair" counts them all — and the repair rate computed from those two series
+    exceeds 100%.
+    """
+    metrics = create_pipeline_metrics()
+    fake_llm = FakeLLMProvider(
+        responder=_raise_then_return(
+            LLMSchemaValidationError("unparseable", raw_content="Sure! Here you go..."),
+            conformant_reply,
+        )
+    )
+    generator = SinglePassGenerator(
+        llm_provider=fake_llm,
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    result = await generator.generate_draft(sample_context, category="support")
+    assert result.is_repaired is True
+
+    payload = _metrics_payload(metrics)
+    generate_lines = [
+        line for line in payload.splitlines() if line.startswith('llm_calls_total{kind="generate"')
+    ]
+    repair_lines = [
+        line for line in payload.splitlines() if line.startswith('llm_calls_total{kind="repair"')
+    ]
+    assert generate_lines, f"no llm_calls_total generate series emitted; got:\n{repair_lines}"
+    assert repair_lines

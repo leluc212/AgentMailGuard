@@ -160,6 +160,7 @@ class SinglePassGenerator:
         attempts: list[LLMResult] = []
         generate_model = "unknown"
         parse_failure: LLMSchemaValidationError | None = None
+        generate_already_counted = False
         try:
             result = await budgeted.generate(
                 messages=messages,
@@ -174,8 +175,13 @@ class SinglePassGenerator:
         except LLMSchemaValidationError as exc:
             parse_failure = exc
             # The model was invoked and billed even though its output was unusable, so the
-            # budget must see the call the provider never got to record (R14.9).
+            # budget must see the call the provider never got to record (R14.9). The
+            # provider also aborted before incrementing llm_calls_total, and it is the only
+            # thing that normally does, so this call must be counted here or the generate
+            # series silently undercounts exactly the failed generations (R14.10).
             tracker.record_call(CallKind.GENERATE, tier=str(effective_tier))
+            self._force_count_call(CallKind.GENERATE.value, generate_model)
+            generate_already_counted = True
         else:
             attempts.append(result)
             generate_model = result.model
@@ -206,6 +212,7 @@ class SinglePassGenerator:
                 generate_model=generate_model,
                 tracker=tracker,
                 export_budget=budget_tracker is None,
+                count_generate=not generate_already_counted,
             )
 
         total_input, total_output, total_latency = self._totals(attempts)
@@ -304,6 +311,7 @@ class SinglePassGenerator:
         generate_model: str,
         tracker: CallBudgetTracker,
         export_budget: bool,
+        count_generate: bool = True,
     ) -> None:
         """Emit generation cost and latency metrics, on the success and failure paths alike.
 
@@ -319,7 +327,8 @@ class SinglePassGenerator:
             total_input, total_output, total_latency = self._totals(attempts)
             model_label = attempts[-1].model if attempts else generate_model
 
-            self._count_call_directly(budgeted, "generate", generate_model)
+            if count_generate:
+                self._count_call_directly(budgeted, "generate", generate_model)
             if hasattr(self.metrics, "generation_latency_ms"):
                 try:
                     self.metrics.generation_latency_ms.labels(
@@ -410,6 +419,13 @@ class SinglePassGenerator:
         if metrics is None or not hasattr(metrics, "llm_calls_total"):
             return
         if budgeted.metrics is metrics:
+            return
+        metrics.llm_calls_total.labels(kind=kind, model=model).inc()
+
+    def _force_count_call(self, kind: str, model: str) -> None:
+        """Increment llm_calls_total for a call the provider aborted before recording."""
+        metrics = self.metrics
+        if metrics is None or not hasattr(metrics, "llm_calls_total"):
             return
         metrics.llm_calls_total.labels(kind=kind, model=model).inc()
 
