@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 
 from packages.llm import (
     ChatMessage,
@@ -297,3 +298,70 @@ def test_exception_inheritance() -> None:
     """
     assert issubclass(DraftValidationError, LLMSchemaValidationError)
     assert issubclass(UnvalidatedDraftError, LLMSchemaValidationError)
+
+
+def test_validate_already_instantiated_draft_payload() -> None:
+    """Verify validate_draft_payload passes through an already instantiated DraftReplyPayload."""
+    instance = DraftReplyPayload(
+        action="reply",
+        draft="Pass-through draft.",
+        confidence=0.88,
+        knowledge_chunks=["chunk-1"],
+        thread_summary_updated=True,
+        model_tier="routine",
+    )
+    result = validate_draft_payload(instance)
+    assert result is instance
+
+
+def test_draft_reply_payload_requires_all_fields_on_instantiation() -> None:
+    """Verify DraftReplyPayload requires knowledge_chunks and thread_summary_updated."""
+    with pytest.raises(ValidationError):
+        # Missing knowledge_chunks and thread_summary_updated
+        DraftReplyPayload(  # type: ignore[call-arg]
+            action="reply",
+            draft="Draft without defaults",
+            confidence=0.9,
+            model_tier="routine",
+        )
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "```json\n{content}\n```",
+        "```\n{content}\n```",
+        "  ```json\n{content}\n```  ",
+    ],
+)
+def test_validate_draft_payload_markdown_code_fence_stripping(fence: str) -> None:
+    """Verify validate_draft_payload strips markdown code fences when LLM outputs them."""
+    inner = json.dumps(
+        {
+            "action": "reply",
+            "draft": "Cleaned response.",
+            "confidence": 0.9,
+            "knowledge_chunks": [],
+            "thread_summary_updated": False,
+            "model_tier": "routine",
+        }
+    )
+    wrapped = fence.format(content=inner)
+    payload = validate_draft_payload(wrapped)
+    assert payload.action == "reply"
+    assert payload.draft == "Cleaned response."
+
+
+@pytest.mark.parametrize("conf", [0.0, 0.5, 1.0])
+def test_confidence_valid_boundary_values(conf: float) -> None:
+    """Verify exact valid confidence boundary values 0.0 and 1.0 are accepted."""
+    data = {
+        "action": "reply",
+        "draft": "Boundary draft",
+        "confidence": conf,
+        "knowledge_chunks": [],
+        "thread_summary_updated": False,
+        "model_tier": "routine",
+    }
+    payload = validate_draft_payload(data)
+    assert payload.confidence == conf

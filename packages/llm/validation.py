@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -35,12 +36,8 @@ class DraftReplyPayload(BaseModel):
     action: str = Field(..., description="Action to take: reply, forward, escalate, or no_reply")
     draft: str = Field(..., min_length=1, description="Generated draft email reply body")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Generation confidence score")
-    knowledge_chunks: list[str] = Field(
-        default_factory=list, description="Knowledge chunk IDs cited"
-    )
-    thread_summary_updated: bool = Field(
-        default=False, description="Whether thread summary was updated"
-    )
+    knowledge_chunks: list[str] = Field(..., description="Knowledge chunk IDs cited")
+    thread_summary_updated: bool = Field(..., description="Whether thread summary was updated")
     model_tier: str = Field(..., min_length=1, description="Model tier used for generation")
 
     @field_validator("action")
@@ -65,8 +62,12 @@ def validate_draft_payload(
         return content
 
     if isinstance(content, str):
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
         try:
-            data = json.loads(content)
+            data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise DraftValidationError(f"Payload is not valid JSON: {exc}") from exc
     elif isinstance(content, dict):
