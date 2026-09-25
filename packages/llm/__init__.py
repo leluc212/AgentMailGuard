@@ -41,6 +41,11 @@ from packages.llm.protocol import (
     LLMTimeoutError,
     ModelTier,
 )
+from packages.llm.router import (
+    EscalationReason,
+    RoutingDecision,
+    count_requested_actions,
+)
 from packages.llm.testing import LLMProviderContractSuite
 
 __all__ = [
@@ -59,6 +64,7 @@ __all__ = [
     "DEFAULT_LOCAL_MODELS",
     "DEFAULT_MODEL_MAP",
     "DEFAULT_OPENAI_MODELS",
+    "EscalationReason",
     "FakeLLMProvider",
     "GenerationResult",
     "HttpLLMProvider",
@@ -72,6 +78,8 @@ __all__ = [
     "LocalLLMProvider",
     "ModelTier",
     "OpenAILLMProvider",
+    "RoutingDecision",
     "SinglePassGenerator",
+    "count_requested_actions",
     "create_llm_provider",
 ]
