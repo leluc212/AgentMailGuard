@@ -118,6 +118,7 @@ SOURCES: dict[str, DatasetSource] = {
         ref="microsoft/llmail-inject-challenge",
         files=(
             "data/labelled_unique_submissions_phase2.json",
+            "data/raw_submissions_phase2.jsonl",
             "data/emails_for_fp_tests.json",
             "data/scenarios.json",
             "data/system_prompt.json",
@@ -129,8 +130,8 @@ SOURCES: dict[str, DatasetSource] = {
         url="https://huggingface.co/datasets/microsoft/llmail-inject-challenge",
         roles=("email_bench", "l1_train"),
         description="~370k adaptive attack emails from a public challenge against an email assistant with send_email tool; includes benign emails for false-positive tests.",
-        size_hint_mb=70,
-        notes="Phase-1 files (>1 GB) are intentionally skipped; phase-2 labelled submissions are used.",
+        size_hint_mb=335,
+        notes="Phase-1 files (>1 GB) are skipped. Phase-2: raw_submissions_phase2.jsonl holds the email text, labelled_unique_submissions_phase2.json holds per-submission labels (attack_attempt, reason).",
     ),
     "injecagent": DatasetSource(
         name="injecagent",

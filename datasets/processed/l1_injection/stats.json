@@ -1,0 +1,59 @@
+{
+  "total": 24382,
+  "by_split": {
+    "train": 19463,
+    "test": 3662,
+    "val": 1257
+  },
+  "by_label": {
+    "0": 15013,
+    "1": 9369
+  },
+  "by_source": {
+    "bipia_attack": {
+      "1": 100
+    },
+    "bipia_clean": {
+      "0": 45
+    },
+    "bitext_support": {
+      "0": 2902
+    },
+    "deepset": {
+      "0": 399,
+      "1": 263
+    },
+    "enron_ham": {
+      "0": 876
+    },
+    "gandalf": {
+      "1": 999
+    },
+    "injecagent_attacker": {
+      "1": 60
+    },
+    "injecagent_user": {
+      "0": 17
+    },
+    "itw_jailbreak": {
+      "1": 785
+    },
+    "itw_regular": {
+      "0": 2919
+    },
+    "jackhhao": {
+      "0": 637,
+      "1": 133
+    },
+    "llmail_attack": {
+      "1": 3960
+    },
+    "llmail_fp": {
+      "0": 160
+    },
+    "xtram1": {
+      "0": 7058,
+      "1": 3069
+    }
+  }
+}

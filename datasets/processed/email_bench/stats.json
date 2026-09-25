@@ -1,0 +1,43 @@
+{
+  "total": 1405,
+  "attack": 862,
+  "benign": 543,
+  "by_source": {
+    "seed": {
+      "attack": 120,
+      "benign": 40
+    },
+    "seed_rag": {
+      "attack": 18,
+      "benign": 0
+    },
+    "poisonedrag": {
+      "attack": 150,
+      "benign": 0
+    },
+    "bipia": {
+      "attack": 225,
+      "benign": 0
+    },
+    "injecagent": {
+      "attack": 49,
+      "benign": 0
+    },
+    "llmail_inject": {
+      "attack": 300,
+      "benign": 203
+    },
+    "enron_ham": {
+      "attack": 0,
+      "benign": 150
+    },
+    "bitext_support": {
+      "attack": 0,
+      "benign": 150
+    }
+  },
+  "by_vector": {
+    "email": 694,
+    "rag": 168
+  }
+}

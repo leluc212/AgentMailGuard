@@ -181,9 +181,14 @@ class MailGuardPipeline:
         retrieved = [RetrievedChunk.from_any(c) for c in chunks]
         kept = retrieved
         if self.config.l3b:
-            kept, verdicts = await self.l3b.scan(
-                retrieved, query or report.l2.user_intent if report.l2 else query
+            # The retrieval query is what PoisonedRAG bait echoes: use the caller's query
+            # (core query builder) or fall back to the customer's own words, never the
+            # L2 paraphrase (its extra tokens dilute the echo measurement).
+            body = (
+                report.l2.sanitized_body if (report.l2 and report.l2.sanitized_body) else email.text
             )
+            scan_query = query or f"{email.subject}\n{body}"[:1500]
+            kept, verdicts = await self.l3b.scan(retrieved, scan_query)
             report.l3b = verdicts
         prompt, l3_verdict = self.l3.build(
             system_instructions=system_instructions,
@@ -271,9 +276,14 @@ class MailGuardPipeline:
         business_data: dict[str, Any] | None = None,
         task_instructions: str | None = None,
         category: str | None = None,
+        query: str | None = None,
         stop_on_inbound_block: bool = True,
     ) -> tuple[GuardReport, DraftCandidate | None, PromptBundle | None]:
-        """Full path. Returns (report, guarded draft or None, prompt bundle or None)."""
+        """Full path. Returns (report, guarded draft or None, prompt bundle or None).
+
+        ``query`` is the retrieval query the core used to fetch ``chunks`` (L3b echo check);
+        when omitted the customer's own subject + body is used.
+        """
         email = GuardedEmail.from_any(email_like)
         report = await self.inspect_inbound(email, category=category)
         if stop_on_inbound_block and self.blocked(report.inbound_decision):
@@ -288,6 +298,7 @@ class MailGuardPipeline:
             recent_messages=recent_messages,
             business_data=business_data,
             task_instructions=task_instructions,
+            query=query,
         )
         raw = await generate(bundle.messages)
         draft = (

@@ -1,0 +1,25 @@
+{
+  "total": 2883,
+  "by_source": {
+    "seed_kb": {
+      "poisoned": 0,
+      "clean": 26
+    },
+    "seed_poison": {
+      "poisoned": 18,
+      "clean": 0
+    },
+    "poisonedrag": {
+      "poisoned": 1500,
+      "clean": 0
+    },
+    "bitext_support": {
+      "poisoned": 0,
+      "clean": 800
+    },
+    "enron_ham": {
+      "poisoned": 0,
+      "clean": 539
+    }
+  }
+}

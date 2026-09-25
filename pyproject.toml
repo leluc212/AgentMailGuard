@@ -61,11 +61,17 @@ exclude = [".git", ".venv", "__pycache__", "build", "dist", "datasets/raw", "dat
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["SIM115"]
 
 [tool.ruff.lint.per-file-ignores]
 "mailguard/datasets/sources.py" = ["E501"]
 "evaluation/attacks/taxonomy.py" = ["E501"]
 "tests/**" = ["E501"]
+"mailguard/datasets/build_*.py" = ["E501"]
+"evaluation/*.py" = ["E501"]
+"training/*.py" = ["E501"]
+"services/**" = ["E501"]
+"scripts/**" = ["E501"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

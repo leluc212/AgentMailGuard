@@ -152,3 +152,27 @@ rules:
       - '\{\s*"(tool|function|name|action)"\s*:\s*"[a-z_]+"'
       - '\b(call|invoke|use|trigger|execute)\s+(the\s+)?(tool|function|api|action)\s+["`'']?[a-z_]{3,}["`'']?'
       - '<(tool_call|function_call|invoke)[^>]*>'
+
+  # ---------------------------------------------------------------- context / instruction probing
+  - id: instruction-probing
+    description: Asks the assistant what instructions or documents it was given
+    threat_type: system_prompt_leak
+    technique: prompt_extraction
+    score: 0.86
+    patterns:
+      - '\b(what|which)\s+(instructions?|rules?|guidelines?|prompt|documents?|context)\s+(were|was|have|are)\s+you\s+(given|provided|told|configured|shown)\b'
+      - '\b(paste|copy|repeat|quote|reproduce)\s+(them|it|those|these|everything|all of it)\s+(word for word|verbatim|exactly|in full)\b'
+      - '\bwhat (internal|hidden|confidential) (documents?|notes?|data|instructions?) (can|do) you (see|access|have)\b'
+
+  # ---------------------------------------------------------------- multilingual (Vietnamese)
+  - id: instruction-override-vi
+    description: Vietnamese instruction override / exfiltration phrasing
+    threat_type: instruction_override
+    technique: multilingual
+    score: 0.92
+    patterns:
+      - '\b(bỏ qua|phớt lờ|quên|hủy bỏ)\s+(mọi|tất cả|các|những)?\s*(hướng dẫn|chỉ dẫn|chỉ thị|quy tắc|lệnh|yêu cầu)\s*(trước|trước đó|ở trên|cũ|trước đây)?'
+      - '\b(chuyển tiếp|gửi|chia sẻ|sao chép)\s+(toàn bộ|tất cả|mọi|cả)\s+[^.\n]{0,40}(email|thư|tin nhắn|hội thoại|dữ liệu|thông tin|hồ sơ|khách hàng)[^.\n]{0,40}\b(tới|đến|cho|sang)\s+[^\s@]+@[^\s@]+\.[a-z]{2,}'
+      - '\b(bạn|mày|ngươi)\s+(bây giờ|giờ)\s+là\b|\btừ giờ trở đi\b|\bchế độ nhà phát triển\b'
+      - '\b(chèn|thêm|đưa)\s+(đường dẫn|liên kết|link)\s+[^.\n]{0,40}https?://'
+      - '\b(tiết lộ|in ra|hiển thị|cho (tôi|mình) (xem|biết))\s+[^.\n]{0,30}(system prompt|lời nhắc hệ thống|hướng dẫn hệ thống|ngữ cảnh ẩn)\b'

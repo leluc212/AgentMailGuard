@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: ["feature/**", "develop", "main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check mailguard evaluation training tests services scripts
+      - name: Format check
+        run: python -m ruff format --check mailguard evaluation training tests services scripts
+      - name: Unit tests (offline, no LLM)
+        run: python -m pytest tests/unit -q --no-header -p no:cacheprovider
+      - name: Smoke - seed classifier + offline benchmark
+        run: |
+          python -m training.train_l1_classifier --seed-only --out artifacts/models/l1_injection_clf_v1.joblib
+          python -m mailguard.datasets.build_rag_poison --negatives 0 --prag-per-dataset 0
+          python -m mailguard.datasets.build_email_benchmark --prag-per-dataset 0 --bipia-contexts 0 --injecagent-limit 0 --llmail-limit 0 --enron-limit 0 --bitext-limit 0
+          python -m evaluation.run_benchmark --agent naive --config C0 C3 --limit 40 --run-name ci --quiet

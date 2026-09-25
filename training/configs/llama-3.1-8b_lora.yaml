@@ -1,0 +1,21 @@
+# LoRA/QLoRA SFT of the Layer-1 judge on Llama-3.1-8B-Instruct (Llama 3.1 Community License; gated on HF).
+base_model: meta-llama/Llama-3.1-8B-Instruct
+output_dir: artifacts/lora/llama-3.1-8b-judge-v1
+quantization: 4bit
+max_length: 2048
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+train:
+  epochs: 1
+  lr: 0.0002
+  batch_size: 2
+  grad_accum: 8
+  warmup_ratio: 0.03
+  logging_steps: 20
+  eval_steps: 200
+  save_steps: 200
+train_file: datasets/processed/sft_judge/train.jsonl
+val_file: datasets/processed/sft_judge/val.jsonl

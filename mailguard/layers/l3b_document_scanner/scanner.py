@@ -113,7 +113,12 @@ def token_set(text: str) -> set[str]:
 
 
 def query_echo_score(chunk_text: str, query: str | None) -> float:
-    """PoisonedRAG prepends the target question verbatim; measure head overlap."""
+    """PoisonedRAG prepends the target question verbatim; measure head overlap.
+
+    Two symmetric measures so the score is robust to long queries (whole emails) and to
+    short chunks: (a) fraction of query tokens found in the chunk head, (b) fraction of
+    the chunk's first tokens that are query tokens (the bait is *entirely* query words).
+    """
     if not query:
         return 0.0
     q = token_set(query)
@@ -123,9 +128,12 @@ def query_echo_score(chunk_text: str, query: str | None) -> float:
     if not head:
         return 0.0
     overlap = len(q & head) / len(q)
-    if overlap >= 0.9:
+    first = _TOKEN.findall(chunk_text.lower())[:12]
+    first_set = set(first)
+    containment = len(first_set & q) / len(first_set) if len(first_set) >= 5 else 0.0
+    if overlap >= 0.9 or containment >= 0.85:
         return 0.75
-    if overlap >= 0.7:
+    if overlap >= 0.7 or containment >= 0.7:
         return 0.55
     return 0.0
 

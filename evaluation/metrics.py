@@ -75,7 +75,7 @@ class CaseResult:
         return self.blocked_inbound or self.blocked_outbound
 
     def to_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items()}
+        return dict(self.__dict__)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CaseResult:

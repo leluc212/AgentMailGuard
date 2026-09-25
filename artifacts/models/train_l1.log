@@ -1,0 +1,6 @@
+INFO train=16217 val=892 test=3311
+INFO fitted in 20.4s
+INFO val: {'precision': 0.8663, 'recall': 0.8413, 'f1': 0.8537, 'fpr': 0.0395, 'auroc': 0.9729, 'auprc': 0.9315, 'brier': 0.0471, 'latency_ms_per_text': 1.072}
+INFO test: {'precision': 0.9652, 'recall': 0.8928, 'f1': 0.9276, 'fpr': 0.0144, 'auroc': 0.9877, 'auprc': 0.9805, 'brier': 0.0335, 'latency_ms_per_text': 0.747}
+INFO saved D:\FPTU\Semester 9 - FA26\mail_guard\artifacts\models\l1_injection_clf_v1.joblib
+exit=0
