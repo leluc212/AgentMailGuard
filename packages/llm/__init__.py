@@ -42,6 +42,7 @@ from packages.llm.protocol import (
     ModelTier,
 )
 from packages.llm.router import (
+    ComplexityRouter,
     EscalationReason,
     RoutingDecision,
     count_requested_actions,
@@ -59,6 +60,7 @@ __all__ = [
     "CallKind",
     "CallRecord",
     "ChatMessage",
+    "ComplexityRouter",
     "ContextPolicy",
     "DEFAULT_ANTHROPIC_MODELS",
     "DEFAULT_LOCAL_MODELS",
