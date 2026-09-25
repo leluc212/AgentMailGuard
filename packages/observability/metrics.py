@@ -83,6 +83,7 @@ class PipelineMetrics:
     raw_payloads_archived_total: Counter
     reaped_leases_total: Counter
     tokens_saved_total: Counter
+    model_escalations_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -237,6 +238,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "tokens_saved_total",
             "Total prompt tokens saved via conversation summarization (R8.7, H3)",
             ["organization"],
+            registry=reg,
+        ),
+        model_escalations_total=Counter(
+            "model_escalations_total",
+            "Total model tier escalations triggered by complexity router (R15.3, R15.6)",
+            ["reason", "tier"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)

@@ -418,7 +418,7 @@
   - Export `llm_calls_total{kind}` and the `llm_calls_per_job` histogram so budget drift is visible rather than assumed.
   - _Requirements: R14.3, R14.4, R14.9, R14.10_
 
-- [ ] **4.8 Complexity router & model cascade**
+- [x] **4.8 Complexity router & model cascade**
   - Tiers `routine` and `high_capability` bound to models by config; routine by default.
   - Escalation on: low classification confidence, complex/long thread, insufficient retrieval evidence, multiple requested actions, oversized context.
   - Max one escalation per job; record tier and escalation reason (or `none`).

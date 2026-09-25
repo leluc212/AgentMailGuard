@@ -35,6 +35,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.raw_payloads_archived_total is not None
     assert m.reaped_leases_total is not None
     assert m.tokens_saved_total is not None
+    assert m.model_escalations_total is not None
 
     # Histograms
     assert m.classification_latency_ms is not None
@@ -123,3 +124,21 @@ def test_llm_calls_per_job_labels() -> None:
     assert 'llm_calls_per_job_bucket{kind="summarize"' in payload_str
     assert 'llm_calls_per_job_bucket{kind="repair"' in payload_str
     assert 'llm_calls_per_job_bucket{kind="total"' in payload_str
+
+
+def test_model_escalations_total_counter() -> None:
+    """Verify model_escalations_total records escalations with reason and tier (R15.3, R15.6)."""
+    m = create_pipeline_metrics()
+
+    assert m.model_escalations_total is not None
+    m.model_escalations_total.labels(
+        reason="low_classification_confidence", tier="high_capability"
+    ).inc()
+
+    payload, _ = generate_metrics_payload(m.registry)
+    payload_str = payload.decode("utf-8")
+
+    assert (
+        'model_escalations_total{reason="low_classification_confidence",tier="high_capability"} 1.0'
+        in payload_str
+    )
