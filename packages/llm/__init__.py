@@ -12,6 +12,11 @@ from packages.llm.budget import (
     CallKind,
     CallRecord,
 )
+from packages.llm.citations import (
+    CitationVerdict,
+    build_citation_index,
+    verify_citations,
+)
 from packages.llm.client import (
     DEFAULT_LOCAL_MODELS,
     DEFAULT_MODEL_MAP,
@@ -68,6 +73,7 @@ __all__ = [
     "CallBudgetViolationError",
     "CallKind",
     "CallRecord",
+    "CitationVerdict",
     "ChatMessage",
     "ComplexityRouter",
     "ContextPolicy",
@@ -96,8 +102,10 @@ __all__ = [
     "SinglePassGenerator",
     "UnvalidatedDraftError",
     "assert_schema_matches_contract",
+    "build_citation_index",
     "build_repair_messages",
     "count_requested_actions",
     "create_llm_provider",
     "validate_draft_payload",
+    "verify_citations",
 ]
