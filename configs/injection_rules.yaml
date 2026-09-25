@@ -1,0 +1,154 @@
+# Layer 1 - Email Injection Scanner: declarative Stage-1 rules.
+#
+# Evaluated over subject + body (scope: any | subject | body). Every match yields a
+# Finding with the rule's `score` and `technique` tag. The cascade stops at Stage 1
+# only when max(score) >= L1__RULE_CONFIDENCE_THRESHOLD (default 0.90); lower
+# scores are kept as evidence and fused with the ML / LLM stages.
+#
+# technique tags follow the taxonomy in evaluation/attacks/taxonomy.py
+# (subset of the HackAPrompt / Tensor Trust / BIPIA / LLMail-Inject taxonomies).
+version: 1
+rules:
+  # ---------------------------------------------------------------- overrides
+  - id: ignore-previous-instructions
+    description: Classic instruction override
+    threat_type: instruction_override
+    technique: instruction_override
+    score: 0.97
+    patterns:
+      - '\b(ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(previous|prior|above|earlier|all|any|your|the)\b[^.\n]{0,30}\b(instructions?|rules?|guidelines?|prompts?|directives?|policy|policies|constraints?)\b'
+      - '\bdo not (follow|obey)\b[^.\n]{0,30}\b(previous|prior|system|original)\b'
+      - '\bnew (instructions?|rules?|task)\s*(:|-|are|is)\b'
+      - '\byour (real|true|actual|new) (instructions?|task|goal|purpose) (is|are)\b'
+
+  - id: system-prompt-markers
+    description: Chat-template / role markers smuggled into email text
+    threat_type: prompt_injection
+    technique: template_marker
+    score: 0.95
+    patterns:
+      - '<\|im_start\|>|<\|im_end\|>|<\|start_header_id\|>|<\|eot_id\|>|\[/?INST\]|<<SYS>>|\[/?SYS\]'
+      - '(?m)^\s*(###\s*)?(system|assistant|developer)\s*(prompt|message|instruction)?\s*:'
+      - '(?i)<\s*/?\s*(system|assistant|instruction|prompt)\s*>'
+
+  # ---------------------------------------------------------------- role hijack
+  - id: role-hijack
+    description: Persona / role reassignment (DAN-style jailbreaks)
+    threat_type: role_hijack
+    technique: role_play
+    score: 0.92
+    patterns:
+      - '\byou are now\b[^.\n]{0,60}\b(a|an|the|my|in)\b'
+      - '\b(act|behave|respond|answer) (as|like) (if you (were|are) )?(a|an|the)\b[^.\n]{0,40}\b(without|no|unrestricted|unfiltered|jailbroken|developer mode)\b'
+      - '\b(pretend|imagine|assume) (that )?(you are|you''re|to be)\b[^.\n]{0,60}\b(no|without|unrestricted|any) (restrictions?|limits?|rules?|filters?|guidelines?)\b'
+      - '\b(DAN|do anything now)\b'
+      - '\bdeveloper mode\b|\bgod mode\b|\bjailbreak(ed|ing)?\b'
+      - '\bfrom now on(,)? you\b'
+
+  # ---------------------------------------------------------------- addressing the AI
+  - id: addresses-the-assistant
+    description: Text explicitly addressed to the AI/LLM rather than to a human reader
+    threat_type: prompt_injection
+    technique: ai_addressing
+    score: 0.88
+    patterns:
+      - '\b(dear|hey|hi|hello|attention|note to|message for|instructions? for|to)\s+(the\s+)?(ai|a\.i\.|assistant|chatgpt|gpt|llm|language model|bot|copilot|model)\b'
+      - '\bif you are (an? )?(ai|assistant|language model|llm|bot)\b'
+      - '\b(ai|assistant|llm|model)\s*,?\s*(please\s+)?(ignore|do|send|forward|reply|respond|include|add|output|print|write)\b'
+      - '\b(when|while) (summarizing|summarising|processing|reading|answering|replying to) (this|the) (email|message)\b[^.\n]{0,80}\b(please|you must|you should|make sure to|always)\b'
+
+  # ---------------------------------------------------------------- email tool abuse / exfiltration
+  - id: forward-to-external
+    description: Instruction to forward/send the thread or data to a third party
+    threat_type: data_exfiltration
+    technique: exfiltration_email
+    score: 0.93
+    patterns:
+      - '\b(forward|send|email|mail|cc|bcc|relay|share)\b[^.\n]{0,50}\b(this|the|all|every|entire|full|whole|our|customer|internal|confidential)\b[^.\n]{0,40}\b(email|emails|message|messages|thread|conversation|history|contents?|data|records?|list|contacts?|attachments?|document|documents)\b[^.\n]{0,60}\b(to|at)\b\s*[^\s@]+@[^\s@]+\.[a-z]{2,}'
+      - '\bsend_email\s*\(|\bsend[_ ]email\b[^.\n]{0,40}\b(to|destination|recipient)\b'
+      - '\b(reply|respond|write back)\b[^.\n]{0,30}\b(to|at)\b\s*[^\s@]+@[^\s@]+\.[a-z]{2,}\b[^.\n]{0,40}\b(instead|only|not|rather)\b'
+      - '\b(add|include|put)\b[^.\n]{0,30}\b(in|to)\b[^.\n]{0,10}\b(cc|bcc|recipients?)\b[^.\n]{0,40}@'
+
+  - id: credential-exfiltration
+    description: Requests to include secrets/credentials/PII in the reply
+    threat_type: data_exfiltration
+    technique: exfiltration_secret
+    score: 0.94
+    patterns:
+      - '\b(include|attach|send|reveal|share|paste|provide|output|print|list)\b[^.\n]{0,60}\b(passwords?|credentials?|api[ _-]?keys?|secret keys?|access tokens?|private keys?|ssn|social security|credit card|card numbers?|bank details?|routing number|2fa codes?|one[- ]time codes?|otp)\b'
+      - '\b(all|every|the)\b[^.\n]{0,20}\b(customer|user|employee|client)\b[^.\n]{0,20}\b(emails?|addresses|phone numbers?|records|data)\b[^.\n]{0,40}\b(in your reply|in the reply|in the response|in your response|below)\b'
+
+  - id: system-prompt-extraction
+    description: Attempts to make the assistant reveal its system prompt / context
+    threat_type: system_prompt_leak
+    technique: prompt_extraction
+    score: 0.93
+    patterns:
+      - '\b(print|reveal|show|repeat|output|display|tell me|recite|dump|leak)\b[^.\n]{0,40}\b(your|the|its)\b[^.\n]{0,20}\b(system|initial|original|hidden|secret|full|complete|entire)\b[^.\n]{0,20}\b(prompt|instructions?|context|configuration|rules)\b'
+      - '\bwhat (are|were) your (instructions|rules|system prompt)\b'
+      - '\b(verbatim|word for word)\b[^.\n]{0,40}\b(prompt|instructions|context)\b'
+
+  # ---------------------------------------------------------------- output control
+  - id: output-control
+    description: Attacker dictates the exact reply content or format
+    threat_type: prompt_injection
+    technique: output_control
+    score: 0.86
+    patterns:
+      - '\b(respond|reply|answer|say|output|write)\s+(only\s+)?(with|using)\s+(the\s+)?(following|exact|this|these)\b[^.\n]{0,20}\b(words?|text|message|phrase|link|url|sentence)\b'
+      - '\byour (reply|response|answer) (must|should|shall|has to|needs to) (only )?(contain|include|be|start with|end with|say)\b'
+      - '\bbegin your (reply|response|answer) with\b'
+      - '\b(insert|embed|include|add) (this|the following|a) (link|url|hyperlink)\b[^.\n]{0,80}\bhttps?://'
+
+  - id: urgency-authority-lure
+    description: Social-engineering framing that pressures automated compliance
+    threat_type: phishing_lure
+    technique: authority_urgency
+    score: 0.55
+    patterns:
+      - '\b(this is an? )?(official|mandatory|urgent|authorized|approved) (instruction|directive|request|order|update)\b[^.\n]{0,40}\b(from|by)\b[^.\n]{0,30}\b(it|security|admin|management|ceo|cto|compliance|legal|support)\b'
+      - '\b(failure to comply|must comply|comply immediately|non-?compliance)\b'
+      - '\bverify (your|the) (account|identity|credentials)\b[^.\n]{0,60}\bhttps?://'
+
+  # ---------------------------------------------------------------- obfuscation
+  - id: encoded-payload
+    description: Base64 / hex blobs with decode instructions
+    threat_type: obfuscation
+    technique: encoding
+    score: 0.80
+    patterns:
+      - '\b(decode|base64|b64|rot13|hex|unicode)\b[^.\n]{0,40}\b(and|then)\b[^.\n]{0,30}\b(follow|execute|run|do|obey|perform|apply)\b'
+      - '(?:[A-Za-z0-9+/]{4}){20,}={0,2}'
+      - '\b(the following|this) (text|string|message) is (encoded|encrypted|obfuscated)\b'
+
+  - id: hidden-html-text
+    description: Text hidden from humans but visible to the model (HTML/CSS tricks)
+    threat_type: obfuscation
+    technique: hidden_text
+    score: 0.90
+    scope: html
+    patterns:
+      - 'font-size\s*:\s*0(px|pt|em|%)?'
+      - 'color\s*:\s*(#fff(fff)?|white|rgba?\(\s*255\s*,\s*255\s*,\s*255)'
+      - 'display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(\.0+)?\b'
+      - '<!--[\s\S]{40,}-->'
+
+  - id: fake-delimiters
+    description: Fake end-of-email / start-of-instruction delimiters
+    threat_type: prompt_injection
+    technique: delimiter_confusion
+    score: 0.85
+    patterns:
+      - '(?m)^\s*[-=#*_]{5,}\s*$[\s\S]{0,80}\b(system|instruction|admin|note to (the )?(ai|assistant)|new task)\b'
+      - '\b(end of (email|message|user input|context)|begin (system|admin|new) (message|instructions?))\b'
+      - '\b(the (email|message|user input|document) (ends|ended) here)\b'
+
+  - id: tool-call-syntax
+    description: Function/tool-call syntax embedded in prose
+    threat_type: tool_abuse
+    technique: tool_call
+    score: 0.82
+    patterns:
+      - '\{\s*"(tool|function|name|action)"\s*:\s*"[a-z_]+"'
+      - '\b(call|invoke|use|trigger|execute)\s+(the\s+)?(tool|function|api|action)\s+["`'']?[a-z_]{3,}["`'']?'
+      - '<(tool_call|function_call|invoke)[^>]*>'

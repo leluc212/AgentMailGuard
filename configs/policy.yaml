@@ -1,0 +1,108 @@
+# Layer 5 - Email Policy Engine: risk-tiered action gating.
+#
+# Rules are evaluated in ascending `priority` order; the first rule whose `when`
+# block fully matches decides the action. `when` supports:
+#   max_severity_at_least:     none|low|medium|high|critical
+#   max_severity_at_most:      none|low|medium|high|critical
+#   threat_types_any:          [..ThreatType..]        (any finding across layers)
+#   layers_flagged_any:        [..LayerName..]         (verdict severity >= medium)
+#   layer_error_any:           true                    (any layer failed, fail-closed)
+#   quarantine_ratio_at_least: 0.0-1.0                 (L3b quarantined / retrieved)
+#   removed_ratio_at_least:    0.0-1.0                 (L2 stripped / total)
+#   complied_with_injected_goal: true                  (L4)
+#   citation_mismatch:         true                    (L4)
+#   redactions_at_least:       int                     (L4)
+#   stage:                     inbound|outbound        (which gate is being evaluated)
+#   category_in:               [..triage categories..]
+#   action_in:                 [reply|forward|escalate] (draft action)
+# Actions: auto_send | draft_only | human_approval | block | quarantine
+version: "2026.09-v1"
+default_action: draft_only
+auto_send_categories: [acknowledgement, scheduling]   # only ever auto-sent when clean
+
+rules:
+  - id: P00-internal-error-fail-closed
+    priority: 0
+    when: { layer_error_any: true }
+    action: human_approval
+    requires_human: true
+    reason: A guard layer failed; fail-closed posture requires a reviewer.
+
+  - id: P01-critical-injection-quarantine
+    priority: 10
+    when: { max_severity_at_least: critical }
+    action: quarantine
+    requires_human: true
+    reason: Critical-confidence prompt injection or secret exposure.
+
+  - id: P02-exfiltration-or-tool-abuse-block
+    priority: 20
+    when:
+      max_severity_at_least: high
+      threat_types_any: [data_exfiltration, tool_abuse, secret_leak, system_prompt_leak]
+    action: block
+    requires_human: true
+    reason: High-severity exfiltration / tool abuse / secret or system-prompt leak.
+
+  - id: P03-injected-goal-compliance-block
+    priority: 25
+    when: { stage: outbound, complied_with_injected_goal: true }
+    action: block
+    requires_human: true
+    reason: The generated draft complied with an injected instruction.
+
+  - id: P04-rag-poisoning-escalate
+    priority: 30
+    when: { quarantine_ratio_at_least: 0.6 }
+    action: human_approval
+    requires_human: true
+    reason: Most retrieved knowledge was quarantined; grounding is untrustworthy.
+
+  - id: P05-high-severity-human-approval
+    priority: 40
+    when: { max_severity_at_least: high }
+    action: human_approval
+    requires_human: true
+    reason: High-severity finding in at least one layer.
+
+  - id: P06-outbound-unsafe-action-block
+    priority: 45
+    when: { stage: outbound, threat_types_any: [unsafe_action] }
+    action: block
+    requires_human: true
+    reason: Draft attempted a forward / external recipient not permitted by policy.
+
+  - id: P07-citation-mismatch-review
+    priority: 50
+    when: { stage: outbound, citation_mismatch: true }
+    action: human_approval
+    requires_human: true
+    reason: Draft cites knowledge that was not retrieved (possible hallucination or poisoning).
+
+  - id: P08-medium-severity-draft-only
+    priority: 60
+    when: { max_severity_at_least: medium }
+    action: draft_only
+    requires_human: false
+    reason: Medium-severity signals; keep the human-in-the-loop draft posture.
+
+  - id: P09-heavy-sanitization-draft-only
+    priority: 65
+    when: { removed_ratio_at_least: 0.35 }
+    action: draft_only
+    requires_human: false
+    reason: A large part of the email was stripped as instructions.
+
+  - id: P10-clean-auto-send
+    priority: 90
+    when: { stage: outbound, max_severity_at_most: low, category_in: [acknowledgement, scheduling], action_in: [reply] }
+    action: auto_send
+    requires_human: false
+    reason: Clean low-risk acknowledgement in an auto-send category.
+
+  - id: P99-default
+    priority: 1000
+    when: {}
+    action: draft_only
+    requires_human: false
+    reason: Default posture - create a draft for a human reviewer.
