@@ -252,7 +252,7 @@ async def test_escalated_flow_multiple_actions(
     """Verify multiple actions email escalates and preserves 1-call budget (R15.3-R15.5)."""
     metrics = create_pipeline_metrics()
     router = ComplexityRouter(
-        settings=ComplexityRouterSettings(requested_actions_threshold=2),
+        settings=ComplexityRouterSettings(multiple_actions_threshold=2),
         tiers_settings=tiers_settings,
         metrics=metrics,
     )
@@ -665,3 +665,21 @@ async def test_end_to_end_with_budgeted_llm_provider_wrapper(
 
     # Provider still only saw 1 execution
     assert len(fake_llm.recorded_calls) == 1
+
+
+def test_llm_tiers_settings_routine_and_high_capability_aliases() -> None:
+    """Verify LLMTiersSettings binds routine_model and high_capability_model aliases (R15.1)."""
+    # 1. Instantiation via aliases
+    tiers = LLMTiersSettings(
+        routine_model="custom-routine-mini",
+        high_capability_model="custom-high-capability-v1",
+    )
+    assert tiers.fast_model == "custom-routine-mini"
+    assert tiers.routine_model == "custom-routine-mini"
+    assert tiers.strong_model == "custom-high-capability-v1"
+    assert tiers.high_capability_model == "custom-high-capability-v1"
+
+    # 2. Router model resolution from aliases
+    router = ComplexityRouter(tiers_settings=tiers)
+    assert router._resolve_model(ModelTier.ROUTINE) == "custom-routine-mini"
+    assert router._resolve_model(ModelTier.HIGH_CAPABILITY) == "custom-high-capability-v1"

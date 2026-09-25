@@ -10,7 +10,7 @@ Implements requirements:
 import os
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -195,16 +195,32 @@ class LLMTiersSettings(BaseModel):
     local_api_key: str = Field(default="ollama", description="Local endpoint API key")
     timeout_s: float = Field(default=15.0, ge=0.1, description="LLM request timeout in seconds")
 
+    model_config = ConfigDict(populate_by_name=True)
+
     fast_model: str = Field(
-        default="gpt-4o-mini", description="Tier 1 fast model for triage/summarization"
+        default="gpt-4o-mini",
+        validation_alias=AliasChoices("fast_model", "routine_model"),
+        description="Tier 1 fast/routine model for triage/summarization/drafting",
     )
     strong_model: str = Field(
-        default="gpt-4o", description="Tier 2 strong model for high-confidence draft generation"
+        default="gpt-4o",
+        validation_alias=AliasChoices("strong_model", "high_capability_model"),
+        description="Tier 2 strong/high-capability model for high-confidence draft generation",
     )
     fallback_model: str = Field(default="claude-3-haiku", description="Tier 3 fallback model")
     force_single_tier: bool = Field(
         default=False, description="Force strong model only for ablation study (R15.6)"
     )
+
+    @property
+    def routine_model(self) -> str:
+        """Alias property for fast_model to support routine tier naming (R15.1)."""
+        return self.fast_model
+
+    @property
+    def high_capability_model(self) -> str:
+        """Alias property for strong_model to support high_capability tier naming (R15.1)."""
+        return self.strong_model
 
     price_table: dict[str, ModelPricing] = Field(
         default_factory=lambda: {
@@ -628,7 +644,7 @@ class AppSettings(BaseSettings):
 
         router_dict = dict(existing) if isinstance(existing, dict) else {}
 
-        for source in (os.environ, data):
+        for source in (data, os.environ):
             for k, v in source.items():
                 k_upper = k.upper()
                 if k_upper.startswith("ROUTER_") and not k_upper.startswith("ROUTER__"):

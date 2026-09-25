@@ -263,6 +263,7 @@ class ComplexityRouter:
         if self.settings.force_single_tier:
             target_tier = self._resolve_tier(self.settings.single_tier_override)
             self._record_escalation_metric(EscalationReason.SINGLE_TIER_FORCED, target_tier)
+            # Under H4 ablation, is_escalated indicates non-default / forced routing path
             return RoutingDecision(
                 tier=target_tier,
                 model=self._resolve_model(target_tier),
