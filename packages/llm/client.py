@@ -167,7 +167,8 @@ class HttpLLMProvider(LLMProvider):
             except Exception as exc:
                 raise LLMSchemaValidationError(
                     f"Failed to parse structured JSON response from model {model}: {exc} "
-                    f"(content: {raw_content[:200]!r})"
+                    f"(content: {raw_content[:200]!r})",
+                    raw_content=raw_content,
                 ) from exc
         else:
             try:

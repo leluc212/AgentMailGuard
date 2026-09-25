@@ -75,4 +75,12 @@ class LLMResponseError(LLMError):
 
 
 class LLMSchemaValidationError(LLMError):
-    """Raised when an LLM provider returns output violating the expected schema."""
+    """Raised when an LLM provider returns output violating the expected schema.
+
+    Carries the offending raw text when the provider has it, so a schema repair retry can
+    show the model what it actually emitted instead of guessing (R16.3).
+    """
+
+    def __init__(self, message: str, raw_content: str | None = None) -> None:
+        super().__init__(message)
+        self.raw_content = raw_content

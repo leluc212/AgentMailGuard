@@ -50,8 +50,10 @@ from packages.llm.router import (
 from packages.llm.testing import LLMProviderContractSuite
 from packages.llm.validation import (
     DraftReplyPayload,
+    DraftSchemaContractError,
     DraftValidationError,
     UnvalidatedDraftError,
+    assert_schema_matches_contract,
     build_repair_messages,
     validate_draft_payload,
 )
@@ -74,6 +76,7 @@ __all__ = [
     "DEFAULT_MODEL_MAP",
     "DEFAULT_OPENAI_MODELS",
     "DraftReplyPayload",
+    "DraftSchemaContractError",
     "DraftValidationError",
     "EscalationReason",
     "FakeLLMProvider",
@@ -92,6 +95,7 @@ __all__ = [
     "RoutingDecision",
     "SinglePassGenerator",
     "UnvalidatedDraftError",
+    "assert_schema_matches_contract",
     "build_repair_messages",
     "count_requested_actions",
     "create_llm_provider",

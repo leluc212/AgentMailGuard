@@ -18,11 +18,18 @@ from packages.llm.budget import (
     CallKind,
 )
 from packages.llm.profile import AgentProfile, AgentProfileRegistry
-from packages.llm.protocol import ChatMessage, LLMProvider, LLMResult, ModelTier
+from packages.llm.protocol import (
+    ChatMessage,
+    LLMProvider,
+    LLMResult,
+    LLMSchemaValidationError,
+    ModelTier,
+)
 from packages.llm.validation import (
     DraftReplyPayload,
     DraftValidationError,
     UnvalidatedDraftError,
+    assert_schema_matches_contract,
     build_repair_messages,
     validate_draft_payload,
 )
@@ -118,8 +125,9 @@ class SinglePassGenerator:
         # 4. Build chat message
         messages = [ChatMessage(role="user", content=prompt_text)]
 
-        # 5. Fetch output schema
+        # 5. Fetch output schema and refuse one this module cannot actually enforce
         schema = self.profile_registry.get_schema(resolved_profile)
+        assert_schema_matches_contract(schema)
 
         # 6 & 7. Track budget and wrap with BudgetedLLMProvider
         if budget_tracker is not None:
@@ -146,98 +154,183 @@ class SinglePassGenerator:
                 metrics=effective_metrics,
             )
 
-        # 8. Execute generation
-        result = await budgeted.generate(
-            messages=messages,
-            schema=schema,
-            tier=effective_tier,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            call_kind=CallKind.GENERATE,
-        )
-
-        # 9. Assert generation budget (exactly 1 generation call per job, total <= 4)
-        tracker.assert_generation_budget(require_generation=True)
-
-        # 10. Validate the structured output, repairing at most once (R16.2, R16.3)
-        attempts: list[LLMResult] = [result]
+        # 8. Execute generation. A provider that cannot parse a structured payload at all
+        #    raises LLMSchemaValidationError itself; that is a validation failure too, and it
+        #    is the one a repair retry most often fixes, so it must not escape here (R16.2).
+        attempts: list[LLMResult] = []
+        generate_model = "unknown"
+        parse_failure: LLMSchemaValidationError | None = None
         try:
-            validated_payload = validate_draft_payload(result.content, schema)
-            repair_attempts = 0
-        except DraftValidationError as initial_error:
-            self._record_validation_failure("initial")
-            repair_result = await self._repair_draft(
-                budgeted=budgeted,
-                tracker=tracker,
+            result = await budgeted.generate(
                 messages=messages,
-                invalid_content=result.content,
-                validation_error=str(initial_error),
                 schema=schema,
                 tier=effective_tier,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                call_kind=CallKind.GENERATE,
             )
-            attempts.append(repair_result)
-            repair_attempts = 1
-            try:
-                validated_payload = validate_draft_payload(repair_result.content, schema)
-            except DraftValidationError as repair_error:
-                self._record_validation_failure("repair")
-                self._record_repair_outcome("failed")
-                raise UnvalidatedDraftError(
-                    "Draft failed schema validation after one repair retry; "
-                    f"failing job into the retry/DLQ path without persisting: {repair_error}"
-                ) from repair_error
-            self._record_repair_outcome("succeeded")
+        except (DraftValidationError, UnvalidatedDraftError):
+            raise
+        except LLMSchemaValidationError as exc:
+            parse_failure = exc
+            # The model was invoked and billed even though its output was unusable, so the
+            # budget must see the call the provider never got to record (R14.9).
+            tracker.record_call(CallKind.GENERATE, tier=str(effective_tier))
+        else:
+            attempts.append(result)
+            generate_model = result.model
 
-        # A repair replaces the rejected output; its cost is added to the job, not swapped in.
-        final_result = attempts[-1]
-        total_input_tokens = sum(attempt.input_tokens for attempt in attempts)
-        total_output_tokens = sum(attempt.output_tokens for attempt in attempts)
-        total_latency_ms = sum(attempt.latency_ms for attempt in attempts)
+        # 9. Assert generation budget (exactly 1 generation call per job, total <= 4)
+        tracker.assert_generation_budget(require_generation=True)
 
-        # 11. Record metrics if configured
-        if self.metrics:
-            tier_label = (
-                str(effective_tier.value)
-                if hasattr(effective_tier, "value")
-                else str(effective_tier)
+        try:
+            # 10. Validate the structured output, repairing at most once (R16.2, R16.3)
+            validated_payload, repair_attempts = await self._validate_with_repair(
+                budgeted=budgeted,
+                tracker=tracker,
+                messages=messages,
+                schema=schema,
+                tier=effective_tier,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                attempts=attempts,
+                parse_failure=parse_failure,
             )
-            self._count_call_directly(budgeted, "generate", result.model)
-            if hasattr(self.metrics, "generation_latency_ms"):
-                try:
-                    self.metrics.generation_latency_ms.labels(
-                        model=final_result.model, tier=tier_label
-                    ).observe(total_latency_ms)
-                except (ValueError, TypeError, AttributeError):
-                    self.metrics.generation_latency_ms.observe(total_latency_ms)
-            if hasattr(self.metrics, "input_tokens_total"):
-                self.metrics.input_tokens_total.labels(
-                    model=final_result.model, tier=tier_label
-                ).inc(total_input_tokens)
-            if hasattr(self.metrics, "output_tokens_total"):
-                self.metrics.output_tokens_total.labels(
-                    model=final_result.model, tier=tier_label
-                ).inc(total_output_tokens)
-            if budget_tracker is None:
-                tracker.export_metrics(self.metrics)
+        finally:
+            # 11. Record metrics on every exit. A job that burned calls and then failed is
+            #     precisely the job the per-job budget histogram exists to expose (R14.10).
+            self._emit_generation_metrics(
+                budgeted=budgeted,
+                attempts=attempts,
+                tier=effective_tier,
+                generate_model=generate_model,
+                tracker=tracker,
+                export_budget=budget_tracker is None,
+            )
 
-        # 12. Return GenerationResult
+        total_input, total_output, total_latency = self._totals(attempts)
+        final_model = attempts[-1].model if attempts else generate_model
+
+        # 12. Return GenerationResult carrying the validated payload, so a caller that
+        #     persists `content` persists exactly what was validated (R16.2).
         return GenerationResult(
-            content=final_result.content,
+            content=validated_payload.model_dump(),
             profile=resolved_profile,
             prompt_version=resolved_profile.prompt_version,
-            model=final_result.model,
+            model=final_model,
             tier=effective_tier,
             escalation_reason=escalation_reason,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-            latency_ms=total_latency_ms,
+            input_tokens=total_input,
+            output_tokens=total_output,
+            latency_ms=total_latency,
             budget_tracker=tracker,
             is_repaired=repair_attempts > 0,
             repair_attempts=repair_attempts,
             validated_payload=validated_payload,
         )
+
+    async def _validate_with_repair(
+        self,
+        *,
+        budgeted: BudgetedLLMProvider,
+        tracker: CallBudgetTracker,
+        messages: list[ChatMessage],
+        schema: dict[str, Any] | None,
+        tier: ModelTier,
+        max_tokens: int,
+        temperature: float,
+        attempts: list[LLMResult],
+        parse_failure: LLMSchemaValidationError | None,
+    ) -> tuple[DraftReplyPayload, int]:
+        """Validate the generated payload, spending the job's one repair retry if needed.
+
+        Appends any repair attempt to `attempts` so the caller can account for its cost.
+
+        Raises:
+            UnvalidatedDraftError: If validation still fails after the repair retry, or the
+                repair budget is already spent. No unvalidated payload is ever returned.
+        """
+        if parse_failure is None:
+            try:
+                return validate_draft_payload(attempts[-1].content, schema), 0
+            except DraftValidationError as initial_error:
+                invalid_content: Any = attempts[-1].content
+                validation_error = str(initial_error)
+        else:
+            # The provider could not parse its own response; repair from the raw text.
+            invalid_content = parse_failure.raw_content or str(parse_failure)
+            validation_error = str(parse_failure)
+
+        self._record_validation_failure("initial")
+        repair_result = await self._repair_draft(
+            budgeted=budgeted,
+            tracker=tracker,
+            messages=messages,
+            invalid_content=invalid_content,
+            validation_error=validation_error,
+            schema=schema,
+            tier=tier,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        attempts.append(repair_result)
+        try:
+            payload = validate_draft_payload(repair_result.content, schema)
+        except DraftValidationError as repair_error:
+            self._record_validation_failure("repair")
+            self._record_repair_outcome("failed")
+            raise UnvalidatedDraftError(
+                "Draft failed schema validation after one repair retry; "
+                f"failing job into the retry/DLQ path without persisting: {repair_error}"
+            ) from repair_error
+        self._record_repair_outcome("succeeded")
+        return payload, 1
+
+    @staticmethod
+    def _totals(attempts: list[LLMResult]) -> tuple[int, int, int]:
+        """Sum tokens and latency across every model attempt the job paid for."""
+        return (
+            sum(attempt.input_tokens for attempt in attempts),
+            sum(attempt.output_tokens for attempt in attempts),
+            sum(attempt.latency_ms for attempt in attempts),
+        )
+
+    def _emit_generation_metrics(
+        self,
+        *,
+        budgeted: BudgetedLLMProvider,
+        attempts: list[LLMResult],
+        tier: ModelTier,
+        generate_model: str,
+        tracker: CallBudgetTracker,
+        export_budget: bool,
+    ) -> None:
+        """Emit generation cost and latency metrics, on the success and failure paths alike."""
+        if not self.metrics:
+            return
+
+        tier_label = str(tier.value) if hasattr(tier, "value") else str(tier)
+        total_input, total_output, total_latency = self._totals(attempts)
+        model_label = attempts[-1].model if attempts else generate_model
+
+        self._count_call_directly(budgeted, "generate", generate_model)
+        if hasattr(self.metrics, "generation_latency_ms"):
+            try:
+                self.metrics.generation_latency_ms.labels(
+                    model=model_label, tier=tier_label
+                ).observe(total_latency)
+            except (ValueError, TypeError, AttributeError):
+                self.metrics.generation_latency_ms.observe(total_latency)
+        if hasattr(self.metrics, "input_tokens_total"):
+            self.metrics.input_tokens_total.labels(model=model_label, tier=tier_label).inc(
+                total_input
+            )
+        if hasattr(self.metrics, "output_tokens_total"):
+            self.metrics.output_tokens_total.labels(model=model_label, tier=tier_label).inc(
+                total_output
+            )
+        if export_budget:
+            tracker.export_metrics(self.metrics)
 
     async def _repair_draft(
         self,
@@ -277,14 +370,21 @@ class SinglePassGenerator:
             validation_error,
             schema,
         )
-        repair_result = await budgeted.generate(
-            messages=repair_messages,
-            schema=schema,
-            tier=tier,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            call_kind=CallKind.REPAIR,
-        )
+        try:
+            repair_result = await budgeted.generate(
+                messages=repair_messages,
+                schema=schema,
+                tier=tier,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                call_kind=CallKind.REPAIR,
+            )
+        except Exception:
+            # The repair was attempted and paid for; an operator counting failed repairs
+            # needs the ones that died in the provider too, not only the ones that came
+            # back still malformed.
+            self._record_repair_outcome("failed")
+            raise
         self._count_call_directly(budgeted, "repair", repair_result.model)
         return repair_result
 

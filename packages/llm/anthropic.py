@@ -177,9 +177,13 @@ class AnthropicLLMProvider(LLMProvider):
             if tool_block is not None and isinstance(tool_block.get("input"), dict):
                 content = tool_block["input"]
             else:
+                text_fallback = "".join(
+                    b.get("text", "") for b in content_blocks if b.get("type") == "text"
+                )
                 raise LLMSchemaValidationError(
                     f"Failed to extract structured tool_use block from Anthropic "
-                    f"response: {content_blocks}"
+                    f"response: {content_blocks}",
+                    raw_content=text_fallback or str(content_blocks),
                 )
         else:
             text_parts = [b.get("text", "") for b in content_blocks if b.get("type") == "text"]

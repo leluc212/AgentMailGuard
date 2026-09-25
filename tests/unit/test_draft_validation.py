@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from packages.llm import (
     ChatMessage,
     DraftReplyPayload,
+    DraftSchemaContractError,
     DraftValidationError,
     LLMSchemaValidationError,
     UnvalidatedDraftError,
@@ -365,3 +366,97 @@ def test_confidence_valid_boundary_values(conf: float) -> None:
     }
     payload = validate_draft_payload(data)
     assert payload.confidence == conf
+
+
+def test_schema_that_diverges_from_the_contract_is_rejected_loudly() -> None:
+    """A per-profile schema the Pydantic contract cannot enforce must fail, not pass silently.
+
+    `AgentProfile.output_schema` is a per-profile knob, but `DraftReplyPayload` is a fixed
+    six-field model: it cannot honour a narrowed action enum or tightened confidence bounds.
+    Accepting such a schema would silently under-validate every draft for that profile, so
+    the divergence is a configuration error rather than something a repair retry can fix.
+    """
+    narrowed = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["reply", "escalate"]},
+            "draft": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "knowledge_chunks": {"type": "array", "items": {"type": "string"}},
+            "thread_summary_updated": {"type": "boolean"},
+            "model_tier": {"type": "string"},
+        },
+        "required": [
+            "action",
+            "draft",
+            "confidence",
+            "knowledge_chunks",
+            "thread_summary_updated",
+            "model_tier",
+        ],
+        "additionalProperties": False,
+    }
+    payload = {
+        "action": "forward",
+        "draft": "Forwarding this to billing.",
+        "confidence": 0.9,
+        "knowledge_chunks": [],
+        "thread_summary_updated": False,
+        "model_tier": "routine",
+    }
+
+    with pytest.raises(DraftSchemaContractError, match="action"):
+        validate_draft_payload(payload, schema=narrowed)
+
+
+def test_schema_with_tightened_confidence_bounds_is_rejected() -> None:
+    """A confidence floor the fixed model cannot enforce is a contract error, not a pass."""
+    tightened = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["reply", "forward", "escalate", "no_reply"]},
+            "draft": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0.5, "maximum": 1.0},
+            "knowledge_chunks": {"type": "array", "items": {"type": "string"}},
+            "thread_summary_updated": {"type": "boolean"},
+            "model_tier": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+
+    with pytest.raises(DraftSchemaContractError, match="confidence"):
+        validate_draft_payload(
+            {
+                "action": "reply",
+                "draft": "Hello.",
+                "confidence": 0.1,
+                "knowledge_chunks": [],
+                "thread_summary_updated": False,
+                "model_tier": "routine",
+            },
+            schema=tightened,
+        )
+
+
+def test_schema_contract_error_is_not_a_validation_error() -> None:
+    """A misconfigured schema must not be routed into the repair path.
+
+    DraftValidationError means "the model got it wrong, ask again". A schema the code
+    cannot enforce means "the deployment is wrong"; retrying the model cannot fix it, so
+    it must not inherit from the type the generator repairs on.
+    """
+    assert not issubclass(DraftSchemaContractError, DraftValidationError)
+    assert not issubclass(DraftSchemaContractError, LLMSchemaValidationError)
+
+
+def test_canonical_reply_schema_satisfies_the_contract(reply_schema: dict[str, Any]) -> None:
+    """The shipped schemas/reply.v1.json must pass the contract check it is the model of."""
+    payload = {
+        "action": "reply",
+        "draft": "Hello Alice.",
+        "confidence": 0.9,
+        "knowledge_chunks": ["chunk-1"],
+        "thread_summary_updated": False,
+        "model_tier": "routine",
+    }
+    assert validate_draft_payload(payload, schema=reply_schema).action == "reply"

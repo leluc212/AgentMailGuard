@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from packages.llm.protocol import ChatMessage, LLMSchemaValidationError
+from packages.llm.protocol import ChatMessage, LLMError, LLMSchemaValidationError
 
 REQUIRED_REPLY_FIELDS: list[str] = [
     "action",
@@ -18,6 +18,20 @@ REQUIRED_REPLY_FIELDS: list[str] = [
     "thread_summary_updated",
     "model_tier",
 ]
+
+ALLOWED_ACTIONS: frozenset[str] = frozenset({"reply", "forward", "escalate", "no_reply"})
+CONFIDENCE_BOUNDS: tuple[float, float] = (0.0, 1.0)
+
+
+class DraftSchemaContractError(LLMError):
+    """Raised when a supplied output schema declares constraints this module cannot enforce.
+
+    `DraftReplyPayload` is a fixed six-field model, while `AgentProfile.output_schema` is a
+    per-profile knob. A profile pointing at a schema that narrows the action enum or tightens
+    the confidence bounds would be silently under-validated, so the divergence is reported as
+    a deployment error. Deliberately NOT an `LLMSchemaValidationError`: no repair retry can
+    fix a misconfigured schema, so this must never be routed into the repair path (R16.3).
+    """
 
 
 class DraftValidationError(LLMSchemaValidationError):
@@ -49,6 +63,54 @@ class DraftReplyPayload(BaseModel):
         return v
 
 
+def assert_schema_matches_contract(schema: dict[str, Any] | None) -> None:
+    """Verify a supplied schema declares nothing `DraftReplyPayload` cannot enforce.
+
+    `schema` is honoured for its `required` list and its `additionalProperties` restriction;
+    every other constraint is enforced by the fixed `DraftReplyPayload` model. This check
+    closes the gap between those two facts: a schema that declares different properties, a
+    narrower `action` enum, or tighter `confidence` bounds is rejected outright rather than
+    accepted and then under-validated.
+
+    Raises:
+        DraftSchemaContractError: If the schema diverges from the enforceable contract.
+    """
+    if schema is None:
+        return
+
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return
+
+    declared = set(properties)
+    canonical = set(REQUIRED_REPLY_FIELDS)
+    if declared != canonical:
+        raise DraftSchemaContractError(
+            "Output schema properties diverge from the enforceable draft contract: "
+            f"unexpected {sorted(declared - canonical)}, missing {sorted(canonical - declared)}. "
+            "DraftReplyPayload enforces exactly "
+            f"{REQUIRED_REPLY_FIELDS}."
+        )
+
+    action_enum = properties.get("action", {}).get("enum")
+    if action_enum is not None and set(action_enum) != ALLOWED_ACTIONS:
+        raise DraftSchemaContractError(
+            f"Output schema restricts 'action' to {sorted(action_enum)}, but DraftReplyPayload "
+            f"enforces {sorted(ALLOWED_ACTIONS)}; the narrower set would not be enforced."
+        )
+
+    confidence = properties.get("confidence", {})
+    declared_bounds = (
+        confidence.get("minimum", CONFIDENCE_BOUNDS[0]),
+        confidence.get("maximum", CONFIDENCE_BOUNDS[1]),
+    )
+    if declared_bounds != CONFIDENCE_BOUNDS:
+        raise DraftSchemaContractError(
+            f"Output schema bounds 'confidence' to {declared_bounds}, but DraftReplyPayload "
+            f"enforces {CONFIDENCE_BOUNDS}; the tighter bounds would not be enforced."
+        )
+
+
 def validate_draft_payload(
     content: Any,
     schema: dict[str, Any] | None = None,
@@ -57,7 +119,10 @@ def validate_draft_payload(
 
     Raises:
         DraftValidationError: If content fails schema validation or cannot be parsed as JSON.
+        DraftSchemaContractError: If `schema` declares constraints this module cannot enforce.
     """
+    assert_schema_matches_contract(schema)
+
     if isinstance(content, DraftReplyPayload):
         return content
 

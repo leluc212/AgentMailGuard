@@ -425,9 +425,11 @@
   - Config switch forcing single-tier operation for the H4 comparison.
   - _Requirements: R15.1, R15.2, R15.3, R15.4, R15.5, R15.6_
 
-- [x] **4.9 Structured output & validation**
+- [~] **4.9 Structured output & validation**
   - Enforce the schema `{action, draft, confidence, knowledge_chunks[], thread_summary_updated, model_tier}`.
   - Validate → one repair retry → fail into retry/DLQ. Never persist an unvalidated draft.
+  - Done: schema enforced (`schemas/reply.v1.json`, `packages/llm/validation.py`); validation and the one repair retry wired into `SinglePassGenerator`; `UnvalidatedDraftError` raised on second failure or spent repair budget, so no unvalidated draft can reach a caller. Covers R16.1, R16.2 and the generator half of R16.3.
+  - Left: the retry/DLQ hop itself is not observable end to end — `services/ai_worker/` has no consumer yet, so nothing nacks the message. `UnvalidatedDraftError` derives from `LLMError`, so the existing base-consumer retry ladder will dead-letter it once a consumer exists; the **Phase 4 gate must verify that hop** rather than assume it. Decide at that point whether it should be a `FatalError` (straight to DLQ) instead of climbing the 3-tier ladder, since a deterministic schema failure at `temperature=0.0` will likely fail all three redeliveries.
   - _Requirements: R16.1, R16.2, R16.3_
 
 - [ ] **4.10 Citation verification**
