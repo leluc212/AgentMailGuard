@@ -48,6 +48,13 @@ from packages.llm.router import (
     count_requested_actions,
 )
 from packages.llm.testing import LLMProviderContractSuite
+from packages.llm.validation import (
+    DraftReplyPayload,
+    DraftValidationError,
+    UnvalidatedDraftError,
+    build_repair_messages,
+    validate_draft_payload,
+)
 
 __all__ = [
     "AgentProfile",
@@ -66,6 +73,8 @@ __all__ = [
     "DEFAULT_LOCAL_MODELS",
     "DEFAULT_MODEL_MAP",
     "DEFAULT_OPENAI_MODELS",
+    "DraftReplyPayload",
+    "DraftValidationError",
     "EscalationReason",
     "FakeLLMProvider",
     "GenerationResult",
@@ -82,6 +91,9 @@ __all__ = [
     "OpenAILLMProvider",
     "RoutingDecision",
     "SinglePassGenerator",
+    "UnvalidatedDraftError",
+    "build_repair_messages",
     "count_requested_actions",
     "create_llm_provider",
+    "validate_draft_payload",
 ]

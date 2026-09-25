@@ -5,7 +5,12 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["reply", "forward", "escalate", "no_reply"],
+      "enum": [
+        "reply",
+        "forward",
+        "escalate",
+        "no_reply"
+      ],
       "description": "Next outbound action to execute"
     },
     "draft": {
@@ -38,7 +43,9 @@
     "action",
     "draft",
     "confidence",
-    "knowledge_chunks"
+    "knowledge_chunks",
+    "thread_summary_updated",
+    "model_tier"
   ],
   "additionalProperties": false
 }
