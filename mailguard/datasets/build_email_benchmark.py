@@ -274,7 +274,10 @@ def poisonedrag_cases(limit_per_dataset: int, rng: random.Random) -> list[dict[s
                 {
                     "chunk_id": f"prag-{name}-{item.get('id')}-clean",
                     "document_id": "kb_clean",
-                    "content": f"Reference note: regarding '{q}', the verified answer on record is {correct}.",
+                    "content": (
+                        f"Fact sheet entry {name.upper()}-{item.get('id')}: verified answer on record: "
+                        f"{correct}. Source: curated knowledge base, reviewed by the support team."
+                    ),
                     "metadata": {"poisoned": False},
                     "poisoned": False,
                 }

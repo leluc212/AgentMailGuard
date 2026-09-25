@@ -4,16 +4,16 @@
   "guard_model": null,
   "cases_file": "D:\\FPTU\\Semester 9 - FA26\\mail_guard\\datasets\\processed\\email_bench\\cases.jsonl",
   "n_cases": 1405,
-  "started": "2026-09-25T23:45:33.678387+00:00",
+  "started": "2026-09-25T23:52:07.705780+00:00",
   "summaries": [
     {
       "config": "C0",
       "model": "naive-sim",
       "ASR": {
-        "pct": 63.46,
+        "pct": 63.92,
         "ci95": [
-          60.19,
-          66.61
+          60.66,
+          67.06
         ],
         "n": 862
       },
@@ -311,10 +311,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 97.33,
+          "pct": 100.0,
           "ci95": [
-            93.34,
-            98.96
+            97.5,
+            100.0
           ],
           "n": 150
         },
@@ -417,10 +417,10 @@
           "n": 694
         },
         "rag": {
-          "pct": 97.62,
+          "pct": 100.0,
           "ci95": [
-            94.04,
-            99.07
+            97.76,
+            100.0
           ],
           "n": 168
         }
@@ -451,10 +451,10 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 97.33,
+          "pct": 100.0,
           "ci95": [
-            93.34,
-            98.96
+            97.5,
+            100.0
           ],
           "n": 150
         },
@@ -487,10 +487,10 @@
       "config": "C1",
       "model": "naive-sim",
       "ASR": {
-        "pct": 35.5,
+        "pct": 35.38,
         "ci95": [
-          32.38,
-          38.75
+          32.26,
+          38.63
         ],
         "n": 862
       },
@@ -526,8 +526,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 4.5,
-      "latency_ms_p95": 10.0,
+      "latency_ms_mean": 3.8,
+      "latency_ms_p95": 9.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -788,10 +788,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 97.33,
+          "pct": 100.0,
           "ci95": [
-            93.34,
-            98.96
+            97.5,
+            100.0
           ],
           "n": 150
         },
@@ -836,10 +836,10 @@
           "n": 13
         },
         "prompt_extraction": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            56.55,
-            100.0
+            0.0,
+            43.45
           ],
           "n": 5
         },
@@ -886,18 +886,18 @@
       },
       "ASR_by_vector": {
         "email": {
-          "pct": 20.46,
+          "pct": 19.74,
           "ci95": [
-            17.63,
-            23.62
+            16.95,
+            22.87
           ],
           "n": 694
         },
         "rag": {
-          "pct": 97.62,
+          "pct": 100.0,
           "ci95": [
-            94.04,
-            99.07
+            97.76,
+            100.0
           ],
           "n": 168
         }
@@ -928,18 +928,18 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 97.33,
+          "pct": 100.0,
           "ci95": [
-            93.34,
-            98.96
+            97.5,
+            100.0
           ],
           "n": 150
         },
         "seed": {
-          "pct": 65.83,
+          "pct": 61.67,
           "ci95": [
-            56.97,
-            73.71
+            52.73,
+            69.88
           ],
           "n": 120
         },
@@ -953,8 +953,8 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 7.1,
-      "agent_calls": 1117,
+      "wall_seconds": 6.2,
+      "agent_calls": 1112,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
@@ -964,487 +964,10 @@
       "config": "C2",
       "model": "naive-sim",
       "ASR": {
-        "pct": 5.1,
+        "pct": 0.0,
         "ci95": [
-          3.82,
-          6.78
-        ],
-        "n": 862
-      },
-      "TMR": {
-        "pct": 2.09,
-        "ci95": [
-          1.32,
-          3.28
-        ],
-        "n": 862
-      },
-      "DER": {
-        "pct": 2.09,
-        "ci95": [
-          1.32,
-          3.28
-        ],
-        "n": 862
-      },
-      "TSR": {
-        "pct": 99.45,
-        "ci95": [
-          98.39,
-          99.81
-        ],
-        "n": 543
-      },
-      "FPR": {
-        "pct": 0.18,
-        "ci95": [
-          0.03,
-          1.04
-        ],
-        "n": 543
-      },
-      "latency_ms_mean": 16.5,
-      "latency_ms_p95": 56.8,
-      "n_attack": 862,
-      "n_benign": 543,
-      "ASR_by_technique": {
-        "ai_addressing": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            27.75
-          ],
-          "n": 10
-        },
-        "answer_forcing": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            39.03
-          ],
-          "n": 6
-        },
-        "authority_urgency": {
-          "pct": 30.0,
-          "ci95": [
-            10.78,
-            60.32
-          ],
-          "n": 10
-        },
-        "bipia:base_encoding": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:business_intelligence": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:conversational_agent": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:emoji_substitution": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:entertainment": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:information_dissemination": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:language_translation": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:marketing_advertising": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:misinformation_propaganda": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:research_assistance": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:reverse_text": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:scams_fraud": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:sentiment_analysis": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:substitution_ciphers": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:task_automation": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "delimiter_confusion": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "encoding": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "exfiltration_email": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            56.15
-          ],
-          "n": 3
-        },
-        "exfiltration_markdown": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "exfiltration_secret": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "hidden_text": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "homoglyph": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:data_security_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:financial_data": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            48.99
-          ],
-          "n": 4
-        },
-        "injecagent:financial_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:others": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            19.36
-          ],
-          "n": 16
-        },
-        "injecagent:physical_data": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            21.53
-          ],
-          "n": 14
-        },
-        "injecagent:physical_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "instruction_override": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "knowledge_corruption": {
-          "pct": 16.67,
-          "ci95": [
-            11.55,
-            23.45
-          ],
-          "n": 150
-        },
-        "link_insertion": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            39.03
-          ],
-          "n": 6
-        },
-        "llmail:adaptive": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            1.26
-          ],
-          "n": 300
-        },
-        "multilingual": {
-          "pct": 100.0,
-          "ci95": [
-            56.55,
-            100.0
-          ],
-          "n": 5
-        },
-        "output_control": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "paraphrase": {
-          "pct": 38.46,
-          "ci95": [
-            17.71,
-            64.48
-          ],
-          "n": 13
-        },
-        "prompt_extraction": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "quoted_injection": {
-          "pct": 100.0,
-          "ci95": [
-            56.55,
-            100.0
-          ],
-          "n": 5
-        },
-        "role_play": {
-          "pct": 10.0,
-          "ci95": [
-            1.79,
-            40.42
-          ],
-          "n": 10
-        },
-        "template_marker": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "tool_call": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "zero_width_chars": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        }
-      },
-      "ASR_by_vector": {
-        "email": {
-          "pct": 2.74,
-          "ci95": [
-            1.76,
-            4.24
-          ],
-          "n": 694
-        },
-        "rag": {
-          "pct": 14.88,
-          "ci95": [
-            10.29,
-            21.04
-          ],
-          "n": 168
-        }
-      },
-      "ASR_by_source": {
-        "bipia": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            1.68
-          ],
-          "n": 225
-        },
-        "injecagent": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            7.27
-          ],
-          "n": 49
-        },
-        "llmail_inject": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            1.26
-          ],
-          "n": 300
-        },
-        "poisonedrag": {
-          "pct": 16.67,
-          "ci95": [
-            11.55,
-            23.45
-          ],
-          "n": 150
-        },
-        "seed": {
-          "pct": 15.83,
-          "ci95": [
-            10.38,
-            23.41
-          ],
-          "n": 120
-        },
-        "seed_rag": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            17.59
-          ],
-          "n": 18
-        }
-      },
-      "guard_model": null,
-      "wall_seconds": 24.1,
-      "agent_calls": 1079,
-      "agent_errors": null,
-      "agent_input_tokens": null,
-      "agent_output_tokens": null,
-      "results_file": "evaluation\\results\\naive-all\\naive__C2.jsonl"
-    },
-    {
-      "config": "C3",
-      "model": "naive-sim",
-      "ASR": {
-        "pct": 2.9,
-        "ci95": [
-          1.97,
-          4.25
+          0.0,
+          0.44
         ],
         "n": 862
       },
@@ -1480,8 +1003,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 25.0,
-      "latency_ms_p95": 64.0,
+      "latency_ms_mean": 13.2,
+      "latency_ms_p95": 41.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -1742,10 +1265,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -1848,10 +1371,10 @@
           "n": 694
         },
         "rag": {
-          "pct": 14.88,
+          "pct": 0.0,
           "ci95": [
-            10.29,
-            21.04
+            0.0,
+            2.24
           ],
           "n": 168
         }
@@ -1882,10 +1405,10 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -1907,8 +1430,485 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 36.1,
-      "agent_calls": 1079,
+      "wall_seconds": 19.4,
+      "agent_calls": 1074,
+      "agent_errors": null,
+      "agent_input_tokens": null,
+      "agent_output_tokens": null,
+      "results_file": "evaluation\\results\\naive-all\\naive__C2.jsonl"
+    },
+    {
+      "config": "C3",
+      "model": "naive-sim",
+      "ASR": {
+        "pct": 0.0,
+        "ci95": [
+          0.0,
+          0.44
+        ],
+        "n": 862
+      },
+      "TMR": {
+        "pct": 0.0,
+        "ci95": [
+          0.0,
+          0.44
+        ],
+        "n": 862
+      },
+      "DER": {
+        "pct": 0.0,
+        "ci95": [
+          0.0,
+          0.44
+        ],
+        "n": 862
+      },
+      "TSR": {
+        "pct": 98.53,
+        "ci95": [
+          97.12,
+          99.25
+        ],
+        "n": 543
+      },
+      "FPR": {
+        "pct": 0.18,
+        "ci95": [
+          0.03,
+          1.04
+        ],
+        "n": 543
+      },
+      "latency_ms_mean": 17.3,
+      "latency_ms_p95": 43.8,
+      "n_attack": 862,
+      "n_benign": 543,
+      "ASR_by_technique": {
+        "ai_addressing": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "answer_forcing": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            39.03
+          ],
+          "n": 6
+        },
+        "authority_urgency": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "bipia:base_encoding": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:business_intelligence": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:conversational_agent": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:emoji_substitution": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:entertainment": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:information_dissemination": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:language_translation": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:marketing_advertising": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:misinformation_propaganda": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:research_assistance": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:reverse_text": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:scams_fraud": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:sentiment_analysis": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:substitution_ciphers": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:task_automation": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "delimiter_confusion": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "encoding": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "exfiltration_email": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.15
+          ],
+          "n": 3
+        },
+        "exfiltration_markdown": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "exfiltration_secret": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "hidden_text": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "homoglyph": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:data_security_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:financial_data": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            48.99
+          ],
+          "n": 4
+        },
+        "injecagent:financial_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:others": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.36
+          ],
+          "n": 16
+        },
+        "injecagent:physical_data": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            21.53
+          ],
+          "n": 14
+        },
+        "injecagent:physical_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "instruction_override": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "knowledge_corruption": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.5
+          ],
+          "n": 150
+        },
+        "link_insertion": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            39.03
+          ],
+          "n": 6
+        },
+        "llmail:adaptive": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.26
+          ],
+          "n": 300
+        },
+        "multilingual": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "output_control": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "paraphrase": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            22.81
+          ],
+          "n": 13
+        },
+        "prompt_extraction": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "quoted_injection": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "role_play": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "template_marker": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "tool_call": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "zero_width_chars": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        }
+      },
+      "ASR_by_vector": {
+        "email": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            0.55
+          ],
+          "n": 694
+        },
+        "rag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.24
+          ],
+          "n": 168
+        }
+      },
+      "ASR_by_source": {
+        "bipia": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.68
+          ],
+          "n": 225
+        },
+        "injecagent": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            7.27
+          ],
+          "n": 49
+        },
+        "llmail_inject": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.26
+          ],
+          "n": 300
+        },
+        "poisonedrag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.5
+          ],
+          "n": 150
+        },
+        "seed": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.1
+          ],
+          "n": 120
+        },
+        "seed_rag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            17.59
+          ],
+          "n": 18
+        }
+      },
+      "guard_model": null,
+      "wall_seconds": 25.2,
+      "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
@@ -1918,34 +1918,34 @@
       "config": "C3-L1",
       "model": "naive-sim",
       "ASR": {
-        "pct": 5.45,
+        "pct": 0.0,
         "ci95": [
-          4.12,
-          7.18
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TMR": {
-        "pct": 2.44,
+        "pct": 0.0,
         "ci95": [
-          1.6,
-          3.7
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "DER": {
-        "pct": 2.44,
+        "pct": 0.0,
         "ci95": [
-          1.6,
-          3.7
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TSR": {
-        "pct": 99.63,
+        "pct": 98.71,
         "ci95": [
-          98.67,
-          99.9
+          97.36,
+          99.37
         ],
         "n": 543
       },
@@ -1957,485 +1957,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 19.6,
-      "latency_ms_p95": 51.8,
-      "n_attack": 862,
-      "n_benign": 543,
-      "ASR_by_technique": {
-        "ai_addressing": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            27.75
-          ],
-          "n": 10
-        },
-        "answer_forcing": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            39.03
-          ],
-          "n": 6
-        },
-        "authority_urgency": {
-          "pct": 30.0,
-          "ci95": [
-            10.78,
-            60.32
-          ],
-          "n": 10
-        },
-        "bipia:base_encoding": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:business_intelligence": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:conversational_agent": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:emoji_substitution": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:entertainment": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:information_dissemination": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:language_translation": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:marketing_advertising": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:misinformation_propaganda": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:research_assistance": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:reverse_text": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:scams_fraud": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:sentiment_analysis": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:substitution_ciphers": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "bipia:task_automation": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "delimiter_confusion": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "encoding": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "exfiltration_email": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            56.15
-          ],
-          "n": 3
-        },
-        "exfiltration_markdown": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "exfiltration_secret": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "hidden_text": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "homoglyph": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:data_security_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:financial_data": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            48.99
-          ],
-          "n": 4
-        },
-        "injecagent:financial_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "injecagent:others": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            19.36
-          ],
-          "n": 16
-        },
-        "injecagent:physical_data": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            21.53
-          ],
-          "n": 14
-        },
-        "injecagent:physical_harm": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "instruction_override": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            20.39
-          ],
-          "n": 15
-        },
-        "knowledge_corruption": {
-          "pct": 16.67,
-          "ci95": [
-            11.55,
-            23.45
-          ],
-          "n": 150
-        },
-        "link_insertion": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            39.03
-          ],
-          "n": 6
-        },
-        "llmail:adaptive": {
-          "pct": 1.0,
-          "ci95": [
-            0.34,
-            2.9
-          ],
-          "n": 300
-        },
-        "multilingual": {
-          "pct": 100.0,
-          "ci95": [
-            56.55,
-            100.0
-          ],
-          "n": 5
-        },
-        "output_control": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "paraphrase": {
-          "pct": 38.46,
-          "ci95": [
-            17.71,
-            64.48
-          ],
-          "n": 13
-        },
-        "prompt_extraction": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "quoted_injection": {
-          "pct": 100.0,
-          "ci95": [
-            56.55,
-            100.0
-          ],
-          "n": 5
-        },
-        "role_play": {
-          "pct": 10.0,
-          "ci95": [
-            1.79,
-            40.42
-          ],
-          "n": 10
-        },
-        "template_marker": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "tool_call": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        },
-        "zero_width_chars": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            43.45
-          ],
-          "n": 5
-        }
-      },
-      "ASR_by_vector": {
-        "email": {
-          "pct": 3.17,
-          "ci95": [
-            2.1,
-            4.75
-          ],
-          "n": 694
-        },
-        "rag": {
-          "pct": 14.88,
-          "ci95": [
-            10.29,
-            21.04
-          ],
-          "n": 168
-        }
-      },
-      "ASR_by_source": {
-        "bipia": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            1.68
-          ],
-          "n": 225
-        },
-        "injecagent": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            7.27
-          ],
-          "n": 49
-        },
-        "llmail_inject": {
-          "pct": 1.0,
-          "ci95": [
-            0.34,
-            2.9
-          ],
-          "n": 300
-        },
-        "poisonedrag": {
-          "pct": 16.67,
-          "ci95": [
-            11.55,
-            23.45
-          ],
-          "n": 150
-        },
-        "seed": {
-          "pct": 15.83,
-          "ci95": [
-            10.38,
-            23.41
-          ],
-          "n": 120
-        },
-        "seed_rag": {
-          "pct": 0.0,
-          "ci95": [
-            0.0,
-            17.59
-          ],
-          "n": 18
-        }
-      },
-      "guard_model": null,
-      "wall_seconds": 28.4,
-      "agent_calls": 1132,
-      "agent_errors": null,
-      "agent_input_tokens": null,
-      "agent_output_tokens": null,
-      "results_file": "evaluation\\results\\naive-all\\naive__C3-L1.jsonl"
-    },
-    {
-      "config": "C3-L2",
-      "model": "naive-sim",
-      "ASR": {
-        "pct": 2.9,
-        "ci95": [
-          1.97,
-          4.25
-        ],
-        "n": 862
-      },
-      "TMR": {
-        "pct": 0.0,
-        "ci95": [
-          0.0,
-          0.44
-        ],
-        "n": 862
-      },
-      "DER": {
-        "pct": 0.0,
-        "ci95": [
-          0.0,
-          0.44
-        ],
-        "n": 862
-      },
-      "TSR": {
-        "pct": 99.45,
-        "ci95": [
-          98.39,
-          99.81
-        ],
-        "n": 543
-      },
-      "FPR": {
-        "pct": 0.18,
-        "ci95": [
-          0.03,
-          1.04
-        ],
-        "n": 543
-      },
-      "latency_ms_mean": 9.5,
-      "latency_ms_p95": 30.0,
+      "latency_ms_mean": 14.4,
+      "latency_ms_p95": 36.8,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -2696,10 +2219,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -2802,10 +2325,10 @@
           "n": 694
         },
         "rag": {
-          "pct": 14.88,
+          "pct": 0.0,
           "ci95": [
-            10.29,
-            21.04
+            0.0,
+            2.24
           ],
           "n": 168
         }
@@ -2836,10 +2359,10 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -2861,45 +2384,45 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 14.2,
-      "agent_calls": 1117,
+      "wall_seconds": 21.0,
+      "agent_calls": 1132,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
-      "results_file": "evaluation\\results\\naive-all\\naive__C3-L2.jsonl"
+      "results_file": "evaluation\\results\\naive-all\\naive__C3-L1.jsonl"
     },
     {
-      "config": "C3-L3",
+      "config": "C3-L2",
       "model": "naive-sim",
       "ASR": {
-        "pct": 18.21,
+        "pct": 0.0,
         "ci95": [
-          15.78,
-          20.93
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TMR": {
-        "pct": 0.7,
+        "pct": 0.0,
         "ci95": [
-          0.32,
-          1.51
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "DER": {
-        "pct": 0.7,
+        "pct": 0.0,
         "ci95": [
-          0.32,
-          1.51
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TSR": {
-        "pct": 99.45,
+        "pct": 98.53,
         "ci95": [
-          98.39,
-          99.81
+          97.12,
+          99.25
         ],
         "n": 543
       },
@@ -2911,8 +2434,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 17.6,
-      "latency_ms_p95": 41.6,
+      "latency_ms_mean": 8.8,
+      "latency_ms_p95": 24.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -3077,10 +2600,487 @@
           "n": 5
         },
         "exfiltration_email": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            43.85,
-            100.0
+            0.0,
+            56.15
+          ],
+          "n": 3
+        },
+        "exfiltration_markdown": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "exfiltration_secret": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "hidden_text": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "homoglyph": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:data_security_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:financial_data": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            48.99
+          ],
+          "n": 4
+        },
+        "injecagent:financial_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "injecagent:others": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.36
+          ],
+          "n": 16
+        },
+        "injecagent:physical_data": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            21.53
+          ],
+          "n": 14
+        },
+        "injecagent:physical_harm": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "instruction_override": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "knowledge_corruption": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.5
+          ],
+          "n": 150
+        },
+        "link_insertion": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            39.03
+          ],
+          "n": 6
+        },
+        "llmail:adaptive": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.26
+          ],
+          "n": 300
+        },
+        "multilingual": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "output_control": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "paraphrase": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            22.81
+          ],
+          "n": 13
+        },
+        "prompt_extraction": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "quoted_injection": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "role_play": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "template_marker": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "tool_call": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "zero_width_chars": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        }
+      },
+      "ASR_by_vector": {
+        "email": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            0.55
+          ],
+          "n": 694
+        },
+        "rag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.24
+          ],
+          "n": 168
+        }
+      },
+      "ASR_by_source": {
+        "bipia": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.68
+          ],
+          "n": 225
+        },
+        "injecagent": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            7.27
+          ],
+          "n": 49
+        },
+        "llmail_inject": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.26
+          ],
+          "n": 300
+        },
+        "poisonedrag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            2.5
+          ],
+          "n": 150
+        },
+        "seed": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.1
+          ],
+          "n": 120
+        },
+        "seed_rag": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            17.59
+          ],
+          "n": 18
+        }
+      },
+      "guard_model": null,
+      "wall_seconds": 13.2,
+      "agent_calls": 1112,
+      "agent_errors": null,
+      "agent_input_tokens": null,
+      "agent_output_tokens": null,
+      "results_file": "evaluation\\results\\naive-all\\naive__C3-L2.jsonl"
+    },
+    {
+      "config": "C3-L3",
+      "model": "naive-sim",
+      "ASR": {
+        "pct": 3.25,
+        "ci95": [
+          2.26,
+          4.65
+        ],
+        "n": 862
+      },
+      "TMR": {
+        "pct": 0.0,
+        "ci95": [
+          0.0,
+          0.44
+        ],
+        "n": 862
+      },
+      "DER": {
+        "pct": 0.0,
+        "ci95": [
+          0.0,
+          0.44
+        ],
+        "n": 862
+      },
+      "TSR": {
+        "pct": 98.53,
+        "ci95": [
+          97.12,
+          99.25
+        ],
+        "n": 543
+      },
+      "FPR": {
+        "pct": 0.18,
+        "ci95": [
+          0.03,
+          1.04
+        ],
+        "n": 543
+      },
+      "latency_ms_mean": 17.5,
+      "latency_ms_p95": 40.0,
+      "n_attack": 862,
+      "n_benign": 543,
+      "ASR_by_technique": {
+        "ai_addressing": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "answer_forcing": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            39.03
+          ],
+          "n": 6
+        },
+        "authority_urgency": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            27.75
+          ],
+          "n": 10
+        },
+        "bipia:base_encoding": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:business_intelligence": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:conversational_agent": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:emoji_substitution": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:entertainment": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:information_dissemination": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:language_translation": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:marketing_advertising": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:misinformation_propaganda": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:research_assistance": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:reverse_text": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:scams_fraud": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:sentiment_analysis": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:substitution_ciphers": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "bipia:task_automation": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            20.39
+          ],
+          "n": 15
+        },
+        "delimiter_confusion": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "encoding": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            43.45
+          ],
+          "n": 5
+        },
+        "exfiltration_email": {
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.15
           ],
           "n": 3
         },
@@ -3173,10 +3173,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 97.33,
+          "pct": 15.33,
           "ci95": [
-            93.34,
-            98.96
+            10.44,
+            21.96
           ],
           "n": 150
         },
@@ -3213,10 +3213,10 @@
           "n": 5
         },
         "paraphrase": {
-          "pct": 23.08,
+          "pct": 0.0,
           "ci95": [
-            8.18,
-            50.26
+            0.0,
+            22.81
           ],
           "n": 13
         },
@@ -3279,10 +3279,10 @@
           "n": 694
         },
         "rag": {
-          "pct": 90.48,
+          "pct": 13.69,
           "ci95": [
-            85.09,
-            94.05
+            9.3,
+            19.71
           ],
           "n": 168
         }
@@ -3313,10 +3313,10 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 97.33,
+          "pct": 15.33,
           "ci95": [
-            93.34,
-            98.96
+            10.44,
+            21.96
           ],
           "n": 150
         },
@@ -3329,17 +3329,17 @@
           "n": 120
         },
         "seed_rag": {
-          "pct": 33.33,
+          "pct": 0.0,
           "ci95": [
-            16.28,
-            56.25
+            0.0,
+            17.59
           ],
           "n": 18
         }
       },
       "guard_model": null,
-      "wall_seconds": 25.6,
-      "agent_calls": 1079,
+      "wall_seconds": 25.4,
+      "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
@@ -3349,10 +3349,10 @@
       "config": "C3-L3B",
       "model": "naive-sim",
       "ASR": {
-        "pct": 2.9,
+        "pct": 0.0,
         "ci95": [
-          1.97,
-          4.25
+          0.0,
+          0.44
         ],
         "n": 862
       },
@@ -3388,8 +3388,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 14.9,
-      "latency_ms_p95": 46.0,
+      "latency_ms_mean": 13.1,
+      "latency_ms_p95": 39.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -3650,10 +3650,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -3756,10 +3756,10 @@
           "n": 694
         },
         "rag": {
-          "pct": 14.88,
+          "pct": 0.0,
           "ci95": [
-            10.29,
-            21.04
+            0.0,
+            2.24
           ],
           "n": 168
         }
@@ -3790,10 +3790,10 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -3815,8 +3815,8 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 21.7,
-      "agent_calls": 1079,
+      "wall_seconds": 19.2,
+      "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
@@ -3826,34 +3826,34 @@
       "config": "C3-L4",
       "model": "naive-sim",
       "ASR": {
-        "pct": 5.1,
+        "pct": 0.0,
         "ci95": [
-          3.82,
-          6.78
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TMR": {
-        "pct": 2.09,
+        "pct": 0.0,
         "ci95": [
-          1.32,
-          3.28
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "DER": {
-        "pct": 2.09,
+        "pct": 0.0,
         "ci95": [
-          1.32,
-          3.28
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TSR": {
-        "pct": 99.45,
+        "pct": 98.53,
         "ci95": [
-          98.39,
-          99.81
+          97.12,
+          99.25
         ],
         "n": 543
       },
@@ -3865,8 +3865,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 17.7,
-      "latency_ms_p95": 46.0,
+      "latency_ms_mean": 16.0,
+      "latency_ms_p95": 39.8,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -3887,10 +3887,10 @@
           "n": 6
         },
         "authority_urgency": {
-          "pct": 30.0,
+          "pct": 0.0,
           "ci95": [
-            10.78,
-            60.32
+            0.0,
+            27.75
           ],
           "n": 10
         },
@@ -4127,10 +4127,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -4151,10 +4151,10 @@
           "n": 300
         },
         "multilingual": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            56.55,
-            100.0
+            0.0,
+            43.45
           ],
           "n": 5
         },
@@ -4167,10 +4167,10 @@
           "n": 5
         },
         "paraphrase": {
-          "pct": 38.46,
+          "pct": 0.0,
           "ci95": [
-            17.71,
-            64.48
+            0.0,
+            22.81
           ],
           "n": 13
         },
@@ -4183,18 +4183,18 @@
           "n": 5
         },
         "quoted_injection": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            56.55,
-            100.0
+            0.0,
+            43.45
           ],
           "n": 5
         },
         "role_play": {
-          "pct": 10.0,
+          "pct": 0.0,
           "ci95": [
-            1.79,
-            40.42
+            0.0,
+            27.75
           ],
           "n": 10
         },
@@ -4225,18 +4225,18 @@
       },
       "ASR_by_vector": {
         "email": {
-          "pct": 2.74,
+          "pct": 0.0,
           "ci95": [
-            1.76,
-            4.24
+            0.0,
+            0.55
           ],
           "n": 694
         },
         "rag": {
-          "pct": 14.88,
+          "pct": 0.0,
           "ci95": [
-            10.29,
-            21.04
+            0.0,
+            2.24
           ],
           "n": 168
         }
@@ -4267,18 +4267,18 @@
           "n": 300
         },
         "poisonedrag": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
         "seed": {
-          "pct": 15.83,
+          "pct": 0.0,
           "ci95": [
-            10.38,
-            23.41
+            0.0,
+            3.1
           ],
           "n": 120
         },
@@ -4292,8 +4292,8 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 25.7,
-      "agent_calls": 1079,
+      "wall_seconds": 23.3,
+      "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
       "agent_output_tokens": null,
@@ -4303,34 +4303,34 @@
       "config": "C3-L5",
       "model": "naive-sim",
       "ASR": {
-        "pct": 6.61,
+        "pct": 0.0,
         "ci95": [
-          5.14,
-          8.47
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TMR": {
-        "pct": 3.6,
+        "pct": 0.0,
         "ci95": [
-          2.54,
-          5.06
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "DER": {
-        "pct": 3.6,
+        "pct": 0.0,
         "ci95": [
-          2.54,
-          5.06
+          0.0,
+          0.44
         ],
         "n": 862
       },
       "TSR": {
-        "pct": 99.63,
+        "pct": 98.71,
         "ci95": [
-          98.67,
-          99.9
+          97.36,
+          99.37
         ],
         "n": 543
       },
@@ -4342,8 +4342,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 18.3,
-      "latency_ms_p95": 42.8,
+      "latency_ms_mean": 16.7,
+      "latency_ms_p95": 40.8,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -4364,10 +4364,10 @@
           "n": 6
         },
         "authority_urgency": {
-          "pct": 30.0,
+          "pct": 0.0,
           "ci95": [
-            10.78,
-            60.32
+            0.0,
+            27.75
           ],
           "n": 10
         },
@@ -4604,10 +4604,10 @@
           "n": 15
         },
         "knowledge_corruption": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
@@ -4620,18 +4620,18 @@
           "n": 6
         },
         "llmail:adaptive": {
-          "pct": 4.33,
+          "pct": 0.0,
           "ci95": [
-            2.55,
-            7.27
+            0.0,
+            1.26
           ],
           "n": 300
         },
         "multilingual": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            56.55,
-            100.0
+            0.0,
+            43.45
           ],
           "n": 5
         },
@@ -4644,10 +4644,10 @@
           "n": 5
         },
         "paraphrase": {
-          "pct": 38.46,
+          "pct": 0.0,
           "ci95": [
-            17.71,
-            64.48
+            0.0,
+            22.81
           ],
           "n": 13
         },
@@ -4660,18 +4660,18 @@
           "n": 5
         },
         "quoted_injection": {
-          "pct": 100.0,
+          "pct": 0.0,
           "ci95": [
-            56.55,
-            100.0
+            0.0,
+            43.45
           ],
           "n": 5
         },
         "role_play": {
-          "pct": 10.0,
+          "pct": 0.0,
           "ci95": [
-            1.79,
-            40.42
+            0.0,
+            27.75
           ],
           "n": 10
         },
@@ -4702,18 +4702,18 @@
       },
       "ASR_by_vector": {
         "email": {
-          "pct": 4.61,
+          "pct": 0.0,
           "ci95": [
-            3.28,
-            6.44
+            0.0,
+            0.55
           ],
           "n": 694
         },
         "rag": {
-          "pct": 14.88,
+          "pct": 0.0,
           "ci95": [
-            10.29,
-            21.04
+            0.0,
+            2.24
           ],
           "n": 168
         }
@@ -4736,26 +4736,26 @@
           "n": 49
         },
         "llmail_inject": {
-          "pct": 4.33,
+          "pct": 0.0,
           "ci95": [
-            2.55,
-            7.27
+            0.0,
+            1.26
           ],
           "n": 300
         },
         "poisonedrag": {
-          "pct": 16.67,
+          "pct": 0.0,
           "ci95": [
-            11.55,
-            23.45
+            0.0,
+            2.5
           ],
           "n": 150
         },
         "seed": {
-          "pct": 15.83,
+          "pct": 0.0,
           "ci95": [
-            10.38,
-            23.41
+            0.0,
+            3.1
           ],
           "n": 120
         },
@@ -4769,7 +4769,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 26.6,
+      "wall_seconds": 24.3,
       "agent_calls": 1405,
       "agent_errors": null,
       "agent_input_tokens": null,
