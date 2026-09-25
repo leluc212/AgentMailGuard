@@ -32,7 +32,10 @@ from packages.llm import (
     ModelTier,
     SinglePassGenerator,
 )
-from packages.observability.metrics import create_pipeline_metrics
+from packages.observability.metrics import (
+    create_pipeline_metrics,
+    generate_metrics_payload,
+)
 
 
 def _make_sample_message(
@@ -172,7 +175,9 @@ async def test_routine_flow_integration(
     assert fake_llm.recorded_calls[0]["tier"] == ModelTier.ROUTINE
 
     # Verify no escalation metric was recorded
-    assert metrics.model_escalations_total._metrics == {}
+    payload, _ = generate_metrics_payload(metrics.registry)
+    payload_str = payload.decode("utf-8")
+    assert "model_escalations_total{" not in payload_str
 
 
 @pytest.mark.asyncio
