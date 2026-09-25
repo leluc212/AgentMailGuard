@@ -217,3 +217,72 @@ async def test_verification_runs_without_metrics_configured(
     result = await generator.generate_draft(_context(_supplied_chunk()), category="support")
 
     assert result.citation_mismatch is True
+
+
+class _ExplodingCitationCounter:
+    """A counter whose label call fails, standing in for a metrics misconfiguration."""
+
+    def labels(self, **kwargs: Any) -> Any:
+        raise ValueError("label cardinality mismatch")
+
+
+class _MetricsWithBrokenVerifiedCounter:
+    """Real metrics with `citations_verified_total` replaced by a failing counter."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.citations_verified_total = _ExplodingCitationCounter()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _MetricsWithBrokenMismatchCounter:
+    """Real metrics with `citation_mismatches_total` replaced by a failing counter."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.citation_mismatches_total = _ExplodingCitationCounter()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_broken_verified_counter_does_not_lose_a_successful_draft(
+    profile_registry: AgentProfileRegistry,
+) -> None:
+    """A misconfigured `citations_verified_total` counter must not cost the whole draft.
+
+    `_record_citation_verdict` runs after generation and validation already succeeded; an
+    exception escaping it must not destroy a GenerationResult that is otherwise complete.
+    """
+    metrics = _MetricsWithBrokenVerifiedCounter(create_pipeline_metrics())
+    generator = SinglePassGenerator(
+        llm_provider=FakeLLMProvider(default_response=_reply("DOC-125-08")),
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    result = await generator.generate_draft(_context(_supplied_chunk()), category="support")
+
+    assert result.citation_mismatch is False
+    assert result.content["draft"].startswith("Hello Alice")
+
+
+@pytest.mark.asyncio
+async def test_broken_mismatch_counter_does_not_lose_a_flagged_draft(
+    profile_registry: AgentProfileRegistry,
+) -> None:
+    """A misconfigured `citation_mismatches_total` counter must not cost the whole draft."""
+    metrics = _MetricsWithBrokenMismatchCounter(create_pipeline_metrics())
+    generator = SinglePassGenerator(
+        llm_provider=FakeLLMProvider(default_response=_reply("DOC-999-99")),
+        profile_registry=profile_registry,
+        metrics=metrics,
+    )
+
+    result = await generator.generate_draft(_context(_supplied_chunk()), category="support")
+
+    assert result.citation_mismatch is True
+    assert result.content["draft"].startswith("Hello Alice")

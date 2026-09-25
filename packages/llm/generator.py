@@ -531,6 +531,6 @@ class SinglePassGenerator:
         if metrics is None:
             return
         if hasattr(metrics, "citations_verified_total"):
-            metrics.citations_verified_total.labels(category=category).inc()
+            self._guarded(lambda: metrics.citations_verified_total.labels(category=category).inc())
         if verdict.mismatch and hasattr(metrics, "citation_mismatches_total"):
-            metrics.citation_mismatches_total.labels(category=category).inc()
+            self._guarded(lambda: metrics.citation_mismatches_total.labels(category=category).inc())
