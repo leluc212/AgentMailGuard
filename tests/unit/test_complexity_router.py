@@ -106,3 +106,27 @@ def test_count_requested_actions_multiline_formatting() -> None:
 
     bullets = "Please take care of:\n- Update address\n- Resend receipt"
     assert count_requested_actions(bullets) == 2
+
+
+def test_count_requested_actions_polite_closing_with_directive() -> None:
+    """Verify directives accompanied by gratitude are not dropped (review finding #1)."""
+    assert count_requested_actions("Please send the invoice, thanks!") == 1
+    assert count_requested_actions("Please reset my password, thank you.") == 1
+
+
+def test_count_requested_actions_single_bullet_no_double_count() -> None:
+    """Verify single bullet list items do not double-count (review finding #2)."""
+    assert count_requested_actions("- Please update my address") == 1
+
+
+def test_count_requested_actions_em_dash_in_prose() -> None:
+    """Verify parenthetical dashes in prose are not treated as bullets (review finding #3)."""
+    assert count_requested_actions("A cost-benefit analysis - not an audit - is needed.") == 0
+
+
+def test_count_requested_actions_ticket_id_in_prose() -> None:
+    """Verify ticket numbers with periods do not trigger numbered list false positive.
+
+    References: review finding #3.
+    """
+    assert count_requested_actions("I am waiting on ticket 12345. Is there an update?") == 1

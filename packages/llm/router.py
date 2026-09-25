@@ -53,9 +53,30 @@ _DIRECTIVE_WORDS_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-_NUMBERED_ITEM_PATTERN = re.compile(r"(?:^|[\n\r]|(?<=[;:\s]))\d+[\.\)]\s+\S+")
-_BULLET_ITEM_PATTERN = re.compile(r"(?:^|[\n\r]|(?<=[;:\s]))[\-\*\•]\s+\S+")
+_LEADING_ACTION_VERB_PATTERN = re.compile(
+    rf"^\s*(?:{_ACTION_VERBS_PATTERN.pattern})",
+    re.IGNORECASE,
+)
+
+_LIST_ITEM_LINE_PATTERN = re.compile(
+    r"^\s*(?:(?:[1-9]|\d{2})[\.\)]|[\-\*\•])\s+.*$",
+    re.MULTILINE,
+)
+
 _LIST_HEADER_PATTERN = re.compile(r"(?i)\bplease(\s+take\s+care\s+of)?:\s*")
+
+
+def _normalize_inline_lists(text: str) -> str:
+    """Normalize inline bulleted or numbered items following a colon into distinct lines."""
+    if re.search(r"[:;]\s*[\-\*\•]\s+", text):
+        text = re.sub(r"[:;]\s*([\-\*\•])\s+", r":\n\1 ", text)
+        text = re.sub(r"(?<=\S)\s+([\-\*\•])\s+", r"\n\1 ", text)
+
+    if re.search(r"[:;]\s*(?:[1-9]|\d{2})[\.\)]\s+", text):
+        text = re.sub(r"[:;]\s*((?:[1-9]|\d{2})[\.\)])\s+", r":\n\1 ", text)
+        text = re.sub(r"(?<=\S)\s+((?:[1-9]|\d{2})[\.\)])\s+", r"\n\1 ", text)
+
+    return text
 
 
 def count_requested_actions(text: str) -> int:
@@ -73,14 +94,14 @@ def count_requested_actions(text: str) -> int:
     if not text or not text.strip():
         return 0
 
-    # 1. Count list items (numbered or bullets)
-    num_items = len(_NUMBERED_ITEM_PATTERN.findall(text))
-    bullet_items = len(_BULLET_ITEM_PATTERN.findall(text))
-    list_items_count = num_items + bullet_items
+    normalized_text = _normalize_inline_lists(text)
 
-    # Strip list items and common intro headers to evaluate remaining text
-    cleaned_text = _NUMBERED_ITEM_PATTERN.sub("", text)
-    cleaned_text = _BULLET_ITEM_PATTERN.sub("", cleaned_text)
+    # 1. Count list item lines (numbered or bullets)
+    list_items = _LIST_ITEM_LINE_PATTERN.findall(normalized_text)
+    list_items_count = len(list_items)
+
+    # Strip list item lines completely to avoid leaking verbs/directives into prose analysis
+    cleaned_text = _LIST_ITEM_LINE_PATTERN.sub("", normalized_text)
     cleaned_text = _LIST_HEADER_PATTERN.sub("", cleaned_text)
 
     # 2. Split non-list text into sentences/clauses
@@ -88,29 +109,23 @@ def count_requested_actions(text: str) -> int:
 
     non_list_actions = 0
     for s in sentences:
-        # Ignore polite closings / gratitude unless they contain questions
-        if _POLITE_CLOSINGS_PATTERN.search(s) and "?" not in s:
-            continue
-
         # Count questions
         q_count = len(re.findall(r"\?+", s))
         if q_count > 0:
             non_list_actions += q_count
             continue
 
-        # Check for directive or transition with action verb
-        has_directive = bool(_DIRECTIVE_WORDS_PATTERN.search(s))
-        has_transition = bool(_TRANSITION_PATTERN.search(s))
-        has_action_verb = bool(_ACTION_VERBS_PATTERN.search(s))
+        # Strip polite closings / gratitude before checking for directives/verbs
+        s_clean = _POLITE_CLOSINGS_PATTERN.sub("", s).strip()
+        if not s_clean:
+            continue
 
-        if (
-            has_directive
-            and (has_action_verb or has_transition)
-            or has_transition
-            and has_action_verb
-            or has_action_verb
-            and re.match(rf"^\s*{_ACTION_VERBS_PATTERN.pattern}", s, re.I)
-        ):
+        has_directive = bool(_DIRECTIVE_WORDS_PATTERN.search(s_clean))
+        has_transition = bool(_TRANSITION_PATTERN.search(s_clean))
+        has_action_verb = bool(_ACTION_VERBS_PATTERN.search(s_clean))
+        has_leading_action_verb = bool(_LEADING_ACTION_VERB_PATTERN.match(s_clean))
+
+        if ((has_directive or has_transition) and has_action_verb) or has_leading_action_verb:
             non_list_actions += 1
 
     total = list_items_count + non_list_actions
