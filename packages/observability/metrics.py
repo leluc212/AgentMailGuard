@@ -84,6 +84,8 @@ class PipelineMetrics:
     reaped_leases_total: Counter
     tokens_saved_total: Counter
     model_escalations_total: Counter
+    draft_repairs_total: Counter
+    draft_validation_failures_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -244,6 +246,18 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "model_escalations_total",
             "Total model tier escalations triggered by complexity router (R15.3, R15.6)",
             ["reason", "tier"],
+            registry=reg,
+        ),
+        draft_repairs_total=Counter(
+            "draft_repairs_total",
+            "Total schema repair retry outcomes for generated drafts (R16.3)",
+            ["status"],
+            registry=reg,
+        ),
+        draft_validation_failures_total=Counter(
+            "draft_validation_failures_total",
+            "Total draft schema validation failures by pipeline stage (R16.2, R16.3)",
+            ["stage"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)

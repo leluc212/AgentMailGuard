@@ -36,6 +36,8 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.reaped_leases_total is not None
     assert m.tokens_saved_total is not None
     assert m.model_escalations_total is not None
+    assert m.draft_repairs_total is not None
+    assert m.draft_validation_failures_total is not None
 
     # Histograms
     assert m.classification_latency_ms is not None
@@ -142,3 +144,24 @@ def test_model_escalations_total_counter() -> None:
         'model_escalations_total{reason="low_classification_confidence",tier="high_capability"} 1.0'
         in payload_str
     )
+
+
+def test_draft_repairs_and_validation_failure_metrics() -> None:
+    """Verify draft repair and validation failure counters are registered (R16.2, R16.3)."""
+    m = create_pipeline_metrics()
+
+    assert m.draft_repairs_total is not None
+    assert m.draft_validation_failures_total is not None
+
+    m.draft_repairs_total.labels(status="succeeded").inc()
+    m.draft_repairs_total.labels(status="failed").inc()
+    m.draft_validation_failures_total.labels(stage="initial").inc()
+    m.draft_validation_failures_total.labels(stage="repair").inc()
+
+    payload, _ = generate_metrics_payload(m.registry)
+    payload_str = payload.decode("utf-8")
+
+    assert 'draft_repairs_total{status="succeeded"} 1.0' in payload_str
+    assert 'draft_repairs_total{status="failed"} 1.0' in payload_str
+    assert 'draft_validation_failures_total{stage="initial"} 1.0' in payload_str
+    assert 'draft_validation_failures_total{stage="repair"} 1.0' in payload_str
