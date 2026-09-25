@@ -18,6 +18,7 @@ from packages.llm.budget import (
     CallBudgetTracker,
     CallKind,
 )
+from packages.llm.citations import CitationVerdict, verify_citations
 from packages.llm.profile import AgentProfile, AgentProfileRegistry
 from packages.llm.protocol import (
     ChatMessage,
@@ -58,6 +59,12 @@ class GenerationResult:
     is_repaired: bool = False
     repair_attempts: int = 0
     validated_payload: DraftReplyPayload | None = None
+    citation_verdict: CitationVerdict | None = None
+
+    @property
+    def citation_mismatch(self) -> bool:
+        """True when the draft cited a chunk absent from its context (R16.5)."""
+        return self.citation_verdict is not None and self.citation_verdict.mismatch
 
 
 class SinglePassGenerator:
@@ -222,6 +229,24 @@ class SinglePassGenerator:
                 count_generate=not generate_already_counted,
             )
 
+        # Verify citation grounding (R16.5). A mismatch flags the draft; it never fails the
+        # job, which is R16.3's job. The label uses the resolved profile when no category was
+        # supplied, so it stays bounded by config/agent_profiles.yaml either way.
+        citation_verdict = verify_citations(validated_payload.knowledge_chunks, context)
+        if citation_verdict.mismatch:
+            logger.warning(
+                "draft_citation_mismatch",
+                extra={
+                    "job_id": tracker.job_id,
+                    "mismatched_citations": citation_verdict.mismatched,
+                    "supplied_chunks": citation_verdict.supplied_count,
+                },
+            )
+        self._record_citation_verdict(
+            citation_verdict,
+            category=category or resolved_profile.profile,
+        )
+
         total_input, total_output, total_latency = self._totals(attempts)
         final_model = attempts[-1].model if attempts else generate_model
 
@@ -241,6 +266,7 @@ class SinglePassGenerator:
             is_repaired=repair_attempts > 0,
             repair_attempts=repair_attempts,
             validated_payload=validated_payload,
+            citation_verdict=citation_verdict,
         )
 
     async def _validate_with_repair(
@@ -493,3 +519,18 @@ class SinglePassGenerator:
         if metrics is None or not hasattr(metrics, "draft_repairs_total"):
             return
         metrics.draft_repairs_total.labels(status=status).inc()
+
+    def _record_citation_verdict(self, verdict: CitationVerdict, category: str) -> None:
+        """Count the grounding check for this draft (R16.5, R21.4).
+
+        Every schema-valid draft increments the verified counter, including one that cited
+        nothing, so the denominator is "drafts that could have cited" and the exported ratio
+        is the share of drafts carrying at least one ungrounded citation.
+        """
+        metrics = self.metrics
+        if metrics is None:
+            return
+        if hasattr(metrics, "citations_verified_total"):
+            metrics.citations_verified_total.labels(category=category).inc()
+        if verdict.mismatch and hasattr(metrics, "citation_mismatches_total"):
+            metrics.citation_mismatches_total.labels(category=category).inc()

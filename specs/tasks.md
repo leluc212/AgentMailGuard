@@ -432,8 +432,10 @@
   - Left: the retry/DLQ hop itself is not observable end to end — `services/ai_worker/` has no consumer yet, so nothing nacks the message. `UnvalidatedDraftError` derives from `LLMError`, so the existing base-consumer retry ladder will dead-letter it once a consumer exists; the **Phase 4 gate must verify that hop** rather than assume it. Decide at that point whether it should be a `FatalError` (straight to DLQ) instead of climbing the 3-tier ladder, since a deterministic schema failure at `temperature=0.0` will likely fail all three redeliveries. The same decision applies to `DraftSchemaContractError`, introduced by this task: it is a pure deployment error (a profile's `output_schema` declaring what the code cannot enforce), so retrying it would climb all three redeliveries for every message of an affected profile — it is the stronger candidate of the two for `FatalError`.
   - _Requirements: R16.1, R16.2, R16.3_
 
-- [ ] **4.10 Citation verification**
+- [x] **4.10 Citation verification**
   - Reject citations naming chunks that were not supplied in the context; set `citation_mismatch` and export its rate as a metric.
+  - Done: `packages/llm/citations.py` verifies every cited id against the context's chunk-level aliases (`external_id`, falling back to `chunk_id` as `prompts/*.j2` renders them); `SinglePassGenerator` attaches a `CitationVerdict` to `GenerationResult` and flags `citation_mismatch` without failing the job. `citations_verified_total{category}` and `citation_mismatches_total{category}` are exported, with the rate's PromQL documented in `docs/observability.md`.
+  - Note: the flag is produced but not yet persisted — `generated_draft.citation_mismatch` and `.citations` are written by task 4.11, which must persist `verdict.citations` rather than `content["knowledge_chunks"]`. The Grafana panel for the rate belongs to task 7.4.
   - _Requirements: R16.5_
 
 - [ ] **4.11 Draft persistence**
