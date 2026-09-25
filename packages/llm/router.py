@@ -153,9 +153,10 @@ class ComplexityRouter:
     def __init__(
         self,
         settings: ComplexityRouterSettings | None = None,
-        tiers_settings: LLMTiersSettings | None = None,
         token_counter: TokenCounter | None = None,
         metrics: Any | None = None,
+        *,
+        tiers_settings: LLMTiersSettings | None = None,
     ) -> None:
         self.settings = settings or ComplexityRouterSettings()
         self.tiers_settings = tiers_settings
@@ -230,10 +231,10 @@ class ComplexityRouter:
     def route(
         self,
         context: ContextPackage,
-        *,
         classification: Classification | None = None,
-        profile: AgentProfile | None = None,
         escalations_performed: int = 0,
+        *,
+        profile: AgentProfile | None = None,
     ) -> RoutingDecision:
         """Route incoming context package to appropriate model capability tier (R15.1-R15.6).
 
@@ -374,9 +375,9 @@ class ComplexityRouter:
         # Trigger 4: Multiple requested actions
         curr_msg = context.current_message
         body = (
-            getattr(curr_msg, "body_text", "")
+            getattr(curr_msg, "body_text_clean", "")
+            or getattr(curr_msg, "body_text", "")
             or getattr(curr_msg, "body_html", "")
-            or getattr(curr_msg, "body_text_clean", "")
             or ""
         )
         actions = count_requested_actions(body)

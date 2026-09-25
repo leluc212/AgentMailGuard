@@ -18,6 +18,7 @@ from packages.domain.entities import (
     EmailAddress,
     NormalizedMessage,
 )
+from packages.knowledge.token_counter import TokenCounter
 from packages.llm import (
     ComplexityRouter,
     EscalationReason,
@@ -534,6 +535,72 @@ def test_candidate_score_fallback_resolution() -> None:
 
     decision = router.route(context, classification=classification)
 
+    assert decision.tier == ModelTier.ROUTINE
+    assert decision.is_escalated is False
+    assert decision.escalation_reason == EscalationReason.NONE
+
+
+def test_positional_router_initialization_and_route_invocation() -> None:
+    """Verify ComplexityRouter and route() support positional arguments as specified."""
+    settings = ComplexityRouterSettings()
+    token_counter = TokenCounter()
+    mock_metrics = MagicMock()
+
+    # Positional constructor: (settings, token_counter, metrics)
+    router = ComplexityRouter(settings, token_counter, mock_metrics)
+    assert router.settings is settings
+    assert router.token_counter is token_counter
+    assert router.metrics is mock_metrics
+
+    # Positional route invocation: (context, classification, escalations_performed)
+    context = _make_sample_context()
+    classification = Classification(category="billing", confidence=0.50, retrieval_required=False)
+    # When escalations_performed=1, escalation is capped
+    decision = router.route(context, classification, 1)
+    assert decision.tier == ModelTier.ROUTINE
+    assert decision.is_escalated is False
+    assert decision.details.get("escalation_suppressed") is True
+
+
+def test_trigger_requested_actions_prefers_clean_body_over_quoted_history() -> None:
+    """Verify count_requested_actions evaluates body_text_clean to prevent false escalations.
+
+    Quotes and reply chains in raw body must not trigger action escalation.
+    """
+    router = ComplexityRouter()
+    # Clean body has 1 single request
+    clean_body = "Could you please send the status of order 123?"
+    # Raw body has quoted history with multiple questions
+    raw_body = (
+        "Could you please send the status of order 123?\n\n"
+        "> On Jan 1, Someone wrote:\n"
+        "> Where is my invoice? Can you update payment? When will it arrive?"
+    )
+
+    msg = NormalizedMessage(
+        message_id=uuid4(),
+        organization_id=uuid4(),
+        mailbox_id=uuid4(),
+        thread_id=uuid4(),
+        provider="mock",
+        provider_message_id="msg-quoted",
+        sender=EmailAddress(email="customer@example.com", name="Customer"),
+        subject="Status Check",
+        subject_normalized="status check",
+        body_text=raw_body,
+        body_text_clean=clean_body,
+        received_at=datetime.now(UTC),
+    )
+    context = ContextPackage(
+        agent_instructions="Agent instructions",
+        category_instructions="Category instructions",
+        current_message=msg,
+        recent_messages=[],
+        retrieved_chunks=[],
+    )
+    classification = Classification(category="support", confidence=0.95, retrieval_required=False)
+
+    decision = router.route(context, classification)
     assert decision.tier == ModelTier.ROUTINE
     assert decision.is_escalated is False
     assert decision.escalation_reason == EscalationReason.NONE
