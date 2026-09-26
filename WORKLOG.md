@@ -1,69 +1,75 @@
 # WORKLOG — AgentMailGuard
 
-Nhật ký công việc để tiếp tục làm ở các phiên sau. Cập nhật ở cuối mỗi phiên làm việc.
-(Work log so the next session can pick up where this one stopped.)
+> **ĐỌC FILE NÀY TRƯỚC KHI LÀM TIẾP.** Mọi thứ đã làm, đang dở, và bước kế tiếp đều ở đây.
+> (Read this first when resuming. Everything done, in progress, and next steps are here.)
 
-Branch làm việc: `feature/mailguard-defense-stack` (tạo từ `origin/main`, repo
-https://github.com/leluc212/AgentMailGuard). Core hệ thống RAG email nằm ở branch
-`RAG_Email_System` (369 file, packages/ + services/); mailguard là subsystem cross-cutting,
-tích hợp bằng duck-typing (không import core). Đọc `README.md` + `docs/` trước khi làm tiếp.
+- Repo: https://github.com/leluc212/AgentMailGuard
+- Branch làm việc: **`feature/mailguard-defense-stack`** (tạo từ `origin/main`, KHÔNG push vào `main`).
+  Core hệ thống RAG email nằm ở branch `RAG_Email_System` (packages/, services/); mailguard tích hợp
+  bằng duck-typing, không import core.
+- Máy đang dùng: Windows 11, Python 3.13, RTX 3050 4 GB (không fine-tune 7B/8B được), chưa cài Ollama,
+  chưa có OPENAI_API_KEY. Bash tool bị lỗi backslash trong heredoc → dùng Write/Edit cho file có regex.
 
 ---
 
-## Phiên 2026-09-26 (Claude Fable 5.1) — trạng thái cuối phiên
+## TRẠNG THÁI HIỆN TẠI (cuối phiên 2026-09-26)
 
-### Đã hoàn thành (tất cả đã commit + push lên branch)
-- [x] `git init`, remote `origin`, branch mới `feature/mailguard-defense-stack`; 3 commit đã push.
-- [x] 6 layer hoàn chỉnh + pipeline + config + prompt (xem `docs/architecture.md`):
-      L1 `EmailInjectionScanner` (rules → ML → LLM judge), L2 `UserIntentExtractor`,
-      L3 `ChannelIsolation` (spotlighting delimit/datamark/encode), L3b `RetrievedDocumentScanner`,
-      L4 `OutputScanner`, L5 `PolicyEngine`; `MailGuardPipeline` với preset C0/C1/C2/C3 + `C3-Lx`.
-- [x] Unit tests: 68 test pass (`python -m pytest tests/unit -q`), không cần LLM/mạng.
-- [x] Dataset uy tín: registry + downloader (`mailguard/datasets/`), 12 nguồn đã tải về `datasets/raw/` (~380 MB,
-      có `MANIFEST.json` sha256/license): deepset, jackhhao, xTRam1, Lakera Gandalf, TrustAIRLab ITW (CCS'24),
-      Microsoft LLMail-Inject (raw phase-2 263 MB + nhãn), InjecAgent (ACL'24), BIPIA (KDD'25), PoisonedRAG (USENIX Sec'25),
-      Enron ham, Bitext support + seed corpus tự viết.
-- [x] Build dữ liệu: `build_l1_corpus` (24,382 dòng, 10 nguồn), `build_email_benchmark` (1,405 case: 862 attack /
-      543 benign; email 694 + rag 168), `build_rag_poison` (2,883 chunk). Kiểm soát rò rỉ: hash-split train/bench.
-- [x] Train L1 classifier (`training/train_l1_classifier.py`, 20 s CPU): **test P 0.966 / R 0.927 / F1 0.946 / AUROC 0.990 /
-      FPR 2.0% / 0.9 ms**. Artifact `artifacts/models/l1_injection_clf_v1.joblib` (git-ignored, train lại 20 s) + `.metrics.json` (committed).
-- [x] Đánh giá detector riêng (`evaluation/eval_detectors.py`): L1 rules+ML phát hiện 89.8% email tấn công @FPR 1.8%
-      (LLMail 100%, BIPIA 86%, InjecAgent 75.5%; yếu ở paraphrase 0/10, quoted 1/5, role-play 5/10 → cần LLM judge);
-      L3b chunk-level P 0.956 / R 0.853 / F1 0.902 (PoisonedRAG recall 85.1%). Kết quả: `evaluation/results/detectors/*.json`.
-- [x] Harness benchmark (`evaluation/harness.py`, `run_benchmark.py`, `report.py`): agent `naive` (mô phỏng, offline) hoặc
-      model thật; đo ASR/TMR/DER/TSR/FPR/latency + Wilson CI + McNemar; xuất Table V/VI (md + LaTeX) vào `paper/tables/`.
-- [x] Training LLM judge: `training/build_sft_dataset.py`, `training/finetune_llm_judge.py` (LoRA/QLoRA), configs
-      cho Qwen2.5-7B / Llama-3.1-8B / smoke 0.5B, `training/EXPORT_OLLAMA.md`.
-- [x] Tích hợp: `mailguard/integration/adapters.py` (GuardedReplyAgent, decision_to_job_result, dispatch_allowed),
-      `services/guard_worker/main.py` (stdin/AMQP), `scripts/scan_email.py` (demo CLI), `.github/workflows/ci.yml`.
-- [x] Docs: README, `docs/architecture.md`, `docs/datasets.md`, `docs/experiments.md`, `paper/outline.md`,
-      `paper/sections_draft.md` (văn bản nháp mục VI + bảng thành phần benchmark).
-- [x] Rule bổ sung: `instruction-probing`, `instruction-override-vi` (tiếng Việt) trong `configs/injection_rules.yaml`.
+### Đã hoàn thành và đã push (4 commit trên branch)
+| # | Commit | Nội dung |
+|---|---|---|
+| 1 | `5a9bd2a` | 6 layer (L1–L5 + L3b), pipeline, config, prompt, 61 unit test, registry dataset |
+| 2 | `878ba60` | Build dataset/benchmark, train L1 classifier, harness đánh giá, training LoRA, docs, worker, CI |
+| 3 | `a89da87` | Sửa harness (query L3b, query-echo, goal check), kết quả naive-all, bảng Table V/VI, paper drafts |
+| 4 | (phiên này) | `evaluation/baselines.py` + WORKLOG cuối phiên |
 
-### Kết quả benchmark với agent mô phỏng (naive-all, chỉ để kiểm chứng harness, KHÔNG phải kết quả model)
-Xem `evaluation/results/naive-all/summary.json` và `paper/tables/*.md`. Bản chạy trước khi sửa harness:
-C0 ASR 63.5% → C1 35.5% → C2 5.1% → C3 2.9% (email-vector 0%, RAG-vector còn sót do L3b chưa nhận query gốc — đã sửa:
-pipeline dùng subject+body làm query, thêm containment cho query-echo, lọc PoisonedRAG có đáp án không kiểm chứng được).
-Bản chạy lại sau sửa (1,405 case, agent naive): **C0 ASR 63.9% / TMR 39.7% / DER 40.3% → C1 35.4% → C2 0.0% → C3 0.0%**;
-TSR 98.5–99.6%, FPR ≤ 0.2%, guard latency trung bình 4–18 ms. Ablation: chỉ bỏ L3 (channel isolation) làm ASR tăng
-(email 0.7%, RAG 13.7%, McNemar p = 7.5e-9) vì agent naive tuân theo chunk độc mà L3b bỏ sót (23/150 PoisonedRAG);
-các ablation khác = 0% vì agent naive bị "vô hiệu hóa" hoàn toàn bởi marker → cần model thật để thấy đóng góp của L1/L2/L4/L5.
+### Kiến trúc & code (xem `README.md`, `docs/architecture.md`)
+- `mailguard/layers/`: L1 `EmailInjectionScanner` (rules → TF-IDF/LR → LLM judge), L2 `UserIntentExtractor`,
+  L3 `ChannelIsolation` (spotlighting), L3b `RetrievedDocumentScanner`, L4 `OutputScanner`, L5 `PolicyEngine`.
+- `mailguard/pipeline.py`: `MailGuardPipeline` + `GuardConfig.preset("C0"|"C1"|"C2"|"C3"|"C3-L1"…"C3-L5")`.
+- Config: `configs/{injection_rules,channels,pii_patterns,policy,models}.yaml`; prompt: `mailguard/prompts/*.txt`.
+- Tests: `python -m pytest tests/unit -q` → **68 pass**, không cần LLM/mạng.
+- Tích hợp: `mailguard/integration/adapters.py`, `services/guard_worker/main.py`, `scripts/scan_email.py`.
 
-### Việc còn lại (ưu tiên theo thứ tự)
-1. **Chạy 3 model thật** (cần Ollama + OPENAI_API_KEY, xem `docs/experiments.md`):
-   `python -m evaluation.run_benchmark --agent qwen2.5-7b-instruct --guard-model qwen2.5-7b-instruct --config all`
-   (tương tự llama-3.1-8b-instruct, gpt-4o-mini) rồi `python -m evaluation.report ... --out paper/tables` → điền Table V/VI.
-2. Fine-tune judge (tùy chọn, GPU 16 GB): `build_sft_dataset` → `finetune_llm_judge` → export Ollama → chạy lại benchmark.
-3. Bổ sung baseline L1 (Prompt Guard 2 / ProtectAI DeBERTa) trong `evaluation/baselines.py` (chưa viết).
-4. Đánh giá adaptive attack (Zhan et al. NAACL'25) và human review 100 draft cho TSR.
-5. Điền số vào `paper/KLTN.pdf` (Table V, VI, abstract), thay `[Student N]`.
+### Dữ liệu (nguồn uy tín, xem `docs/datasets.md`, `mailguard/datasets/sources.py`)
+- Đã tải về `datasets/raw/` (git-ignored, ~380 MB, có `MANIFEST.json`): deepset, jackhhao, xTRam1, Lakera Gandalf,
+  TrustAIRLab ITW-jailbreak (CCS'24), Microsoft LLMail-Inject (raw phase-2 + nhãn), InjecAgent (ACL'24),
+  BIPIA (KDD'25), PoisonedRAG (USENIX Sec'25), Enron ham, Bitext support. Tải lại: `python -m mailguard.datasets.download --all --max-mb 400`.
+- Đã build (git-ignored trừ `stats.json`): `datasets/processed/l1_injection/` (24,382 dòng), `email_bench/cases.jsonl`
+  (1,405 case: 862 attack [email 694 / rag 168] + 543 benign), `rag_poison/chunks.jsonl` (2,883 chunk).
+- Kiểm soát rò rỉ train/bench: hash-split (`bench_side`), seed template chỉ dùng cho benchmark.
 
-### Môi trường máy này
-- Python 3.13, torch 2.10 (CPU), transformers 5.3, sklearn 1.8, pytest 9, pyarrow đã cài.
-- GPU: RTX 3050 Laptop 4 GB → KHÔNG đủ fine-tune 7B/8B (dùng Colab/Kaggle T4). Ollama chưa cài; OPENAI_API_KEY chưa set.
-- Lưu ý tool: heredoc trong Bash bị lỗi với backslash → dùng Write/Edit cho file có regex.
+### Kết quả đã có (tất cả tái tạo được bằng lệnh ở mục "Cách chạy")
+- **L1 classifier** (`artifacts/models/l1_injection_clf_v1.metrics.json`, train 20 s CPU):
+  test P 0.966 / R 0.927 / **F1 0.946** / AUROC 0.990 / FPR 2.0% / 0.9 ms.
+- **Detector riêng** (`evaluation/results/detectors/{l1,l3b}.json`): L1 rules+ML phát hiện **89.8%** email tấn công
+  @FPR 1.8% (LLMail 100%, BIPIA 86%, InjecAgent 75.5%; yếu: paraphrase 0/10, quoted 1/5, role-play 5/10 → cần LLM judge);
+  L3b chunk-level P 0.956 / R 0.853 / F1 0.902 (PoisonedRAG recall 85.1%).
+- **Benchmark với agent mô phỏng `naive`** (`evaluation/results/naive-all/summary.json`, `paper/tables/*`) — CHỈ để
+  kiểm chứng harness, KHÔNG phải kết quả model: C0 ASR 63.9% → C1 35.4% → C2 0.0% → C3 0.0%; TSR 98.5–99.6%;
+  FPR ≤ 0.2%; latency guard 4–18 ms. Ablation: bỏ L3 → ASR RAG 13.7% (McNemar p = 7.5e-9); các ablation khác 0%
+  vì agent naive bị marker vô hiệu hóa hoàn toàn → cần model thật mới thấy đóng góp L1/L2/L4/L5.
 
-### Cách chạy nhanh
+### Đang dở / chưa chạy
+- `evaluation/baselines.py` đã viết (so sánh L1 với ProtectAI DeBERTa-v3, Prompt Guard 2) nhưng **chưa chạy xong**
+  (job bị dừng khi kết thúc phiên). Chạy: `python -m evaluation.baselines --model mailguard-l1 mailguard-l1r protectai`
+  (tải model ~700 MB, CPU ~5–10 phút) → `evaluation/results/baselines/*.json`.
+
+---
+
+## BƯỚC KẾ TIẾP (theo thứ tự ưu tiên)
+1. **Chạy 3 model thật** để điền Table V/VI của paper (`docs/experiments.md`):
+   - Cài Ollama; `ollama pull qwen2.5:7b-instruct`; `ollama pull llama3.1:8b-instruct-q4_K_M`; tạo `.env` từ `.env.example`
+     (đặt `OPENAI_API_KEY`, `GUARD_MODELS__*`).
+   - `python -m evaluation.run_benchmark --agent qwen2.5-7b-instruct --guard-model qwen2.5-7b-instruct --config all --run-name qwen-all`
+     (tương tự `llama-3.1-8b-instruct`, `gpt-4o-mini`; thử `--limit 300` trước để ước lượng thời gian/chi phí).
+   - `python -m evaluation.report evaluation/results/qwen-all evaluation/results/llama-all evaluation/results/gpt-all --out paper/tables`.
+2. Chạy `evaluation/baselines.py` (ở trên) → thêm bảng baseline L1 vào paper.
+3. (Tùy chọn) Fine-tune judge: `python -m training.build_sft_dataset` → `python -m training.finetune_llm_judge --config training/configs/qwen2.5-7b_lora.yaml`
+   trên Colab/Kaggle T4 → `training/EXPORT_OLLAMA.md` → chạy lại benchmark với `--guard-model mailguard-qwen2.5-7b`.
+4. Đánh giá adaptive attack (Zhan et al. NAACL'25) + human review 100 draft cho TSR.
+5. Viết số vào `paper/KLTN.pdf` (dùng `paper/sections_draft.md`, `paper/outline.md`, `paper/tables/*.tex`), thay `[Student N]`.
+
+## Cách chạy nhanh
 ```bash
 python -m pytest tests/unit -q
 python -m mailguard.datasets.download --all --max-mb 400
@@ -75,7 +81,7 @@ python -m evaluation.report evaluation/results/naive-all --out paper/tables
 python scripts/scan_email.py tests/fixtures/emails.json --pick attacks:0 --kb datasets/seed/support_kb -v
 ```
 
-### Việc cần người dùng chuẩn bị
-1. Cài Ollama, `ollama pull qwen2.5:7b-instruct` và `ollama pull llama3.1:8b-instruct-q4_K_M` (16 GB RAM chạy được Q4).
-2. Tạo `.env` từ `.env.example`, đặt `OPENAI_API_KEY` và `GUARD_MODELS__*`.
-3. Chọn nơi fine-tune (Colab/Kaggle) nếu muốn hàng "fine-tuned judge" trong paper.
+## Quy ước làm việc
+- Commit nhỏ, tuần tự, push dần lên `feature/mailguard-defense-stack`; không push `main`.
+- Số liệu trong paper chỉ lấy từ `evaluation/results/**`; run `naive` chỉ dùng để kiểm chứng harness.
+- Cập nhật file này ở cuối mỗi phiên (mục "TRẠNG THÁI HIỆN TẠI" + "BƯỚC KẾ TIẾP").
