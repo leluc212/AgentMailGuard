@@ -4,7 +4,7 @@
   "guard_model": null,
   "cases_file": "D:\\FPTU\\Semester 9 - FA26\\mail_guard\\datasets\\processed\\email_bench\\cases.jsonl",
   "n_cases": 1405,
-  "started": "2026-09-25T23:52:07.705780+00:00",
+  "started": "2026-09-25T23:57:24.024038+00:00",
   "summaries": [
     {
       "config": "C0",
@@ -526,7 +526,7 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 3.8,
+      "latency_ms_mean": 3.7,
       "latency_ms_p95": 9.0,
       "n_attack": 862,
       "n_benign": 543,
@@ -953,7 +953,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 6.2,
+      "wall_seconds": 6.1,
       "agent_calls": 1112,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -1003,8 +1003,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 13.2,
-      "latency_ms_p95": 41.0,
+      "latency_ms_mean": 14.0,
+      "latency_ms_p95": 45.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -1430,7 +1430,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 19.4,
+      "wall_seconds": 20.6,
       "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -1480,8 +1480,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 17.3,
-      "latency_ms_p95": 43.8,
+      "latency_ms_mean": 16.8,
+      "latency_ms_p95": 40.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -1907,7 +1907,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 25.2,
+      "wall_seconds": 24.4,
       "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -1957,8 +1957,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 14.4,
-      "latency_ms_p95": 36.8,
+      "latency_ms_mean": 12.5,
+      "latency_ms_p95": 31.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -2384,7 +2384,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 21.0,
+      "wall_seconds": 18.5,
       "agent_calls": 1132,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -2434,8 +2434,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 8.8,
-      "latency_ms_p95": 24.0,
+      "latency_ms_mean": 7.6,
+      "latency_ms_p95": 21.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -2861,7 +2861,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 13.2,
+      "wall_seconds": 11.5,
       "agent_calls": 1112,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -2911,8 +2911,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 17.5,
-      "latency_ms_p95": 40.0,
+      "latency_ms_mean": 16.2,
+      "latency_ms_p95": 39.8,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -3338,7 +3338,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 25.4,
+      "wall_seconds": 23.6,
       "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -3388,7 +3388,7 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 13.1,
+      "latency_ms_mean": 12.5,
       "latency_ms_p95": 39.0,
       "n_attack": 862,
       "n_benign": 543,
@@ -3815,7 +3815,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 19.2,
+      "wall_seconds": 18.4,
       "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -3865,8 +3865,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 16.0,
-      "latency_ms_p95": 39.8,
+      "latency_ms_mean": 16.2,
+      "latency_ms_p95": 39.6,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -4292,7 +4292,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 23.3,
+      "wall_seconds": 23.5,
       "agent_calls": 1074,
       "agent_errors": null,
       "agent_input_tokens": null,
@@ -4342,8 +4342,8 @@
         ],
         "n": 543
       },
-      "latency_ms_mean": 16.7,
-      "latency_ms_p95": 40.8,
+      "latency_ms_mean": 17.5,
+      "latency_ms_p95": 41.0,
       "n_attack": 862,
       "n_benign": 543,
       "ASR_by_technique": {
@@ -4769,7 +4769,7 @@
         }
       },
       "guard_model": null,
-      "wall_seconds": 24.3,
+      "wall_seconds": 25.5,
       "agent_calls": 1405,
       "agent_errors": null,
       "agent_input_tokens": null,
