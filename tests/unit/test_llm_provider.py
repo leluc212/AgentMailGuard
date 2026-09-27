@@ -280,6 +280,29 @@ class TestHttpLLMProvider:
 
         await provider.aclose()
 
+    @pytest.mark.asyncio
+    async def test_truncated_json_carries_finish_reason(self) -> None:
+        """A length stop cuts the JSON off; the parse error must say why (4.13a, I3)."""
+
+        def truncated_handler(request: httpx.Request) -> httpx.Response:
+            payload = {
+                "choices": [{"message": {"content": '{"action": "re'}, "finish_reason": "length"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1000},
+            }
+            return httpx.Response(200, json=payload)
+
+        provider = HttpLLMProvider(
+            client=httpx.AsyncClient(transport=httpx.MockTransport(truncated_handler))
+        )
+
+        with pytest.raises(LLMSchemaValidationError) as excinfo:
+            await provider.generate(
+                messages=[ChatMessage(role="user", content="Hi")], schema={"type": "object"}
+            )
+
+        assert excinfo.value.finish_reason == "length"
+        await provider.aclose()
+
 
 class TestOpenAIAndLocalProviders:
     """Validate OpenAILLMProvider and LocalLLMProvider specializations (R14.7)."""

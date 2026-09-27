@@ -184,6 +184,7 @@ class AnthropicLLMProvider(LLMProvider):
                     f"Failed to extract structured tool_use block from Anthropic "
                     f"response: {content_blocks}",
                     raw_content=text_fallback or str(content_blocks),
+                    finish_reason=data.get("stop_reason"),
                 )
         else:
             text_parts = [b.get("text", "") for b in content_blocks if b.get("type") == "text"]

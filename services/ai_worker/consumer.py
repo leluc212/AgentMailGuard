@@ -1,0 +1,140 @@
+"""AI-worker consumer core (task 4.13a): lane queue -> context -> tier -> draft.
+
+Per job: load job (early exit if already drafted, R19.3) -> load message -> classification
+from the envelope snapshot (R7.3) -> ContextBuilder (QUEUED -> CONTEXT_READY) ->
+ComplexityRouter -> DraftingService (CONTEXT_READY -> GENERATING -> DRAFTED). Failures are
+routed by ``failure_policy``; BaseConsumer owns ack/nack, the retry ladder and the DLQ.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import logging
+from typing import Any
+from uuid import UUID
+
+from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
+
+from packages.broker.consumer import BaseConsumer, FatalError
+from packages.broker.envelope import JobEnvelope
+from packages.context.builder import ContextBuilder
+from packages.core.settings import BrokerSettings, RetryLadderSettings
+from packages.db.job import JobStore
+from packages.db.message import MessageStore
+from packages.domain.entities import Classification
+from packages.domain.state_machine import IllegalStateTransitionError
+from packages.llm.router import ComplexityRouter
+from packages.observability.metrics import PipelineMetrics
+from packages.observability.shutdown import GracefulShutdownCoordinator
+from services.ai_worker.drafting import DraftingService
+from services.ai_worker.failure_policy import (
+    DRAFTED_OR_LATER,
+    Disposition,
+    classify_generation_failure,
+)
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CATEGORY = "general_inquiry"
+_CLASSIFICATION_FIELDS = frozenset(f.name for f in dataclasses.fields(Classification))
+
+
+def classification_from_snapshot(snapshot: dict[str, Any]) -> Classification:
+    """Rebuild the triage classification carried in the job envelope (R7.3)."""
+    values = {k: v for k, v in snapshot.items() if k in _CLASSIFICATION_FIELDS}
+    values.setdefault("category", DEFAULT_CATEGORY)
+    return Classification(**values)
+
+
+class AIWorkerConsumer(BaseConsumer):
+    """Consumes one lane queue ``email.<category>.<priority>`` and drafts each job."""
+
+    def __init__(
+        self,
+        queue_name: str,
+        *,
+        job_store: JobStore,
+        message_store: MessageStore,
+        context_builder: ContextBuilder,
+        router: ComplexityRouter,
+        drafting: DraftingService,
+        broker_settings: BrokerSettings | None = None,
+        retry_settings: RetryLadderSettings | None = None,
+        prefetch_count: int | None = None,
+        connection: AbstractRobustConnection | None = None,
+        shutdown_coordinator: GracefulShutdownCoordinator | None = None,
+        metrics: PipelineMetrics | None = None,
+    ) -> None:
+        super().__init__(
+            queue_name=queue_name,
+            broker_settings=broker_settings,
+            retry_settings=retry_settings,
+            prefetch_count=prefetch_count,
+            connection=connection,
+            shutdown_coordinator=shutdown_coordinator,
+            job_store=job_store,
+            metrics=metrics,
+        )
+        self.jobs = job_store
+        self.messages = message_store
+        self.context_builder = context_builder
+        self.router = router
+        self.drafting = drafting
+
+    async def process_job(
+        self, envelope: JobEnvelope, raw_message: AbstractIncomingMessage
+    ) -> None:
+        """Draft one job; route any failure to retry, dead-letter or drop."""
+        try:
+            await self._generate(envelope)
+        except Exception as exc:
+            job_state = (
+                await self._current_state(envelope)
+                if isinstance(exc, IllegalStateTransitionError)
+                else None
+            )
+            decision = classify_generation_failure(exc, job_state=job_state)
+            if decision.disposition is Disposition.ACK_DROP:
+                logger.info("Delivery for job %s dropped: %s", envelope.job_id, decision.reason)
+                return
+            if decision.disposition is Disposition.DEAD_LETTER:
+                if isinstance(exc, FatalError):
+                    raise
+                raise FatalError(decision.reason) from exc
+            raise
+
+    async def _generate(self, envelope: JobEnvelope) -> None:
+        org_id = envelope.organization_id
+        try:
+            job_id = UUID(str(envelope.job_id))
+        except ValueError as err:
+            raise FatalError(f"Envelope job_id {envelope.job_id!r} is not a UUID") from err
+        job = await self.jobs.get_job(org_id, job_id)
+        if job is None:
+            raise FatalError(f"Job {job_id} not found for organization {org_id}")
+        if job.state in DRAFTED_OR_LATER:
+            logger.info("Job %s already %s; acknowledging without work", job_id, job.state)
+            return
+        if job.message_id is None:
+            raise FatalError(f"Job {job_id} has no message_id")
+        message = await self.messages.get_message(org_id, job.message_id)
+        if message is None:
+            raise FatalError(f"Message {job.message_id} not found for job {job_id}")
+
+        classification = classification_from_snapshot(envelope.classification)
+        context = await self.context_builder.build_context(job, message, classification)
+        decision = self.router.route(context, classification)
+        await self.drafting.draft(
+            job,
+            context,
+            category=classification.category,
+            escalated_tier=decision.tier if decision.is_escalated else None,
+            escalation_reason=str(decision.escalation_reason) if decision.is_escalated else None,
+        )
+
+    async def _current_state(self, envelope: JobEnvelope) -> str | None:
+        try:
+            job = await self.jobs.get_job(envelope.organization_id, UUID(str(envelope.job_id)))
+        except Exception:
+            return None
+        return job.state if job is not None else None

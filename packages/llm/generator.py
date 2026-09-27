@@ -330,7 +330,8 @@ class SinglePassGenerator:
             self._record_validation_failure("repair")
             raise UnvalidatedDraftError(
                 "Repair retry returned an unparseable payload; failing job into the "
-                f"retry/DLQ path without persisting: {repair_parse_error}"
+                f"retry/DLQ path without persisting: {repair_parse_error}",
+                finish_reason=repair_parse_error.finish_reason,
             ) from repair_parse_error
 
         attempts.append(repair_result)
@@ -341,7 +342,8 @@ class SinglePassGenerator:
             self._record_repair_outcome("failed")
             raise UnvalidatedDraftError(
                 "Draft failed schema validation after one repair retry; "
-                f"failing job into the retry/DLQ path without persisting: {repair_error}"
+                f"failing job into the retry/DLQ path without persisting: {repair_error}",
+                finish_reason=repair_result.raw_finish_reason,
             ) from repair_error
         self._record_repair_outcome("succeeded")
         return payload, 1

@@ -172,6 +172,7 @@ class HttpLLMProvider(LLMProvider):
                     f"Failed to parse structured JSON response from model {model}: {exc} "
                     f"(content: {raw_content[:200]!r})",
                     raw_content=raw_content,
+                    finish_reason=finish_reason,
                 ) from exc
         else:
             try:

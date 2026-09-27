@@ -617,6 +617,19 @@ class LLMResult:
 
 Validate → repair once → fail to retry/DLQ. An unvalidated draft is never persisted (R16.3). Citations naming chunks that were not in the context are flagged `citation_mismatch` (R16.5) — this is the hallucinated-citation detector, and its rate is a reportable quality metric.
 
+**Generation failure routing (4.13a).** The AI worker classifies every generation failure before `BaseConsumer` acts:
+
+| Failure | Route |
+|---|---|
+| Timeouts, 429/5xx, connection errors, unknown errors | retry ladder, then DLQ at `max_retries` |
+| `UnvalidatedDraftError` (invalid after the one repair), `DraftSchemaContractError`, `UnpersistableDraftError` | DLQ at once with `x-failure-reason`; a `max_tokens` truncation is named in the reason |
+| Missing or malformed job, missing message (`FatalError`) | DLQ at once with the reason |
+| `IllegalStateTransitionError`, job already `DRAFTED`/`DISPATCHED`/`COMPLETED` or `DEAD_LETTER` | ack and drop, no model call (a redelivery or a stale copy) |
+| `IllegalStateTransitionError`, job `QUEUED`/`CONTEXT_READY`/`GENERATING`/`RETRY_PENDING`, or state unreadable | retry ladder (another delivery owns the job, or a recovery write was skipped; the next attempt drafts or drops) |
+| `IllegalStateTransitionError`, job `RECEIVED`/`NORMALIZED`/`CLASSIFIED`/`FAILED` | DLQ at once (the job was never routable to generation) |
+
+Retrying a failure that does not go away only multiplies cost (each redelivery re-runs generate + repair). A human replays dead-lettered jobs through the replay endpoint after fixing the cause.
+
 ---
 
 ### 5.8 Draft Store & Dispatcher — *R16.6, R17*

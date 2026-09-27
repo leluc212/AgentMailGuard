@@ -81,6 +81,14 @@ class LLMSchemaValidationError(LLMError):
     show the model what it actually emitted instead of guessing (R16.3).
     """
 
-    def __init__(self, message: str, raw_content: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        raw_content: str | None = None,
+        *,
+        finish_reason: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.raw_content = raw_content
+        # The provider's stop reason when known; a length stop means truncation at max_tokens.
+        self.finish_reason = finish_reason

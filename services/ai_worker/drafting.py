@@ -76,8 +76,10 @@ class DraftingService:
             IllegalStateTransitionError: If the job is neither CONTEXT_READY, GENERATING
                 nor already DRAFTED. Raised before any model call is billed.
             UnpersistableDraftError: If the generation result cannot be persisted.
-            LLMError: Any generation failure, including ``UnvalidatedDraftError``; the
-                job stays GENERATING for the retry ladder and nothing is persisted.
+            LLMError: Any generation failure, including ``UnvalidatedDraftError``; nothing is
+                persisted and the job stays GENERATING. The AI-worker consumer then routes it
+                by ``services/ai_worker/failure_policy.py``: transient errors take the retry
+                ladder, ``UnvalidatedDraftError`` goes straight to the DLQ.
         """
         current = await self.job_store.get_job(job.organization_id, job.id)
         if current is None:

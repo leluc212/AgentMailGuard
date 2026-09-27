@@ -489,11 +489,11 @@
   - Config switch forcing single-tier operation for the H4 comparison.
   - _Requirements: R15.1, R15.2, R15.3, R15.4, R15.5, R15.6_
 
-- [~] **4.9 Structured output & validation**
+- [x] **4.9 Structured output & validation**
   - Enforce the schema `{action, draft, confidence, knowledge_chunks[], thread_summary_updated, model_tier}`.
   - Validate → one repair retry → fail into retry/DLQ. Never persist an unvalidated draft.
   - Done: schema enforced (`schemas/reply.v1.json`, `packages/llm/validation.py`); validation and the one repair retry wired into `SinglePassGenerator`; `UnvalidatedDraftError` raised on second failure or spent repair budget, so no unvalidated draft can reach a caller. Covers R16.1, R16.2 and the generator half of R16.3.
-  - Left: the retry/DLQ hop itself is not observable end to end — `services/ai_worker/` has no consumer yet, so nothing nacks the message. `UnvalidatedDraftError` derives from `LLMError`, so the existing base-consumer retry ladder will dead-letter it once a consumer exists; the **Phase 4 gate must verify that hop** rather than assume it. Decide at that point whether it should be a `FatalError` (straight to DLQ) instead of climbing the 3-tier ladder, since a deterministic schema failure at `temperature=0.0` will likely fail all three redeliveries. The same decision applies to `DraftSchemaContractError`, introduced by this task: it is a pure deployment error (a profile's `output_schema` declaring what the code cannot enforce), so retrying it would climb all three redeliveries for every message of an affected profile — it is the stronger candidate of the two for `FatalError`.
+  - Left: the retry/DLQ hop itself is not observable end to end — `services/ai_worker/` has no consumer yet, so nothing nacks the message. `UnvalidatedDraftError` derives from `LLMError`, so the existing base-consumer retry ladder will dead-letter it once a consumer exists; the **Phase 4 gate must verify that hop** rather than assume it. Decide at that point whether it should be a `FatalError` (straight to DLQ) instead of climbing the 3-tier ladder, since a deterministic schema failure at `temperature=0.0` will likely fail all three redeliveries. The same decision applies to `DraftSchemaContractError`, introduced by this task: it is a pure deployment error (a profile's `output_schema` declaring what the code cannot enforce), so retrying it would climb all three redeliveries for every message of an affected profile — it is the stronger candidate of the two for `FatalError`. **Resolved 2026-09-27 by 4.13a:** the deterministic failures (`UnvalidatedDraftError`, `DraftSchemaContractError`) are dead-lettered at once rather than climbing the ladder (option 1), and the hop is proven on a real broker. 4.9 flips to `[x]` after the completion audit. Closed 2026-09-27 after the completion audit (PASS WITH NOTES): R16.3's dead-letter hop is proven on a real broker, with job `DEAD_LETTER` and no persisted draft.
   - _Requirements: R16.1, R16.2, R16.3_
 
 - [x] **4.10 Citation verification**
@@ -506,8 +506,8 @@
   - Persist body, citations, model, tier, escalation reason, prompt version, token counts, estimated cost.
   - Transition `GENERATING → DRAFTED`.
   - Done: `DraftingService` (`services/ai_worker/drafting.py`) moves `CONTEXT_READY → GENERATING`, makes the one generation call, builds the record (`packages/llm/drafts.py`: verified citations from `CitationVerdict`, escalation reason or `none`, `Re:` subject, cost from `packages/core/pricing.py`) and persists it with `GENERATING → DRAFTED` in one transaction (`packages/db/draft_persistence.py`). Migration `0004` enforces one draft per job; a redelivered `DRAFTED` job returns its draft without a second generation. An unpriced model stores `cost_estimate = NULL`.
-  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES: every requirement was traced to code and a test (unit 1260, integration 149). DoD #3 and #5 were checked statically only, because no running worker calls `DraftingService` until 4.13. The audit added a `draft_persisted` JSON log line on save and documented `LLM__PRICE_TABLE` plus the unpriced-model `NULL` rule (DoD #4, #5).
-  - Owned elsewhere: the `ai-worker` broker consumer that calls `DraftingService`, and with it the retry/DLQ hop from 4.9, is task 4.13. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs to 7.3, with its panel in 7.4. The "Draft persistence < 50 ms" target (NFR9) is recorded in 7.2.
+  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES: every requirement was traced to code and a test (unit 1260, integration 149). DoD #3 and #5 were checked statically only, because no running worker calls `DraftingService` until 4.13b. The audit added a `draft_persisted` JSON log line on save and documented `LLM__PRICE_TABLE` plus the unpriced-model `NULL` rule (DoD #4, #5).
+  - Owned elsewhere: the `ai-worker` broker consumer that calls `DraftingService`, and with it the retry/DLQ hop from 4.9, is task 4.13a; its service wiring is 4.13b. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs to 7.3, with its panel in 7.4. The "Draft persistence < 50 ms" target (NFR9) is recorded in 7.2.
   - Before the next `make up` on an existing dev DB: migration `0004` adds a one-draft-per-job unique index, which fails if an old template-path crash ever left two drafts for one job. Run `SELECT job_id, count(*) FROM generated_draft WHERE job_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1` once. On 2026-09-27 the DB held 3 drafts and no duplicates.
   - _Requirements: R16.4, R18.1, R21.6_
 
@@ -515,25 +515,37 @@
   - `generation_latency_ms`, `input_tokens_total`, `output_tokens_total`, `emails_generated_total`, `estimated_ai_cost`, with low-cardinality labels.
   - Record the final assembled context token count on **every** inference request, so context length can be correlated with quality, latency, and cost.
   - Done: `record_inference` (`packages/llm/inference_metrics.py`) records `llm_context_tokens{kind, tier}` (R11.7), input/output tokens and priced cost on every request through `BudgetedLLMProvider` (generate, repair) and `InstrumentedLLMProvider` (triage wired in `services/triage_worker/main.py`), plus one `llm_inference` JSON log line. `DraftingService` counts `emails_generated_total{organization, category, model_tier}` and `generated_draft_cost_total{category, model_tier}` once per created draft. The generator no longer counts tokens itself. PromQL in `docs/observability.md`.
-  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES, and it added a 5000 ms `generation_latency_ms` bucket so the NFR8 1–5 s limit is read at a real bucket edge. "Every inference request" (R11.7) is fully true only once 4.13 wires the summarizer and generator. 4.13 carries that wiring and a test proving it.
+  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES, and it added a 5000 ms `generation_latency_ms` bucket so the NFR8 1–5 s limit is read at a real bucket edge. "Every inference request" (R11.7) is fully true only once 4.13b wires the summarizer and generator. 4.13b carries that wiring and a test proving it.
   - Owned elsewhere: dashboards are 7.4. Tokens of an unparseable first response that a repair then fixes are uncounted (7.3). `llm_calls_total` does not count triage calls yet (7.2).
   - _Requirements: R11.7, R21.4, R21.5, R21.6, NFR8_
 
-- [ ] **4.13 AI-worker consumer (generation path end to end)**
-  - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosts no consumer, so nothing moves an actionable job past `QUEUED`, and the retry/DLQ hop carried from 4.9 cannot be observed.
-  - Consume the lane queues `email.<category>.<priority>` listed in `routing.configured_consumers` (`design.md` §7.1, consumer `ai-worker`) with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml` with a real entrypoint on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), as the other workers use.
-  - Per job, in process (`design.md` §3.2 co-locates these in `ai-worker`): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). Take the classification snapshot from the job envelope and never re-classify (`design.md` §7.3). Each email gets its own generation call, never a shared prompt (`design.md` §7.4).
+- [x] **4.13a AI-worker consumer core & generation failure routing**
+  - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosted no consumer, so no actionable job moved past `QUEUED`, and 4.9's retry/DLQ hop could not be observed.
+  - `AIWorkerConsumer` (`services/ai_worker/consumer.py`) consumes one lane queue `email.<category>.<priority>`. Per job, in process (`design.md` §3.2): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). The classification comes from the envelope snapshot, never a re-classification (`design.md` §7.3).
+  - Failure policy (`services/ai_worker/failure_policy.py`, decided 2026-09-27, option 1):
+    - `UnvalidatedDraftError`, `DraftSchemaContractError` and `UnpersistableDraftError` → DLQ at once, with the reason. A `max_tokens` truncation is named.
+    - A delivery for a job already `DRAFTED` / `DISPATCHED` / `COMPLETED` is acked and dropped.
+    - Transient and unknown errors → retry ladder.
+  - Proven on a real broker (scratch vhost) and Postgres: a timeout retries then drafts once; invalid output twice → DLQ with `x-failure-reason`, job `DEAD_LETTER`, no draft, 2 model calls; a drafted-job redelivery is acked with no call.
+  - Closed 2026-09-27 after a final review and a completion audit, both on opus. Both tasks passed with notes; `make ci` is green (unit 1297, integration 152). The fix pass before flipping:
+    - A state error for a job still in flight (`QUEUED`/`CONTEXT_READY`/`GENERATING`/`RETRY_PENDING`) or with an unreadable state now retries instead of dead-lettering. That stops a duplicate delivery from killing a live job, and a skipped recovery write from dead-lettering a transient failure.
+    - A stale delivery for a `DEAD_LETTER` job is dropped.
+    - `LLMSchemaValidationError` now carries the provider's finish reason, so a truncated, unparseable response is named in the DLQ reason. `packages/llm/client.py` and `packages/llm/anthropic.py` set it.
+    - The redelivery proof now asserts the second message was consumed, and the DLQ-empty checks fetch instead of trusting a passive-declare count. Both were shown to fail on a deliberate break.
+  - Deferred: `failed_jobs_total{error_type}` labels policy dead-letters as `FatalError`, and the reason header is double-prefixed (label with the cause). The integration tests assert final states, not the `processing_event` trails. There is no unit test for re-entry at `GENERATING` across two deliveries, or for a triage snapshot round-trip. DoD #3 and #5 (live stack, scrapeable metrics) are shown by 4.13b.
+  - _Requirements: R3.3, R3.5, R7.3, R16.3, R18.1, R19.3, R19.5, R19.6, R19.7_
+
+- [ ] **4.13b AI-worker service wiring & live gate**
+  - `services/ai_worker/main.py` on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), one `AIWorkerConsumer` per lane queue in `routing.configured_consumers` with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml`.
   - Compose with telemetry (4.12): wrap the summarizer's provider in `InstrumentedLLMProvider(kind=CallKind.SUMMARIZE)`, and pass `metrics` and `settings.llm.price_table` to `SinglePassGenerator` and `DraftingService`, so every request in the worker is measured.
   - Prove the wiring with a composed-worker test: one actionable job through the built components moves `llm_context_tokens{kind="generate"}` and `emails_generated_total`, and `llm_context_tokens{kind="summarize"}` when the thread crosses the summarization threshold (R11.7).
   - Call `start_token_counter_warmup()` in the worker's `build_components` (as the triage worker does), so the BPE encoding never loads on the event loop. Pass the plain provider to `SinglePassGenerator`, not a pre-built `BudgetedLLMProvider`: a reused wrapper keeps its own `metrics`/`price_table`, so the generator's would be ignored.
-  - Ack only after the draft and the `DRAFTED` transition commit. A redelivered job that is already `DRAFTED` is acked without a second generation call.
-  - `DraftingService` raises `IllegalStateTransitionError` for a job already past `DRAFTED` (`DISPATCHED`, `COMPLETED`) and for the losing side of two deliveries racing at `CONTEXT_READY`. The consumer must ack and drop those deliveries, never dead-letter an email that was drafted.
-  - Failure routing: transient provider errors climb the retry ladder (`GENERATING → RETRY_PENDING → GENERATING`). Decide whether `UnvalidatedDraftError` and `DraftSchemaContractError` are `FatalError` (straight to DLQ) per the 4.9 note, and prove the chosen hop with an integration test (closes 4.9's "Left" item).
   - Worker-kill test (`design.md` §9): kill the worker mid-generation → redelivery → exactly one `generated_draft` row.
   - Extend `make smoke` so an actionable email reaches `DRAFTED` through the live stack.
-  - _Requirements: R3.3, R3.4, R3.7, R7.3, R16.3, R18.1, R19.3, R19.5, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
+  - Clear the job's lease at `DRAFTED` (or exclude `DRAFTED` from the lease reaper), so enabling `LEASE_REAPER__ENABLED` never reclaims and regenerates a drafted job (4.13a final review).
+  - _Requirements: R3.4, R11.7, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
 
-> **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED` through the `ai-worker` consumer (4.13); a draft that fails validation twice reaches the path 4.13 chose (retry ladder or DLQ) with no draft persisted; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
+> **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED` through the `ai-worker` consumer (4.13a, 4.13b); a draft that fails validation twice reaches the DLQ with its reason (4.13a policy) with no draft persisted; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
 
 ---
 
@@ -761,11 +773,11 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 |---|---|
 | R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7 |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
-| R3 Async distribution | 0.7, 2.11, 2.12, 4.13, 8.3, 8.5 |
+| R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13 |
 | R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1 |
 | R6 Triage | 2.2–2.8, 2.9 |
-| R7 Routing | 2.1, 2.10, 2.15, 4.13, 8.2 |
+| R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3 |
 | R9 Knowledge ingestion | 3.1–3.6 |
 | R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 8.6 |
@@ -774,15 +786,15 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12 |
 | R15 Model cascade | 4.8 |
-| R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13, 6.1, 6.2, 6.4 |
+| R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
 | R17 Dispatch | 6.3–6.7 |
-| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13 |
-| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13, 6.5, 7.13, 8.4 |
-| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
+| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a |
+| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
+| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 6.2, 7.1–7.4 |
-| R22 Evaluation | 0.13, 4.13, 7.5–7.17 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13, 6.9, 8.6, 8.7 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 6.9, 8.6, 8.7 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

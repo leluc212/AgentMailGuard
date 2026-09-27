@@ -55,7 +55,14 @@ class DraftValidationError(LLMSchemaValidationError):
 
 
 class UnvalidatedDraftError(LLMSchemaValidationError):
-    """Raised when a draft remains unvalidated after repair retry (R16.3). Never persist."""
+    """Raised when a draft remains unvalidated after repair retry (R16.3). Never persist.
+
+    ``finish_reason`` is the provider's stop reason for the last response, when known; a
+    length stop means the output was truncated at ``max_tokens``.
+    """
+
+    def __init__(self, message: str, *, finish_reason: str | None = None) -> None:
+        super().__init__(message, finish_reason=finish_reason)
 
 
 class DraftReplyPayload(BaseModel):
