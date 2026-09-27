@@ -80,3 +80,7 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/
+
+# Local agent (Antigravity) workspace
+.agent/
+.agents
