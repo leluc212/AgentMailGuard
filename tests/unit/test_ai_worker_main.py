@@ -90,3 +90,20 @@ async def test_build_components_warms_the_counter_and_starts_every_consumer(
 
     assert started == [True]
     assert len(start_fns) == len(resolve_lane_queues(settings))
+
+
+def test_router_follows_the_configured_cascade_settings() -> None:
+    """R15.3/R15.6: the worker's router must read ROUTER_* settings, not its own defaults."""
+    from packages.core.settings import ComplexityRouterSettings
+
+    settings = AIWorkerSettings(
+        complexity_router=ComplexityRouterSettings(
+            force_single_tier=True, confidence_threshold=0.99
+        )
+    )
+    res = fake_worker_resources(settings)
+    router = build_consumers(res, token_counter=TokenCounter())[0].router
+
+    assert router.settings.force_single_tier is True
+    assert router.settings.confidence_threshold == 0.99
+    assert router.tiers_settings is settings.llm

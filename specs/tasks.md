@@ -571,6 +571,19 @@
   - _Requirements: R3.4, R11.7, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
 
 > **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED` through the `ai-worker` consumer (4.13a, 4.13b); a draft that fails validation twice reaches the DLQ with its reason (4.13a policy) with no draft persisted; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
+>
+> **Gate evidence (2026-09-27, live stack, `scripts/phase4_gate.py` / `make phase4-gate MODE=…`; the user ran `make up` and the ai-worker restarts):**
+> - `default`: 12 replies chained by `In-Reply-To`/`References` through normalize → triage → ai-worker. The last job reached `DRAFTED` with one draft on a 12-message thread, the thread had a summary (version 2), and the draft recorded its citations with no mismatch. A one-message thread reached `DRAFTED` with no `thread_state` row (no summarization). This was re-run on the fixed image.
+> - `low-confidence` (`ROUTER_CONFIDENCE_THRESHOLD=1.0`): the job escalated to `high_capability` for `low_classification_confidence` with exactly one escalated `GENERATING` event.
+> - `single-tier` (`ROUTER_FORCE_SINGLE_TIER=true`): the job was drafted on `high_capability` for `single_tier_forced`, with no escalation counted.
+> - Not live: "fails validation twice → DLQ". The offline model always answers validly, and forcing bad output would need a test hook in production code. That hop is proven on a real broker by `tests/integration/test_ai_worker_failure_routing_integration.py` (4.13a).
+> - Citation grounding: the offline model cites nothing, so the live draft shows 0 citations. Grounding itself is proven by the 4.10 tests. A live grounded draft needs a real provider key and an ingested knowledge document.
+> - Defects the gate found and fixed:
+>   - The ai-worker built `ComplexityRouter()` with its own defaults, so every `ROUTER_*` setting was ignored, including the R15.6 switch. It now reads `settings.complexity_router` and the LLM tiers (`test_router_follows_the_configured_cascade_settings` RED→GREEN).
+>   - The R15.5 per-job cap was never given a count. The consumer now counts escalations recorded on the job's earlier `GENERATING` events, so a redelivered job does not escalate again (`test_redelivered_job_escalates_at_most_once` RED→GREEN).
+>   - Compose did not forward `ROUTER_FORCE_SINGLE_TIER`, `ROUTER_CONFIDENCE_THRESHOLD` or the LLM API keys. It does now (`test_compose_forwards_the_switch_into_app_containers` RED→GREEN).
+>
+>   `make ci` passed afterwards (unit 1322, integration 156).
 
 ---
 
@@ -810,7 +823,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R12 Query construction | 3.13 |
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12 |
-| R15 Model cascade | 4.8 |
+| R15 Model cascade | 4.8, 4.13a, 4.13b |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
 | R17 Dispatch | 6.3–6.7 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a |

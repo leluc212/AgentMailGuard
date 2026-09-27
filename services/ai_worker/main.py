@@ -122,7 +122,12 @@ def build_consumers(
         price_table=settings.llm.price_table,
         metrics=res.metrics,
     )
-    router = ComplexityRouter(token_counter=counter, metrics=res.metrics)
+    router = ComplexityRouter(
+        settings.complexity_router,
+        token_counter=counter,
+        metrics=res.metrics,
+        tiers_settings=settings.llm,
+    )
 
     return [
         AIWorkerConsumer(

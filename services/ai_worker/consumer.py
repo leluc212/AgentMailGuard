@@ -23,8 +23,8 @@ from packages.core.settings import BrokerSettings, RetryLadderSettings
 from packages.db.job import JobStore
 from packages.db.message import MessageStore
 from packages.domain.entities import Classification
-from packages.domain.state_machine import IllegalStateTransitionError
-from packages.llm.router import ComplexityRouter
+from packages.domain.state_machine import IllegalStateTransitionError, JobState
+from packages.llm.router import ComplexityRouter, EscalationReason
 from packages.observability.metrics import PipelineMetrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from services.ai_worker.drafting import DraftingService
@@ -140,13 +140,29 @@ class AIWorkerConsumer(BaseConsumer):
             thread_messages=thread_messages,
             thread_state=thread_state,
         )
-        decision = self.router.route(context, classification)
+        escalations = await self._escalations_performed(org_id, job.id)
+        decision = self.router.route(context, classification, escalations)
         await self.drafting.draft(
             job,
             context,
             category=classification.category,
             escalated_tier=decision.tier if decision.is_escalated else None,
             escalation_reason=str(decision.escalation_reason) if decision.is_escalated else None,
+        )
+
+    async def _escalations_performed(self, org_id: UUID | str, job_id: UUID | str) -> int:
+        """Escalations earlier deliveries of this job made (R15.5 cap input).
+
+        Every delivery that reaches generation records its routing on the GENERATING
+        transition; a forced single tier is a mode, not an escalation, so it is not counted.
+        """
+        not_counted = {None, EscalationReason.NONE.value, EscalationReason.SINGLE_TIER_FORCED.value}
+        events = await self.jobs.list_events_for_job(org_id, job_id)
+        return sum(
+            1
+            for event in events
+            if event.state_to == JobState.GENERATING.value
+            and (event.payload or {}).get("escalation_reason") not in not_counted
         )
 
     async def _current_state(self, envelope: JobEnvelope) -> str | None:

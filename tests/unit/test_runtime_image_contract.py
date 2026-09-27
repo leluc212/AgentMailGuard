@@ -128,3 +128,20 @@ def test_image_bakes_the_bpe_encoding() -> None:
     fetch = f"tiktoken.get_encoding('{DEFAULT_ENCODING}')"
     assert fetch in text
     assert text.index(fetch) > text.index("RUN uv sync --locked --no-dev\n")
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "ROUTER_FORCE_SINGLE_TIER",
+        "ROUTER_CONFIDENCE_THRESHOLD",
+        "LLM__OPENAI_API_KEY",
+        "LLM__ANTHROPIC_API_KEY",
+    ],
+)
+def test_compose_forwards_the_switch_into_app_containers(variable: str) -> None:
+    """R15.6: the single-tier switch (and the real-provider keys) must reach the workers."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    ai_worker_env = compose["services"]["ai-worker"]["environment"]
+    assert variable in ai_worker_env
+    assert str(ai_worker_env[variable]).startswith("${" + variable), "must follow the host .env"

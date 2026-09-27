@@ -14,6 +14,11 @@ x-app-env: &app-env
   OBJECT_STORAGE__ACCESS_KEY: ${OBJECT_STORAGE__ACCESS_KEY:-minioadmin}
   OBJECT_STORAGE__SECRET_KEY: ${OBJECT_STORAGE__SECRET_KEY:-minioadmin}
   LLM__PROVIDER: ${LLM__PROVIDER:-fake}
+  # Real-provider keys (empty keeps the fake working) and the R15.6 cascade switch.
+  LLM__OPENAI_API_KEY: ${LLM__OPENAI_API_KEY:-}
+  LLM__ANTHROPIC_API_KEY: ${LLM__ANTHROPIC_API_KEY:-}
+  ROUTER_FORCE_SINGLE_TIER: ${ROUTER_FORCE_SINGLE_TIER:-false}
+  ROUTER_CONFIDENCE_THRESHOLD: ${ROUTER_CONFIDENCE_THRESHOLD:-0.75}
   EMBEDDING__MOCK: ${EMBEDDING__MOCK:-true}
 
 x-app-build: &app-build

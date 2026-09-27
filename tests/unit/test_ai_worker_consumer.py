@@ -217,3 +217,20 @@ async def test_skipped_recovery_is_retried_not_dead_lettered() -> None:
 
     assert not isinstance(excinfo.value, FatalError)
     assert provider.calls == 0
+
+
+async def test_redelivered_job_escalates_at_most_once() -> None:
+    """R15.5: the cap counts escalations of earlier deliveries, read from the job's events."""
+    provider = _ScriptedProvider(LLMTimeoutError("upstream timeout"), REPLY)
+    consumer, jobs, drafts, job, envelope = await _setup(provider)
+    envelope.classification = {**SNAPSHOT, "confidence": 0.3}
+
+    with pytest.raises(LLMTimeoutError):
+        await consumer.process_job(envelope, MagicMock())
+    await consumer.process_job(envelope, MagicMock())
+
+    events = await jobs.list_events_for_job(job.organization_id, job.id)
+    generating = [e for e in events if e.state_to == JobState.GENERATING.value]
+    assert generating[0].payload["escalation_reason"] == "low_classification_confidence"
+    (draft,) = await drafts.list_drafts_for_job(job.id, job.organization_id)
+    assert draft.escalation_reason in (None, "none")

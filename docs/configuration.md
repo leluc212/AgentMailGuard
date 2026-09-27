@@ -277,6 +277,8 @@ A model with no entry in the table has an **unknown** cost, not a free one: its 
 ### 2.19 Complexity Router & Model Cascade (`ROUTER_*` / `COMPLEXITY_ROUTER__*`)
 *Complexity-based model cascading, escalation thresholds, and single-tier ablation evaluation (R15.1–R15.6, design.md §5.7).*
 
+Under Docker Compose only `ROUTER_FORCE_SINGLE_TIER` and `ROUTER_CONFIDENCE_THRESHOLD` (with `LLM__OPENAI_API_KEY` and `LLM__ANTHROPIC_API_KEY`) are forwarded from the host `.env` into the app containers; set another router variable in `docker-compose.yml` before relying on it there. The per-job escalation cap (`ROUTER_MAX_ESCALATIONS_PER_JOB`, R15.5) counts escalations recorded on the job's earlier `GENERATING` transitions, so a redelivered job does not escalate again once the cap is reached.
+
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `ROUTER_ENABLED` | `boolean` | `true` | Boolean | Enable complexity-based model cascade routing (R15.1) |
