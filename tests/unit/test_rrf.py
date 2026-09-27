@@ -435,4 +435,3 @@ class TestGenericRRFPreservation:
         assert fused[0].vector_rank == 2
         assert fused[0].lexical_score == 4.5
         assert fused[0].vector_score == 0.88
-

@@ -48,9 +48,7 @@ def compute_rrf_score(
         return 0.0
 
     if weights is not None and len(weights) != len(ranks):
-        raise ValueError(
-            f"weights length ({len(weights)}) must match ranks length ({len(ranks)})"
-        )
+        raise ValueError(f"weights length ({len(weights)}) must match ranks length ({len(ranks)})")
 
     score = 0.0
     for i, rank in enumerate(ranks):

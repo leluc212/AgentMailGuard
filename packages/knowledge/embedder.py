@@ -190,9 +190,7 @@ class HttpEmbedder(Embedder):
             return res.embeddings[0]
         return [0.0] * self._dimension
 
-    async def _embed_batch_with_retry(
-        self, batch: list[str]
-    ) -> tuple[list[list[float]], int]:
+    async def _embed_batch_with_retry(self, batch: list[str]) -> tuple[list[list[float]], int]:
         """Execute a single batch request with exponential backoff on transient errors."""
         payload: dict[str, Any] = {
             "input": batch,
@@ -295,9 +293,7 @@ class HttpEmbedder(Embedder):
 
         raise EmbeddingError("Failed to generate embeddings after all retry attempts")
 
-    def _calculate_backoff(
-        self, attempt: int, headers: httpx.Headers | None = None
-    ) -> float:
+    def _calculate_backoff(self, attempt: int, headers: httpx.Headers | None = None) -> float:
         """Calculate backoff duration checking Retry-After header or exponential ladder."""
         if headers and "Retry-After" in headers:
             try:

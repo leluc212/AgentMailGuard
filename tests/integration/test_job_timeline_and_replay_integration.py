@@ -141,9 +141,7 @@ async def _seed_org_mailbox_thread_message(
 
 
 @pytest.mark.asyncio
-async def test_live_message_timeline_postgresql(
-    db_pool: asyncpg.Pool, client: AsyncClient
-) -> None:
+async def test_live_message_timeline_postgresql(db_pool: asyncpg.Pool, client: AsyncClient) -> None:
     """Verify GET /v1/messages/{id}/timeline against live PostgreSQL with chronological events."""
     org_id = uuid4()
     mbx_id = uuid4()

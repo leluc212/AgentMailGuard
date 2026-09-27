@@ -292,10 +292,12 @@ class TestPDFParser:
         writer.add_blank_page(width=200, height=200)
 
         # Set title and metadata in PDF
-        writer.add_metadata({
-            "/Title": "Synthetic PDF Specification",
-            "/Author": "Antigravity Engineering",
-        })
+        writer.add_metadata(
+            {
+                "/Title": "Synthetic PDF Specification",
+                "/Author": "Antigravity Engineering",
+            }
+        )
 
         buf = io.BytesIO()
         writer.write(buf)

@@ -123,14 +123,24 @@ class TestStructuralChunkerFixtures:
         # Create a large table with 60 rows (~1200 tokens total)
         headers = ["Account ID", "Username", "Role", "Email Address", "Status", "Quota (GB)"]
         rows = [
-            [f"ACC-{1000 + r}", f"user_{r}", "Operator" if r % 2 == 0 else "Admin",
-             f"user_{r}@example.com", "Active" if r % 3 != 0 else "Suspended", f"{10 + (r * 2)}"]
+            [
+                f"ACC-{1000 + r}",
+                f"user_{r}",
+                "Operator" if r % 2 == 0 else "Admin",
+                f"user_{r}@example.com",
+                "Active" if r % 3 != 0 else "Suspended",
+                f"{10 + (r * 2)}",
+            ]
             for r in range(1, 61)
         ]
 
         table_md = (
-            "| " + " | ".join(headers) + " |\n"
-            + "| " + " | ".join(["---"] * len(headers)) + " |\n"
+            "| "
+            + " | ".join(headers)
+            + " |\n"
+            + "| "
+            + " | ".join(["---"] * len(headers))
+            + " |\n"
             + "\n".join("| " + " | ".join(r) + " |" for r in rows)
         )
 
@@ -321,7 +331,7 @@ class TestStructuralChunkerEdgeCases:
             ),
             DocumentElement(
                 element_type=ElementType.CODE_BLOCK,
-                content="```json\n{\"token\": \"secret\"}\n```",
+                content='```json\n{"token": "secret"}\n```',
                 metadata={"page_number": 2},
             ),
         ]

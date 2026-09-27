@@ -173,9 +173,7 @@ async def test_postgres_summarization_lifecycle(db_pool: asyncpg.Pool) -> None:
 
     # 2. Add 3 more messages (total 5 > threshold 4) -> 1 LLM call, DB row created
     for i in range(2, 5):
-        new_m = make_test_message(
-            i, thread_id, mbx_id, org_id, f"Detailed follow-up message {i}"
-        )
+        new_m = make_test_message(i, thread_id, mbx_id, org_id, f"Detailed follow-up message {i}")
         await ensure_test_message(db_pool, new_m)
         messages.append(new_m)
 
@@ -223,9 +221,7 @@ async def test_postgres_summarization_lifecycle(db_pool: asyncpg.Pool) -> None:
             ],
         }
     )
-    msg6 = make_test_message(
-        5, thread_id, mbx_id, org_id, "Password reset completed, thank you!"
-    )
+    msg6 = make_test_message(5, thread_id, mbx_id, org_id, "Password reset completed, thank you!")
     await ensure_test_message(db_pool, msg6)
     messages.append(msg6)
     new_latest_id = messages[-1].message_id

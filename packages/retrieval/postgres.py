@@ -111,9 +111,7 @@ class PostgresSearchBackend:
             vector_score = float(row["score"]) if row.get("score") is not None else None
             fused_score = None
         else:
-            lexical_rank = (
-                int(row["lexical_rank"]) if row.get("lexical_rank") is not None else None
-            )
+            lexical_rank = int(row["lexical_rank"]) if row.get("lexical_rank") is not None else None
             vector_rank = int(row["vector_rank"]) if row.get("vector_rank") is not None else None
             lexical_score = (
                 float(row["lexical_score"]) if row.get("lexical_score") is not None else None
@@ -262,7 +260,9 @@ class PostgresSearchBackend:
                     self.last_retrieval_underfilled = True
                     if self.metrics is not None:
                         try:
-                            self.metrics.retrieval_underfilled_total.labels(tenant=str(org_id)).inc()
+                            self.metrics.retrieval_underfilled_total.labels(
+                                tenant=str(org_id)
+                            ).inc()
                         except Exception as m_err:
                             logger.debug("Failed to increment underfilled metric: %s", m_err)
 

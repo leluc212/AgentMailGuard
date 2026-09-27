@@ -150,9 +150,7 @@ class SummarizationPolicy:
 
         # R8.3: Threshold exceeded and new messages exist -> trigger summarization
         reason = (
-            "message_count_threshold_exceeded"
-            if count_triggered
-            else "token_threshold_exceeded"
+            "message_count_threshold_exceeded" if count_triggered else "token_threshold_exceeded"
         )
 
         return SummarizationDecision(

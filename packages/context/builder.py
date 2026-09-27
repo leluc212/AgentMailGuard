@@ -165,9 +165,7 @@ class ContextBuilder:
 
         # 3. Conditional Hybrid RAG (R6.6)
         retrieval_required = (
-            classification.retrieval_required
-            if classification is not None
-            else True
+            classification.retrieval_required if classification is not None else True
         )
 
         retrieved_chunks: list[DomainCandidate] = []
@@ -181,9 +179,7 @@ class ContextBuilder:
             top_candidates = retrieval_result.candidates[: self.top_k]
             for c in top_candidates:
                 ext_id = (
-                    getattr(c, "external_id", None)
-                    or c.metadata.get("external_id")
-                    or c.chunk_id
+                    getattr(c, "external_id", None) or c.metadata.get("external_id") or c.chunk_id
                 )
                 retrieved_chunks.append(
                     DomainCandidate(

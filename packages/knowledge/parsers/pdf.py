@@ -79,6 +79,7 @@ class PDFParser(DocumentParser):
         # Extract bookmark outlines if present
         bookmarks: dict[str, int] = {}
         try:
+
             def extract_outlines(outline_list: list[Any], current_level: int = 1) -> None:
                 for item in outline_list:
                     if isinstance(item, list):

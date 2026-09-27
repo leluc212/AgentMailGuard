@@ -92,14 +92,10 @@ class HybridRetriever:
         self.backend = backend
         self.timeout_seconds = timeout_seconds
         self.lexical_timeout_seconds = (
-            lexical_timeout_seconds
-            if lexical_timeout_seconds is not None
-            else timeout_seconds
+            lexical_timeout_seconds if lexical_timeout_seconds is not None else timeout_seconds
         )
         self.vector_timeout_seconds = (
-            vector_timeout_seconds
-            if vector_timeout_seconds is not None
-            else timeout_seconds
+            vector_timeout_seconds if vector_timeout_seconds is not None else timeout_seconds
         )
         self.default_top_n = default_top_n
         self.rrf_k = rrf_k
@@ -187,9 +183,10 @@ class HybridRetriever:
                 return [], str(err), dt
 
         # Execute branches concurrently (R10.5)
-        (lex_candidates, lex_err, lex_latency), (vec_candidates, vec_err, vec_latency) = (
-            await asyncio.gather(_run_lexical(), _run_vector())
-        )
+        (
+            (lex_candidates, lex_err, lex_latency),
+            (vec_candidates, vec_err, vec_latency),
+        ) = await asyncio.gather(_run_lexical(), _run_vector())
 
         total_latency = (time.perf_counter() - start_total) * 1000.0
 

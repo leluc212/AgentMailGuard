@@ -155,9 +155,7 @@ class StructuralChunker:
 
     def _normalize_element_size(self, elem: DocumentElement) -> list[DocumentElement]:
         """Ensure an element does not exceed max_tokens, splitting internally if needed."""
-        budget = max(
-            self.config.min_tokens, self.config.max_tokens - self.config.overlap_tokens
-        )
+        budget = max(self.config.min_tokens, self.config.max_tokens - self.config.overlap_tokens)
         elem_tokens = self.token_counter.count_tokens(elem.content)
         if elem_tokens <= budget:
             return [elem]
@@ -168,9 +166,7 @@ class StructuralChunker:
         # Paragraphs, code blocks, list items, blockquotes, headings
         return self._split_oversized_text_element(elem, budget)
 
-    def _split_oversized_table(
-        self, elem: DocumentElement, budget: int
-    ) -> list[DocumentElement]:
+    def _split_oversized_table(self, elem: DocumentElement, budget: int) -> list[DocumentElement]:
         """Split a large table row-by-row while preserving column headers on every chunk."""
         table_data = elem.metadata.get("table_data")
         if table_data and isinstance(table_data, dict):
@@ -492,9 +488,7 @@ class StructuralChunker:
                 return
 
             main_text = self._join_elements_text(accumulated)
-            full_content = (
-                f"{overlap_prefix}\n\n{main_text}" if overlap_prefix else main_text
-            )
+            full_content = f"{overlap_prefix}\n\n{main_text}" if overlap_prefix else main_text
             # Guarantee full_content never exceeds max_tokens due to overlap
             if (
                 overlap_prefix

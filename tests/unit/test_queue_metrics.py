@@ -234,9 +234,7 @@ async def test_queue_monitor_samples_depths() -> None:
     depth_dlq = _get_gauge_value(metrics, "queue_depth", {"queue": "email.dead_letter"})
     assert depth_dlq == 5.0
 
-    consumers_val = _get_gauge_value(
-        metrics, "queue_consumers", {"queue": "email.support.normal"}
-    )
+    consumers_val = _get_gauge_value(metrics, "queue_consumers", {"queue": "email.support.normal"})
     assert consumers_val == 2.0
 
 

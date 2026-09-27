@@ -183,9 +183,7 @@ class TestMessageTimelineAPI:
         assert [e["payload"]["index"] for e in p2_data["events"]] == [3, 4, 5]
 
     @pytest.mark.asyncio
-    async def test_message_timeline_not_found(
-        self, client: AsyncClient, org_a: UUID
-    ) -> None:
+    async def test_message_timeline_not_found(self, client: AsyncClient, org_a: UUID) -> None:
         missing_id = uuid4()
         response = await client.get(
             f"/v1/messages/{missing_id}/timeline",
@@ -211,9 +209,7 @@ class TestMessageTimelineAPI:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @pytest.mark.asyncio
-    async def test_message_timeline_missing_tenant_header(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_message_timeline_missing_tenant_header(self, client: AsyncClient) -> None:
         response = await client.get(f"/v1/messages/{uuid4()}/timeline")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -397,9 +393,7 @@ class TestJobEndpointsAndReplay:
         assert data["detail"]["current_state"] == invalid_state
 
     @pytest.mark.asyncio
-    async def test_replay_job_not_found(
-        self, client: AsyncClient, org_a: UUID
-    ) -> None:
+    async def test_replay_job_not_found(self, client: AsyncClient, org_a: UUID) -> None:
         missing_id = uuid4()
         response = await client.post(
             f"/v1/jobs/{missing_id}/replay",

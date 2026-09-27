@@ -121,4 +121,3 @@ async def test_in_memory_thread_state_optimistic_concurrency_conflict() -> None:
     updated_b = await store.update(refetched)
     assert updated_b.version == 3
     assert updated_b.summary == "Worker A update + Worker B addition"
-

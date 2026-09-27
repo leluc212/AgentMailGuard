@@ -267,10 +267,12 @@ class TestCrossEncoderReranker:
         assert reranked[1].chunk_id == "c1"
         assert reranked[1].rerank_score == 0.35
 
-        mock_model.predict.assert_called_once_with([
-            ("invoice query", "payment method"),
-            ("invoice query", "invoice date"),
-        ])
+        mock_model.predict.assert_called_once_with(
+            [
+                ("invoice query", "payment method"),
+                ("invoice query", "invoice date"),
+            ]
+        )
 
     async def test_empty_candidates_returns_empty(self) -> None:
         reranker = CrossEncoderReranker()

@@ -53,21 +53,25 @@ def get_monitored_queues(
     queues: list[str] = []
 
     # Core pipeline stage queues
-    queues.extend([
-        b_cfg.queue_mail_sync,
-        b_cfg.queue_normalize,
-        b_cfg.queue_triage,
-        b_cfg.queue_dispatch,
-        b_cfg.queue_knowledge,
-        b_cfg.queue_dead_letter,
-    ])
+    queues.extend(
+        [
+            b_cfg.queue_mail_sync,
+            b_cfg.queue_normalize,
+            b_cfg.queue_triage,
+            b_cfg.queue_dispatch,
+            b_cfg.queue_knowledge,
+            b_cfg.queue_dead_letter,
+        ]
+    )
 
     # Retry tier queues
-    queues.extend([
-        "email.retry.30s",
-        "email.retry.5m",
-        "email.retry.30m",
-    ])
+    queues.extend(
+        [
+            "email.retry.30s",
+            "email.retry.5m",
+            "email.retry.30m",
+        ]
+    )
 
     # Category × priority lane queues
     registry = get_default_registry()

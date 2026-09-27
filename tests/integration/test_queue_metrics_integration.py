@@ -166,9 +166,7 @@ async def test_live_queue_depth_sampling(
         f"Expected 3 messages in email.support.normal, got {results['email.support.normal']}"
     )
     dlq_name = settings.queue_dead_letter
-    assert results[dlq_name] == 2, (
-        f"Expected 2 messages in {dlq_name}, got {results[dlq_name]}"
-    )
+    assert results[dlq_name] == 2, f"Expected 2 messages in {dlq_name}, got {results[dlq_name]}"
 
     # Verify Prometheus gauges
     depth_support = _get_gauge_value(metrics, "queue_depth", {"queue": "email.support.normal"})

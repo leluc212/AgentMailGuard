@@ -87,10 +87,7 @@ class RerankPolicy:
             and organization_id not in self.enabled_organizations
         ):
             return False
-        return not (
-            self.enabled_categories is not None
-            and category not in self.enabled_categories
-        )
+        return not (self.enabled_categories is not None and category not in self.enabled_categories)
 
 
 @dataclass
@@ -328,9 +325,7 @@ class RerankService:
                 org = organization_id or "unknown"
                 with contextlib.suppress(Exception):
                     self.metrics.rerank_latency_ms.observe(elapsed_ms)
-                    self.metrics.rerank_fallback_total.labels(
-                        tenant=org, reason="timeout"
-                    ).inc()
+                    self.metrics.rerank_fallback_total.labels(tenant=org, reason="timeout").inc()
 
             return RerankResult(
                 candidates=list(candidates)[:k],
@@ -345,8 +340,7 @@ class RerankService:
             msg = str(err)
             reason = "unavailable" if isinstance(err, RerankerUnavailableError) else "error"
             logger.warning(
-                "Reranker unavailable/failed for tenant %s (%s); "
-                "falling back to RRF order (R11.5)",
+                "Reranker unavailable/failed for tenant %s (%s); falling back to RRF order (R11.5)",
                 organization_id,
                 err,
             )
@@ -354,9 +348,7 @@ class RerankService:
                 org = organization_id or "unknown"
                 with contextlib.suppress(Exception):
                     self.metrics.rerank_latency_ms.observe(elapsed_ms)
-                    self.metrics.rerank_fallback_total.labels(
-                        tenant=org, reason=reason
-                    ).inc()
+                    self.metrics.rerank_fallback_total.labels(tenant=org, reason=reason).inc()
 
             return RerankResult(
                 candidates=list(candidates)[:k],

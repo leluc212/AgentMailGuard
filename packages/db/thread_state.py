@@ -360,4 +360,3 @@ class PostgresThreadStateStore:
                 # Concurrent creation occurred, update existing
                 return await self.update(state)
         return await self.update(state)
-

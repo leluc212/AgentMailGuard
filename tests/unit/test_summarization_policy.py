@@ -169,4 +169,3 @@ async def test_summarizer_generates_and_persists_summary_on_threshold() -> None:
     )
     assert not second_result.summarized
     assert len(fake_llm.recorded_calls) == 1  # Still 1, no new call!
-

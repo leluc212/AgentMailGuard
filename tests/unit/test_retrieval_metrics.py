@@ -430,8 +430,7 @@ def test_retrieval_and_rerank_quantiles_computable() -> None:
     for b in RETRIEVAL_BUCKETS:
         expected_cumulative = sum(1 for x in retrieval_latencies if x <= b)
         bucket_line = (
-            f'retrieval_latency_ms_bucket{{le="{b}",mode="hybrid"}} '
-            f"{float(expected_cumulative)}"
+            f'retrieval_latency_ms_bucket{{le="{b}",mode="hybrid"}} {float(expected_cumulative)}'
         )
         assert bucket_line in payload_str
         assert expected_cumulative >= prev_bucket_val

@@ -242,4 +242,3 @@ SearchBackendDep = Annotated[Any, Depends(get_search_backend)]
 EmbedderDep = Annotated[Any, Depends(get_embedder)]
 RerankServiceDep = Annotated[Any, Depends(get_rerank_service)]
 QueryBuilderDep = Annotated[Any, Depends(get_retrieval_query_builder)]
-

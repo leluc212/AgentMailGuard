@@ -168,4 +168,3 @@ class EmbeddingRecord:
     dim: int = 1536
     embedding: list[float] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-

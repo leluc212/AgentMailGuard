@@ -225,9 +225,7 @@ class ThreadContextAssembler:
 
         # 3. Check if summary exists
         has_summary = bool(
-            thread_state is not None
-            and thread_state.summary
-            and thread_state.summary.strip()
+            thread_state is not None and thread_state.summary and thread_state.summary.strip()
         )
 
         # 4. Formulate recent messages and summary attributes (R8.5)

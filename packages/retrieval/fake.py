@@ -139,9 +139,7 @@ class FakeSearchBackend:
 
             # High weight for exact identifier match (R12.3)
             for ident in identifiers:
-                if ident.lower() in content_lower or ident in chunk.metadata.get(
-                    "external_id", ""
-                ):
+                if ident.lower() in content_lower or ident in chunk.metadata.get("external_id", ""):
                     score += 10.0
 
             # Match keyword terms

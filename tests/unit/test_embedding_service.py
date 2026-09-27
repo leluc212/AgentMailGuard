@@ -240,6 +240,7 @@ class TestHttpEmbedder:
     @pytest.mark.asyncio
     async def test_dimension_mismatch_error(self) -> None:
         """R5.10: If returned vector dimension != configured dimension, fail fast."""
+
         def handler(_request: httpx.Request) -> httpx.Response:
             # Return 768 dimensions when 1536 configured
             return httpx.Response(
@@ -340,7 +341,9 @@ class TestGetEmbedderFactory:
         assert embedder.dimension == 1536
 
     def test_factory_returns_http_in_live_mode(self) -> None:
-        settings = EmbeddingSettings(mock=False, api_key="sk-test", base_url="https://api.openai.com/v1")
+        settings = EmbeddingSettings(
+            mock=False, api_key="sk-test", base_url="https://api.openai.com/v1"
+        )
         embedder = get_embedder(settings)
         assert isinstance(embedder, HttpEmbedder)
         assert embedder.dimension == 1536

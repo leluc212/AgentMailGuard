@@ -238,6 +238,7 @@ class TestRetrievalDebugEndpoint:
         client: AsyncClient,
     ) -> None:
         """Verify endpoint handles reranker timeout/failure with fallback to RRF order (R11.5)."""
+
         class FailingReranker:
             async def rerank(
                 self,
