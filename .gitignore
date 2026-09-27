@@ -77,3 +77,6 @@ Thumbs.db
 # Runtime audit runs
 .runtime-feature-audit*/
 
+
+# Local Claude Code settings
+.claude/

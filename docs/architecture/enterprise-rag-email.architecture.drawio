@@ -1,0 +1,184 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram id="enterprise-rag-email" name="System Architecture">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="900" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="header_title" value="&lt;b style=&quot;font-size:18px;color:#0f172a;&quot;&gt;Enterprise RAG Email Management &amp;amp; Response Architecture&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size:11px;color:#64748b;&quot;&gt;Production Topology &amp;amp; Asynchronous Pipeline &amp;middot; Classify First &amp;middot; Retrieve Selectively &amp;middot; Single-Generation LLM&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="800" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="email_providers" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Email Providers&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Gmail &amp;middot; Graph &amp;middot; IMAP&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Push Source &amp;amp; Reply Sink&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#f8fafc;strokeColor=#64748b;strokeWidth=2;fontColor=#0f172a;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_email_providers" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzI1NjNFQiIgZD0iTTIwIDRINGMtMS4xIDAtMiAuOS0yIDJ2MTJjMCAxLjEuOSAyIDIgMmgxNmMxLjEgMCAyLS45IDItMlY2YzAtMS4xLS45LTItMi0yem0wIDRsLTggNS04LTVWNmw4IDUgOC01djJ6Ii8+PC9zdmc+;" vertex="1" parent="email_providers">
+          <mxGeometry x="10" y="24" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="mail_connector" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Mail Connector Service&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Adapter &amp;middot; Sync &amp;middot; Checkpoint&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;FastAPI &amp;middot; Provider OAuth Ref&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="310" y="70" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_mail_connector" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzAwOTY4OCIgZD0iTTEyIC4wMzg3QzUuMzcyOS4wMzg0LjAwMDMgNS4zOTMxIDAgMTEuOTk4OGMtLjAwMSA2LjYwNjYgNS4zNzIgMTEuOTYyOCAxMiAxMS45NjI1IDYuNjI4LjAwMDMgMTIuMDAxLTUuMzU1OSAxMi0xMS45NjI1LS4wMDAzLTYuNjA1Ny01LjM3MjktMTEuOTYwNC0xMi0xMS45Nm0tLjgyOSA1LjQxNTNoNy41NWwtNy41ODA1IDUuMzI4NGg1LjE4MjhMNS4yNzkgMTguNTQzNnEyLjk0NjYtNi41NDQ0IDUuODkyLTEzLjA4OTYiLz48L3N2Zz4=;" vertex="1" parent="mail_connector">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq_ingest" value="&lt;b style=&quot;font-size:12px;&quot;&gt;RabbitMQ Ingest&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Inbound Queue &amp;middot; Buffer &amp;middot; Ack&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Logical Queue in Shared Broker&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=1.5;fontColor=#7c2d12;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="590" y="70" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_rabbitmq_ingest" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0ZGNjYwMCIgZD0iTTIzLjAzNSA5LjYwMWgtNy42NzdhLjk1Ni45NTYgMCAwMS0uOTYyLS45NjJWLjk2MmEuOTU2Ljk1NiAwIDAwLS45NjItLjk1NkgxMC41NmEuOTU2Ljk1NiAwIDAwLS45NjIuOTU2VjguNjRhLjk1Ni45NTYgMCAwMS0uOTYyLjk2Mkg1Ljc2MmEuOTU2Ljk1NiAwIDAxLS45NjEtLjk2MlYuOTYyQS45NTYuOTU2IDAgMDAzLjgzOSAwSC45NTlhLjk1Ni45NTYgMCAwMC0uOTU2Ljk2MnYyMi4wNzZBLjk1Ni45NTYgMCAwMC45NjUgMjRoMjIuMDdhLjk1Ni45NTYgMCAwMC45NjItLjk2MlYxMC41OGEuOTU2Ljk1NiAwIDAwLS45NjItLjk4em0tMy44NiA4LjE1MmExLjQzNyAxLjQzNyAwIDAxLTEuNDM3IDEuNDQzaC0xLjkyNGExLjQzNyAxLjQzNyAwIDAxLTEuNDM2LTEuNDQzdi0xLjkxN2ExLjQzNyAxLjQzNyAwIDAxMS40MzYtMS40NDNoMS45MjRhMS40MzcgMS40MzcgMCAwMTEuNDM3IDEuNDQzeiIvPjwvc3ZnPg==;" vertex="1" parent="rabbitmq_ingest">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="email_processor" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Email Processor&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;MIME &amp;middot; HTML Clean &amp;middot; Dedupe&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Python 3.12+ &amp;middot; Thread Objects&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="870" y="70" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_email_processor" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzM3NzZBQiIgZD0iTTE0LjI1LjE4bC45LjIuNzMuMjYuNTkuMy40NS4zMi4zNC4zNC4yNS4zNC4xNi4zMy4xLjMuMDQuMjYuMDIuMi0uMDEuMTNWOC41bC0uMDUuNjMtLjEzLjU1LS4yMS40Ni0uMjYuMzgtLjMuMzEtLjMzLjI1LS4zNS4xOS0uMzUuMTQtLjMzLjEtLjMuMDctLjI2LjA0LS4yMS4wMkg4Ljc3bC0uNjkuMDUtLjU5LjE0LS41LjIyLS40MS4yNy0uMzMuMzItLjI3LjM1LS4yLjM2LS4xNS4zNy0uMS4zNS0uMDcuMzItLjA0LjI3LS4wMi4yMXYzLjA2SDMuMTdsLS4yMS0uMDMtLjI4LS4wNy0uMzItLjEyLS4zNS0uMTgtLjM2LS4yNi0uMzYtLjM2LS4zNS0uNDYtLjMyLS41OS0uMjgtLjczLS4yMS0uODgtLjE0LTEuMDUtLjA1LTEuMjMuMDYtMS4yMi4xNi0xLjA0LjI0LS44Ny4zMi0uNzEuMzYtLjU3LjQtLjQ0LjQyLS4zMy40Mi0uMjQuNC0uMTYuMzYtLjEuMzItLjA1LjI0LS4wMWguMTZsLjA2LjAxaDguMTZ2LS44M0g2LjE4bC0uMDEtMi43NS0uMDItLjM3LjA1LS4zNC4xMS0uMzEuMTctLjI4LjI1LS4yNi4zMS0uMjMuMzgtLjIuNDQtLjE4LjUxLS4xNS41OC0uMTIuNjQtLjEuNzEtLjA2Ljc3LS4wNC44NC0uMDIgMS4yNy4wNXptLTYuMyAxLjk4bC0uMjMuMzMtLjA4LjQxLjA4LjQxLjIzLjM0LjMzLjIyLjQxLjA5LjQxLS4wOS4zMy0uMjIuMjMtLjM0LjA4LS40MS0uMDgtLjQxLS4yMy0uMzMtLjMzLS4yMi0uNDEtLjA5LS40MS4wOXptMTMuMDkgMy45NWwuMjguMDYuMzIuMTIuMzUuMTguMzYuMjcuMzYuMzUuMzUuNDcuMzIuNTkuMjguNzMuMjEuODguMTQgMS4wNC4wNSAxLjIzLS4wNiAxLjIzLS4xNiAxLjA0LS4yNC44Ni0uMzIuNzEtLjM2LjU3LS40LjQ1LS40Mi4zMy0uNDIuMjQtLjQuMTYtLjM2LjA5LS4zMi4wNS0uMjQuMDItLjE2LS4wMWgtOC4yMnYuODJoNS44NGwuMDEgMi43Ni4wMi4zNi0uMDUuMzQtLjExLjMxLS4xNy4yOS0uMjUuMjUtLjMxLjI0LS4zOC4yLS40NC4xNy0uNTEuMTUtLjU4LjEzLS42NC4wOS0uNzEuMDctLjc3LjA0LS44NC4wMS0xLjI3LS4wNC0xLjA3LS4xNC0uOS0uMi0uNzMtLjI1LS41OS0uMy0uNDUtLjMzLS4zNC0uMzQtLjI1LS4zNC0uMTYtLjMzLS4xLS4zLS4wNC0uMjUtLjAyLS4yLjAxLS4xM3YtNS4zNGwuMDUtLjY0LjEzLS41NC4yMS0uNDYuMjYtLjM4LjMtLjMyLjMzLS4yNC4zNS0uMi4zNS0uMTQuMzMtLjEuMy0uMDYuMjYtLjA0LjIxLS4wMi4xMy0uMDFoNS44NGwuNjktLjA1LjU5LS4xNC41LS4yMS40MS0uMjguMzMtLjMyLjI3LS4zNS4yLS4zNi4xNS0uMzYuMS0uMzUuMDctLjMyLjA0LS4yOC4wMi0uMjFWNi4wN2gyLjA5bC4xNC4wMXptLTYuNDcgMTQuMjVsLS4yMy4zMy0uMDguNDEuMDguNDEuMjMuMzMuMzMuMjMuNDEuMDguNDEtLjA4LjMzLS4yMy4yMy0uMzMuMDgtLjQxLS4wOC0uNDEtLjIzLS4zMy0uMzMtLjIzLS40MS0uMDgtLjQxLjA4eiIvPjwvc3ZnPg==;" vertex="1" parent="email_processor">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="triage_engine" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Cascading Triage Engine&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Rules &amp;rarr; ML Classifier &amp;rarr; LLM&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Hugging Face &amp;middot; Zero RAG Exit&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#f5f3ff;strokeColor=#8b5cf6;strokeWidth=1.5;fontColor=#4c1d95;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="70" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_triage_engine" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0ZGRDIxRSIgZD0iTTEyLjAyNSAxLjEzYy01Ljc3IDAtMTAuNDQ5IDQuNjQ3LTEwLjQ0OSAxMC4zNzggMCAxLjExMi4xNzggMi4xODEuNTAzIDMuMTg1LjA2NC0uMjIyLjIwMy0uNDQ0LjQxNi0uNTc3YS45Ni45NiAwIDAgMSAuNTI0LS4xNWMuMjkzIDAgLjU4NC4xMjQuODQuMjg0LjI3OC4xNzMuNDguNDA4LjcxLjY5NC4yMjYuMjgyLjQ1OC42MTEuNjg0Ljk1MXYtLjAxNGMuMDE3LS4zMjQuMTA2LS42MjIuMjY0LS44NzRzLjQwMy0uNDg3Ljc2Mi0uNTQzYy4zLS4wNDcuNTk2LjA2Ljc4Ny4yMDNzLjMxLjMxMy40LjQ2N2MuMTUuMjU3LjIxMi40NjguMjMzLjU0Mi4wMS4wMjYuNjUzIDEuNTUyIDEuNjU3IDIuNTQuNjE2LjYwNSAxLjAxIDEuMjIzIDEuMDgyIDEuOTEyLjA1NS41MzctLjA5NiAxLjA1OS0uMzggMS41NzIuNjM3LjEyMSAxLjI5NC4xODcgMS45NjcuMTg3LjY1NyAwIDEuMjk4LS4wNjMgMS45MjEtLjE3OC0uMjg3LS41MTctLjQ0LTEuMDQxLS4zODQtMS41ODEuMDctLjY5LjQ2NS0xLjMwNyAxLjA4MS0xLjkxMyAxLjAwNC0uOTg3IDEuNjQ3LTIuNTEzIDEuNjU3LTIuNTM5LjAyMS0uMDc0LjA4My0uMjg1LjIzMy0uNTQyLjA5LS4xNTQuMjA4LS4zMjMuNC0uNDY3YTEuMDggMS4wOCAwIDAgMSAuNzg3LS4yMDNjLjM1OS4wNTYuNjA0LjI5Ljc2Mi41NDNzLjI0Ny41NS4yNjUuODc0di4wMTVjLjIyNS0uMzQuNDU3LS42Ny42ODMtLjk1Mi4yMy0uMjg2LjQzMi0uNTIuNzEtLjY5NC4yNTctLjE2LjU0Ny0uMjg0Ljg0LS4yODVhLjk3Ljk3IDAgMCAxIC41MjQuMTUxYy4yMjguMTQzLjM3My4zODguNDMuNjI1bC4wMDYuMDRhMTAuMyAxMC4zIDAgMCAwIC41MzQtMy4yNzNjMC01LjczMS00LjY3OC0xMC4zNzgtMTAuNDQ5LTEwLjM3OCIvPjwvc3ZnPg==;" vertex="1" parent="triage_engine">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq_category" value="&lt;b style=&quot;font-size:12px;&quot;&gt;RabbitMQ Categories&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Priority Queues &amp;middot; Micro-Batch&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Shared Broker &amp;middot; DLQ Routing&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=1.5;fontColor=#7c2d12;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="210" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_rabbitmq_category" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0ZGNjYwMCIgZD0iTTIzLjAzNSA5LjYwMWgtNy42NzdhLjk1Ni45NTYgMCAwMS0uOTYyLS45NjJWLjk2MmEuOTU2Ljk1NiAwIDAwLS45NjItLjk1NkgxMC41NmEuOTU2Ljk1NiAwIDAwLS45NjIuOTU2VjguNjRhLjk1Ni45NTYgMCAwMS0uOTYyLjk2Mkg1Ljc2MmEuOTU2Ljk1NiAwIDAxLS45NjEtLjk2MlYuOTYyQS45NTYuOTU2IDAgMDAzLjgzOSAwSC45NTlhLjk1Ni45NTYgMCAwMC0uOTU2Ljk2MnYyMi4wNzZBLjk1Ni45NTYgMCAwMC45NjUgMjRoMjIuMDdhLjk1Ni45NTYgMCAwMC45NjItLjk2MlYxMC41OGEuOTU2Ljk1NiAwIDAwLS45NjItLjk4em0tMy44NiA4LjE1MmExLjQzNyAxLjQzNyAwIDAxLTEuNDM3IDEuNDQzaC0xLjkyNGExLjQzNyAxLjQzNyAwIDAxLTEuNDM2LTEuNDQzdi0xLjkxN2ExLjQzNyAxLjQzNyAwIDAxMS40MzYtMS40NDNoMS45MjRhMS40MzcgMS40MzcgMCAwMTEuNDM3IDEuNDQzeiIvPjwvc3ZnPg==;" vertex="1" parent="rabbitmq_category">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="knowledge_pipeline" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Knowledge Ingestion&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Parse &amp;middot; 350-700t &amp;middot; Embed&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;SOP &amp;middot; FAQ &amp;middot; Docs &amp;middot; Templates&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="310" y="210" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_knowledge_pipeline" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzA1OTY2OSIgZD0iTTE0IDJINmMtMS4xIDAtMiAuOS0yIDJ2MTZjMCAxLjEuOSAyIDIgMmgxMmMxLjEgMCAyLS45IDItMlY4bC02LTZ6bTIgMTZIOHYtMmg4djJ6bTAtNEg4di0yaDh2MnptLTMtNVYzLjVMMTguNSA5SDEzeiIvPjwvc3ZnPg==;" vertex="1" parent="knowledge_pipeline">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres_platform" value="&lt;b style=&quot;font-size:12px;&quot;&gt;PostgreSQL Platform&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Relational &amp;middot; FTS &amp;middot; pgvector&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;PostgreSQL 16 &amp;middot; HNSW Index&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;align=left;spacingLeft=48;fillColor=#f0fdf4;strokeColor=#16a34a;strokeWidth=1.5;fontColor=#14532d;" vertex="1" parent="1">
+          <mxGeometry x="590" y="196" width="195" height="94" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_postgres_platform" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzMzNjc5MSIgZD0iTTIzLjU1OTQgMTQuNzIyOGEuNTI2OS41MjY5IDAgMCAwLS4wNTYzLS4xMTkxYy0uMTM5LS4yNjMyLS40NzY4LS4zNDE4LTEuMDA3NC0uMjMyMS0xLjY1MzMuMzQxMS0yLjI5MzUuMTMxMi0yLjUyNTYtLjAxOTEgMS4zNDItMi4wNDgyIDIuNDQ1LTQuNTIyIDMuMDQxMS02LjgyOTcuMjcxNC0xLjA1MDcuNzk4Mi0zLjUyMzcuMTIyMi00LjczMTZhMS41NjQxIDEuNTY0MSAwIDAgMC0uMTUwOS0uMjM1QzIxLjY5MzEuOTA4NiAxOS44MDA3LjAyNDggMTcuNTA5OS4wMDA1Yy0xLjQ5NDctLjAxNTgtMi43NzA1LjM0NjEtMy4xMTYxLjQ3OTRhOS40NDkgOS40NDkgMCAwIDAtLjUxNTktLjA4MTYgOC4wNDQgOC4wNDQgMCAwIDAtMS4zMTE0LS4xMjc4Yy0xLjE4MjItLjAxODQtMi4yMDM4LjI2NDItMy4wNDk4Ljg0MDYtLjg1NzMtLjMyMTEtNC43ODg4LTEuNjQ1LTcuMjIxOS4wNzg4Qy45MzU5IDIuMTUyNi4zMDg2IDMuODczMy40MzAyIDYuMzA0M2MuMDQwOS44MTguNTA2OSAzLjMzNCAxLjI0MjMgNS43NDM2LjQ1OTggMS41MDY1LjkzODcgMi43MDE5IDEuNDMzNCAzLjU4Mi41NTMuOTk0MiAxLjEyNTkgMS41OTMzIDEuNzE0MyAxLjc4OTUuNDQ3NC4xNDkxIDEuMTMyNy4xNDQxIDEuODU4MS0uNzI3OS44MDEyLS45NjM1IDEuNTkwMy0xLjgyNTggMS45NDQ2LTIuMjA2OS40MzUxLjIzNTUuOTA2NC4zNjI1IDEuMzkuMzc3MmEuMDU2OS4wNTY5IDAgMCAwIC4wMDA0LjAwNDEgMTEuMDMxMiAxMS4wMzEyIDAgMCAwLS4yNDcyLjMwNTRjLS4zMzg5LjQzMDItLjQwOTQuNTE5Ny0xLjUwMDIuNzQ0My0uMzEwMi4wNjQtMS4xMzQ0LjIzMzktMS4xNDY0LjgxMTUtLjAwMjUuMTIyNC4wMzI5LjIzMDkuMDkxOS4zMjY4LjIyNjkuNDIzMS45MjE2LjYwOTcgMS4wMTUuNjMzMSAxLjMzNDUuMzMzNSAyLjUwNDQuMDkyIDMuMzcxNC0uNjc4Ny0uMDE3IDIuMjMxLjA3NzUgNC40MTc0LjM0NTQgNS4wODc0LjIyMTIuNTUyOS43NjE4IDEuOTA0NSAyLjQ2OTIgMS45MDQzLjI1MDUgMCAuNTI2My0uMDI5MS44Mjk2LS4wOTQxIDEuNzgxOS0uMzgyMSAyLjU1NTctMS4xNjk2IDIuODU1LTIuOTA1OS4xNTAzLS44NzA3LjQwMTYtMi44NzUzLjUzODgtNC4xMDEyLjAxNjktLjA3MDMuMDM1Ny0uMTIwNy4wNTctLjEzNjIuMDAwNy0uMDAwNS4wNjk3LS4wNDcxLjQyNzIuMDMwN2EuMzY3My4zNjczIDAgMCAwIC4wNDQzLjAwNjhsLjI1MzkuMDIyMy4wMTQ5LjAwMWMuODQ2OC4wMzg0IDEuOTExNC0uMTQyNiAyLjUzMTItLjQzMDguNjQzOC0uMjk4OCAxLjgwNTctMS4wMzIzIDEuNTk1MS0xLjY2OTh6Ii8+PC9zdmc+;" vertex="1" parent="postgres_platform">
+          <mxGeometry x="10" y="32" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hybrid_rag" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Hybrid RAG Engine&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;FTS + HNSW &amp;middot; RRF &amp;middot; Rerank&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Top 4-6 Grounding Chunks&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="870" y="210" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_hybrid_rag" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzA4OTFCMiIgZD0iTTE1LjUgMTRoLS43OWwtLjI4LS4yN0E2LjQ3MSA2LjQ3MSAwIDAgMCAxNiA5LjUgNi41IDYuNSAwIDEgMCA5LjUgMTZjMS42MSAwIDMuMDktLjU5IDQuMjMtMS41N2wuMjcuMjh2Ljc5bDUgNC45OUwyMC40OSAxOWwtNC45OS01em0tNiAwQzcuMDEgMTQgNSAxMS45OSA1IDkuNVM3LjAxIDUgOS41IDUgMTQgNy4wMSAxNCA5LjUgMTEuOTkgMTQgOS41IDE0eiIvPjwvc3ZnPg==;" vertex="1" parent="hybrid_rag">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="mail_dispatcher" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Draft Store &amp;amp; Dispatcher&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Draft State &amp;middot; Citations &amp;middot; Send&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Idempotent Reply Delivery&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="310" y="350" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_mail_dispatcher" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzE2QTM0QSIgZD0iTTIuMDEgMjFMMjMgMTIgMi4wMSAzIDIgMTBsMTUgMi0xNSAyeiIvPjwvc3ZnPg==;" vertex="1" parent="mail_dispatcher">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="reply_agent" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Reply Agent &amp;amp; Cascade&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Profiles &amp;middot; Router &amp;middot; Schema&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;OpenAI / Claude &amp;middot; Model Cascade&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#fdf4ff;strokeColor=#d946ef;strokeWidth=1.5;fontColor=#701a75;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="730" y="350" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_reply_agent" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMCAyMCI+PHBhdGggZmlsbD0iIzEwQTM3RiIgZD0iTTExLjI0OCAxOC4yNXEtLjgyNSAwLTEuNTY4LS4zMTRhNC4zIDQuMyAwIDAgMS0xLjMyLS44NzQgNCA0IDAgMCAxLTEuMzA0LjIxNCA0IDQgMCAwIDEtMi4wNDYtLjU0NCA0LjI3IDQuMjcgMCAwIDEtMS41MTgtMS40ODUgNCA0IDAgMCAxLS41Ni0yLjA5NXEwLS40OC4xMzEtMS4wNEE0LjQgNC40IDAgMCAxIDIuMDQgMTAuNzFhNC4wNyA0LjA3IDAgMCAxIC4wMTctMy40IDQuMiA0LjIgMCAwIDEgMS4wNTYtMS40MTggMy44IDMuOCAwIDAgMSAxLjYtLjg0MiAzLjkgMy45IDAgMCAxIC43Ni0xLjY4M3EuNTkzLS43NTkgMS40NTEtMS4xODhhNC4wNCA0LjA0IDAgMCAxIDEuODMyLS40MjlxLjgyNSAwIDEuNTY3LjMxMy43NDIuMzE0IDEuMzIuODc1YTQgNCAwIDAgMSAxLjMwNC0uMjE1cTEuMTA2IDAgMi4wNDYuNTQ1YTQuMTQgNC4xNCAwIDAgMSAxLjUwMSAxLjQ4NXEuNTc4Ljk0MS41NzggMi4wOTUgMCAuNDgtLjEzMiAxLjA0LjY2LjYxIDEuMDIzIDEuNDE5LjM2My43OTIuMzYzIDEuNjY2IDAgLjg5Mi0uMzggMS43MTdhNC4zIDQuMyAwIDAgMS0xLjA3MiAxLjQzNSAzLjggMy44IDAgMCAxLTEuNTg0LjgyNSAzLjggMy44IDAgMCAxLS43NzUgMS42ODMgNC4wNiA0LjA2IDAgMCAxLTEuNDM2IDEuMTg4IDQuMDQgNC4wNCAwIDAgMS0xLjgzMi40MjkiLz48L3N2Zz4=;" vertex="1" parent="reply_agent">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="context_builder" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Context Builder&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#475569;&quot;&gt;Thread &amp;middot; Business &amp;middot; RAG&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:9px;color:#0284c7;&quot;&gt;Assembled Context Package&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=48;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="350" width="195" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="icon_context_builder" value="" style="shape=image;html=1;verticalAlign=middle;align=center;imageAspect=1;aspect=fixed;image=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzI1NjNFQiIgZD0iTTE5IDEyaC0yVjdoLTVWNWMwLTEuMS0uOS0yLTItMnMtMiAuOS0yIDJ2MkgzdjVoMmMxLjEgMCAyIC45IDIgMnMtLjkgMi0yIDJIM3Y1aDV2LTJjMC0xLjEuOS0yIDItMnMyIC45IDIgMnYyaDV2LTVoMmMxLjEgMCAyLS45IDItMnMtLjktMi0yLTJ6Ii8+PC9zdmc+;" vertex="1" parent="context_builder">
+          <mxGeometry x="10" y="22" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_provider_notify" value="Mailbox Change Notification" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563eb;strokeWidth=2.5;fontColor=#1e40af;fontSize=10;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="1" source="email_providers" target="mail_connector">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="135" y="108" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sync_fetch" value="Incremental Sync / Fetch Messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#334155;fontSize=10;exitX=0;exitY=0.75;entryX=1;entryY=0.25;" edge="1" parent="1" source="mail_connector" target="email_providers">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_publish_sync" value="Publish Inbound Work" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ea580c;strokeWidth=2;fontColor=#9a3412;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="mail_connector" target="rabbitmq_ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_consume_events" value="Consume Events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563eb;strokeWidth=2;fontColor=#1e40af;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="rabbitmq_ingest" target="email_processor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_normalized_mail" value="Normalized Email" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#7c3aed;strokeWidth=2;fontColor=#5b21b6;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="email_processor" target="triage_engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_actionable_route" value="Actionable Job &amp;middot; Category + Priority" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ea580c;strokeWidth=2;fontColor=#9a3412;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="triage_engine" target="rabbitmq_category">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_dispatch_job" value="Scheduled Priority Job" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563eb;strokeWidth=2;fontColor=#1e40af;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="rabbitmq_category" target="context_builder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_assembled_context" value="Assembled Context Package" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c026d3;strokeWidth=2;fontColor=#86198f;fontSize=10;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="context_builder" target="reply_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_generated_draft" value="Structured Draft" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563eb;strokeWidth=2;fontColor=#1e40af;fontSize=10;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="reply_agent" target="mail_dispatcher">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_outbound_reply" value="Create Draft / Send Reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16a34a;strokeWidth=2.5;fontColor=#166534;fontSize=10;exitX=0;exitY=0.5;entryX=0.5;entryY=1;" edge="1" parent="1" source="mail_dispatcher" target="email_providers">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="135" y="388" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_persist_message" value="Persist Message &amp;amp; Thread" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;exitX=0.25;exitY=1;entryX=0.85;entryY=0;" edge="1" parent="1" source="email_processor" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_triage_early_exit" value="No Reply &amp;rarr; COMPLETE (Zero RAG)" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ef4444;strokeWidth=1.5;fontColor=#b91c1c;fontSize=10;exitX=0;exitY=0.75;entryX=0.75;entryY=0;" edge="1" parent="1" source="triage_engine" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="127" />
+              <mxPoint x="1110" y="160" />
+              <mxPoint x="736" y="160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_business_thread_data" value="Thread State + Business Data" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;exitX=0.85;exitY=1;entryX=0;entryY=0.75;" edge="1" parent="1" source="postgres_platform" target="context_builder">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="755" y="320" />
+              <mxPoint x="1100" y="320" />
+              <mxPoint x="1100" y="407" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_rag_query" value="Selective Query" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891b2;strokeWidth=1.5;fontColor=#0e7490;fontSize=10;exitX=0.25;exitY=0;entryX=0.75;entryY=1;" edge="1" parent="1" source="context_builder" target="hybrid_rag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_rag_chunks" value="Top 4-6 Grounding Chunks" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891b2;strokeWidth=2;fontColor=#0e7490;fontSize=10;exitX=1;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="hybrid_rag" target="context_builder">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1085" y="248" />
+              <mxPoint x="1085" y="320" />
+              <mxPoint x="1247" y="320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_rag_retrieval" value="FTS + HNSW Retrieval" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891b2;strokeWidth=1.5;fontColor=#0e7490;fontSize=10;exitX=0;exitY=0.35;entryX=1;entryY=0.35;" edge="1" parent="1" source="hybrid_rag" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_rag_candidates" value="Ranked Candidate Chunks" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891b2;strokeWidth=1.5;fontColor=#0e7490;fontSize=10;exitX=1;exitY=0.7;entryX=0;entryY=0.7;" edge="1" parent="1" source="postgres_platform" target="hybrid_rag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_knowledge_index" value="Chunks + Metadata + FTS + Embeddings" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16a34a;strokeWidth=1.5;fontColor=#15803d;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="knowledge_pipeline" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_persist_draft" value="Draft &amp;amp; State" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;exitX=0.8;exitY=0;entryX=0.2;entryY=1;" edge="1" parent="1" source="mail_dispatcher" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_sync_checkpoints" value="Sync Checkpoints" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;exitX=0.8;exitY=1;entryX=0.2;entryY=0;" edge="1" parent="1" source="mail_connector" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="card_principles" value="&lt;b style=&quot;font-size:12px;color:#0891b2;&quot;&gt;System Principles &amp;amp; Cost Defense&lt;/b&gt;&lt;span style=&quot;float:right;font-size:9px;color:#94a3b8;&quot;&gt;[Cyan &amp;middot; Cost Guard]&lt;/span&gt;&lt;hr style=&quot;margin:4px 0;border:none;border-top:1px solid #e2e8f0;&quot;/&gt;&lt;ul style=&quot;margin:4px 0 0 16px;padding:0;font-size:11px;color:#334155;line-height:1.4;&quot;&gt;&lt;li&gt;&lt;b&gt;Classify first &amp;middot; Retrieve only when required &amp;middot; Generate only when necessary&lt;/b&gt;&lt;/li&gt;&lt;li&gt;45% early exit (&lt;code&gt;reply_required=false&lt;/code&gt;); 100k daily &amp;rarr; 45k no-reply &amp;rarr; 20k simple &amp;rarr; 35k AI (~24.5k RAG)&lt;/li&gt;&lt;/ul&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;verticalAlign=top;align=left;spacing=8;arcSize=6;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="645" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="card_rag_storage" value="&lt;b style=&quot;font-size:12px;color:#059669;&quot;&gt;Hybrid RAG, Business Data &amp;amp; Storage&lt;/b&gt;&lt;span style=&quot;float:right;font-size:9px;color:#94a3b8;&quot;&gt;[Emerald &amp;middot; Data Tier]&lt;/span&gt;&lt;hr style=&quot;margin:4px 0;border:none;border-top:1px solid #e2e8f0;&quot;/&gt;&lt;ul style=&quot;margin:4px 0 0 16px;padding:0;font-size:11px;color:#334155;line-height:1.4;&quot;&gt;&lt;li&gt;&lt;b&gt;Dual Search:&lt;/b&gt; PostgreSQL FTS (top 20) + pgvector HNSW (top 20) &amp;rarr; RRF &amp;rarr; Cross-Encoder Top 4&amp;ndash;6&lt;/li&gt;&lt;li&gt;&lt;b&gt;Context &amp;amp; Storage:&lt;/b&gt; Compressed thread state + Business data; MinIO/S3 stores raw MIME &amp;amp; attachments&lt;/li&gt;&lt;/ul&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;verticalAlign=top;align=left;spacing=8;arcSize=6;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="710" y="480" width="635" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="card_lifecycle_rel" value="&lt;b style=&quot;font-size:12px;color:#7c3aed;&quot;&gt;Lifecycle, Reliability &amp;amp; Observability&lt;/b&gt;&lt;span style=&quot;float:right;font-size:9px;color:#94a3b8;&quot;&gt;[Violet &amp;middot; State &amp;amp; Resilience]&lt;/span&gt;&lt;hr style=&quot;margin:4px 0;border:none;border-top:1px solid #e2e8f0;&quot;/&gt;&lt;ul style=&quot;margin:4px 0 0 16px;padding:0;font-size:11px;color:#334155;line-height:1.4;&quot;&gt;&lt;li&gt;&lt;b&gt;State Machine:&lt;/b&gt; RECEIVED &amp;rarr; NORMALIZED &amp;rarr; CLASSIFIED &amp;rarr; QUEUED &amp;rarr; CONTEXT_READY &amp;rarr; GENERATING &amp;rarr; DRAFTED &amp;rarr; COMPLETED&lt;/li&gt;&lt;li&gt;&lt;b&gt;Delivery:&lt;/b&gt; At-least-once + idempotent (org, mailbox, msg_id, op); backoff retries; exhausted &amp;rarr; DEAD_LETTER; OTel&lt;/li&gt;&lt;/ul&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;verticalAlign=top;align=left;spacing=8;arcSize=6;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="625" width="645" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="card_deployment_ops" value="&lt;b style=&quot;font-size:12px;color:#d97706;&quot;&gt;Deployment &amp;amp; Runtime Model&lt;/b&gt;&lt;span style=&quot;float:right;font-size:9px;color:#94a3b8;&quot;&gt;[Amber &amp;middot; Infrastructure]&lt;/span&gt;&lt;hr style=&quot;margin:4px 0;border:none;border-top:1px solid #e2e8f0;&quot;/&gt;&lt;ul style=&quot;margin:4px 0 0 16px;padding:0;font-size:11px;color:#334155;line-height:1.4;&quot;&gt;&lt;li&gt;&lt;b&gt;FYP Implementation:&lt;/b&gt; Docker Compose (FastAPI, PostgreSQL+pgvector, RabbitMQ, MinIO, Prometheus, Grafana)&lt;/li&gt;&lt;li&gt;&lt;b&gt;Enterprise:&lt;/b&gt; Stateless worker pools, RabbitMQ cluster, managed DB, S3; scale on queue depth; interchangeable LLMs&lt;/li&gt;&lt;/ul&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;verticalAlign=top;align=left;spacing=8;arcSize=6;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="710" y="625" width="635" height="125" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
