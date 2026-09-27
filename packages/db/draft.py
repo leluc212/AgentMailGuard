@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 import asyncpg
@@ -59,11 +59,78 @@ def _row_to_draft(row: asyncpg.Record) -> GeneratedDraft:
         prompt_version=row["prompt_version"],
         input_tokens=int(row["input_tokens"] or 0),
         output_tokens=int(row["output_tokens"] or 0),
-        cost_estimate=float(row["cost_estimate"] or 0.0),
+        cost_estimate=(float(row["cost_estimate"]) if row["cost_estimate"] is not None else None),
         status=row["status"],
         provider_ref=row["provider_ref"],
         created_at=row["created_at"],
     )
+
+
+_INSERT_DRAFT_SQL = """
+    INSERT INTO generated_draft (
+        id, organization_id, job_id, message_id, thread_id,
+        action, subject, body, confidence, citations,
+        citation_mismatch, model_name, model_tier, escalation_reason,
+        prompt_version, input_tokens, output_tokens, cost_estimate,
+        status, provider_ref, created_at
+    ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9, $10::jsonb,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18,
+        $19, $20, $21
+    )
+    RETURNING *;
+"""
+
+
+async def insert_draft(conn: Any, draft: GeneratedDraft) -> GeneratedDraft:
+    """Insert ``draft`` on ``conn`` (a connection or pool proxy) and return the stored row."""
+    draft_id = _to_uuid(draft.id)
+    row = await conn.fetchrow(
+        _INSERT_DRAFT_SQL,
+        draft_id,
+        _to_uuid(draft.organization_id),
+        _opt_uuid(draft.job_id),
+        _to_uuid(draft.message_id),
+        _to_uuid(draft.thread_id),
+        draft.action,
+        draft.subject,
+        draft.body,
+        draft.confidence,
+        json.dumps(draft.citations or []),
+        draft.citation_mismatch,
+        draft.model_name,
+        draft.model_tier,
+        draft.escalation_reason,
+        draft.prompt_version,
+        draft.input_tokens,
+        draft.output_tokens,
+        draft.cost_estimate,
+        draft.status,
+        draft.provider_ref,
+        draft.created_at or datetime.now(UTC),
+    )
+    if row is None:
+        raise RuntimeError(f"Failed to insert generated_draft {draft_id}")
+    return _row_to_draft(row)
+
+
+async def fetch_draft_for_job(
+    conn: Any, job_id: UUID, organization_id: UUID
+) -> GeneratedDraft | None:
+    """Return the job's draft within the tenant, newest first, or ``None``."""
+    row = await conn.fetchrow(
+        """
+        SELECT * FROM generated_draft
+        WHERE job_id = $1 AND organization_id = $2
+        ORDER BY created_at DESC
+        LIMIT 1;
+        """,
+        job_id,
+        organization_id,
+    )
+    return _row_to_draft(row) if row is not None else None
 
 
 @runtime_checkable
@@ -176,63 +243,8 @@ class PostgresDraftStore:
 
     async def create_draft(self, draft: GeneratedDraft) -> GeneratedDraft:
         """Insert a new draft into generated_draft table."""
-        draft_id = _to_uuid(draft.id)
-        org_id = _to_uuid(draft.organization_id)
-        job_id = _opt_uuid(draft.job_id)
-        msg_id = _to_uuid(draft.message_id)
-        th_id = _to_uuid(draft.thread_id)
-
-        citations_json = json.dumps(draft.citations or [])
-
-        query = """
-            INSERT INTO generated_draft (
-                id, organization_id, job_id, message_id, thread_id,
-                action, subject, body, confidence, citations,
-                citation_mismatch, model_name, model_tier, escalation_reason,
-                prompt_version, input_tokens, output_tokens, cost_estimate,
-                status, provider_ref, created_at
-            ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10::jsonb,
-                $11, $12, $13, $14,
-                $15, $16, $17, $18,
-                $19, $20, $21
-            )
-            RETURNING *;
-        """
-
-        created_at = draft.created_at or datetime.now(UTC)
-
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                query,
-                draft_id,
-                org_id,
-                job_id,
-                msg_id,
-                th_id,
-                draft.action,
-                draft.subject,
-                draft.body,
-                draft.confidence,
-                citations_json,
-                draft.citation_mismatch,
-                draft.model_name,
-                draft.model_tier,
-                draft.escalation_reason,
-                draft.prompt_version,
-                draft.input_tokens,
-                draft.output_tokens,
-                draft.cost_estimate,
-                draft.status,
-                draft.provider_ref,
-                created_at,
-            )
-
-        if row is None:
-            raise RuntimeError(f"Failed to insert generated_draft {draft_id}")
-
-        return _row_to_draft(row)
+            return await insert_draft(conn, draft)
 
     async def get_draft(
         self,

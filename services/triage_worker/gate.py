@@ -636,10 +636,18 @@ class EarlyExitGate:
                 status="draft",
             )
 
-            # Persist draft to store if available
+            # Persist draft to store if available. A crash between this insert and the
+            # DRAFTED transition below leaves a draft behind; generated_draft allows one draft
+            # per job (migration 0004), so the retry adopts it instead of inserting another.
             persisted_draft = draft
             if active_draft_store is not None:
-                persisted_draft = await active_draft_store.create_draft(draft)
+                leftover = await active_draft_store.list_drafts_for_job(
+                    current_job.id, current_job.organization_id
+                )
+                if leftover:
+                    persisted_draft = leftover[0]
+                else:
+                    persisted_draft = await active_draft_store.create_draft(draft)
 
             payload = {
                 "template_reply": True,

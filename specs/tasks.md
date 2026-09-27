@@ -502,9 +502,11 @@
   - Note: the flag is produced but not yet persisted — `generated_draft.citation_mismatch` and `.citations` are written by task 4.11, which must persist `verdict.citations` rather than `content["knowledge_chunks"]`. The Grafana panel for the rate belongs to task 7.4.
   - _Requirements: R16.5_
 
-- [ ] **4.11 Draft persistence**
+- [~] **4.11 Draft persistence**
   - Persist body, citations, model, tier, escalation reason, prompt version, token counts, estimated cost.
   - Transition `GENERATING → DRAFTED`.
+  - Done: `DraftingService` (`services/ai_worker/drafting.py`) moves `CONTEXT_READY → GENERATING`, makes the one generation call, builds the record (`packages/llm/drafts.py`: verified citations from `CitationVerdict`, escalation reason or `none`, `Re:` subject, cost from `packages/core/pricing.py`) and persists it with `GENERATING → DRAFTED` in one transaction (`packages/db/draft_persistence.py`). Migration `0004` enforces one draft per job; a redelivered `DRAFTED` job returns its draft without a second generation. An unpriced model stores `cost_estimate = NULL`.
+  - Left: held at `[~]` until RA.14 turns `make ci` green (DoD #6). The `ai-worker` broker consumer that calls `DraftingService`, and so the retry/DLQ hop from 4.9, is task 4.13; the Phase 4 gate needs it. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs with the cost dashboard (7.4).
   - _Requirements: R16.4, R18.1, R21.6_
 
 - [ ] **4.12 Generation metrics**
@@ -517,6 +519,7 @@
   - Consume the lane queues `email.<category>.<priority>` listed in `routing.configured_consumers` (`design.md` §7.1, consumer `ai-worker`) with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml` with a real entrypoint on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), as the other workers use.
   - Per job, in process (`design.md` §3.2 co-locates these in `ai-worker`): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). Take the classification snapshot from the job envelope and never re-classify (`design.md` §7.3). Each email gets its own generation call, never a shared prompt (`design.md` §7.4).
   - Ack only after the draft and the `DRAFTED` transition commit. A redelivered job that is already `DRAFTED` is acked without a second generation call.
+  - `DraftingService` raises `IllegalStateTransitionError` for a job already past `DRAFTED` (`DISPATCHED`, `COMPLETED`) and for the losing side of two deliveries racing at `CONTEXT_READY`. The consumer must ack and drop those deliveries, never dead-letter an email that was drafted.
   - Failure routing: transient provider errors climb the retry ladder (`GENERATING → RETRY_PENDING → GENERATING`). Decide whether `UnvalidatedDraftError` and `DraftSchemaContractError` are `FatalError` (straight to DLQ) per the 4.9 note, and prove the chosen hop with an integration test (closes 4.9's "Left" item).
   - Worker-kill test (`design.md` §9): kill the worker mid-generation → redelivery → exactly one `generated_draft` row.
   - Extend `make smoke` so an actionable email reaches `DRAFTED` through the live stack.
@@ -748,11 +751,11 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 |---|---|
 | R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7 |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
-| R3 Async distribution | 0.7, 2.11, 2.12, 8.3, 8.5 |
+| R3 Async distribution | 0.7, 2.11, 2.12, 4.13, 8.3, 8.5 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13 |
 | R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1 |
 | R6 Triage | 2.2–2.8, 2.9 |
-| R7 Routing | 2.1, 2.10, 2.15, 8.2 |
+| R7 Routing | 2.1, 2.10, 2.15, 4.13, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3 |
 | R9 Knowledge ingestion | 3.1–3.6 |
 | R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 8.6 |
@@ -761,15 +764,15 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12 |
 | R15 Model cascade | 4.8 |
-| R16 Structured output & drafts | 4.9, 4.10, 4.11, 6.1, 6.2, 6.4 |
+| R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13, 6.1, 6.2, 6.4 |
 | R17 Dispatch | 6.3–6.7 |
-| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11 |
-| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 6.5, 7.13, 8.4 |
-| R20 Deployment & scale | 0.2, 0.3, 0.9, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
+| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13 |
+| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13, 6.5, 7.13, 8.4 |
+| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 6.2, 7.1–7.4 |
-| R22 Evaluation | 0.13, 7.5–7.17 |
+| R22 Evaluation | 0.13, 4.13, 7.5–7.17 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 6.9, 8.6, 8.7 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13, 6.9, 8.6, 8.7 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

@@ -21,6 +21,7 @@ from packages.db.draft import PostgresDraftStore
 from packages.db.job import PostgresJobStore
 from packages.domain.entities import (
     Classification,
+    GeneratedDraft,
     Job,
 )
 from packages.domain.state_machine import JobState
@@ -352,3 +353,72 @@ async def test_postgres_template_draft_tenant_isolation(db_pool: asyncpg.Pool) -
     # Listing by thread for Org B yields empty
     drafts_b = await draft_store.list_drafts_for_thread(th_a, org_b)
     assert len(drafts_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_postgres_template_retry_adopts_leftover_draft(db_pool: asyncpg.Pool) -> None:
+    """A crash between the draft insert and DRAFTED must not hit the one-draft-per-job index."""
+    org_id, mbx_id, msg_id, thread_id, job_id = (uuid.uuid4() for _ in range(5))
+    await seed_prerequisites(db_pool, org_id, mbx_id, msg_id, thread_id, subject="Order")
+    job_store = PostgresJobStore(db_pool)
+    draft_store = PostgresDraftStore(db_pool)
+    registry = TemplateRegistry()
+    registry.register(
+        TemplateDefinition(
+            id="ack-receipt-v1",
+            version="v1",
+            category="acknowledgement",
+            intent="receipt_confirmation",
+            subject="Re: {{ subject }}",
+            body="Hello {{ sender_name }}. Order: {{ order_id }}",
+        )
+    )
+    gate = EarlyExitGate(job_store=job_store, template_registry=registry, draft_store=draft_store)
+    job, _ = await job_store.create_job(
+        Job(
+            id=job_id,
+            organization_id=org_id,
+            message_id=msg_id,
+            thread_id=thread_id,
+            state=JobState.NORMALIZED,
+            idempotency_key=f"idem-{job_id}",
+        )
+    )
+    leftover = await draft_store.create_draft(
+        GeneratedDraft(
+            organization_id=org_id,
+            job_id=job_id,
+            message_id=msg_id,
+            thread_id=thread_id,
+            subject="Re: Order",
+            body="Hello Client User. Order: ORD-1",
+            model_name="template",
+            model_tier="template",
+        )
+    )
+    cls = Classification(
+        category="acknowledgement",
+        intent="receipt_confirmation",
+        reply_required=True,
+        workflow_hint="template",
+        retrieval_required=False,
+        confidence=0.97,
+        decided_by="rule",
+    )
+
+    decision = await gate.evaluate_and_persist(
+        job=job,
+        classification=cls,
+        message={
+            "message_id": str(msg_id),
+            "thread_id": str(thread_id),
+            "subject": "Order",
+            "sender": {"name": "Client User", "email": "client@example.com"},
+        },
+        business_data={"order_id": "ORD-1"},
+    )
+
+    assert decision.job.state == JobState.DRAFTED
+    assert decision.rendered_draft is not None
+    assert decision.rendered_draft.id == leftover.id
+    assert len(await draft_store.list_drafts_for_job(job_id, org_id)) == 1

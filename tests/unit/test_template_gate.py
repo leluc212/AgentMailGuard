@@ -360,3 +360,62 @@ async def test_evaluate_and_persist_template_reply(
     assert stored_draft.subject == "Re: Status update inquiry"
     assert "Alice Smith" in stored_draft.body
     assert "Ref: ORD-123" in stored_draft.body
+
+
+@pytest.mark.asyncio
+async def test_template_retry_reuses_draft_left_by_a_crash(
+    sample_registry: TemplateRegistry,
+    sample_message: NormalizedMessage,
+) -> None:
+    """A crash after the draft insert but before DRAFTED must not block the retry.
+
+    generated_draft allows one draft per job (migration 0004), so the retry has to adopt
+    the leftover draft instead of inserting a second one (R19.3, R19.7).
+    """
+    job_store = InMemoryJobStore()
+    draft_store = InMemoryDraftStore()
+    gate = EarlyExitGate(
+        job_store=job_store, template_registry=sample_registry, draft_store=draft_store
+    )
+    org_id = sample_message.organization_id
+    job, _ = await job_store.create_job(
+        Job(
+            organization_id=org_id,
+            message_id=sample_message.message_id,
+            thread_id=sample_message.thread_id,
+            state=JobState.NORMALIZED,
+        )
+    )
+    cls = Classification(
+        category="acknowledgement",
+        intent="receipt_confirmation",
+        reply_required=True,
+        workflow_hint="template",
+        retrieval_required=False,
+    )
+    first = await gate.evaluate_and_persist(
+        job=job, classification=cls, message=sample_message, business_data={"order_id": "1"}
+    )
+    assert first.rendered_draft is not None
+    # Simulate the crash window: the draft committed, the DRAFTED transition did not.
+    retry_job, _ = await job_store.create_job(
+        Job(
+            organization_id=org_id,
+            message_id=sample_message.message_id,
+            thread_id=sample_message.thread_id,
+            state=JobState.NORMALIZED,
+            idempotency_key=f"retry-{uuid4()}",
+        )
+    )
+    leftover = first.rendered_draft
+    leftover.job_id = retry_job.id
+    await draft_store.create_draft(leftover)
+
+    retried = await gate.evaluate_and_persist(
+        job=retry_job, classification=cls, message=sample_message, business_data={"order_id": "1"}
+    )
+
+    assert retried.job.state == JobState.DRAFTED
+    assert retried.rendered_draft is not None
+    assert retried.rendered_draft.id == leftover.id
+    assert len(await draft_store.list_drafts_for_job(retry_job.id, org_id)) == 1

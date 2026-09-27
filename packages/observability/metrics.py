@@ -18,6 +18,8 @@ from prometheus_client import (
     generate_latest,
 )
 
+from packages.core.pricing import estimate_inference_cost
+
 if TYPE_CHECKING:
     from packages.core.settings import ModelPricing
 
@@ -408,14 +410,10 @@ def record_ai_cost(
     m.input_tokens_total.labels(model=model, tier=tier).inc(input_tokens)
     m.output_tokens_total.labels(model=model, tier=tier).inc(output_tokens)
 
-    pricing = price_table.get(model)
-    if pricing is None:
+    cost = estimate_inference_cost(model, input_tokens, output_tokens, price_table)
+    if cost is None:
         logger.warning("No pricing configured for model '%s'; recorded tokens at 0 cost", model)
         return 0.0
-
-    cost = (input_tokens / 1_000_000.0 * pricing.input_per_m) + (
-        output_tokens / 1_000_000.0 * pricing.output_per_m
-    )
 
     m.estimated_ai_cost_total.labels(model=model, tier=tier).inc(cost)
     return cost

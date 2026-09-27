@@ -956,6 +956,8 @@ Label sets stay low-cardinality: `{organization, category, priority, model_tier,
 
 **Cost accounting (R21.6):** a config price table `{model: {input_per_m, output_per_m}}` converts token counts to `cost_estimate` per draft, aggregated per email / category / day. This is what makes SC9 answerable.
 
+A model missing from the price table yields `cost_estimate = NULL`, never `0`: an unknown cost is not a free call, and SQL aggregates then exclude it visibly instead of under-counting. The draft row and the job's `GENERATING → DRAFTED` transition commit in one transaction (`packages/db/draft_persistence.py`), and a partial unique index on `generated_draft(job_id)` keeps one draft per job across redeliveries (§9).
+
 **Dashboards (R21.7, R21.8):**
 1. **Funnel** — received → no-reply → simple → AI → RAG, as absolute counts and percentages against the 45/20/35 design assumption.
 2. **Latency** — stacked stage breakdown with p50/p95/p99 against NFR1–NFR11.

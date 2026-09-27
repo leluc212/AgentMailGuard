@@ -333,6 +333,37 @@ class PostgresJobStore(JobStore):
         thread_id: UUID | str | None = None,
     ) -> tuple[Job, ProcessingEvent]:
         """Atomically transition job state and record event (R18.3–R18.5)."""
+        async with self.pool.acquire() as conn, conn.transaction():
+            return await self.transition_job_state_on(
+                conn,
+                organization_id=organization_id,
+                job_id=job_id,
+                target_state=target_state,
+                payload=payload,
+                result_ref=result_ref,
+                error_message=error_message,
+                message_id=message_id,
+                thread_id=thread_id,
+            )
+
+    async def transition_job_state_on(
+        self,
+        conn: Any,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        target_state: JobState | str,
+        payload: dict[str, Any] | None = None,
+        result_ref: dict[str, Any] | None = None,
+        error_message: str | None = None,
+        message_id: UUID | str | None = None,
+        thread_id: UUID | str | None = None,
+    ) -> tuple[Job, ProcessingEvent]:
+        """Transition on a caller-owned connection inside the caller's transaction (R18.5).
+
+        Lets a side effect (for example a draft insert) commit or roll back together
+        with the state change and its ``processing_event`` row. The caller must have
+        opened ``conn.transaction()``.
+        """
         org_u = _to_uuid(organization_id)
         job_u = _to_uuid(job_id)
         msg_u = _opt_uuid(message_id)
@@ -375,64 +406,63 @@ class PostgresJobStore(JobStore):
                       state_from, state_to, payload, trace_id, created_at;
         """
 
-        async with self.pool.acquire() as conn, conn.transaction():
-            row = await conn.fetchrow(select_for_update, job_u, org_u)
-            if row is None:
-                raise KeyError(f"Job {job_id} not found for organization {organization_id}")
+        row = await conn.fetchrow(select_for_update, job_u, org_u)
+        if row is None:
+            raise KeyError(f"Job {job_id} not found for organization {organization_id}")
 
-            current_job = self._row_to_job(row)
-            if msg_u is not None:
-                current_job.message_id = msg_u
-            if thd_u is not None:
-                current_job.thread_id = thd_u
+        current_job = self._row_to_job(row)
+        if msg_u is not None:
+            current_job.message_id = msg_u
+        if thd_u is not None:
+            current_job.thread_id = thd_u
 
-            # Execute state machine validation & event generation (R18.3, R18.4)
-            updated_job, event = transition_job(
-                job=current_job,
-                target_state=target_state,
-                payload=payload,
-                trace_id=current_job.trace_id,
-            )
+        # Execute state machine validation & event generation (R18.3, R18.4)
+        updated_job, event = transition_job(
+            job=current_job,
+            target_state=target_state,
+            payload=payload,
+            trace_id=current_job.trace_id,
+        )
 
-            now = datetime.now(UTC)
-            upd_row = await conn.fetchrow(
-                update_query,
-                updated_job.state,
-                now,
-                _to_json_val(result_ref),
-                error_message,
-                msg_u,
-                thd_u,
-                job_u,
-                org_u,
-            )
-            assert upd_row is not None
+        now = datetime.now(UTC)
+        upd_row = await conn.fetchrow(
+            update_query,
+            updated_job.state,
+            now,
+            _to_json_val(result_ref),
+            error_message,
+            msg_u,
+            thd_u,
+            job_u,
+            org_u,
+        )
+        assert upd_row is not None
 
-            final_job = self._row_to_job(upd_row)
-            target_msg_id = final_job.message_id or event.message_id
+        final_job = self._row_to_job(upd_row)
+        target_msg_id = final_job.message_id or event.message_id
 
-            ev_row = await conn.fetchrow(
-                insert_event_query,
-                job_u,
-                _opt_uuid(target_msg_id),
-                org_u,
-                event.state_from,
-                event.state_to,
-                _to_json_val(event.payload),
-                event.trace_id,
-                event.created_at,
-            )
-            assert ev_row is not None
-            persisted_event = self._row_to_event(ev_row)
+        ev_row = await conn.fetchrow(
+            insert_event_query,
+            job_u,
+            _opt_uuid(target_msg_id),
+            org_u,
+            event.state_from,
+            event.state_to,
+            _to_json_val(event.payload),
+            event.trace_id,
+            event.created_at,
+        )
+        assert ev_row is not None
+        persisted_event = self._row_to_event(ev_row)
 
-            logger.info(
-                "Transitioned job %s: %s -> %s (event_id=%s)",
-                job_u,
-                event.state_from,
-                event.state_to,
-                persisted_event.id,
-            )
-            return final_job, persisted_event
+        logger.info(
+            "Transitioned job %s: %s -> %s (event_id=%s)",
+            job_u,
+            event.state_from,
+            event.state_to,
+            persisted_event.id,
+        )
+        return final_job, persisted_event
 
     async def list_events_for_message(
         self,
