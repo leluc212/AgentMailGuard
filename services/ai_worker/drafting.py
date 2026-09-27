@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from packages.core.settings import ModelPricing
 from packages.db.draft_persistence import DraftPersistence
@@ -21,6 +22,12 @@ from packages.llm.budget import CallBudgetTracker
 from packages.llm.drafts import NO_ESCALATION, build_generated_draft
 from packages.llm.generator import SinglePassGenerator
 from packages.llm.protocol import ModelTier
+
+if TYPE_CHECKING:
+    from packages.observability.metrics import PipelineMetrics
+
+UNKNOWN_CATEGORY = "unknown"
+"""Metric label for drafts generated without a classification category."""
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +51,13 @@ class DraftingService:
         job_store: JobStore,
         persistence: DraftPersistence,
         price_table: Mapping[str, ModelPricing],
+        metrics: PipelineMetrics | None = None,
     ) -> None:
         self.generator = generator
         self.job_store = job_store
         self.persistence = persistence
         self.price_table = price_table
+        self.metrics = metrics
 
     async def draft(
         self,
@@ -112,4 +121,24 @@ class DraftingService:
             result, context, job_id=current.id, price_table=self.price_table
         )
         outcome = await self.persistence.persist_drafted(draft)
+        if outcome.created:
+            self._count_generated(outcome.draft, category)
         return DraftingOutcome(draft=outcome.draft, job=outcome.job, created=outcome.created)
+
+    def _count_generated(self, draft: GeneratedDraft, category: str | None) -> None:
+        """Count one generated email and its cost (R21.4, R21.6). Never raises."""
+        metrics: Any = self.metrics
+        if metrics is None:
+            return
+        label = category or UNKNOWN_CATEGORY
+        tier = draft.model_tier or "unknown"
+        try:
+            metrics.emails_generated_total.labels(
+                organization=str(draft.organization_id), category=label, model_tier=tier
+            ).inc()
+            if draft.cost_estimate is not None:
+                metrics.generated_draft_cost_total.labels(category=label, model_tier=tier).inc(
+                    draft.cost_estimate
+                )
+        except Exception:
+            logger.warning("Generated-email metrics emission failed", exc_info=True)

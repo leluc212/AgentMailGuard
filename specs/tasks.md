@@ -509,15 +509,19 @@
   - Left: held at `[~]` until RA.14 turns `make ci` green (DoD #6). The `ai-worker` broker consumer that calls `DraftingService`, and so the retry/DLQ hop from 4.9, is task 4.13; the Phase 4 gate needs it. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs with the cost dashboard (7.4).
   - _Requirements: R16.4, R18.1, R21.6_
 
-- [ ] **4.12 Generation metrics**
+- [~] **4.12 Generation metrics**
   - `generation_latency_ms`, `input_tokens_total`, `output_tokens_total`, `emails_generated_total`, `estimated_ai_cost`, with low-cardinality labels.
   - Record the final assembled context token count on **every** inference request, so context length can be correlated with quality, latency, and cost.
+  - Done: `record_inference` (`packages/llm/inference_metrics.py`) records `llm_context_tokens{kind, tier}` (R11.7), input/output tokens and priced cost on every request through `BudgetedLLMProvider` (generate, repair) and `InstrumentedLLMProvider` (triage wired in `services/triage_worker/main.py`), plus one `llm_inference` JSON log line. `DraftingService` counts `emails_generated_total{organization, category, model_tier}` and `generated_draft_cost_total{category, model_tier}` once per created draft. The generator no longer counts tokens itself. PromQL in `docs/observability.md`.
+  - Left: held at `[~]` until RA.14 turns `make ci` green. Summarizer instrumentation and passing `metrics`/`price_table` into the generator and `DraftingService` happen in the ai-worker composition (4.13). Dashboards: 7.x.
   - _Requirements: R11.7, R21.4, R21.5, R21.6, NFR8_
 
 - [ ] **4.13 AI-worker consumer (generation path end to end)**
   - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosts no consumer, so nothing moves an actionable job past `QUEUED`, and the retry/DLQ hop carried from 4.9 cannot be observed.
   - Consume the lane queues `email.<category>.<priority>` listed in `routing.configured_consumers` (`design.md` §7.1, consumer `ai-worker`) with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml` with a real entrypoint on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), as the other workers use.
   - Per job, in process (`design.md` §3.2 co-locates these in `ai-worker`): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). Take the classification snapshot from the job envelope and never re-classify (`design.md` §7.3). Each email gets its own generation call, never a shared prompt (`design.md` §7.4).
+  - Compose with telemetry (4.12): wrap the summarizer's provider in `InstrumentedLLMProvider(kind=CallKind.SUMMARIZE)`, and pass `metrics` and `settings.llm.price_table` to `SinglePassGenerator` and `DraftingService`, so every request in the worker is measured.
+  - Call `start_token_counter_warmup()` in the worker's `build_components` (as the triage worker does), so the BPE encoding never loads on the event loop. Pass the plain provider to `SinglePassGenerator`, not a pre-built `BudgetedLLMProvider`: a reused wrapper keeps its own `metrics`/`price_table`, so the generator's would be ignored.
   - Ack only after the draft and the `DRAFTED` transition commit. A redelivered job that is already `DRAFTED` is acked without a second generation call.
   - `DraftingService` raises `IllegalStateTransitionError` for a job already past `DRAFTED` (`DISPATCHED`, `COMPLETED`) and for the losing side of two deliveries racing at `CONTEXT_READY`. The consumer must ack and drop those deliveries, never dead-letter an email that was drafted.
   - Failure routing: transient provider errors climb the retry ladder (`GENERATING → RETRY_PENDING → GENERATING`). Decide whether `UnvalidatedDraftError` and `DraftSchemaContractError` are `FatalError` (straight to DLQ) per the 4.9 note, and prove the chosen hop with an integration test (closes 4.9's "Left" item).

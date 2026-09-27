@@ -66,7 +66,9 @@ def test_funnel_metrics_registration(isolated_metrics: PipelineMetrics) -> None:
         organization="org-1", category="marketing", outcome="early_exit", rag_mode="none"
     ).inc()
     m.emails_templated_total.labels(organization="org-1", template_id="ack_v1").inc()
-    m.emails_generated_total.labels(organization="org-1", model_tier="fast").inc()
+    m.emails_generated_total.labels(
+        organization="org-1", category="marketing", model_tier="fast"
+    ).inc()
 
 
 def test_early_exit_gate_metrics_emission_all_outcomes(
@@ -311,7 +313,9 @@ def test_emails_templated_total_exported_alongside_emails_generated_total(
     org = "enterprise-corp"
 
     m.emails_templated_total.labels(organization=org, template_id="ack_v1").inc(12)
-    m.emails_generated_total.labels(organization=org, model_tier="strong").inc(8)
+    m.emails_generated_total.labels(
+        organization=org, category="newsletter", model_tier="strong"
+    ).inc(8)
     m.emails_early_exit_total.labels(
         organization=org, category="newsletter", reason="no_reply"
     ).inc(20)

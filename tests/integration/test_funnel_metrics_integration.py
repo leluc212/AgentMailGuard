@@ -254,7 +254,9 @@ async def test_funnel_metrics_integration_with_postgres(db_pool: asyncpg.Pool) -
     assert stored_j4 is not None and stored_j4.state == JobState.QUEUED
 
     # 3. Simulate an AI generation completion for emails_generated_total
-    metrics.emails_generated_total.labels(organization=str(org_id), model_tier="fast").inc()
+    metrics.emails_generated_total.labels(
+        organization=str(org_id), category="support", model_tier="fast"
+    ).inc()
 
     # 4. Verify Prometheus /metrics exposition payload (R21.4, design.md §10)
     payload_bytes, content_type = generate_metrics_payload(reg)

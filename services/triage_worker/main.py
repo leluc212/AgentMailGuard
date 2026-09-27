@@ -23,7 +23,11 @@ from packages.db.draft import DraftStore, PostgresDraftStore
 from packages.db.job import JobStore, PostgresJobStore
 from packages.db.message import MessageStore, PostgresMessageStore
 from packages.domain.templates import TemplateRegistry
+from packages.llm import InstrumentedLLMProvider
+from packages.llm.budget import CallKind
 from packages.llm.factory import create_llm_provider
+from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.observability.metrics import PipelineMetrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from services.triage_worker.cascade import CascadingTriageEngine
 from services.triage_worker.classifier import MLClassifier
@@ -100,6 +104,7 @@ def build_triage_consumer(
     draft_store: DraftStore,
     connection: AbstractRobustConnection | None = None,
     shutdown_coordinator: GracefulShutdownCoordinator | None = None,
+    metrics: PipelineMetrics | None = None,
 ) -> TriageConsumer:
     """Compose the production TriageConsumer from settings and injected stores."""
     triage_cfg = settings.triage
@@ -116,7 +121,14 @@ def build_triage_consumer(
             "LLM provider is 'fake': Stage 3 triage returns FakeLLMProvider's canned "
             "classification. Set LLM__PROVIDER for real classification."
         )
-    llm_classifier = LLMTriageClassifier(provider=create_llm_provider(settings.llm))
+    llm_classifier = LLMTriageClassifier(
+        provider=InstrumentedLLMProvider(
+            create_llm_provider(settings.llm),
+            kind=CallKind.TRIAGE,
+            metrics=metrics,
+            price_table=settings.llm.price_table,
+        )
+    )
 
     gate = EarlyExitGate(
         job_store=job_store,
@@ -147,6 +159,9 @@ def build_triage_consumer(
 
 
 async def build_components(res: WorkerResources) -> list[StartFn]:
+    # Load the BPE encoding for context-size metrics off the event loop (R11.7): the
+    # download has no timeout and would otherwise freeze the first stage-3 triage request.
+    start_token_counter_warmup()
     consumer = build_triage_consumer(
         res.settings,
         publisher=res.publisher,
@@ -155,6 +170,7 @@ async def build_components(res: WorkerResources) -> list[StartFn]:
         draft_store=PostgresDraftStore(res.db_pool),
         connection=res.connection,
         shutdown_coordinator=res.shutdown,
+        metrics=res.metrics,
     )
     aclose = getattr(consumer.cascade.llm_classifier.provider, "aclose", None)
     if aclose is not None:

@@ -7,10 +7,11 @@ with a single prompt-templated generation call enforcing strict budget tracking.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from packages.core.settings import ModelPricing
 from packages.domain.entities import ContextPackage
 from packages.llm.budget import (
     BudgetedLLMProvider,
@@ -80,10 +81,12 @@ class SinglePassGenerator:
         llm_provider: LLMProvider,
         profile_registry: AgentProfileRegistry,
         metrics: PipelineMetrics | None = None,
+        price_table: Mapping[str, ModelPricing] | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.profile_registry = profile_registry
         self.metrics = metrics
+        self.price_table = price_table
 
     async def generate_draft(
         self,
@@ -157,12 +160,14 @@ class SinglePassGenerator:
                     self.llm_provider.provider,
                     tracker=tracker,
                     metrics=effective_metrics,
+                    price_table=self.price_table,
                 )
         else:
             budgeted = BudgetedLLMProvider(
                 self.llm_provider,
                 tracker=tracker,
                 metrics=effective_metrics,
+                price_table=self.price_table,
             )
 
         # 8. Execute generation. A provider that cannot parse a structured payload at all
@@ -379,24 +384,11 @@ class SinglePassGenerator:
         if count_generate:
             self._guarded(lambda: self._count_call_directly(budgeted, "generate", generate_model))
 
-        # Only observe cost and latency for attempts that actually returned. A call the
-        # provider aborted has unknown timings, and observing a fabricated 0 ms would drag
-        # the latency percentiles down — making failures improve the SLO.
-        if attempts:
-            if hasattr(self.metrics, "generation_latency_ms"):
-                self._guarded(lambda: self._observe_latency(model_label, tier_label, total_latency))
-            if hasattr(self.metrics, "input_tokens_total"):
-                self._guarded(
-                    lambda: self.metrics.input_tokens_total.labels(  # type: ignore[union-attr]
-                        model=model_label, tier=tier_label
-                    ).inc(total_input)
-                )
-            if hasattr(self.metrics, "output_tokens_total"):
-                self._guarded(
-                    lambda: self.metrics.output_tokens_total.labels(  # type: ignore[union-attr]
-                        model=model_label, tier=tier_label
-                    ).inc(total_output)
-                )
+        # Only observe latency for attempts that actually returned; a call the provider
+        # aborted has unknown timings. Tokens and cost are recorded per request by
+        # BudgetedLLMProvider (packages/llm/inference_metrics.py), never here.
+        if attempts and hasattr(self.metrics, "generation_latency_ms"):
+            self._guarded(lambda: self._observe_latency(model_label, tier_label, total_latency))
         if export_budget:
             self._guarded(lambda: tracker.export_metrics(self.metrics))
 

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import inspect
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from packages.core.settings import ModelPricing
+from packages.llm.inference_metrics import instrumented_call
 from packages.llm.protocol import (
     ChatMessage,
     LLMError,
@@ -215,11 +218,13 @@ class BudgetedLLMProvider(LLMProvider):
         tracker: CallBudgetTracker | None = None,
         default_kind: CallKind = CallKind.GENERATE,
         metrics: PipelineMetrics | Any | None = None,
+        price_table: Mapping[str, ModelPricing] | None = None,
     ) -> None:
         self.provider = provider
         self._tracker = tracker if tracker is not None else CallBudgetTracker()
         self.default_kind = default_kind
         self.metrics = metrics
+        self.price_table = price_table
 
     @property
     def tracker(self) -> CallBudgetTracker:
@@ -250,8 +255,12 @@ class BudgetedLLMProvider(LLMProvider):
             CallKind(call_kind) if isinstance(call_kind, str) else (call_kind or self.default_kind)
         )
         self.tracker.check_can_call(kind)
-        result = await self.provider.generate(
+        result = await instrumented_call(
+            self.provider,
+            kind=kind.value,
             messages=messages,
+            metrics=self.metrics,
+            price_table=self.price_table,
             schema=schema,
             tier=tier,
             max_tokens=max_tokens,

@@ -42,6 +42,11 @@ class StructuredJSONFormatter(logging.Formatter):
             val = getattr(record, key, None) or context.get(key)
             payload[key] = str(val) if val is not None else None
 
+        # Structured event fields: logger.info("event", extra={"fields": {...}}) (R21.3)
+        fields = getattr(record, "fields", None)
+        if isinstance(fields, dict) and fields:
+            payload["fields"] = fields
+
         # Caller location
         payload["location"] = {
             "module": record.module,

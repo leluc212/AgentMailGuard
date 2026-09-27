@@ -948,11 +948,13 @@ email.lifecycle (root)
 └── dispatch.send
 ```
 
-**Metrics (R21.4):** counters `emails_received_total`, `emails_classified_total`, `emails_templated_total`, `emails_generated_total`, `failed_jobs_total`, `retry_jobs_total`, `input_tokens_total`, `output_tokens_total`, `embedding_tokens_total`, `estimated_ai_cost_total`, `llm_calls_total{kind}`, `retrieval_underfilled_total`; histograms `classification_latency_ms`, `retrieval_latency_ms`, `rerank_latency_ms`, `generation_latency_ms`, `end_to_end_latency_ms`, `queue_wait_ms`, `llm_calls_per_job`; gauges `queue_depth`, `retrieval_hit_rate`, `retrieval_top_k`.
+**Metrics (R21.4):** counters `emails_received_total`, `emails_classified_total`, `emails_templated_total`, `emails_generated_total`, `failed_jobs_total`, `retry_jobs_total`, `input_tokens_total`, `output_tokens_total`, `embedding_tokens_total`, `estimated_ai_cost_total`, `generated_draft_cost_total`, `llm_calls_total{kind}`, `retrieval_underfilled_total`; histograms `classification_latency_ms`, `retrieval_latency_ms`, `rerank_latency_ms`, `generation_latency_ms`, `end_to_end_latency_ms`, `queue_wait_ms`, `llm_calls_per_job`, `llm_context_tokens`; gauges `queue_depth`, `retrieval_hit_rate`, `retrieval_top_k`.
 
 Cost is a **monotonic counter**, not a gauge — a gauge cannot be summed over a window, which is exactly what SC9 (cost per generated email) requires. Same for `llm_calls_total`; the per-job histogram is what proves the R14.9 budget holds.
 
 Label sets stay low-cardinality: `{organization, category, priority, model_tier, decided_by}`. Never label with `message_id`.
+
+`llm_context_tokens{kind, tier}` is observed on every inference request, failed ones included, from the messages actually sent (R11.7); the per-request `llm_inference` log line carries the same size with the job's correlation ids so it can be joined to draft quality.
 
 **Cost accounting (R21.6):** a config price table `{model: {input_per_m, output_per_m}}` converts token counts to `cost_estimate` per draft, aggregated per email / category / day. This is what makes SC9 answerable.
 

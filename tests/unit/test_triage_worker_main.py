@@ -18,8 +18,12 @@ from packages.db.draft import InMemoryDraftStore
 from packages.db.job import InMemoryJobStore
 from packages.db.message import InMemoryMessageStore
 from packages.domain.entities import EmailAddress, Job, NormalizedMessage
+from packages.domain.rules import EmailContext
 from packages.domain.state_machine import JobState
+from packages.llm import InstrumentedLLMProvider
+from packages.llm.budget import CallKind
 from packages.llm.fake import FakeLLMProvider
+from packages.observability.metrics import create_pipeline_metrics
 from services.triage_worker.classifier import MLClassifier
 from services.triage_worker.consumer import TriageConsumer
 from services.triage_worker.main import (
@@ -74,7 +78,10 @@ def test_build_wires_components_from_settings(repo_cwd: Path) -> None:
     assert consumer.cascade.rule_engine.rules_path == Path(settings.triage.rules_path)
     assert consumer.cascade.rule_engine.rules_count > 0
     assert isinstance(consumer.cascade.ml_classifier, MLClassifier)
-    assert isinstance(consumer.cascade.llm_classifier.provider, FakeLLMProvider)
+    provider = consumer.cascade.llm_classifier.provider
+    assert isinstance(provider, InstrumentedLLMProvider)
+    assert provider.kind == CallKind.TRIAGE
+    assert isinstance(provider.provider, FakeLLMProvider)
     assert consumer.cascade.gate is consumer.gate
     assert consumer.job_store is job_store and consumer.gate.job_store is job_store
     assert consumer.gate.draft_store is draft_store
@@ -189,3 +196,46 @@ async def test_build_components_returns_consumer_start(repo_cwd: Path) -> None:
     consumer = start.__self__
     assert isinstance(consumer, TriageConsumer)
     assert consumer.queue_name == settings.broker.queue_triage
+
+
+async def test_triage_llm_requests_are_instrumented(repo_cwd: Path) -> None:
+    """R11.7: the stage-3 triage call records its context size like every other request."""
+    metrics = create_pipeline_metrics()
+    settings = _settings()
+    consumer = build_triage_consumer(
+        settings,
+        publisher=_publisher(),
+        job_store=InMemoryJobStore(),
+        message_store=InMemoryMessageStore(),
+        draft_store=InMemoryDraftStore(),
+        metrics=metrics,
+    )
+
+    await consumer.cascade.llm_classifier.classify(
+        EmailContext(subject="Question", body_text="Can you help?", sender_email="a@x.com")
+    )
+
+    samples = [
+        s
+        for metric in metrics.llm_context_tokens.collect()
+        for s in metric.samples
+        if s.name == "llm_context_tokens_count" and s.labels["kind"] == "triage"
+    ]
+    assert sum(s.value for s in samples) == 1
+    provider = consumer.cascade.llm_classifier.provider
+    assert isinstance(provider, InstrumentedLLMProvider)
+    assert provider.price_table == settings.llm.price_table
+
+
+async def test_build_components_starts_token_counter_warmup(
+    repo_cwd: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The BPE encoding loads off the event loop at startup, not on the first request."""
+    import services.triage_worker.main as triage_main
+
+    started: list[bool] = []
+    monkeypatch.setattr(triage_main, "start_token_counter_warmup", lambda: started.append(True))
+
+    await build_components(fake_worker_resources(_settings()))
+
+    assert started == [True]

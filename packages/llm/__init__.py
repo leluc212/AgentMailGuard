@@ -31,6 +31,7 @@ from packages.llm.generator import (
     GenerationResult,
     SinglePassGenerator,
 )
+from packages.llm.instrumented import InstrumentedLLMProvider
 from packages.llm.profile import (
     AgentProfile,
     AgentProfileRegistry,
@@ -87,6 +88,7 @@ __all__ = [
     "FakeLLMProvider",
     "GenerationResult",
     "HttpLLMProvider",
+    "InstrumentedLLMProvider",
     "LLMError",
     "LLMProvider",
     "LLMResponseError",
