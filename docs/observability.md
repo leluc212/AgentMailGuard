@@ -104,7 +104,7 @@ ratio is the share of drafts containing at least one ungrounded citation.
 
 #### Generation cost, context size and latency (R11.7, R21.4–R21.6, NFR8)
 
-Every model request (triage, summarize, generate, repair) passes through one helper,
+Every model request (triage, summarize, generate, repair) passes through one helper (triage is wired today; summarize, generate and repair are wired in the ai-worker composition, task 4.13),
 `packages/llm/inference_metrics.py::record_inference`. It observes `llm_context_tokens`,
 adds provider-reported tokens to `input_tokens_total` / `output_tokens_total`, adds priced
 cost to `estimated_ai_cost_total`, and writes one JSON log line `llm_inference` whose

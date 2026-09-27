@@ -117,6 +117,7 @@ All configuration in `rag-email` is read from environment variables (or local `.
 | `LLM__ANTHROPIC_BASE_URL` | `string` | `https://api.anthropic.com/v1` | URL | Anthropic Claude API base endpoint |
 | `LLM__LOCAL_BASE_URL` | `string` | `http://localhost:11434/v1` | URL | OpenAI-compatible local model server base endpoint |
 | `LLM__LOCAL_API_KEY` | `string` | `ollama` | Non-empty | API key for local endpoint |
+| `LLM__PRICE_TABLE` | `JSON object` | the four models below | `{model: {input_per_m, output_per_m}}`, USD per 1M tokens, each `≥ 0` | Replaces the **whole** price table (not merged). Keys must match the model names providers report (e.g. `LLM__FAST_MODEL`); a local model (`LLM__PROVIDER=local`) needs its own entry (R21.6) |
 
 **Cost Accounting Table (R21.6):**
 The system maintains a configurable per-model price table to convert token usage to estimated inference costs per draft:
@@ -128,6 +129,8 @@ price_table = {
     "text-embedding-3-small": {"input_per_m": 0.02, "output_per_m": 0.00},
 }
 ```
+
+A model with no entry in the table has an **unknown** cost, not a free one: its tokens are still counted, `estimated_ai_cost_total` and `generated_draft_cost_total` are not incremented, `generated_draft.cost_estimate` is stored as `NULL`, and a warning is logged per request. Add every model you route to, including local ones.
 
 ### 2.7 Hybrid Retrieval Parameters (`RETRIEVAL__*`)
 *Reciprocal Rank Fusion and cross-encoder reranking (R10, R11).*

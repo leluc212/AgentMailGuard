@@ -141,3 +141,28 @@ async def test_broken_metrics_do_not_block_the_draft() -> None:
     outcome = await service.draft(job, _context(job.organization_id), category="support")
 
     assert outcome.created is True
+
+
+async def test_created_draft_writes_one_draft_persisted_log_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """DoD #5 (R21.3): the persistence step emits a structured log line; redelivery does not."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="services.ai_worker.drafting")
+    service, job = await _service(create_pipeline_metrics(), PRICED)
+    context = _context(job.organization_id)
+
+    first = await service.draft(job, context, category="support")
+    await service.draft(job, context, category="support")
+
+    lines = [r for r in caplog.records if r.getMessage() == "draft_persisted"]
+    assert len(lines) == 1
+    fields = lines[0].__dict__["fields"]
+    assert fields["draft_id"] == str(first.draft.id)
+    assert fields["job_id"] == str(job.id)
+    assert fields["category"] == "support"
+    assert fields["model_tier"] == first.draft.model_tier
+    assert fields["cost_estimate"] == first.draft.cost_estimate
+    assert fields["citation_mismatch"] is first.draft.citation_mismatch
+    assert "body" not in fields

@@ -375,53 +375,53 @@
 
 *Discovered missing work (GEMINI.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
 
-> **Status (2026-09-27): RA.1–RA.13 held at `[~]`.** All thirteen are implemented and pass the RA gate (evidence below), but DoD #6 ("CI green") is not met: repository-wide `make lint` / `make ci` fail on a baseline that predates this block. **Flip RA.1–RA.13 to `[x]` only when RA.14 is `[x]`.**
+> **Status (2026-09-27): RA.1–RA.14 done.** `make ci` is green (evidence below); RA.14 removed the pre-existing lint/format baseline that had held RA.1–RA.13 at `[~]`.
 
-- [~] **RA.1 Production import path free of dev-only modules**
+- [x] **RA.1 Production import path free of dev-only modules**
   - No production module imports pytest, `tests`, or `evaluation`; a subprocess import walk proves it.
   - _Requirements: R20.1_
 
-- [~] **RA.2 Integration tests isolated from the running stack**
+- [x] **RA.2 Integration tests isolated from the running stack**
   - Dedicated vhost and database reset per session; guards reject vhost `/` and database `rag_email`.
   - _Requirements: R24.4 (partial: dedicated vhost/database on the shared dev servers, not ephemeral containers)_
 
-- [~] **RA.3 Retry ladder returns messages to their origin exchange**
+- [x] **RA.3 Retry ladder returns messages to their origin exchange**
   - `retry.return` headers exchange with alternate exchange `dlx.email`; one-time migration target for existing retry queues.
   - _Requirements: R3.5, R19.5 (partial: fixed retry tiers, no jitter), R19.6_
 
-- [~] **RA.4 Unparseable deliveries dead-lettered verbatim**
+- [x] **RA.4 Unparseable deliveries dead-lettered verbatim**
   - _Requirements: R3.5, R3.3_
 
-- [~] **RA.5 Unroutable publishes raise; consumers resume after reconnect; failed acks never duplicate**
+- [x] **RA.5 Unroutable publishes raise; consumers resume after reconnect; failed acks never duplicate**
   - _Requirements: R3.1, R3.3, R7.1_
 
-- [~] **RA.6 Graceful drain: stop consuming → drain in-flight → close**
+- [x] **RA.6 Graceful drain: stop consuming → drain in-flight → close**
   - _Requirements: R20.8, R3.3_
 
-- [~] **RA.7 API publish paths never report lost work as success**
+- [x] **RA.7 API publish paths never report lost work as success**
   - Replay routes via the queue→exchange resolver or refuses; upload returns 503 and compensates when it cannot enqueue.
   - _Requirements: R18.7, R23.7, R9.1_
 
-- [~] **RA.8 Shared worker runtime; topology declared at startup; R5.10 check hosted**
+- [x] **RA.8 Shared worker runtime; topology declared at startup; R5.10 check hosted**
   - _Requirements: R3.2, R20.7, R20.8, R5.10_
 
-- [~] **RA.9 Triage worker entrypoint**
+- [x] **RA.9 Triage worker entrypoint**
   - _Requirements: R6.1, R6.2, R6.5, R7.1, R3.4_
 
-- [~] **RA.10 Mail connector entrypoint and background jobs**
+- [x] **RA.10 Mail connector entrypoint and background jobs**
   - Sync consumer, subscription renewal, queue monitor; lease reaper hosted but disabled by default.
   - _Requirements: R2.1, R2.10, R2.11, R7.5, R19.8 (partial: hosted but disabled by default), R23.6_
 
-- [~] **RA.11 Production image from the lockfile with every runtime asset**
+- [x] **RA.11 Production image from the lockfile with every runtime asset**
   - _Requirements: R20.1, R24.1_
 
-- [~] **RA.12 Compose wiring: commands, init job, readiness healthchecks, drain grace**
+- [x] **RA.12 Compose wiring: commands, init job, readiness healthchecks, drain grace**
   - _Requirements: R20.1, R20.7, R20.8, R3.2_
 
-- [~] **RA.13 Live-stack smoke check and documentation**
+- [x] **RA.13 Live-stack smoke check and documentation**
   - _Requirements: R24.7 (partial: ingestion → triage), R20.1_
 
-- [ ] **RA.14 Restore a green lint baseline (unblocks `[x]` on RA.1–RA.13)**
+- [x] **RA.14 Restore a green lint baseline (unblocks `[x]` on RA.1–RA.13)**
   - Pre-existing failures (audit finding A09 in `artifacts/superpowers/2026-09-26-audit-register.md`), re-measured 2026-09-27; none were introduced by RA.1–RA.13.
   - `uv run mypy packages services tests evaluation` → 14 errors in 6 test files: `tests/unit/test_queue_metrics.py` (4), `tests/integration/test_queue_metrics_integration.py` (3), `tests/unit/test_draft_repair_orchestration.py` (3), `tests/unit/test_citation_verification_generation.py` (2), `tests/unit/test_thread_context_assembly.py` (1), `tests/integration/test_thread_context_assembly_postgres.py` (1).
   - `uv run ruff format --check .` → 40 files: 31 Python files (`packages/` 15, `services/api` 1, `tests/` 15) and 9 Markdown files under `docs/` whose code blocks ruff also formats. List them with `uv run ruff format --check .`.
@@ -431,7 +431,7 @@
 
 > **RA gate:** `make up` builds images from HEAD, and api, mail-connector, email-worker, triage-worker and knowledge-worker all report ready. `mail.sync.requested`, `email.normalize`, `email.triage` and `knowledge.ingest` each have ≥1 consumer. `make smoke` does three things: it drives a billing email through normalize → triage into `email.billing.*`; it drives a no-reply newsletter to `COMPLETED` with zero AI work; and it sends a cross-tenant sync request to `email.dead_letter` with its reason. `uv run pytest tests/integration` passes without touching vhost `/` or database `rag_email`.
 >
-> **Gate evidence (2026-09-27):** `make smoke` → SMOKE OK; `uv run pytest tests/unit` → 1202 passed; `uv run pytest tests/integration` → 140 passed (vhost/database `rag_email_test`). **DoD #6 caveat:** repository-wide `make lint` was already red before this block (14 mypy errors in 6 pre-existing test files; 40 files fail `ruff format --check`, re-measured 2026-09-27). RA tasks added no new errors (targeted mypy/ruff on every touched file). Fixing that baseline is task **RA.14** (audit finding A09); RA.1–RA.13 stay `[~]` until it is `[x]`.
+> **Gate evidence (2026-09-27):** `make smoke` → SMOKE OK; `uv run pytest tests/unit` → 1202 passed; `uv run pytest tests/integration` → 140 passed (vhost/database `rag_email_test`). **DoD #6 caveat:** repository-wide `make lint` was already red before this block (14 mypy errors in 6 pre-existing test files; 40 files fail `ruff format --check`, re-measured 2026-09-27). RA tasks added no new errors (targeted mypy/ruff on every touched file). Fixing that baseline was task **RA.14** (audit finding A09), which held RA.1–RA.13 at `[~]` until it closed. **CI green (2026-09-27, RA.14):** `make ci` → exit 0 (`ruff format --check .` clean with `*.md` out of the formatter's scope; `ruff check .` clean; strict mypy clean on packages, services, tests and evaluation; unit 1260 passed; integration 149 passed).
 
 ---
 
@@ -502,18 +502,21 @@
   - Note: the flag is produced but not yet persisted — `generated_draft.citation_mismatch` and `.citations` are written by task 4.11, which must persist `verdict.citations` rather than `content["knowledge_chunks"]`. The Grafana panel for the rate belongs to task 7.4.
   - _Requirements: R16.5_
 
-- [~] **4.11 Draft persistence**
+- [x] **4.11 Draft persistence**
   - Persist body, citations, model, tier, escalation reason, prompt version, token counts, estimated cost.
   - Transition `GENERATING → DRAFTED`.
   - Done: `DraftingService` (`services/ai_worker/drafting.py`) moves `CONTEXT_READY → GENERATING`, makes the one generation call, builds the record (`packages/llm/drafts.py`: verified citations from `CitationVerdict`, escalation reason or `none`, `Re:` subject, cost from `packages/core/pricing.py`) and persists it with `GENERATING → DRAFTED` in one transaction (`packages/db/draft_persistence.py`). Migration `0004` enforces one draft per job; a redelivered `DRAFTED` job returns its draft without a second generation. An unpriced model stores `cost_estimate = NULL`.
-  - Left: held at `[~]` until RA.14 turns `make ci` green (DoD #6). The `ai-worker` broker consumer that calls `DraftingService`, and so the retry/DLQ hop from 4.9, is task 4.13; the Phase 4 gate needs it. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs with the cost dashboard (7.4).
+  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES: every requirement was traced to code and a test (unit 1260, integration 149). DoD #3 and #5 were checked statically only, because no running worker calls `DraftingService` until 4.13. The audit added a `draft_persisted` JSON log line on save and documented `LLM__PRICE_TABLE` plus the unpriced-model `NULL` rule (DoD #4, #5).
+  - Owned elsewhere: the `ai-worker` broker consumer that calls `DraftingService`, and with it the retry/DLQ hop from 4.9, is task 4.13. Per-draft cost *aggregation* per email / category / day (R21.6) is a query over `generated_draft.cost_estimate` and belongs to 7.3, with its panel in 7.4. The "Draft persistence < 50 ms" target (NFR9) is recorded in 7.2.
+  - Before the next `make up` on an existing dev DB: migration `0004` adds a one-draft-per-job unique index, which fails if an old template-path crash ever left two drafts for one job. Run `SELECT job_id, count(*) FROM generated_draft WHERE job_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1` once. On 2026-09-27 the DB held 3 drafts and no duplicates.
   - _Requirements: R16.4, R18.1, R21.6_
 
-- [~] **4.12 Generation metrics**
+- [x] **4.12 Generation metrics**
   - `generation_latency_ms`, `input_tokens_total`, `output_tokens_total`, `emails_generated_total`, `estimated_ai_cost`, with low-cardinality labels.
   - Record the final assembled context token count on **every** inference request, so context length can be correlated with quality, latency, and cost.
   - Done: `record_inference` (`packages/llm/inference_metrics.py`) records `llm_context_tokens{kind, tier}` (R11.7), input/output tokens and priced cost on every request through `BudgetedLLMProvider` (generate, repair) and `InstrumentedLLMProvider` (triage wired in `services/triage_worker/main.py`), plus one `llm_inference` JSON log line. `DraftingService` counts `emails_generated_total{organization, category, model_tier}` and `generated_draft_cost_total{category, model_tier}` once per created draft. The generator no longer counts tokens itself. PromQL in `docs/observability.md`.
-  - Left: held at `[~]` until RA.14 turns `make ci` green. Summarizer instrumentation and passing `metrics`/`price_table` into the generator and `DraftingService` happen in the ai-worker composition (4.13). Dashboards: 7.x.
+  - Closed 2026-09-27 after a completion audit (`make ci` green via RA.14). The audit verdict was PASS WITH NOTES, and it added a 5000 ms `generation_latency_ms` bucket so the NFR8 1–5 s limit is read at a real bucket edge. "Every inference request" (R11.7) is fully true only once 4.13 wires the summarizer and generator. 4.13 carries that wiring and a test proving it.
+  - Owned elsewhere: dashboards are 7.4. Tokens of an unparseable first response that a repair then fixes are uncounted (7.3). `llm_calls_total` does not count triage calls yet (7.2).
   - _Requirements: R11.7, R21.4, R21.5, R21.6, NFR8_
 
 - [ ] **4.13 AI-worker consumer (generation path end to end)**
@@ -521,6 +524,7 @@
   - Consume the lane queues `email.<category>.<priority>` listed in `routing.configured_consumers` (`design.md` §7.1, consumer `ai-worker`) with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml` with a real entrypoint on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), as the other workers use.
   - Per job, in process (`design.md` §3.2 co-locates these in `ai-worker`): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). Take the classification snapshot from the job envelope and never re-classify (`design.md` §7.3). Each email gets its own generation call, never a shared prompt (`design.md` §7.4).
   - Compose with telemetry (4.12): wrap the summarizer's provider in `InstrumentedLLMProvider(kind=CallKind.SUMMARIZE)`, and pass `metrics` and `settings.llm.price_table` to `SinglePassGenerator` and `DraftingService`, so every request in the worker is measured.
+  - Prove the wiring with a composed-worker test: one actionable job through the built components moves `llm_context_tokens{kind="generate"}` and `emails_generated_total`, and `llm_context_tokens{kind="summarize"}` when the thread crosses the summarization threshold (R11.7).
   - Call `start_token_counter_warmup()` in the worker's `build_components` (as the triage worker does), so the BPE encoding never loads on the event loop. Pass the plain provider to `SinglePassGenerator`, not a pre-built `BudgetedLLMProvider`: a reused wrapper keeps its own `metrics`/`price_table`, so the generator's would be ignored.
   - Ack only after the draft and the `DRAFTED` transition commit. A redelivered job that is already `DRAFTED` is acked without a second generation call.
   - `DraftingService` raises `IllegalStateTransitionError` for a job already past `DRAFTED` (`DISPATCHED`, `COMPLETED`) and for the losing side of two deliveries racing at `CONTEXT_READY`. The consumer must ack and drop those deliveries, never dead-letter an email that was drafted.
@@ -628,10 +632,12 @@
 
 - [ ] **7.2 Complete metric coverage**
   - Every metric named in R21.4, with latency as histograms supporting p50/p95/p99 and low-cardinality labels only.
-  - _Requirements: R21.4, R21.5_
+  - Include the "Draft persistence < 50 ms" target (NFR9, proposal latency table): a draft-persistence latency histogram, or the `draft.persist` span from 7.1, measured against it. Count triage calls in `llm_calls_total{kind="triage"}` (today only generate and repair are counted there).
+  - _Requirements: R21.4, R21.5, NFR9_
 
 - [ ] **7.3 Cost accounting**
   - Config price table per model; per-inference cost, aggregated per email, per category, per day.
+  - Count the billed tokens of a first generation whose response could not be parsed (`LLMSchemaValidationError` carries no usage today; carry it from `packages/llm/client.py` and `packages/llm/anthropic.py`), so a repaired draft's cost includes both calls.
   - _Requirements: R21.6_
 
 - [ ] **7.4 Grafana dashboards**

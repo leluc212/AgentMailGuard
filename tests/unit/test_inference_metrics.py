@@ -248,3 +248,19 @@ def test_warmup_runs_once_off_the_calling_thread(monkeypatch: pytest.MonkeyPatch
     assert second is first
     assert _RecordingCounter.built_on == [first.name]
     assert first.name != threading.current_thread().name
+
+
+def test_generation_latency_has_a_bucket_at_the_nfr8_limit() -> None:
+    """NFR8 (LLM generation 1-5 s): p95 > 5000 ms must be read at a real bucket edge."""
+    from packages.observability.metrics import GENERATION_BUCKETS
+
+    assert 1000.0 in GENERATION_BUCKETS
+    assert 5000.0 in GENERATION_BUCKETS
+    m = create_pipeline_metrics()
+    m.generation_latency_ms.labels(model="model-a", tier="routine").observe(4500)
+    assert (
+        m.registry.get_sample_value(
+            "generation_latency_ms_bucket", {"model": "model-a", "tier": "routine", "le": "5000.0"}
+        )
+        == 1
+    )
