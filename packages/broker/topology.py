@@ -14,7 +14,9 @@ from aio_pika.abc import (
     AbstractExchange,
     AbstractQueue,
 )
+from aio_pika.exceptions import ChannelPreconditionFailed
 
+from packages.broker.publisher import RETRY_ORIGIN_EXCHANGE_HEADER, RETRY_TIER_SUFFIXES
 from packages.broker.routing import (
     is_queue_consumed,
     load_categories_from_yaml,
@@ -27,6 +29,18 @@ from packages.core.settings import (
 from packages.domain.taxonomy import get_default_registry
 
 logger = logging.getLogger(__name__)
+
+
+class RetryTopologyMigrationError(RuntimeError):
+    """A retry queue exists on the broker with outdated arguments (RabbitMQ 406)."""
+
+    def __init__(self, queue_name: str) -> None:
+        super().__init__(
+            f"Retry queue '{queue_name}' exists with outdated arguments (queue arguments are "
+            "immutable in RabbitMQ). Run `make broker-migrate-retry` once to delete the empty "
+            "old retry queues, then start the stack again."
+        )
+        self.queue_name = queue_name
 
 
 @dataclass(frozen=True)
@@ -113,11 +127,39 @@ async def setup_topology(
 
     # Retry tier fanout exchanges (preserves routing key on TTL dead-letter redelivery)
     retry_tier_fanout_exchanges: dict[str, AbstractExchange] = {}
-    for tier_suffix in ["30s", "5m", "30m"]:
+    for tier_suffix in RETRY_TIER_SUFFIXES:
         fanout_name = f"{b_cfg.exchange_retry}.{tier_suffix}"
         ex = await channel.declare_exchange(fanout_name, aio_pika.ExchangeType.FANOUT, durable=True)
         exchanges[fanout_name] = ex
         retry_tier_fanout_exchanges[tier_suffix] = ex
+
+    # Retry return exchange (design.md §7.2): expired retry messages are dead-lettered here,
+    # keeping their original routing key and headers, and routed back to the exchange named
+    # in the retry-origin-exchange header. Unmatched messages go to the alternate exchange
+    # (dlx.email) instead of being dropped.
+    retry_return = await channel.declare_exchange(
+        b_cfg.exchange_retry_return,
+        aio_pika.ExchangeType.HEADERS,
+        durable=True,
+        arguments={"alternate-exchange": b_cfg.exchange_dlx},
+    )
+    exchanges[b_cfg.exchange_retry_return] = retry_return
+
+    retry_origin_exchanges = (
+        b_cfg.exchange_mail_ingest,
+        b_cfg.exchange_email_process,
+        b_cfg.exchange_email_triage,
+        b_cfg.exchange_email_route,
+        b_cfg.exchange_email_dispatch,
+        b_cfg.exchange_knowledge_ingest,
+    )
+    for origin_name in retry_origin_exchanges:
+        # destination.bind(source): messages flow retry.return -> origin exchange
+        await exchanges[origin_name].bind(
+            retry_return,
+            routing_key="",
+            arguments={"x-match": "all", RETRY_ORIGIN_EXCHANGE_HEADER: origin_name},
+        )
 
     # -------------------------------------------------------------------------
     # 2. Queue Common Arguments (Quorum queue support per R3.9)
@@ -179,22 +221,31 @@ async def setup_topology(
     # 4. Declare Retry Queues with TTL + DLX (design.md §7.2)
     # -------------------------------------------------------------------------
     # Delays: 30s (30,000ms), 5m (300,000ms), 30m (1,800,000ms)
-    retry_tiers = [
-        ("30s", r_cfg.tier_1_delay_s * 1000),
-        ("5m", r_cfg.tier_2_delay_s * 1000),
-        ("30m", r_cfg.tier_3_delay_s * 1000),
-    ]
+    retry_tiers = list(
+        zip(
+            RETRY_TIER_SUFFIXES,
+            (
+                r_cfg.tier_1_delay_s * 1000,
+                r_cfg.tier_2_delay_s * 1000,
+                r_cfg.tier_3_delay_s * 1000,
+            ),
+            strict=True,
+        )
+    )
 
     for tier_suffix, ttl_ms in retry_tiers:
         queue_name = f"email.retry.{tier_suffix}"
         retry_args: dict[str, Any] = {
             "x-message-ttl": ttl_ms,
-            "x-dead-letter-exchange": b_cfg.exchange_email_route,
+            "x-dead-letter-exchange": b_cfg.exchange_retry_return,
         }
         if b_cfg.use_quorum_queues:
             retry_args["x-queue-type"] = "quorum"
 
-        q_retry = await channel.declare_queue(queue_name, durable=True, arguments=retry_args)
+        try:
+            q_retry = await channel.declare_queue(queue_name, durable=True, arguments=retry_args)
+        except ChannelPreconditionFailed as exc:
+            raise RetryTopologyMigrationError(queue_name) from exc
 
         # Bind to direct retry.email exchange
         await q_retry.bind(exchanges[b_cfg.exchange_retry], routing_key=f"retry.{tier_suffix}")

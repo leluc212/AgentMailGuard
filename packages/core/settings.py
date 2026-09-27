@@ -8,6 +8,7 @@ Implements requirements:
 """
 
 import os
+import re
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
@@ -44,6 +45,11 @@ class DatabaseSettings(BaseModel):
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
 
 
+# Category routing queues bound on the topic exchange: email.<category>.<lane>
+# (packages/broker/topology.py category bindings; lanes per CategoryRoutingSettings defaults).
+_CATEGORY_QUEUE_RE = re.compile(r"email\.[a-z0-9_]+\.(?:normal|priority)")
+
+
 class BrokerSettings(BaseModel):
     """RabbitMQ messaging topology configuration (R3.1, R3.8, R7.1)."""
 
@@ -78,6 +84,14 @@ class BrokerSettings(BaseModel):
     exchange_dlx: str = Field(
         default="dlx.email", description="Topic exchange for terminal dead-lettering"
     )
+    exchange_retry_return: str = Field(
+        default="retry.return",
+        description=(
+            "Headers exchange that expired retry messages dead-letter into; it routes each "
+            "message back to its origin exchange via the retry-origin-exchange header "
+            "(design.md §7.2)"
+        ),
+    )
 
     # Legacy/convenience aliases
     email_exchange: str = Field(
@@ -109,6 +123,28 @@ class BrokerSettings(BaseModel):
         """Construct AMQP connection URL."""
         vhost_part = self.vhost.lstrip("/")
         return f"amqp://{self.user}:{self.password}@{self.host}:{self.port}/{vhost_part}"
+
+    def exchange_for_queue(self, queue_name: str | None) -> str | None:
+        """Return the exchange whose binding delivers ``queue_name`` as routing key.
+
+        Mirrors the bindings declared by ``packages.broker.topology.setup_topology``.
+        Returns ``None`` for unknown, retry, or dead-letter queues, so callers refuse to
+        publish instead of emitting a message the broker would drop as unroutable.
+        """
+        if not queue_name:
+            return None
+        direct_bindings = {
+            self.queue_mail_sync: self.exchange_mail_ingest,
+            self.queue_normalize: self.exchange_email_process,
+            self.queue_triage: self.exchange_email_triage,
+            self.queue_dispatch: self.exchange_email_dispatch,
+            self.queue_knowledge: self.exchange_knowledge_ingest,
+        }
+        if queue_name in direct_bindings:
+            return direct_bindings[queue_name]
+        if _CATEGORY_QUEUE_RE.fullmatch(queue_name):
+            return self.exchange_email_route
+        return None
 
 
 class ObjectStorageSettings(BaseModel):
@@ -275,6 +311,10 @@ class TriageSettings(BaseModel):
     ml_model_path: str = Field(
         default="artifacts/models/triage_ml_v1.joblib",
         description="Path to trained ML classifier model artifact (R6.1)",
+    )
+    templates_path: str = Field(
+        default="config/templates.yaml",
+        description="Path to declarative response templates YAML (R6.13, R6.14)",
     )
 
     @model_validator(mode="after")
@@ -481,7 +521,14 @@ class SubscriptionRenewalSettings(BaseModel):
 class LeaseReaperSettings(BaseModel):
     """Lease reaper configuration for recovering stuck jobs (R19.8, design.md §9)."""
 
-    enabled: bool = Field(default=True, description="Enable background lease reaper task")
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the background lease reaper in mail-connector. Off by default: leases are "
+            "not yet cleared on completion and processing_job.queue_name is not yet written, so "
+            "enabling it would re-drive parked jobs (see RA.10 notes)"
+        ),
+    )
     lease_timeout_s: int = Field(
         default=300, ge=10, description="Lease duration in seconds before a job is considered stuck"
     )

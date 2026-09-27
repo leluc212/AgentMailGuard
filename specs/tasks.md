@@ -371,6 +371,70 @@
 
 ---
 
+# Runtime Assembly & Delivery Safety (inserted 2026-09-26, before resuming Phase 4)
+
+*Discovered missing work (GEMINI.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
+
+> **Status (2026-09-27): RA.1–RA.13 held at `[~]`.** All thirteen are implemented and pass the RA gate (evidence below), but DoD #6 ("CI green") is not met: repository-wide `make lint` / `make ci` fail on a baseline that predates this block. **Flip RA.1–RA.13 to `[x]` only when RA.14 is `[x]`.**
+
+- [~] **RA.1 Production import path free of dev-only modules**
+  - No production module imports pytest, `tests`, or `evaluation`; a subprocess import walk proves it.
+  - _Requirements: R20.1_
+
+- [~] **RA.2 Integration tests isolated from the running stack**
+  - Dedicated vhost and database reset per session; guards reject vhost `/` and database `rag_email`.
+  - _Requirements: R24.4 (partial: dedicated vhost/database on the shared dev servers, not ephemeral containers)_
+
+- [~] **RA.3 Retry ladder returns messages to their origin exchange**
+  - `retry.return` headers exchange with alternate exchange `dlx.email`; one-time migration target for existing retry queues.
+  - _Requirements: R3.5, R19.5 (partial: fixed retry tiers, no jitter), R19.6_
+
+- [~] **RA.4 Unparseable deliveries dead-lettered verbatim**
+  - _Requirements: R3.5, R3.3_
+
+- [~] **RA.5 Unroutable publishes raise; consumers resume after reconnect; failed acks never duplicate**
+  - _Requirements: R3.1, R3.3, R7.1_
+
+- [~] **RA.6 Graceful drain: stop consuming → drain in-flight → close**
+  - _Requirements: R20.8, R3.3_
+
+- [~] **RA.7 API publish paths never report lost work as success**
+  - Replay routes via the queue→exchange resolver or refuses; upload returns 503 and compensates when it cannot enqueue.
+  - _Requirements: R18.7, R23.7, R9.1_
+
+- [~] **RA.8 Shared worker runtime; topology declared at startup; R5.10 check hosted**
+  - _Requirements: R3.2, R20.7, R20.8, R5.10_
+
+- [~] **RA.9 Triage worker entrypoint**
+  - _Requirements: R6.1, R6.2, R6.5, R7.1, R3.4_
+
+- [~] **RA.10 Mail connector entrypoint and background jobs**
+  - Sync consumer, subscription renewal, queue monitor; lease reaper hosted but disabled by default.
+  - _Requirements: R2.1, R2.10, R2.11, R7.5, R19.8 (partial: hosted but disabled by default), R23.6_
+
+- [~] **RA.11 Production image from the lockfile with every runtime asset**
+  - _Requirements: R20.1, R24.1_
+
+- [~] **RA.12 Compose wiring: commands, init job, readiness healthchecks, drain grace**
+  - _Requirements: R20.1, R20.7, R20.8, R3.2_
+
+- [~] **RA.13 Live-stack smoke check and documentation**
+  - _Requirements: R24.7 (partial: ingestion → triage), R20.1_
+
+- [ ] **RA.14 Restore a green lint baseline (unblocks `[x]` on RA.1–RA.13)**
+  - Pre-existing failures (audit finding A09 in `artifacts/superpowers/2026-09-26-audit-register.md`), re-measured 2026-09-27; none were introduced by RA.1–RA.13.
+  - `uv run mypy packages services tests evaluation` → 14 errors in 6 test files: `tests/unit/test_queue_metrics.py` (4), `tests/integration/test_queue_metrics_integration.py` (3), `tests/unit/test_draft_repair_orchestration.py` (3), `tests/unit/test_citation_verification_generation.py` (2), `tests/unit/test_thread_context_assembly.py` (1), `tests/integration/test_thread_context_assembly_postgres.py` (1).
+  - `uv run ruff format --check .` → 40 files: 31 Python files (`packages/` 15, `services/api` 1, `tests/` 15) and 9 Markdown files under `docs/` whose code blocks ruff also formats. List them with `uv run ruff format --check .`.
+  - Fix type errors at their cause (no blanket `# type: ignore`); formatting changes must not alter behaviour. Decide whether `docs/**/*.md` belongs in ruff's scope (exclude it in `pyproject.toml`, or format it).
+  - **Done when:** `make ci` (`fmt-check lint test-unit test-integration`) passes. Then flip RA.1–RA.13 to `[x]` and add the date to the gate evidence note below.
+  - _Requirements: R24.2; requirements.md §0.3 DoD #6 (CI green)_
+
+> **RA gate:** `make up` builds images from HEAD, and api, mail-connector, email-worker, triage-worker and knowledge-worker all report ready. `mail.sync.requested`, `email.normalize`, `email.triage` and `knowledge.ingest` each have ≥1 consumer. `make smoke` does three things: it drives a billing email through normalize → triage into `email.billing.*`; it drives a no-reply newsletter to `COMPLETED` with zero AI work; and it sends a cross-tenant sync request to `email.dead_letter` with its reason. `uv run pytest tests/integration` passes without touching vhost `/` or database `rag_email`.
+>
+> **Gate evidence (2026-09-27):** `make smoke` → SMOKE OK; `uv run pytest tests/unit` → 1202 passed; `uv run pytest tests/integration` → 140 passed (vhost/database `rag_email_test`). **DoD #6 caveat:** repository-wide `make lint` was already red before this block (14 mypy errors in 6 pre-existing test files; 40 files fail `ruff format --check`, re-measured 2026-09-27). RA tasks added no new errors (targeted mypy/ruff on every touched file). Fixing that baseline is task **RA.14** (audit finding A09); RA.1–RA.13 stay `[~]` until it is `[x]`.
+
+---
+
 # Phase 4 — Context & Generation
 
 *Deliverable: email + thread + RAG → generated draft.*
@@ -448,7 +512,17 @@
   - Record the final assembled context token count on **every** inference request, so context length can be correlated with quality, latency, and cost.
   - _Requirements: R11.7, R21.4, R21.5, R21.6, NFR8_
 
-> **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED`; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
+- [ ] **4.13 AI-worker consumer (generation path end to end)**
+  - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosts no consumer, so nothing moves an actionable job past `QUEUED`, and the retry/DLQ hop carried from 4.9 cannot be observed.
+  - Consume the lane queues `email.<category>.<priority>` listed in `routing.configured_consumers` (`design.md` §7.1, consumer `ai-worker`) with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml` with a real entrypoint on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), as the other workers use.
+  - Per job, in process (`design.md` §3.2 co-locates these in `ai-worker`): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). Take the classification snapshot from the job envelope and never re-classify (`design.md` §7.3). Each email gets its own generation call, never a shared prompt (`design.md` §7.4).
+  - Ack only after the draft and the `DRAFTED` transition commit. A redelivered job that is already `DRAFTED` is acked without a second generation call.
+  - Failure routing: transient provider errors climb the retry ladder (`GENERATING → RETRY_PENDING → GENERATING`). Decide whether `UnvalidatedDraftError` and `DraftSchemaContractError` are `FatalError` (straight to DLQ) per the 4.9 note, and prove the chosen hop with an integration test (closes 4.9's "Left" item).
+  - Worker-kill test (`design.md` §9): kill the worker mid-generation → redelivery → exactly one `generated_draft` row.
+  - Extend `make smoke` so an actionable email reaches `DRAFTED` through the live stack.
+  - _Requirements: R3.3, R3.4, R3.7, R7.3, R16.3, R18.1, R19.3, R19.5, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
+
+> **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED` through the `ai-worker` consumer (4.13); a draft that fails validation twice reaches the path 4.13 chose (retry ladder or DLQ) with no draft persisted; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
 
 ---
 

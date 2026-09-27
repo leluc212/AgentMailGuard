@@ -23,17 +23,15 @@ from packages.broker.prompt_safety import (
 )
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import BrokerSettings
+from packages.core.settings import AppSettings, BrokerSettings
 from packages.llm.fake import FakeLLMProvider
 from packages.llm.protocol import ChatMessage
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 
 
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for testing."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -54,7 +52,7 @@ class LiveBatchWorker(BaseBatchConsumer):
         broker_settings: BrokerSettings | None = None,
         publisher: MessagePublisher | None = None,
     ) -> None:
-        b_cfg = broker_settings or BrokerSettings()
+        b_cfg = broker_settings or AppSettings().broker
         super().__init__(
             queue_name=queue_name,
             broker_settings=b_cfg,
@@ -104,7 +102,7 @@ async def test_live_amqp_worker_micro_batching_and_prompt_isolation(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify live RabbitMQ micro-batch pulling and prompt isolation (R3.6, R3.7)."""
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     await setup_topology(broker_channel, broker_settings=b_cfg)
 
     queue_name = "email.support.normal"
@@ -196,7 +194,7 @@ async def test_live_amqp_partial_batch_timeout_flushing(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify partial batches flush cleanly upon timeout when fewer than N items arrive."""
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     await setup_topology(broker_channel, broker_settings=b_cfg)
 
     queue_name = "email.billing.normal"

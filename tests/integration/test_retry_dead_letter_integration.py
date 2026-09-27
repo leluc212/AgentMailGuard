@@ -22,13 +22,11 @@ from packages.broker.consumer import BaseConsumer, TransientError
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import AppSettings, BrokerSettings, RetryLadderSettings
+from packages.core.settings import AppSettings, RetryLadderSettings
 from packages.db.connection import create_pool_from_settings
 from packages.db.job import PostgresJobStore
 from packages.domain.entities import Job
 from packages.domain.state_machine import JobState
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 
 
 @pytest.fixture
@@ -45,7 +43,7 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for broker tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -72,7 +70,7 @@ async def test_live_retry_ladder_generating_to_retry_pending_and_recovery(
     """Verify live PostgreSQL + RabbitMQ retry lifecycle (R19.5, R18.2).
     GENERATING -> RETRY_PENDING -> GENERATING.
     """
-    b_settings = BrokerSettings()
+    b_settings = AppSettings().broker
     await setup_topology(broker_channel, b_settings)
 
     test_queue = "email.billing.priority"
@@ -209,7 +207,7 @@ async def test_live_exhausted_retries_transition_failed_and_dead_letter(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify live retry exhaustion transitions FAILED -> DEAD_LETTER with headers (R19.6, R3.5)."""
-    b_settings = BrokerSettings()
+    b_settings = AppSettings().broker
     await setup_topology(broker_channel, b_settings)
 
     test_queue = "email.billing.priority"

@@ -14,8 +14,8 @@ from packages.retrieval import (
     FakeSearchBackend,
     RetrievalQuery,
     SearchBackend,
-    SearchBackendContractSuite,
 )
+from packages.retrieval.testing import SearchBackendContractSuite
 
 
 class TestFakeSearchBackendContract(SearchBackendContractSuite):

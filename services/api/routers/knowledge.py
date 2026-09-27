@@ -9,10 +9,11 @@ Provides:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -93,6 +94,36 @@ def _validate_document_format(filename: str, content_type: str | None) -> None:
     )
 
 
+async def _compensate_failed_enqueue(
+    *,
+    knowledge_store: Any,
+    storage_client: Any,
+    bucket: str,
+    new_doc: KnowledgeDocument,
+    previous: KnowledgeDocument | None,
+    reason: str,
+) -> None:
+    """Undo an upload whose ingestion job could not be enqueued (R9.10, R23.7).
+
+    - New document: keep the row but mark it ``failed`` with the reason, so it is visible
+      and can be re-uploaded via ``document_id``.
+    - Re-ingest: restore the previous row (status/version/object_key) so an ``active``
+      document stays searchable, and remove the orphaned new-version object.
+    """
+    try:
+        if previous is None:
+            await knowledge_store.update_document_status(
+                new_doc.organization_id, new_doc.id, status="failed", failure_reason=reason
+            )
+            return
+        await knowledge_store.insert_document(previous)
+        if new_doc.object_key and new_doc.object_key != previous.object_key:
+            with contextlib.suppress(Exception):
+                await storage_client.delete_object(bucket, new_doc.object_key)
+    except Exception:
+        logger.exception("Failed to compensate un-enqueued upload for document %s", new_doc.id)
+
+
 @knowledge_router.post(
     "",
     summary="Upload Knowledge Document",
@@ -100,6 +131,8 @@ def _validate_document_format(filename: str, content_type: str | None) -> None:
         "Upload a knowledge document for asynchronous ingestion per R23.7, R23.2, and R5.8. "
         "Saves original file to object storage, creates a database tracking record in 'pending' "
         "state, and dispatches a job to the 'knowledge.ingest' queue."
+        " Returns 503 INGEST_ENQUEUE_FAILED (document marked failed, or the previous version "
+        "restored on re-ingest) when the ingestion job cannot be enqueued."
     ),
     status_code=status.HTTP_202_ACCEPTED,
     response_model=DocumentUploadResponse,
@@ -158,6 +191,7 @@ async def upload_document(
         },
     ):
         # 3. Resolve document identity and target version (R9.8)
+        existing: KnowledgeDocument | None = None
         if document_id is not None:
             existing = await knowledge_store.get_document(org_id, document_id)
             if existing is None:
@@ -245,7 +279,10 @@ async def upload_document(
             },
         )
 
-        if publisher is not None:
+        enqueue_error: str | None = None
+        if publisher is None:
+            enqueue_error = "Message broker publisher is not available"
+        else:
             try:
                 await publisher.publish(
                     exchange_name=settings.broker.exchange_knowledge_ingest,
@@ -253,11 +290,28 @@ async def upload_document(
                     envelope=envelope,
                 )
             except Exception as exc:
-                logger.warning(
-                    "AMQP job publish deferred or failed for document %s: %s",
-                    doc_id,
-                    exc,
-                )
+                enqueue_error = f"Ingestion job publish failed: {exc}"
+
+        if enqueue_error is not None:
+            logger.error("Could not enqueue ingestion for document %s: %s", doc_id, enqueue_error)
+            await _compensate_failed_enqueue(
+                knowledge_store=knowledge_store,
+                storage_client=storage_client,
+                bucket=bucket,
+                new_doc=saved_doc,
+                previous=existing,
+                reason=enqueue_error,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": (
+                        f"Document stored but ingestion could not be enqueued: {enqueue_error}"
+                    ),
+                    "code": "INGEST_ENQUEUE_FAILED",
+                    "document_id": str(doc_id),
+                },
+            )
 
         logger.info(
             "Document %s (v%d) uploaded successfully for org %s; enqueued job %s",

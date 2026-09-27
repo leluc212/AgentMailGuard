@@ -24,7 +24,7 @@ from aio_pika.abc import AbstractChannel
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import AppSettings, BrokerSettings
+from packages.core.settings import AppSettings
 from packages.core.storage import StorageProtocol
 from packages.db.connection import create_pool_from_settings
 from packages.db.message import PostgresMessageStore
@@ -91,7 +91,7 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     conn = await aio_pika.connect_robust(settings.url)
     channel = await conn.channel()
     await setup_topology(channel, settings)
@@ -129,7 +129,7 @@ async def test_normalization_failure_persists_and_dead_letters(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify corrupted email persists with normalization_failed=true and routes to DLQ."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     storage = InMemoryTestStorage()
     msg_store = PostgresMessageStore(db_pool)
     thd_store = PostgresThreadStore(db_pool)
@@ -221,7 +221,7 @@ async def test_multi_tenant_normalization_mixed_scenarios(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify >= 3 tenants handling corrupted, valid, and duplicate email payloads."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     storage = InMemoryTestStorage()
     msg_store = PostgresMessageStore(db_pool)
     thd_store = PostgresThreadStore(db_pool)

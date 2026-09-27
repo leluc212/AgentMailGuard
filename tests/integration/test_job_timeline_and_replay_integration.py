@@ -24,7 +24,7 @@ from httpx import ASGITransport, AsyncClient
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import AppSettings, BrokerSettings
+from packages.core.settings import AppSettings
 from packages.db.connection import create_pool_from_settings
 from packages.db.job import PostgresJobStore
 from packages.db.message import PostgresMessageStore
@@ -32,8 +32,6 @@ from packages.db.thread import PostgresThreadStore
 from packages.domain.entities import EmailAddress, EmailThread, Job, NormalizedMessage
 from packages.domain.state_machine import JobState
 from services.api.main import create_app
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 
 
 @pytest.fixture
@@ -50,7 +48,7 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for broker tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -64,7 +62,7 @@ def api_app(db_pool: asyncpg.Pool, broker_channel: AbstractChannel) -> FastAPI:
     """Create test FastAPI application connected to live PostgreSQL and RabbitMQ."""
     app = create_app(lifespan_enabled=False)
     app.state.db_pool = db_pool
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     app.state.publisher = MessagePublisher(broker_settings=b_cfg, channel=broker_channel)
     return app
 
@@ -238,7 +236,7 @@ async def test_live_operator_replay_postgresql_and_rabbitmq(
 
     await _seed_org_mailbox_thread_message(db_pool, org_id, mbx_id, thd_id, msg_id)
 
-    b_settings = BrokerSettings()
+    b_settings = AppSettings().broker
     await setup_topology(broker_channel, b_settings)
 
     # Purge destination queue to start clean
@@ -322,3 +320,41 @@ async def test_live_operator_replay_postgresql_and_rabbitmq(
         assert envelope.payload["reason"] == "Operator cleared downstream outage"
     finally:
         await msg.ack()
+
+
+@pytest.mark.asyncio
+async def test_live_replay_normalize_job_routes_via_email_process(
+    db_pool: asyncpg.Pool, broker_channel: AbstractChannel, client: AsyncClient
+) -> None:
+    b_settings = AppSettings().broker
+    await setup_topology(broker_channel, b_settings)
+    # Private probe queue observes the publish without depending on any consumer.
+    probe = await broker_channel.declare_queue("", exclusive=True, auto_delete=True)
+    await probe.bind(b_settings.exchange_email_process, routing_key=b_settings.queue_normalize)
+
+    org_id, mbx_id, thd_id, msg_id, job_id = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    await _seed_org_mailbox_thread_message(db_pool, org_id, mbx_id, thd_id, msg_id)
+    await PostgresJobStore(db_pool).create_job(
+        Job(
+            id=job_id,
+            organization_id=org_id,
+            message_id=msg_id,
+            thread_id=thd_id,
+            job_type="email_pipeline",
+            state=JobState.DEAD_LETTER.value,
+            queue_name=b_settings.queue_normalize,
+            idempotency_key=f"idem-replay-norm-{job_id}",
+        )
+    )
+
+    resp = await client.post(
+        f"/v1/jobs/{job_id}/replay",
+        headers={"X-Organization-ID": str(org_id)},
+        json={"reason": "it"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["routing_key"] == "email.normalize"
+
+    msg = await probe.get(no_ack=True, fail=False, timeout=5)
+    assert msg is not None
+    assert JobEnvelope.model_validate_json(msg.body).job_id == str(job_id)

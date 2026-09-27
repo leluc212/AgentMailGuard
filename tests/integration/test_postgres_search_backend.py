@@ -30,8 +30,8 @@ from packages.retrieval import (
     PostgresSearchBackend,
     RetrievalQuery,
     SearchBackend,
-    SearchBackendContractSuite,
 )
+from packages.retrieval.testing import SearchBackendContractSuite
 
 
 @pytest.fixture

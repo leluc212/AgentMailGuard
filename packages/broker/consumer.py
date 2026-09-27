@@ -23,7 +23,7 @@ from aio_pika.abc import (
 
 from packages.broker.backoff import resolve_retry_tier_delay
 from packages.broker.envelope import JobEnvelope
-from packages.broker.publisher import MessagePublisher
+from packages.broker.publisher import MessagePublisher, resolve_origin_exchange
 from packages.broker.retry import (
     handle_job_recovery,
     handle_job_terminal_failure,
@@ -87,7 +87,11 @@ class BaseConsumer(ABC):
         self._is_consuming: bool = False
 
         if self.shutdown_coordinator is not None:
-            self.shutdown_coordinator.register_drain_callback(self.stop)
+            # R20.8 ordering: stop new deliveries during drain, but keep the channel open so
+            # in-flight jobs can still ack/publish retries on it; close it only in cleanup,
+            # after the coordinator has waited for tracked jobs.
+            self.shutdown_coordinator.register_drain_callback(self.stop_consuming)
+            self.shutdown_coordinator.register_cleanup_callback(self.close)
 
     @abstractmethod
     async def process_job(
@@ -118,6 +122,51 @@ class BaseConsumer(ABC):
         """Calculate delay in seconds for the given retry attempt tier (R3.4, R7.2)."""
         return resolve_retry_tier_delay(attempt, self.retry_settings)
 
+    async def _dead_letter_unparseable(
+        self, message: AbstractIncomingMessage, parse_err: Exception
+    ) -> None:
+        """Dead-letter an unparseable delivery with its raw body, then ack (R3.5).
+
+        Never acks without a successful dead-letter publish: on publish failure the message
+        is requeued so it is not lost.
+        """
+        reason = f"EnvelopeParseError: {type(parse_err).__name__}: {parse_err}"
+        logger.error("Failed to parse JobEnvelope on queue '%s': %s", self.queue_name, parse_err)
+        try:
+            if self._publisher is None:
+                raise RuntimeError("consumer publisher is not initialised")
+            await self._publisher.publish_raw_to_dead_letter(
+                message=message,
+                failure_reason=reason,
+                origin_exchange=resolve_origin_exchange(message, self.broker_settings),
+                origin_routing_key=message.routing_key or self.queue_name,
+            )
+        except Exception:
+            logger.exception(
+                "Could not dead-letter unparseable message on '%s'; requeueing", self.queue_name
+            )
+            await message.nack(requeue=True)
+            return
+        await message.ack()
+
+    async def _ack_or_warn(self, message: AbstractIncomingMessage, envelope: JobEnvelope) -> bool:
+        """Ack a delivery; if the ack itself fails (channel lost), log and return False (R3.3).
+
+        Never publishes anything: the broker redelivers the unacked message on its own, so a
+        retry published here would process the job twice.
+        """
+        try:
+            await message.ack()
+        except Exception as ack_err:
+            logger.warning(
+                "Ack failed for job %s on queue '%s' (%s); the broker will redeliver it",
+                envelope.job_id,
+                self.queue_name,
+                ack_err,
+            )
+            return False
+        return True
+
     async def start(self) -> None:
         """Connect, configure prefetch QoS, and start consuming messages (R3.3, R3.4)."""
         if self._is_consuming:
@@ -127,7 +176,7 @@ class BaseConsumer(ABC):
         if self._connection is None or self._connection.is_closed:
             self._connection = await aio_pika.connect_robust(self.broker_settings.url)
 
-        self._channel = await self._connection.channel()
+        self._channel = await self._connection.channel(on_return_raises=True)
 
         # Enforce bounded prefetch QoS per consumer (R3.4)
         await self._channel.set_qos(prefetch_count=self.prefetch_count)
@@ -140,46 +189,86 @@ class BaseConsumer(ABC):
             broker_settings=self.broker_settings,
             connection=self._connection,
             channel=self._channel,
+            retry_settings=self.retry_settings,
         )
 
-        self._queue = await self._channel.get_queue(self.queue_name, ensure=False)
+        # Passive declare: fails if the topology was never declared (R3.2), and on a
+        # RobustChannel registers the queue so consuming resumes after a reconnect.
+        self._queue = await self._channel.declare_queue(self.queue_name, passive=True)
 
         # Start consuming with manual acknowledgement (no_ack=False, R3.3)
         self._consumer_tag = await self._queue.consume(self._handle_message, no_ack=False)
         self._is_consuming = True
         logger.info("Consumer started on queue '%s' (tag=%s)", self.queue_name, self._consumer_tag)
 
-    async def stop(self) -> None:
-        """Cancel subscription and gracefully close channels."""
+    async def stop_consuming(self) -> None:
+        """Cancel the broker subscription so no new deliveries arrive (R20.8 drain step).
+
+        The channel stays open: RabbitMQ requires acks on the channel that received the
+        delivery, and closing it would cancel in-flight callbacks. Idempotent.
+        """
         if not self._is_consuming:
             return
+        self._is_consuming = False
 
-        if self._queue and self._consumer_tag:
+        if self._queue is not None and self._consumer_tag is not None:
             try:
                 await self._queue.cancel(self._consumer_tag)
             except Exception as err:
                 logger.warning("Error cancelling consumer tag %s: %s", self._consumer_tag, err)
 
-        if self._channel and not self._channel.is_closed:
-            await self._channel.close()
+        logger.info(
+            "Consumer cancelled on queue '%s'; channel kept open for in-flight acks",
+            self.queue_name,
+        )
 
-        if not self._external_conn and self._connection and not self._connection.is_closed:
+    async def close(self) -> None:
+        """Close the channel and owned connection (R20.8 cleanup step). Idempotent.
+
+        Call only after in-flight jobs have drained: closing the channel makes aiormq cancel
+        any consumer callback still running and makes RabbitMQ requeue its unacked delivery.
+        """
+        await self.stop_consuming()
+        await self._await_local_drain()
+
+        if self._channel is not None and not self._channel.is_closed:
+            try:
+                await self._channel.close()
+            except Exception as err:
+                logger.warning("Error closing channel for queue '%s': %s", self.queue_name, err)
+
+        if (
+            not self._external_conn
+            and self._connection is not None
+            and not self._connection.is_closed
+        ):
             await self._connection.close()
 
-        self._is_consuming = False
-        logger.info("Consumer stopped on queue '%s'", self.queue_name)
+        logger.info("Consumer closed on queue '%s'", self.queue_name)
+
+    async def stop(self) -> None:
+        """Backwards-compatible stop: cancel the subscription, then close immediately.
+
+        Does not wait for in-flight jobs; register with a GracefulShutdownCoordinator for that.
+        """
+        await self.close()
+
+    async def _await_local_drain(self) -> None:
+        """Hook: wait for work buffered inside this consumer before the channel closes.
+
+        BaseConsumer buffers nothing (each delivery runs in its own callback task).
+        """
+        return None
 
     async def _handle_message(self, message: AbstractIncomingMessage) -> None:
         """Handle incoming delivery with manual ack, tracing, and retry ladder coordination."""
         try:
             envelope = JobEnvelope.from_message(message)
         except Exception as parse_err:
-            logger.error("Failed to parse JobEnvelope from message: %s", parse_err)
-            # Cannot parse: route raw rejection to dead letter and ack to clear queue
-            await message.ack()
+            await self._dead_letter_unparseable(message, parse_err)
             return
 
-        origin_exchange = message.exchange or ""
+        origin_exchange = resolve_origin_exchange(message, self.broker_settings)
         origin_routing_key = message.routing_key or self.queue_name
 
         # Record queue wait time metric (R7.5, R21.4)
@@ -238,15 +327,6 @@ class BaseConsumer(ABC):
 
                 # 4. Execute consumer processing
                 await self.process_job(envelope, message)
-
-                # 5. Manual ACK: ONLY after all processing and side effects commit (R3.3)
-                await message.ack()
-                logger.debug(
-                    "Job %s successfully processed and ACKed on queue '%s'",
-                    envelope.job_id,
-                    self.queue_name,
-                )
-
             except Exception as exc:
                 should_retry = self.is_transient_error(exc) and (
                     envelope.attempt < self.retry_settings.max_retries
@@ -266,7 +346,7 @@ class BaseConsumer(ABC):
                         job_store=self.job_store,
                     )
                     # Ack original message so it doesn't block prefetch or queue
-                    await message.ack()
+                    await self._ack_or_warn(message, envelope)
                 else:
                     await handle_job_terminal_failure(
                         envelope=envelope,
@@ -278,4 +358,15 @@ class BaseConsumer(ABC):
                         job_store=self.job_store,
                     )
                     # Ack original message to prevent infinite redelivery
-                    await message.ack()
+                    await self._ack_or_warn(message, envelope)
+                return
+
+            # 5. Manual ACK only after all side effects commit (R3.3). Outside the try: if
+            # the ack itself fails (channel lost), the broker redelivers the unacked message,
+            # so publishing a retry as well would process the job twice.
+            if await self._ack_or_warn(message, envelope):
+                logger.debug(
+                    "Job %s successfully processed and ACKed on queue '%s'",
+                    envelope.job_id,
+                    self.queue_name,
+                )

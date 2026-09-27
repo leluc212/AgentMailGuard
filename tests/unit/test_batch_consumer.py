@@ -463,6 +463,7 @@ class TestBatchFaultIsolation:
         """Invalid JSON message is dead-lettered and ACKed, valid items proceed."""
         mock_publisher = MagicMock(spec=MessagePublisher)
         mock_publisher.publish_to_dead_letter = AsyncMock()
+        mock_publisher.publish_raw_to_dead_letter = AsyncMock()
 
         consumer = DummyBatchConsumer(
             batch_size=2,
@@ -492,10 +493,12 @@ class TestBatchFaultIsolation:
         assert_message_acked(msg_malformed)
         assert_message_acked(msg_valid)
 
-        # Malformed message routed to DLQ
-        mock_publisher.publish_to_dead_letter.assert_awaited_once()
-        dlq_call = mock_publisher.publish_to_dead_letter.call_args[1]
+        # Malformed message routed to DLQ with its original bytes
+        mock_publisher.publish_raw_to_dead_letter.assert_awaited_once()
+        dlq_call = mock_publisher.publish_raw_to_dead_letter.call_args.kwargs
+        assert dlq_call["message"] is msg_malformed
         assert "EnvelopeParseError" in dlq_call["failure_reason"]
+        mock_publisher.publish_to_dead_letter.assert_not_awaited()
         assert consumer.jobs_processed == ["job-valid"]
 
     @pytest.mark.asyncio

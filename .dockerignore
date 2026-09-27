@@ -1,14 +1,28 @@
+# VCS, local envs, caches
 .git
 .venv
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+**/__pycache__
+**/*.py[cod]
 .pytest_cache
 .ruff_cache
 .mypy_cache
-artifacts
-evaluation/results
-evaluation/datasets
-docs
+.coverage
 .DS_Store
+
+# Secrets / host-only settings (AppSettings reads .env from CWD)
+.env
+.env.*
+
+# Not needed at runtime (artifacts/models IS needed)
+artifacts/superpowers
+evaluation
+docs
+tests
+scripts
+e2e_demo
+files.zip
+.agent
+.agents
+.superpowers
+.runtime-feature-audit*
+frontend

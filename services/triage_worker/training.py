@@ -14,7 +14,7 @@ import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -26,8 +26,10 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 
-from evaluation.datasets.loader import load_classification_dataset
-from evaluation.datasets.schemas import ClassificationCategory, ClassificationDatasetItem
+from packages.domain.taxonomy import Category
+
+if TYPE_CHECKING:
+    from evaluation.datasets.schemas import ClassificationDatasetItem
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +179,14 @@ def train_triage_model(
     """
     start_time = time.perf_counter()
 
-    if train_items is None:
-        train_items = load_classification_dataset(split="train")
-    if test_items is None:
-        test_items = load_classification_dataset(split="test")
+    if train_items is None or test_items is None:
+        # Offline-only dependency: evaluation/ ships with the repo, not the runtime image.
+        from evaluation.datasets.loader import load_classification_dataset
+
+        if train_items is None:
+            train_items = load_classification_dataset(split="train")
+        if test_items is None:
+            test_items = load_classification_dataset(split="test")
 
     logger.info("Training on %d items, testing on %d items", len(train_items), len(test_items))
 
@@ -190,7 +196,7 @@ def train_triage_model(
     ]
 
     # Validate all canonical categories represented
-    all_categories = {c.value for c in ClassificationCategory}
+    all_categories = {c.value for c in Category}
     present_categories = set(train_labels)
     missing = all_categories - present_categories
     if missing:

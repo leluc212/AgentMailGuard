@@ -25,20 +25,18 @@ from packages.broker.publisher import MessagePublisher
 from packages.broker.routing import format_routing_key
 from packages.broker.topology import setup_topology
 from packages.core.settings import (
-    BrokerSettings,
+    AppSettings,
     CategoryRoutingSettings,
 )
 from services.triage_worker.cascade import CascadingTriageEngine
 from services.triage_worker.consumer import TriageConsumer
 from services.triage_worker.gate import EarlyExitGate
 
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
-
 
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for testing."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -52,7 +50,7 @@ async def test_setup_topology_declares_category_queues_and_bindings(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify setup_topology declares category and priority queues on email.route (R7.1, R7.2)."""
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     rt_cfg = CategoryRoutingSettings()
 
     topo = await setup_topology(broker_channel, broker_settings=b_cfg, routing_settings=rt_cfg)
@@ -88,7 +86,7 @@ async def test_category_topic_exchange_message_routing(
     broker_channel: AbstractChannel,
 ) -> None:
     """Publish actionable messages to email.route and verify exact queue delivery (R7.1–R7.3)."""
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     await setup_topology(broker_channel, broker_settings=b_cfg)
 
     publisher = MessagePublisher(broker_settings=b_cfg, channel=broker_channel)
@@ -188,7 +186,7 @@ categories:
             encoding="utf-8",
         )
 
-        b_cfg = BrokerSettings()
+        b_cfg = AppSettings().broker
         rt_cfg = CategoryRoutingSettings(
             categories_config_path=str(custom_yaml),
             priority_lanes=["normal", "priority"],
@@ -233,7 +231,7 @@ categories:
             encoding="utf-8",
         )
 
-        b_cfg = BrokerSettings()
+        b_cfg = AppSettings().broker
         # Explicitly configure consumers that do NOT cover unconsumed_service
         rt_cfg = CategoryRoutingSettings(
             categories_config_path=str(custom_yaml),
@@ -272,7 +270,7 @@ async def test_triage_consumer_end_to_end_routing(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify TriageConsumer routes actionable mail to email.<cat>.<prio> (R7.1)."""
-    b_cfg = BrokerSettings()
+    b_cfg = AppSettings().broker
     await setup_topology(broker_channel, broker_settings=b_cfg)
 
     publisher = MessagePublisher(broker_settings=b_cfg, channel=broker_channel)

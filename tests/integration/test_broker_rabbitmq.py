@@ -16,15 +16,13 @@ from packages.broker.consumer import BaseConsumer, FatalError, TransientError
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import BrokerSettings, RetryLadderSettings
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
+from packages.core.settings import AppSettings, RetryLadderSettings
 
 
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -36,7 +34,7 @@ async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
 @pytest.mark.asyncio
 async def test_topology_idempotent_declaration(broker_channel: AbstractChannel) -> None:
     """Verify setup_topology declares all exchanges and queues idempotently (R3.1, R3.2)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     retry_cfg = RetryLadderSettings()
 
     # Run 1: Initial declaration
@@ -85,7 +83,7 @@ async def test_topology_idempotent_declaration(broker_channel: AbstractChannel) 
 @pytest.mark.asyncio
 async def test_persistent_publish_and_manual_ack_consume(broker_channel: AbstractChannel) -> None:
     """Verify persistent message publish, consumption, and manual ACK (R3.1, R3.3)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     await setup_topology(broker_channel, settings)
 
     test_org_id = str(uuid.uuid4())
@@ -106,7 +104,9 @@ async def test_persistent_publish_and_manual_ack_consume(broker_channel: Abstrac
     norm_q = await broker_channel.get_queue(settings.queue_normalize)
     await norm_q.purge()
 
-    consumer = NormalizerConsumer(queue_name=settings.queue_normalize, prefetch_count=5)
+    consumer = NormalizerConsumer(
+        queue_name=settings.queue_normalize, prefetch_count=5, broker_settings=settings
+    )
     await consumer.start()
 
     publisher = MessagePublisher(broker_settings=settings)
@@ -145,7 +145,7 @@ async def test_persistent_publish_and_manual_ack_consume(broker_channel: Abstrac
 @pytest.mark.asyncio
 async def test_transient_failure_routes_to_retry_ladder(broker_channel: AbstractChannel) -> None:
     """Verify transient failures trigger retry ladder routing and metadata (R7.2, R19.5)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     await setup_topology(broker_channel, settings)
 
     test_job_id = str(uuid.uuid4())
@@ -168,7 +168,7 @@ async def test_transient_failure_routes_to_retry_ladder(broker_channel: Abstract
                 self.failed_once = True
                 raise TransientError("Provider API timeout")
 
-    consumer = FailingConsumer(queue_name=settings.queue_normalize)
+    consumer = FailingConsumer(queue_name=settings.queue_normalize, broker_settings=settings)
     await consumer.start()
 
     publisher = MessagePublisher(broker_settings=settings)
@@ -216,7 +216,7 @@ async def test_terminal_failure_routes_to_dead_letter_queue(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify fatal or exhausted failures route to dlx.email / email.dead_letter (R3.5, R19.6)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     await setup_topology(broker_channel, settings)
 
     test_job_id = str(uuid.uuid4())
@@ -231,7 +231,7 @@ async def test_terminal_failure_routes_to_dead_letter_queue(
         ) -> None:
             raise FatalError("Corrupt MIME encoding cannot be parsed")
 
-    consumer = FatalConsumer(queue_name=settings.queue_normalize)
+    consumer = FatalConsumer(queue_name=settings.queue_normalize, broker_settings=settings)
     await consumer.start()
 
     publisher = MessagePublisher(broker_settings=settings)
@@ -276,7 +276,7 @@ async def test_retry_ladder_ttl_and_dlx_redelivery_preserves_routing_key(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify queue TTL expiry dead-letters back to origin exchange with key preserved (R7.2)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     await setup_topology(broker_channel, settings)
 
     test_uid = uuid.uuid4().hex[:8]

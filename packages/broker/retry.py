@@ -174,7 +174,15 @@ async def handle_job_transient_failure(
 
     # 2. Publish to retry ladder with TTL
     retry_envelope = envelope.model_copy(update={"attempt": next_attempt})
-    effective_exchange = origin_exchange or publisher.settings.exchange_email_route
+    # An empty origin (e.g. a publish through the default exchange) is resolved from the
+    # queue bindings; if still unknown, "" matches no retry.return binding, so the message
+    # is dead-lettered via the alternate exchange rather than dropped.
+    effective_exchange = (
+        origin_exchange
+        or publisher.settings.exchange_for_queue(origin_routing_key)
+        or publisher.settings.exchange_for_queue(queue_name)
+        or ""
+    )
 
     await publisher.publish_to_retry(
         envelope=retry_envelope,

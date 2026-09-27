@@ -52,7 +52,6 @@ from packages.llm.router import (
     RoutingDecision,
     count_requested_actions,
 )
-from packages.llm.testing import LLMProviderContractSuite
 from packages.llm.validation import (
     DraftReplyPayload,
     DraftSchemaContractError,
@@ -90,7 +89,6 @@ __all__ = [
     "HttpLLMProvider",
     "LLMError",
     "LLMProvider",
-    "LLMProviderContractSuite",
     "LLMResponseError",
     "LLMResult",
     "LLMSchemaValidationError",

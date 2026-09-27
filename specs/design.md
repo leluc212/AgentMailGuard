@@ -821,14 +821,15 @@ This exists to demonstrate the architectural distinction: RAG answers *"how do w
 | `email.route` | topic | `email.<category>.<priority>` | ai-worker |
 | `email.dispatch` | direct | `email.dispatch` | dispatch-worker |
 | `knowledge.ingest` | direct | `knowledge.ingest` | knowledge-worker |
-| `retry.email` | direct | `email.retry.30s` / `.5m` / `.30m` | (TTL → back to origin) |
+| `retry.email` | direct | `email.retry.30s` / `.5m` / `.30m` | (TTL → retry.return → origin exchange) |
+| `retry.return` | headers (alternate-exchange `dlx.email`) | — (exchange-to-exchange binding to each origin exchange, matched on header `retry-origin-exchange`) | returns expired retries to their origin |
 | `dlx.email` | topic | `email.dead_letter` | operator inspection |
 
 All durable; messages persistent; manual ack; per-consumer `prefetch` (R3.1–R3.4).
 
 ### 7.2 Retry ladder
 
-Failed job → publish to `email.retry.<delay>` with original routing key in headers → queue TTL expires → dead-letters back to the origin exchange. Attempts: 30s, 5m, 30m (configurable). Exhausted → `dlx.email` with `x-failure-reason`, `x-original-routing-key`, `attempt` (R3.5, R19.5, R19.6).
+Failed job → publish to `email.retry.<delay>` with original routing key in headers → queue TTL expires → dead-letters into `retry.return`, which routes it back to the origin exchange named in the `retry-origin-exchange` header (unmatched → `dlx.email`). Attempts: 30s, 5m, 30m (configurable). Exhausted → `dlx.email` with `x-failure-reason`, `x-original-routing-key`, `attempt` (R3.5, R19.5, R19.6).
 
 ### 7.3 Job envelope (every message)
 

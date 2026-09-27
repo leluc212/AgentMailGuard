@@ -113,6 +113,10 @@ class ThreadAssociator:
         """
         org_u = organization_id if isinstance(organization_id, UUID) else UUID(str(organization_id))
         mbx_u = mailbox_id if isinstance(mailbox_id, UUID) else UUID(str(mailbox_id))
+        # A blank provider thread id means "none". Storing "" would collide with the
+        # UNIQUE (organization_id, mailbox_id, provider_thread_id) constraint on the second
+        # unthreaded message in a mailbox; NULL never collides.
+        provider_thread_id = (provider_thread_id or "").strip() or None
         msg_time = received_at or datetime.now(UTC)
         participants = extract_participant_emails(sender, recipients, cc)
         clean_subj = subject_normalized.strip()
@@ -120,8 +124,8 @@ class ThreadAssociator:
         window = timedelta(days=days)
 
         # Tier 1: Provider thread_id
-        if provider_thread_id and provider_thread_id.strip():
-            clean_prov_id = provider_thread_id.strip()
+        if provider_thread_id:
+            clean_prov_id = provider_thread_id
             existing_thread = await self.store.find_by_provider_thread_id(
                 org_u, mbx_u, clean_prov_id
             )

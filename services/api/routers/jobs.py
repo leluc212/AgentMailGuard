@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
@@ -27,6 +27,32 @@ from services.api.schemas.jobs import (
 logger = logging.getLogger("api.jobs")
 
 jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+async def _return_to_dead_letter(
+    job_store: Any, org_id: UUID, job_id: UUID | str, error: str
+) -> None:
+    """Compensate a replay whose publish failed: RETRY_PENDING -> FAILED -> DEAD_LETTER.
+
+    The state machine has no direct RETRY_PENDING -> DEAD_LETTER edge.
+    """
+    payload = {"operator_replay_aborted": True, "reason": error}
+    try:
+        await job_store.transition_job_state(
+            organization_id=org_id,
+            job_id=job_id,
+            target_state=JobState.FAILED,
+            payload=payload,
+            error_message=error,
+        )
+        await job_store.transition_job_state(
+            organization_id=org_id,
+            job_id=job_id,
+            target_state=JobState.DEAD_LETTER,
+            payload=payload,
+        )
+    except Exception:
+        logger.exception("Could not return job %s to DEAD_LETTER after failed replay", job_id)
 
 
 @jobs_router.get(
@@ -171,11 +197,39 @@ async def replay_job(
             },
         )
 
+    # Resolve the redelivery target BEFORE mutating state: an unroutable or unpublishable
+    # replay must leave the job in DEAD_LETTER so the operator can retry it.
+    if publisher is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Message broker publisher is not available; job was not replayed.",
+                "code": "PUBLISHER_UNAVAILABLE",
+            },
+        )
+
+    routing_key = job.queue_name
+    exchange_name = publisher.settings.exchange_for_queue(routing_key)
+    if routing_key is None or exchange_name is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": (
+                    f"Job '{id}' has no routable queue_name ({routing_key!r}); "
+                    "cannot determine a replay destination."
+                ),
+                "code": "JOB_NOT_ROUTABLE",
+                "queue_name": routing_key,
+            },
+        )
+
     previous_state = job.state
     replay_payload = {
         "operator_replay": True,
         "reason": req_body.reason,
         "reset_attempts": req_body.reset_attempts,
+        "exchange": exchange_name,
+        "routing_key": routing_key,
     }
 
     try:
@@ -194,50 +248,49 @@ async def replay_job(
             },
         ) from exc
 
-    # Attempt publishing to message broker if publisher attached to app state
-    republished = False
-    routing_key = replayed_job.queue_name or "email.triage"
+    envelope = JobEnvelope(
+        job_id=str(replayed_job.id),
+        idempotency_key=replayed_job.idempotency_key,
+        job_type=replayed_job.job_type,
+        organization_id=str(replayed_job.organization_id),
+        message_id=str(replayed_job.message_id or ""),
+        thread_id=str(replayed_job.thread_id or ""),
+        attempt=replayed_job.attempt,
+        payload={"replayed": True, "reason": req_body.reason},
+    )
+    try:
+        await publisher.publish(
+            exchange_name=exchange_name,
+            routing_key=routing_key,
+            envelope=envelope,
+        )
+    except Exception as pub_err:
+        error = f"Replay publish to {exchange_name}/{routing_key} failed: {pub_err}"
+        logger.error("Failed to republish replayed job %s: %s", replayed_job.id, error)
+        await _return_to_dead_letter(job_store, org_id, replayed_job.id, error)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": error,
+                "code": "REPLAY_PUBLISH_FAILED",
+                "exchange": exchange_name,
+                "routing_key": routing_key,
+            },
+        ) from pub_err
 
-    if publisher is not None:
-        try:
-            broker_cfg = getattr(publisher, "settings", getattr(publisher, "broker_settings", None))
-            exchange_name = (
-                getattr(broker_cfg, "exchange_email_route", "email.events")
-                if broker_cfg
-                else "email.events"
-            )
-            envelope = JobEnvelope(
-                job_id=str(replayed_job.id),
-                idempotency_key=replayed_job.idempotency_key,
-                job_type=replayed_job.job_type,
-                organization_id=str(replayed_job.organization_id),
-                message_id=str(replayed_job.message_id or ""),
-                thread_id=str(replayed_job.thread_id or ""),
-                attempt=replayed_job.attempt,
-                payload={"replayed": True, "reason": req_body.reason},
-            )
-            await publisher.publish(
-                exchange_name=exchange_name,
-                routing_key=routing_key,
-                envelope=envelope,
-            )
-            republished = True
-            logger.info(
-                "Replayed job %s published to exchange %s with key %s",
-                replayed_job.id,
-                exchange_name,
-                routing_key,
-            )
-        except Exception as pub_err:
-            logger.error("Failed to republish replayed job %s: %s", replayed_job.id, pub_err)
-
+    logger.info(
+        "Replayed job %s published to exchange %s with key %s",
+        replayed_job.id,
+        exchange_name,
+        routing_key,
+    )
     return JobReplayResponse(
         job_id=UUID(str(replayed_job.id)),
         organization_id=UUID(str(replayed_job.organization_id)),
         previous_state=previous_state,
         new_state=replayed_job.state,
         attempt=replayed_job.attempt,
-        republished=republished,
+        republished=True,
         routing_key=routing_key,
         replayed_at=event.created_at,
     )

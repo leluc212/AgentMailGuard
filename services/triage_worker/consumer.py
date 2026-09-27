@@ -11,6 +11,7 @@ import logging
 from uuid import UUID, uuid4
 
 from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
+from aio_pika.exceptions import PublishError
 
 from packages.broker.consumer import BaseConsumer, FatalError
 from packages.broker.envelope import JobEnvelope
@@ -189,11 +190,20 @@ class TriageConsumer(BaseConsumer):
         # Route actionable email jobs downstream (R7.1)
         if decision.action in (GateAction.PROCEED_RAG, GateAction.PROCEED_NO_RAG):
             routing_key, route_envelope = prepare_route_envelope(envelope, decision.classification)
-            await self.publisher.publish(
-                exchange_name=self.route_exchange,
-                routing_key=routing_key,
-                envelope=route_envelope,
-            )
+            try:
+                await self.publisher.publish(
+                    exchange_name=self.route_exchange,
+                    routing_key=routing_key,
+                    envelope=route_envelope,
+                )
+            except PublishError as err:
+                # The gate already committed QUEUED, so a retry would only re-run the cascade
+                # and fail on an illegal transition. No bound queue is a configuration fault:
+                # dead-letter now with a reason that names the key (R3.1, R3.5).
+                raise FatalError(
+                    f"No queue bound for routing key '{routing_key}' on exchange "
+                    f"'{self.route_exchange}': {err}"
+                ) from err
             logger.info(
                 "Actionable job %s published to '%s' with key '%s' (cat=%s, prio=%s)",
                 envelope.job_id,

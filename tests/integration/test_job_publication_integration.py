@@ -19,13 +19,11 @@ from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
 from packages.core.idempotency import derive_idempotency_key
-from packages.core.settings import AppSettings, BrokerSettings, RetryLadderSettings
+from packages.core.settings import AppSettings, RetryLadderSettings
 from packages.db.connection import create_pool_from_settings
 from packages.db.job import PostgresJobStore
 from packages.domain.entities import Classification, Job
 from packages.domain.state_machine import JobState
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 
 
 @pytest.fixture
@@ -42,7 +40,7 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for broker tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -178,7 +176,7 @@ async def test_job_envelope_publication_and_broker_roundtrip(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify JobEnvelope publication to RabbitMQ with snapshot and correlation (R7.3, §7.3)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     await setup_topology(broker_channel, settings, RetryLadderSettings())
 
     publisher = MessagePublisher(broker_settings=settings, channel=broker_channel)

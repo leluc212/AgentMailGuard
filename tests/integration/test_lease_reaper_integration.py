@@ -25,14 +25,12 @@ from packages.broker.envelope import JobEnvelope
 from packages.broker.lease_reaper import LeaseReaper
 from packages.broker.publisher import MessagePublisher
 from packages.broker.topology import setup_topology
-from packages.core.settings import AppSettings, BrokerSettings, LeaseReaperSettings
+from packages.core.settings import AppSettings, LeaseReaperSettings
 from packages.db.connection import create_pool_from_settings
 from packages.db.job import PostgresJobStore
 from packages.domain.entities import Job
 from packages.domain.state_machine import JobState
 from packages.observability.metrics import create_pipeline_metrics
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 
 
 @pytest.fixture
@@ -49,7 +47,7 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 @pytest.fixture
 async def broker_channel() -> AsyncGenerator[AbstractChannel, None]:
     """Provide a dedicated robust connection and channel for broker tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     yield channel
     if not channel.is_closed:
@@ -146,7 +144,7 @@ async def test_live_lease_reaper_full_pipeline_retry_and_dlq(
     - Reclaims exhausted stuck job -> updates DB to DEAD_LETTER -> publishes to DLQ.
     - Leaves active job with valid lease untouched.
     """
-    b_settings = BrokerSettings()
+    b_settings = AppSettings().broker
     await setup_topology(broker_channel, b_settings)
 
     org_id = uuid4()
@@ -214,7 +212,7 @@ async def test_live_lease_reaper_full_pipeline_retry_and_dlq(
     await q_dlq_pre.purge()
 
     # Set up publisher and LeaseReaper
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     channel = await conn.channel()
     publisher = MessagePublisher(
         broker_settings=b_settings,

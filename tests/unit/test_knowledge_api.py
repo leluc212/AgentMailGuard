@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from packages.core.storage import FakeObjectStorageClient
+from packages.core.storage import FakeObjectStorageClient, ObjectKeyBuilder
 from packages.db.knowledge import InMemoryKnowledgeStore
 from packages.domain.knowledge import KnowledgeDocument
 from services.api.main import create_app
@@ -379,3 +379,65 @@ async def test_missing_tenant_header_raises_400(
     response = await client.get("/v1/knowledge/documents")
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "ORGANIZATION_ID_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_upload_publish_failure_returns_503_and_marks_document_failed(
+    client: AsyncClient, test_app: FastAPI, org_a: UUID, mock_publisher: MagicMock
+) -> None:
+    mock_publisher.publish.side_effect = ConnectionError("broker down")
+    response = await client.post(
+        "/v1/knowledge/documents",
+        headers={"X-Organization-ID": str(org_a)},
+        data={"title": "Policy"},
+        files={"file": ("p.md", io.BytesIO(b"# Policy"), "text/markdown")},
+    )
+    assert response.status_code == 503
+    body = response.json()
+    assert body["code"] == "INGEST_ENQUEUE_FAILED"
+    doc_id = UUID(body["detail"]["document_id"])
+    store: InMemoryKnowledgeStore = test_app.state.knowledge_store
+    doc = await store.get_document(org_a, doc_id)
+    assert doc is not None
+    assert doc.status == "failed"
+    assert doc.failure_reason is not None and "broker down" in doc.failure_reason
+
+
+@pytest.mark.asyncio
+async def test_reingest_publish_failure_keeps_previous_active_version(
+    client: AsyncClient, test_app: FastAPI, org_a: UUID, mock_publisher: MagicMock
+) -> None:
+    store: InMemoryKnowledgeStore = test_app.state.knowledge_store
+    doc_id = uuid4()
+    await store.insert_document(
+        KnowledgeDocument(id=doc_id, organization_id=org_a, title="ToS", version=1, status="active")
+    )
+    mock_publisher.publish.side_effect = ConnectionError("broker down")
+    response = await client.post(
+        "/v1/knowledge/documents",
+        headers={"X-Organization-ID": str(org_a)},
+        data={"document_id": str(doc_id)},
+        files={"file": ("tos.md", io.BytesIO(b"# New terms"), "text/markdown")},
+    )
+    assert response.status_code == 503
+    doc = await store.get_document(org_a, doc_id)
+    assert doc is not None and doc.status == "active" and doc.version == 1
+    storage: FakeObjectStorageClient = test_app.state.storage_client
+    orphan_key = ObjectKeyBuilder.knowledge_doc(
+        organization_id=org_a, document_id=doc_id, version=2, filename="tos.md"
+    )
+    assert not await storage.object_exists("knowledge-docs", orphan_key)
+
+
+@pytest.mark.asyncio
+async def test_upload_without_publisher_returns_503(
+    client: AsyncClient, test_app: FastAPI, org_a: UUID
+) -> None:
+    test_app.state.publisher = None
+    response = await client.post(
+        "/v1/knowledge/documents",
+        headers={"X-Organization-ID": str(org_a)},
+        files={"file": ("p.md", io.BytesIO(b"# Policy"), "text/markdown")},
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "INGEST_ENQUEUE_FAILED"

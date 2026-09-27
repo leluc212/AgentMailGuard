@@ -48,6 +48,7 @@ All configuration in `rag-email` is read from environment variables (or local `.
 | `BROKER__EXCHANGE_KNOWLEDGE_INGEST` | `string` | `knowledge.ingest` | Non-empty | Direct exchange for knowledge document ingestion |
 | `BROKER__EXCHANGE_RETRY` | `string` | `retry.email` | Non-empty | Direct exchange for retry delay ladder |
 | `BROKER__EXCHANGE_DLX` | `string` | `dlx.email` | Non-empty | Topic exchange for terminal dead-lettering |
+| `BROKER__EXCHANGE_RETRY_RETURN` | `string` | `retry.return` | Non-empty | Headers exchange that routes expired retries back to their origin exchange (design §7.2) |
 | `BROKER__QUEUE_MAIL_SYNC` | `string` | `mail.sync.requested` | Non-empty | Mail sync requested queue |
 | `BROKER__QUEUE_NORMALIZE` | `string` | `email.normalize` | Non-empty | Email normalization queue |
 | `BROKER__QUEUE_TRIAGE` | `string` | `email.triage` | Non-empty | Email triage queue |
@@ -152,6 +153,7 @@ price_table = {
 | `TRIAGE__SAFE_DEFAULT_PRIORITY` | `string` | `normal` | Non-empty | Fallback priority when all stages fail |
 | `TRIAGE__RULES_PATH` | `string` | `config/triage_rules.yaml` | Valid file path | Path to declarative triage rules YAML (R6.8) |
 | `TRIAGE__ML_MODEL_PATH` | `string` | `artifacts/models/triage_ml_v1.joblib` | Valid file path | Path to trained Stage 2 ML classifier artifact (R6.1) |
+| `TRIAGE__TEMPLATES_PATH` | `string` | `config/templates.yaml` | Valid file path | Deterministic reply templates; the triage worker refuses to start if a template's body file cannot be resolved (R6.13, R6.14) |
 
 ### 2.9 Thread Summarization Thresholds (`SUMMARIZATION__*`)
 *Threshold-triggered conversation context compression (R8.3, R8.4).*
@@ -252,7 +254,7 @@ price_table = {
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
-| `LEASE_REAPER__ENABLED` | `boolean` | `true` | Boolean | Whether background periodic lease reaper is active |
+| `LEASE_REAPER__ENABLED` | `boolean` | `false` | Boolean | Whether background periodic lease reaper is active. Off by default until leases are cleared on completion and `queue_name` is recorded (W3). |
 | `LEASE_REAPER__LEASE_TIMEOUT_S` | `integer` | `300` | $\ge 10$ | Lease timeout in seconds before an active job is considered stuck |
 | `LEASE_REAPER__REAPER_INTERVAL_S` | `float` | `30.0` | $\ge 1.0$ | Interval between periodic reaper sweeps in seconds |
 | `LEASE_REAPER__BATCH_SIZE` | `integer` | `100` | 1–1000 | Maximum number of stuck jobs reclaimed in a single sweep |

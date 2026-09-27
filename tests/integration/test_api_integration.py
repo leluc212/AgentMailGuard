@@ -21,12 +21,6 @@ from services.api.main import create_app
 async def live_api_client() -> AsyncIterator[AsyncClient]:
     """Create an AsyncClient with full application lifespan connected to live database."""
     settings = APISettings()
-    # Configure connection to live PostgreSQL container on port 5433
-    settings.database.host = "localhost"
-    settings.database.port = 5433
-    settings.database.name = "rag_email"
-    settings.database.user = "postgres"
-    settings.database.password = "postgres"
 
     app = create_app(settings=settings, lifespan_enabled=True)
 

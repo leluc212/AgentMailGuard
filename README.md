@@ -10,7 +10,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791.svg)](https://github.com/pgvector/pgvector)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600.svg)](https://www.rabbitmq.com/)
 [![OpenTelemetry](https://img.shields.io/badge/Observability-OpenTelemetry%20%2B%20Prometheus-F5A800.svg)](https://opentelemetry.io/)
-[![Tests](https://img.shields.io/badge/Tests-395%20Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-pytest-brightgreen.svg)]()
 [![Code Style](https://img.shields.io/badge/Code%20Style-Ruff%20%2B%20Mypy%20Strict-black.svg)]()
 
 ---
@@ -256,15 +256,18 @@ git checkout RAG_Email_System
 uv sync
 ```
 
-### 2. Boot Infrastructure Stack
-Boot PostgreSQL (with `pgvector`), RabbitMQ, MinIO, Prometheus, and Grafana:
+### 2. Configure and Boot the Stack
 ```bash
-make up
+cp .env.example .env    # host-side ports match docker-compose (Postgres 5433, MinIO 9010)
+make up                 # builds images from HEAD; `init` applies migrations, buckets and topology
+make smoke              # end-to-end check: ingestion -> normalize -> triage -> routing / DLQ
 ```
+Upgrading an existing stack whose broker was created before 2026-09-26: run
+`make broker-migrate-retry` once before `make up` (retry queues changed their dead-letter
+exchange, and RabbitMQ queue arguments are immutable).
 
-### 3. Run Migrations & Seed Reference Data
+### 3. Seed Reference Data (optional)
 ```bash
-make migrate
 make seed
 ```
 
@@ -273,7 +276,7 @@ Run all unit and multi-tenant integration tests:
 ```bash
 make test
 ```
-*Current test status: 395 passed, 0 failures, 0 regressions.*
+Integration tests run in an isolated vhost/database (`rag_email_test`) and never touch the running stack.
 
 ### 5. Access Management & Telemetry Consoles
 - **API Documentation (OpenAPI / Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -291,7 +294,7 @@ All settings are configured through environment variables or `.env` files using 
 Key settings groups:
 - `DATABASE__*`: PostgreSQL connection parameters and pool size.
 - `BROKER__*`: RabbitMQ URL, exchange topology, and queue names.
-- `STORAGE__*`: MinIO S3 endpoint, bucket names, and credentials.
+- `OBJECT_STORAGE__*`: MinIO/S3 endpoint, bucket names, and credentials.
 - `TRIAGE__*`: Cascade thresholds (`rule_confidence_threshold=0.95`, `ml_confidence_threshold=0.80`, `llm_confidence_threshold=0.70`) and `TRIAGE__RULES_PATH`.
 - `CONCURRENCY__*`: Worker prefetch and task concurrency limits.
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -24,7 +24,7 @@ from aio_pika.abc import (
 
 from packages.broker.consumer import BaseConsumer
 from packages.broker.envelope import JobEnvelope
-from packages.broker.publisher import MessagePublisher
+from packages.broker.publisher import MessagePublisher, resolve_origin_exchange
 from packages.broker.retry import (
     handle_job_recovery,
     handle_job_terminal_failure,
@@ -108,6 +108,10 @@ class BaseBatchConsumer(BaseConsumer):
         self._batch_loop_task: asyncio.Task[None] | None = None
         self._drain_complete: asyncio.Event = asyncio.Event()
 
+        # Upper bound for flushing messages still buffered in _inbound_queue at close() time.
+        # In-flight jobs were already awaited by the shutdown coordinator before close() runs.
+        self.local_drain_timeout_s: float = 5.0
+
     async def start(self) -> None:
         """Connect, configure prefetch QoS, and launch micro-batch consumer loop (R3.4, R3.6)."""
         if self._is_consuming:
@@ -117,16 +121,19 @@ class BaseBatchConsumer(BaseConsumer):
         if self._connection is None or self._connection.is_closed:
             self._connection = await aio_pika.connect_robust(self.broker_settings.url)
 
-        self._channel = await self._connection.channel()
+        self._channel = await self._connection.channel(on_return_raises=True)
         await self._channel.set_qos(prefetch_count=self.prefetch_count)
 
         self._publisher = MessagePublisher(
             broker_settings=self.broker_settings,
             connection=self._connection,
             channel=self._channel,
+            retry_settings=self.retry_settings,
         )
 
-        self._queue = await self._channel.get_queue(self.queue_name, ensure=False)
+        # Passive declare: fails if the topology was never declared (R3.2), and on a
+        # RobustChannel registers the queue so consuming resumes after a reconnect.
+        self._queue = await self._channel.declare_queue(self.queue_name, passive=True)
         self._drain_complete.clear()
 
         # Route inbound deliveries directly to internal queue for batch aggregation
@@ -193,28 +200,7 @@ class BaseBatchConsumer(BaseConsumer):
                         envelope = JobEnvelope.from_message(raw_msg)
                         valid_items.append(BatchItem(envelope=envelope, raw_message=raw_msg))
                     except Exception as parse_err:
-                        logger.error(
-                            "Failed to parse JobEnvelope in batch consumer (%s): %s",
-                            self.queue_name,
-                            parse_err,
-                        )
-                        # Route unparseable message to dead letter and ack immediately
-                        if self._publisher is not None:
-                            try:
-                                await self._publisher.publish_to_dead_letter(
-                                    envelope=JobEnvelope(
-                                        job_id="malformed",
-                                        idempotency_key=f"malformed-{time.time()}",
-                                        job_type="unknown",
-                                        organization_id="00000000-0000-0000-0000-000000000000",
-                                    ),
-                                    failure_reason=f"EnvelopeParseError: {parse_err}",
-                                    origin_routing_key=self.queue_name,
-                                    origin_exchange=raw_msg.exchange or "",
-                                )
-                            except Exception as dlq_err:
-                                logger.error("Failed to dead-letter malformed message: %s", dlq_err)
-                        await raw_msg.ack()
+                        await self._dead_letter_unparseable(raw_msg, parse_err)
 
                 # 4. Dispatch valid batch
                 if valid_items:
@@ -251,7 +237,7 @@ class BaseBatchConsumer(BaseConsumer):
         """Process an individual job delivery with tracing, manual ack, and error isolation."""
         envelope = item.envelope
         message = item.raw_message
-        origin_exchange = message.exchange or ""
+        origin_exchange = resolve_origin_exchange(message, self.broker_settings)
         origin_routing_key = message.routing_key or self.queue_name
 
         # Record queue wait time metric (R7.5, R21.4)
@@ -308,14 +294,6 @@ class BaseBatchConsumer(BaseConsumer):
 
                 # Independent job processing — strictly separate prompt/inference (R3.7)
                 await self.process_job(envelope, message)
-
-                # Manual ACK only after side effects commit (R3.3)
-                await message.ack()
-                logger.debug(
-                    "Job %s successfully processed and ACKed on queue '%s'",
-                    envelope.job_id,
-                    self.queue_name,
-                )
             except Exception as exc:
                 should_retry = self.is_transient_error(exc) and (
                     envelope.attempt < self.retry_settings.max_retries
@@ -334,7 +312,7 @@ class BaseBatchConsumer(BaseConsumer):
                         queue_name=self.queue_name,
                         job_store=self.job_store,
                     )
-                    await message.ack()
+                    await self._ack_or_warn(message, envelope)
                 else:
                     await handle_job_terminal_failure(
                         envelope=envelope,
@@ -345,35 +323,28 @@ class BaseBatchConsumer(BaseConsumer):
                         queue_name=self.queue_name,
                         job_store=self.job_store,
                     )
-                    await message.ack()
+                    await self._ack_or_warn(message, envelope)
+                return
 
-    async def stop(self) -> None:
-        """Cancel subscription, drain in-flight batches, and close channels gracefully."""
-        if not self._is_consuming:
+            # Manual ACK only after all side effects commit (R3.3). Outside the try: if the
+            # ack itself fails (channel lost), the broker redelivers the unacked message, so
+            # publishing a retry as well would process the job twice.
+            if await self._ack_or_warn(message, envelope):
+                logger.debug(
+                    "Job %s successfully processed and ACKed on queue '%s'",
+                    envelope.job_id,
+                    self.queue_name,
+                )
+
+    async def _await_local_drain(self) -> None:
+        """Let the batch loop flush buffered deliveries before the channel closes (R20.8)."""
+        task = self._batch_loop_task
+        if task is None or task.done():
             return
-
-        # 1. Stop accepting new deliveries from AMQP broker
-        if self._queue and self._consumer_tag:
-            try:
-                await self._queue.cancel(self._consumer_tag)
-            except Exception as err:
-                logger.warning("Error cancelling consumer tag %s: %s", self._consumer_tag, err)
-
-        self._is_consuming = False
-
-        # 2. Wait for background batch loop to drain queued messages
-        if self._batch_loop_task and not self._batch_loop_task.done():
-            try:
-                await asyncio.wait_for(self._drain_complete.wait(), timeout=5.0)
-            except TimeoutError:
-                logger.warning("Batch worker loop drain timed out during shutdown")
-                self._batch_loop_task.cancel()
-
-        # 3. Clean up underlying channel and connection
-        if self._channel and not self._channel.is_closed:
-            await self._channel.close()
-
-        if not self._external_conn and self._connection and not self._connection.is_closed:
-            await self._connection.close()
-
-        logger.info("Batch consumer stopped on queue '%s'", self.queue_name)
+        try:
+            await asyncio.wait_for(self._drain_complete.wait(), timeout=self.local_drain_timeout_s)
+        except TimeoutError:
+            logger.warning("Batch worker loop drain timed out during shutdown")
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task

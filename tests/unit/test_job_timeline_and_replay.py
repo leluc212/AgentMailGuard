@@ -12,6 +12,7 @@ from fastapi import FastAPI, status
 from httpx import ASGITransport, AsyncClient
 
 from packages.broker.envelope import JobEnvelope
+from packages.core.settings import BrokerSettings
 from packages.db.job import InMemoryJobStore
 from packages.db.message import InMemoryMessageStore
 from packages.domain.entities import EmailAddress, Job, NormalizedMessage, ProcessingEvent
@@ -33,8 +34,8 @@ def org_b() -> UUID:
 def mock_publisher() -> MagicMock:
     pub = MagicMock()
     pub.publish = AsyncMock()
-    pub.broker_settings = MagicMock()
-    pub.broker_settings.exchange_email_route = "email.events"
+    pub.settings = BrokerSettings()
+    pub.broker_settings = pub.settings
     return pub
 
 
@@ -322,6 +323,10 @@ class TestJobEndpointsAndReplay:
         assert envelope.payload["replayed"] is True
         assert envelope.payload["reason"] == "Operator manually unblocked pipeline"
 
+        kwargs = mock_publisher.publish.await_args.kwargs
+        assert kwargs["exchange_name"] == "email.route"
+        assert kwargs["routing_key"] == "email.support.normal"
+
     @pytest.mark.asyncio
     async def test_replay_dead_letter_job_without_attempt_reset(
         self, test_app: FastAPI, client: AsyncClient, org_a: UUID
@@ -337,6 +342,7 @@ class TestJobEndpointsAndReplay:
             state=JobState.DEAD_LETTER.value,
             attempt=3,
             max_attempts=5,
+            queue_name="email.support.normal",
             idempotency_key=f"idem-{job_id}",
         )
         await job_store.create_job(job)
@@ -424,3 +430,125 @@ class TestJobEndpointsAndReplay:
             headers={"X-Organization-ID": str(org_b)},
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_replay_normalize_job_publishes_to_email_process_exchange(
+        self, test_app: FastAPI, client: AsyncClient, org_a: UUID, mock_publisher: MagicMock
+    ) -> None:
+        job_store: InMemoryJobStore = test_app.state.job_store
+        job_id = uuid4()
+        await job_store.create_job(
+            Job(
+                id=job_id,
+                organization_id=org_a,
+                job_type="email_pipeline",
+                state=JobState.DEAD_LETTER.value,
+                queue_name="email.normalize",
+                idempotency_key=f"idem-{job_id}",
+            )
+        )
+        res = await client.post(
+            f"/v1/jobs/{job_id}/replay",
+            headers={"X-Organization-ID": str(org_a)},
+            json={"reason": "fix"},
+        )
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["routing_key"] == "email.normalize"
+        mock_publisher.publish.assert_awaited_once()
+        kwargs = mock_publisher.publish.await_args.kwargs
+        assert kwargs["exchange_name"] == "email.process"
+        assert kwargs["routing_key"] == "email.normalize"
+
+    async def test_replay_publish_failure_returns_503_and_restores_dead_letter(
+        self, test_app: FastAPI, client: AsyncClient, org_a: UUID, mock_publisher: MagicMock
+    ) -> None:
+        job_store: InMemoryJobStore = test_app.state.job_store
+        job_id = uuid4()
+        await job_store.create_job(
+            Job(
+                id=job_id,
+                organization_id=org_a,
+                job_type="generate_reply",
+                state=JobState.DEAD_LETTER.value,
+                attempt=5,
+                max_attempts=5,
+                queue_name="email.support.normal",
+                idempotency_key=f"idem-{job_id}",
+            )
+        )
+        mock_publisher.publish.side_effect = ConnectionError("broker down")
+
+        res = await client.post(
+            f"/v1/jobs/{job_id}/replay",
+            headers={"X-Organization-ID": str(org_a)},
+            json={"reason": "retry"},
+        )
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert res.json()["code"] == "REPLAY_PUBLISH_FAILED"
+
+        job = await job_store.get_job(org_a, job_id)
+        assert job is not None
+        assert job.state == JobState.DEAD_LETTER.value  # not stranded in RETRY_PENDING
+        assert job.last_error is not None and "broker down" in job.last_error
+        events = await job_store.list_events_for_job(org_a, job_id)
+        assert [e.state_to for e in events][-3:] == ["RETRY_PENDING", "FAILED", "DEAD_LETTER"]
+
+        # The operator can replay again once the broker is back.
+        mock_publisher.publish.side_effect = None
+        again = await client.post(
+            f"/v1/jobs/{job_id}/replay", headers={"X-Organization-ID": str(org_a)}, json={}
+        )
+        assert again.status_code == status.HTTP_200_OK
+
+    @pytest.mark.parametrize("queue_name", [None, "email.retry.30s", "nonexistent.queue"])
+    async def test_replay_unroutable_queue_returns_409_without_state_change(
+        self,
+        test_app: FastAPI,
+        client: AsyncClient,
+        org_a: UUID,
+        mock_publisher: MagicMock,
+        queue_name: str | None,
+    ) -> None:
+        job_store: InMemoryJobStore = test_app.state.job_store
+        job_id = uuid4()
+        await job_store.create_job(
+            Job(
+                id=job_id,
+                organization_id=org_a,
+                job_type="generate_reply",
+                state=JobState.DEAD_LETTER.value,
+                queue_name=queue_name,
+                idempotency_key=f"idem-{job_id}",
+            )
+        )
+        res = await client.post(
+            f"/v1/jobs/{job_id}/replay", headers={"X-Organization-ID": str(org_a)}, json={}
+        )
+        assert res.status_code == status.HTTP_409_CONFLICT
+        assert res.json()["code"] == "JOB_NOT_ROUTABLE"
+        job = await job_store.get_job(org_a, job_id)
+        assert job is not None and job.state == JobState.DEAD_LETTER.value
+        mock_publisher.publish.assert_not_awaited()
+
+    async def test_replay_without_publisher_returns_503_without_state_change(
+        self, test_app: FastAPI, client: AsyncClient, org_a: UUID
+    ) -> None:
+        test_app.state.publisher = None
+        job_store: InMemoryJobStore = test_app.state.job_store
+        job_id = uuid4()
+        await job_store.create_job(
+            Job(
+                id=job_id,
+                organization_id=org_a,
+                job_type="generate_reply",
+                state=JobState.DEAD_LETTER.value,
+                queue_name="email.support.normal",
+                idempotency_key=f"idem-{job_id}",
+            )
+        )
+        res = await client.post(
+            f"/v1/jobs/{job_id}/replay", headers={"X-Organization-ID": str(org_a)}, json={}
+        )
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert res.json()["code"] == "PUBLISHER_UNAVAILABLE"
+        job = await job_store.get_job(org_a, job_id)
+        assert job is not None and job.state == JobState.DEAD_LETTER.value

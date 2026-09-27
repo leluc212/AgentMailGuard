@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pytest
 
+from packages.adapters.exceptions import NotFound
 from packages.adapters.fake import FakeProviderAdapter
 from packages.broker.envelope import JobEnvelope
 from packages.core.storage import FakeObjectStorageClient, ObjectKeyBuilder
@@ -351,3 +352,41 @@ async def test_in_memory_stores(test_mailbox: Mailbox) -> None:
     cp = await cp_store.get(test_mailbox.id)
     assert cp is not None
     assert cp.sync_state == "idle"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_resolver_failure_releases_lock(test_mailbox: Mailbox) -> None:
+    cp_store = InMemoryCheckpointStore()
+
+    def resolver(_: Mailbox) -> FakeProviderAdapter:
+        raise NotFound("unregistered provider", provider="unknown")
+
+    orchestrator = SyncOrchestrator(
+        checkpoint_store=cp_store,
+        storage_client=FakeObjectStorageClient(),
+        publisher=MockPublisher(),
+        adapter_resolver=resolver,
+    )
+    with pytest.raises(NotFound):
+        await orchestrator.sync_mailbox(test_mailbox)
+    cp = await cp_store.get(test_mailbox.id)
+    assert cp is not None and cp.sync_state == "error"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_full_resync_replays_window(
+    test_mailbox: Mailbox, fake_adapter: FakeProviderAdapter
+) -> None:
+    cp_store = InMemoryCheckpointStore()
+    orchestrator = SyncOrchestrator(
+        checkpoint_store=cp_store,
+        storage_client=FakeObjectStorageClient(),
+        publisher=MockPublisher(),
+        adapter_resolver=lambda _: fake_adapter,
+    )
+    first = await orchestrator.sync_mailbox(test_mailbox)
+    again = await orchestrator.sync_mailbox(test_mailbox)
+    replay = await orchestrator.sync_mailbox(test_mailbox, full_resync=True)
+    assert (first.messages_synced, again.messages_synced, replay.messages_synced) == (3, 0, 3)
+    cp = await cp_store.get(test_mailbox.id)
+    assert cp is not None and cp.last_full_sync_at is not None and cp.sync_state == "idle"

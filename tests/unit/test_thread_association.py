@@ -364,3 +364,32 @@ class TestThreadAssociatorHierarchy:
         result = await associator.associate_normalized_message(msg)
         assert msg.thread_id == result.thread_id
         assert result.is_new is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blank_id", ["", "   "])
+async def test_blank_provider_thread_id_is_stored_as_none(blank_id: str) -> None:
+    """A blank provider thread id means "none" (R4.6).
+
+    email_thread is UNIQUE (organization_id, mailbox_id, provider_thread_id): NULLs never
+    collide, but a stored "" makes the second unthreaded message in a mailbox fail forever.
+    The mail connector sends "" whenever the provider supplies no thread id.
+    """
+    associator = ThreadAssociator(store=InMemoryThreadStore())
+    org_id, mbx_id = uuid4(), uuid4()
+
+    results = [
+        await associator.associate_message(
+            organization_id=org_id,
+            mailbox_id=mbx_id,
+            subject_normalized=subject,
+            sender=EmailAddress(sender),
+            recipients=[EmailAddress("support@example.com")],
+            provider_thread_id=blank_id,
+        )
+        for subject, sender in (("Invoice overdue", "a@x.com"), ("Weekly news", "b@y.com"))
+    ]
+
+    assert [r.is_new for r in results] == [True, True]
+    assert results[0].thread_id != results[1].thread_id
+    assert [r.thread.provider_thread_id for r in results] == [None, None]

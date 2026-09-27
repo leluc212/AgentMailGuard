@@ -91,6 +91,8 @@ class SyncOrchestrator:
         self,
         mailbox: Mailbox,
         adapter: MailProviderAdapter | None = None,
+        *,
+        full_resync: bool = False,
     ) -> SyncOutcome:
         """Execute synchronization for a mailbox.
 
@@ -109,6 +111,8 @@ class SyncOrchestrator:
         5. Check and clear pending_followup; loop again if set (R2.9).
         6. Release in-flight lock on completion.
         7. On AuthExpired: mark mailbox needs_reauth, set error state, and halt (R1.5, R2.10).
+
+        full_resync=True resets the provider cursor before syncing (R2.11).
         """
         # 1. In-flight check & coalescing (R2.9)
         acquired = await self.checkpoint_store.try_acquire_lock(mailbox.id, mailbox.organization_id)
@@ -121,13 +125,29 @@ class SyncOrchestrator:
                 status="coalesced",
             )
 
-        if adapter is None:
-            adapter = self.adapter_resolver(mailbox)
-
         total_synced = 0
         final_checkpoint: Checkpoint | None = None
 
         try:
+            # Resolve inside the try so a resolver failure releases the lock.
+            if adapter is None:
+                adapter = self.adapter_resolver(mailbox)
+
+            if full_resync:
+                reset_at = datetime.now(UTC)
+                logger.info("Operator-requested full re-sync for mailbox %s (R2.11)", mailbox.id)
+                await self.checkpoint_store.save(
+                    Checkpoint(
+                        mailbox_id=mailbox.id,
+                        organization_id=mailbox.organization_id,
+                        history_id=None,
+                        delta_link=None,
+                        sync_state="syncing",  # keep the in-flight lock held
+                        last_sync_at=reset_at,
+                        last_full_sync_at=reset_at,
+                    )
+                )
+
             while True:
                 cp = await self.checkpoint_store.get(mailbox.id)
                 if cp is None:

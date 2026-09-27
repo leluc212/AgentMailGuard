@@ -24,14 +24,11 @@ from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.broker.queue_monitor import QueueMonitor
 from packages.broker.topology import setup_topology
-from packages.core.settings import BrokerSettings, RetryLadderSettings
+from packages.core.settings import AppSettings, RetryLadderSettings
 from packages.observability.metrics import (
     create_pipeline_metrics,
     generate_metrics_payload,
 )
-
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,7 +38,7 @@ RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
 @pytest.fixture
 async def broker_conn() -> AsyncGenerator[AbstractRobustConnection, None]:
     """Provide a dedicated robust connection for tests."""
-    conn = await aio_pika.connect_robust(RABBITMQ_URL)
+    conn = await aio_pika.connect_robust(AppSettings().broker.url)
     yield conn
     if not conn.is_closed:
         await conn.close()
@@ -110,7 +107,7 @@ async def test_live_queue_depth_sampling(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify QueueMonitor reads real message counts via passive declaration (R7.5, R21.4)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     retry_settings = RetryLadderSettings()
     await setup_topology(broker_channel, settings, retry_settings)
 
@@ -212,7 +209,7 @@ async def test_live_queue_wait_time_and_metrics_endpoint(
     broker_channel: AbstractChannel,
 ) -> None:
     """Verify queue_wait_ms is recorded upon consumption and appears in /metrics (R7.5, R21.4)."""
-    settings = BrokerSettings()
+    settings = AppSettings().broker
     retry_settings = RetryLadderSettings()
     await setup_topology(broker_channel, settings, retry_settings)
 

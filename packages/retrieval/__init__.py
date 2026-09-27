@@ -40,7 +40,6 @@ from packages.retrieval.rrf import (
     fuse_lexical_and_vector,
     reciprocal_rank_fusion,
 )
-from packages.retrieval.testing import SearchBackendContractSuite
 
 __all__ = [
     "Candidate",
@@ -66,11 +65,9 @@ __all__ = [
     "RetrievalQueryBuilder",
     "RetrievalResult",
     "SearchBackend",
-    "SearchBackendContractSuite",
     "StubReranker",
     "TokenCounterProtocol",
     "compute_rrf_score",
     "fuse_lexical_and_vector",
     "reciprocal_rank_fusion",
 ]
-

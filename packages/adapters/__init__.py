@@ -34,11 +34,6 @@ from packages.adapters.registry import (
     register_adapter,
     register_default_adapters,
 )
-
-try:
-    from packages.adapters.testing import MailProviderAdapterContractSuite
-except ImportError:
-    MailProviderAdapterContractSuite = None  # type: ignore[assignment, misc]
 from packages.adapters.webhooks import webhook_router
 
 __all__ = [
@@ -49,7 +44,6 @@ __all__ = [
     "GraphChangeNotification",
     "GraphProviderAdapter",
     "MailProviderAdapter",
-    "MailProviderAdapterContractSuite",
     "MicrosoftGraphProviderAdapter",
     "NotFound",
     "Permanent",

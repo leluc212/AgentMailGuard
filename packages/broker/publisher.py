@@ -12,13 +12,42 @@ import aio_pika
 from aio_pika.abc import (
     AbstractChannel,
     AbstractExchange,
+    AbstractIncomingMessage,
     AbstractRobustConnection,
 )
 
 from packages.broker.envelope import JobEnvelope
-from packages.core.settings import BrokerSettings
+from packages.core.settings import BrokerSettings, RetryLadderSettings
 
 logger = logging.getLogger(__name__)
+
+RETRY_ORIGIN_EXCHANGE_HEADER = "retry-origin-exchange"
+"""Header matched by the retry.return headers exchange.
+
+Deliberately NOT ``x-`` prefixed: with ``x-match: all`` RabbitMQ skips ``x-*`` headers when
+matching (rabbit_exchange_type_headers: ``match({<<"x-", _/binary>>, _, _}, _) -> skip``).
+"""
+
+RETRY_TIER_SUFFIXES: tuple[str, str, str] = ("30s", "5m", "30m")
+
+
+def resolve_origin_exchange(
+    message: AbstractIncomingMessage, broker_settings: BrokerSettings
+) -> str:
+    """Return the exchange a delivery logically belongs to.
+
+    Dead-lettering replaces the message's exchange with the DLX name, so a retried delivery
+    arrives with ``exchange == retry.return``; its true origin travels in the
+    ``retry-origin-exchange`` header set by ``publish_to_retry``.
+    """
+    exchange = message.exchange or ""
+    if exchange == broker_settings.exchange_retry_return:
+        origin = (message.headers or {}).get(RETRY_ORIGIN_EXCHANGE_HEADER)
+        if isinstance(origin, (bytes, bytearray)):
+            origin = origin.decode("utf-8", errors="replace")
+        if origin:
+            return str(origin)
+    return exchange
 
 
 class MessagePublisher:
@@ -29,13 +58,24 @@ class MessagePublisher:
         broker_settings: BrokerSettings | None = None,
         connection: AbstractRobustConnection | None = None,
         channel: AbstractChannel | None = None,
+        retry_settings: RetryLadderSettings | None = None,
     ) -> None:
         self.settings = broker_settings or BrokerSettings()
+        self.retry_settings = retry_settings or RetryLadderSettings()
         self._external_conn = connection is not None
         self._external_channel = channel is not None
         self._connection = connection
         self._channel = channel
         self._exchanges: dict[str, AbstractExchange] = {}
+
+    def retry_tier_suffix(self, tier_delay_s: int) -> str:
+        """Map a tier delay to the retry queue whose TTL was declared from the same settings."""
+        r = self.retry_settings
+        if tier_delay_s <= r.tier_1_delay_s:
+            return RETRY_TIER_SUFFIXES[0]
+        if tier_delay_s <= r.tier_2_delay_s:
+            return RETRY_TIER_SUFFIXES[1]
+        return RETRY_TIER_SUFFIXES[2]
 
     @property
     def broker_settings(self) -> BrokerSettings:
@@ -49,7 +89,8 @@ class MessagePublisher:
             logger.info("Connected publisher to RabbitMQ at %s", self.settings.host)
 
         if self._channel is None or self._channel.is_closed:
-            self._channel = await self._connection.channel()
+            # Unroutable mandatory publishes must raise PublishError, never vanish (R3.1).
+            self._channel = await self._connection.channel(on_return_raises=True)
             logger.info("Publisher AMQP channel created")
 
     async def close(self) -> None:
@@ -135,13 +176,7 @@ class MessagePublisher:
         failure_reason : str
             Diagnostic error message causing retry.
         """
-        if tier_delay_s <= 30:
-            tier_suffix = "30s"
-        elif tier_delay_s <= 300:
-            tier_suffix = "5m"
-        else:
-            tier_suffix = "30m"
-
+        tier_suffix = self.retry_tier_suffix(tier_delay_s)
         retry_exchange = f"{self.settings.exchange_retry}.{tier_suffix}"
 
         headers = {
@@ -149,6 +184,8 @@ class MessagePublisher:
             "x-original-routing-key": origin_routing_key,
             "x-failure-reason": failure_reason,
             "x-attempt": envelope.attempt,
+            # Matched by retry.return (headers exchange) after TTL dead-lettering.
+            RETRY_ORIGIN_EXCHANGE_HEADER: origin_exchange,
         }
 
         # Publishing to the fanout retry exchange preserves origin_routing_key
@@ -201,5 +238,47 @@ class MessagePublisher:
             "Job %s dead-lettered after %d attempts: %s",
             envelope.job_id,
             envelope.attempt,
+            failure_reason,
+        )
+
+    async def publish_raw_to_dead_letter(
+        self,
+        message: AbstractIncomingMessage,
+        failure_reason: str,
+        origin_exchange: str,
+        origin_routing_key: str,
+    ) -> None:
+        """Dead-letter a delivery whose body could not be parsed into a JobEnvelope (R3.5).
+
+        The original body bytes and headers are preserved verbatim so the payload can be
+        inspected or replayed; diagnostic headers are added on top. ``expiration`` is not
+        copied, so the dead-letter copy never expires.
+        """
+        headers: dict[str, Any] = dict(message.headers or {})
+        headers.update(
+            {
+                "x-original-exchange": origin_exchange,
+                "x-original-routing-key": origin_routing_key,
+                "x-failure-reason": failure_reason,
+                "x-failed-at": datetime.now(UTC).isoformat(),
+            }
+        )
+        dead_message = aio_pika.Message(
+            body=message.body,
+            headers=headers,
+            content_type=message.content_type,
+            content_encoding=message.content_encoding,
+            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            message_id=message.message_id,
+            correlation_id=message.correlation_id,
+            timestamp=message.timestamp,
+        )
+        exchange = await self._get_exchange(self.settings.exchange_dlx)
+        # dlx.email is a topic exchange with a "#" binding: any key (including "") routes.
+        await exchange.publish(dead_message, routing_key=origin_routing_key)
+        logger.error(
+            "Unparseable message from '%s' (key '%s') dead-lettered: %s",
+            origin_exchange,
+            origin_routing_key,
             failure_reason,
         )

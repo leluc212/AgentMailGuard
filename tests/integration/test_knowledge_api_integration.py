@@ -20,7 +20,8 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from packages.core.settings import AppSettings
+from packages.broker.envelope import JobEnvelope
+from packages.core.settings import AppSettings, BrokerSettings
 from packages.core.storage import (
     MinioObjectStorageClient,
     get_storage_client,
@@ -48,15 +49,42 @@ def storage_client() -> MinioObjectStorageClient:
     return client
 
 
+class _RecordingPublisher:
+    """Test double capturing publishes; keeps the live knowledge-worker out of these tests."""
+
+    def __init__(self) -> None:
+        self.settings = BrokerSettings()
+        self.published: list[tuple[str, str, JobEnvelope]] = []
+        self.fail_with: Exception | None = None
+
+    async def publish(
+        self,
+        exchange_name: str,
+        routing_key: str,
+        envelope: JobEnvelope,
+        headers: dict[str, Any] | None = None,
+    ) -> None:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.published.append((exchange_name, routing_key, envelope))
+
+
+@pytest.fixture
+def publisher() -> _RecordingPublisher:
+    return _RecordingPublisher()
+
+
 @pytest.fixture
 def api_app(
     db_pool: asyncpg.Pool[Any],
     storage_client: MinioObjectStorageClient,
+    publisher: _RecordingPublisher,
 ) -> FastAPI:
     """Construct FastAPI application wired to live database pool and storage client."""
     app = create_app(lifespan_enabled=False)
     app.state.db_pool = db_pool
     app.state.storage_client = storage_client
+    app.state.publisher = publisher
     return app
 
 
@@ -217,3 +245,32 @@ async def test_live_knowledge_multi_tenant_isolation_three_tenants(
                     headers={"X-Organization-ID": str(oid)},
                 )
                 assert cross_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_live_upload_enqueue_failure_marks_document_failed(
+    client: AsyncClient,
+    db_pool: asyncpg.Pool[Any],
+    storage_client: MinioObjectStorageClient,
+    publisher: _RecordingPublisher,
+) -> None:
+    await storage_client.bootstrap_buckets()
+    org_id = uuid4()
+    await _ensure_org(db_pool, org_id)
+    publisher.fail_with = ConnectionError("broker down")
+    res = await client.post(
+        "/v1/knowledge/documents",
+        headers={"X-Organization-ID": str(org_id)},
+        files={"file": ("x.md", io.BytesIO(b"# X"), "text/markdown")},
+    )
+    assert res.status_code == 503
+    doc_id = UUID(res.json()["detail"]["document_id"])
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT status, failure_reason FROM knowledge_document "
+            "WHERE id=$1 AND organization_id=$2",
+            doc_id,
+            org_id,
+        )
+    assert row is not None and row["status"] == "failed"
+    assert "broker down" in row["failure_reason"]

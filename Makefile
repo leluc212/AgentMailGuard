@@ -1,11 +1,11 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke
 
 UV ?= uv
 
 help:
 	@echo "Enterprise RAG-Based Intelligent Email Management and Response System"
 	@echo "Available targets:"
-	@echo "  up       - Boot the Docker Compose infrastructure stack (Task 0.3)"
+	@echo "  up       - Build images from HEAD and boot the full stack (init runs migrations, buckets, topology)"
 	@echo "  down     - Tear down the infrastructure stack"
 	@echo "  migrate  - Run database migrations (Task 0.4)"
 	@echo "  seed     - Seed database with reference organizations/mailboxes (Task 0.12)"
@@ -14,10 +14,13 @@ help:
 	@echo "  fmt      - Auto-format codebase using ruff"
 	@echo "  eval     - Run RAG and classification evaluation benchmarks (Phase 7)"
 	@echo "  load     - Run end-to-end load tests (Phase 8)"
+	@echo "  broker-migrate-retry - One-time: delete empty stale retry queues (RA.3)"
+	@echo "  image-smoke - Build the runtime image and smoke-check its entrypoints and assets (RA.11)"
+	@echo "  smoke    - End-to-end check of the running stack (RA gate)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
-		docker compose up -d; \
+		docker compose up -d --build; \
 	else \
 		echo "[INFO] docker-compose.yml will be created in Task 0.3."; \
 	fi
@@ -65,3 +68,20 @@ eval:
 
 load:
 	@echo "[INFO] Load test harness configured in Phase 8."
+
+broker-migrate-retry:
+	docker exec rag-email-rabbitmq sh -c 'for q in email.retry.30s email.retry.5m email.retry.30m; do \
+	  if rabbitmqctl -q -p / list_queues name arguments | grep -F "$$q" | grep -q "email.route"; then \
+	    rabbitmqctl -p / delete_queue "$$q" --if-empty || exit 1; \
+	  fi; \
+	done'
+	@echo "Stale retry queues removed; they are redeclared on the next init/worker start."
+
+IMAGE ?= rag-email-runtime:smoke
+
+image-smoke:
+	docker build -t $(IMAGE) .
+	docker run --rm -i $(IMAGE) python - < scripts/image_smoke.py
+
+smoke:
+	$(UV) run python scripts/stack_smoke.py
