@@ -18,6 +18,7 @@ from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
 from packages.broker.consumer import BaseConsumer, FatalError
 from packages.broker.envelope import JobEnvelope
 from packages.context.builder import ContextBuilder
+from packages.context.summarizer import ThreadSummarizer
 from packages.core.settings import BrokerSettings, RetryLadderSettings
 from packages.db.job import JobStore
 from packages.db.message import MessageStore
@@ -58,6 +59,7 @@ class AIWorkerConsumer(BaseConsumer):
         context_builder: ContextBuilder,
         router: ComplexityRouter,
         drafting: DraftingService,
+        summarizer: ThreadSummarizer | None = None,
         broker_settings: BrokerSettings | None = None,
         retry_settings: RetryLadderSettings | None = None,
         prefetch_count: int | None = None,
@@ -80,6 +82,7 @@ class AIWorkerConsumer(BaseConsumer):
         self.context_builder = context_builder
         self.router = router
         self.drafting = drafting
+        self.summarizer = summarizer
 
     async def process_job(
         self, envelope: JobEnvelope, raw_message: AbstractIncomingMessage
@@ -122,7 +125,21 @@ class AIWorkerConsumer(BaseConsumer):
             raise FatalError(f"Message {job.message_id} not found for job {job_id}")
 
         classification = classification_from_snapshot(envelope.classification)
-        context = await self.context_builder.build_context(job, message, classification)
+        thread_messages = await self.messages.get_messages_by_thread(org_id, message.thread_id)
+        thread_state = None
+        if self.summarizer is not None:
+            # Threshold-triggered (R8.2, R8.3): below the threshold this makes no model call.
+            summary = await self.summarizer.summarize_thread(
+                org_id, message.thread_id, thread_messages
+            )
+            thread_state = summary.thread_state
+        context = await self.context_builder.build_context(
+            job,
+            message,
+            classification,
+            thread_messages=thread_messages,
+            thread_state=thread_state,
+        )
         decision = self.router.route(context, classification)
         await self.drafting.draft(
             job,

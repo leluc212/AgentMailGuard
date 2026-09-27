@@ -183,3 +183,25 @@ async def test_unique_index_rejects_a_second_draft_for_a_job(db_pool: asyncpg.Po
                 msg_id,
                 thread_id,
             )
+
+
+async def test_drafted_job_releases_its_claim_lease_postgres(db_pool: asyncpg.Pool) -> None:
+    """The lease clears in the same transaction as GENERATING -> DRAFTED (4.13b)."""
+    job, msg_id, thread_id = await _seed(db_pool, JobState.GENERATING)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE processing_job SET lease_expires_at = now() + interval '5 minutes'"
+            " WHERE id = $1",
+            job.id,
+        )
+
+    outcome = await PostgresDraftPersistence(db_pool).persist_drafted(
+        _draft(job, msg_id, thread_id, 0.0001)
+    )
+
+    assert outcome.job.lease_expires_at is None
+    async with db_pool.acquire() as conn:
+        lease = await conn.fetchval(
+            "SELECT lease_expires_at FROM processing_job WHERE id = $1", job.id
+        )
+    assert lease is None

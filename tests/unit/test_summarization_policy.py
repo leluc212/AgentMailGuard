@@ -169,3 +169,52 @@ async def test_summarizer_generates_and_persists_summary_on_threshold() -> None:
     )
     assert not second_result.summarized
     assert len(fake_llm.recorded_calls) == 1  # Still 1, no new call!
+
+
+def _ordered_thread(count: int) -> tuple[list[NormalizedMessage], UUID, UUID]:
+    from datetime import timedelta
+
+    thread_id, org_id = uuid4(), uuid4()
+    start = datetime.now(UTC) - timedelta(hours=count)
+    msgs = []
+    for i in range(count):
+        m = make_msg(i, thread_id, org_id, "Note")
+        m.received_at = start + timedelta(minutes=i)
+        msgs.append(m)
+    return msgs, thread_id, org_id
+
+
+@pytest.mark.parametrize(("new_messages", "expected"), [(1, False), (2, False), (3, True)])
+def test_resummarize_only_after_lag_messages(new_messages: int, expected: bool) -> None:
+    """R8.4 / design §5.4: never re-summarize on every message; only past the LAG."""
+    settings = SummarizationSettings(min_messages_threshold=3, resummarize_lag_messages=2)
+    policy = SummarizationPolicy(settings)
+    messages, thread_id, org_id = _ordered_thread(6 + new_messages)
+    summarized_through = messages[5].message_id
+    assert isinstance(summarized_through, UUID)
+    state = ThreadState(
+        thread_id=thread_id,
+        organization_id=org_id,
+        summary="Existing summary",
+        summarized_through_message_id=summarized_through,
+        version=1,
+    )
+
+    decision = policy.evaluate(messages=messages, current_state=state)
+
+    assert decision.should_summarize is expected
+    if not expected:
+        assert decision.reason == "within_lag"
+
+
+def test_unknown_summarized_through_message_resummarizes() -> None:
+    settings = SummarizationSettings(min_messages_threshold=3, resummarize_lag_messages=2)
+    messages, thread_id, org_id = _ordered_thread(6)
+    state = ThreadState(
+        thread_id=thread_id,
+        organization_id=org_id,
+        summary="Existing summary",
+        summarized_through_message_id=uuid4(),
+        version=1,
+    )
+    assert SummarizationPolicy(settings).evaluate(messages, state).should_summarize

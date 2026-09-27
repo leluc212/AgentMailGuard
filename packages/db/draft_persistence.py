@@ -130,6 +130,15 @@ class PostgresDraftPersistence:
                 message_id=stored.message_id,
                 thread_id=stored.thread_id,
             )
+            # A drafted job waits for a human; the worker's claim lease ends with the draft,
+            # so the lease reaper can never reclaim it (4.13b).
+            await conn.execute(
+                "UPDATE processing_job SET lease_expires_at = NULL"
+                " WHERE id = $1 AND organization_id = $2",
+                job_id,
+                org_id,
+            )
+            job.lease_expires_at = None
             return DraftPersistOutcome(draft=stored, job=job, event=event, created=True)
 
     async def find_draft_for_job(
@@ -166,6 +175,7 @@ class InMemoryDraftPersistence:
             message_id=draft.message_id,
             thread_id=draft.thread_id,
         )
+        job.lease_expires_at = None  # the claim lease ends with the draft (4.13b)
         stored = await self._drafts.create_draft(draft)
         return DraftPersistOutcome(draft=stored, job=job, event=event, created=True)
 

@@ -275,3 +275,30 @@ async def test_live_lease_reaper_full_pipeline_retry_and_dlq(
 
     await channel.close()
     await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_reaper_skips_drafted_jobs_postgres(db_pool: asyncpg.Pool) -> None:
+    """Review Focus 5 on Postgres: an expired lease on a DRAFTED job is left alone (4.13b)."""
+    org_id = uuid4()
+    await ensure_test_org(db_pool, org_id, "Drafted Lease Org")
+    store = PostgresJobStore(db_pool)
+    created, _ = await store.create_job(
+        Job(
+            organization_id=org_id,
+            state=JobState.DRAFTED.value,
+            idempotency_key=f"lease-drafted-{uuid4()}",
+        )
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE processing_job SET lease_expires_at = now() - interval '10 minutes'"
+            " WHERE id = $1",
+            created.id,
+        )
+
+    reaped = await store.reap_expired_jobs(batch_size=10, organization_id=org_id)
+
+    assert reaped == []
+    stored = await store.get_job(org_id, created.id)
+    assert stored is not None and stored.state == JobState.DRAFTED.value

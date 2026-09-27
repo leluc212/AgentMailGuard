@@ -208,7 +208,8 @@ async def test_postgres_summarization_lifecycle(db_pool: asyncpg.Pool) -> None:
     assert not res3.summarized
     assert len(fake_llm.recorded_calls) == 1  # Call count remains 1
 
-    # 4. A 6th message arrives -> re-summarization triggered, version increments to 2
+    # 4. R8.4 / design §5.4 LAG: one new message stays within the lag (no call);
+    #    once more than resummarize_lag_messages (2) arrive, the summary is refreshed.
     fake_llm.queue_response(
         {
             "topic": "Account Lockout Resolution",
@@ -224,6 +225,19 @@ async def test_postgres_summarization_lifecycle(db_pool: asyncpg.Pool) -> None:
     msg6 = make_test_message(5, thread_id, mbx_id, org_id, "Password reset completed, thank you!")
     await ensure_test_message(db_pool, msg6)
     messages.append(msg6)
+    res_lag = await summarizer.summarize_thread(
+        organization_id=org_id,
+        thread_id=thread_id,
+        messages=messages,
+    )
+    assert not res_lag.summarized
+    assert res_lag.decision.reason == "within_lag"
+    assert len(fake_llm.recorded_calls) == 1  # no per-message re-summary (R8.4)
+
+    for i in (6, 7):
+        extra = make_test_message(i, thread_id, mbx_id, org_id, f"Follow-up note {i}")
+        await ensure_test_message(db_pool, extra)
+        messages.append(extra)
     new_latest_id = messages[-1].message_id
     assert isinstance(new_latest_id, uuid.UUID)
 

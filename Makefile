@@ -81,7 +81,7 @@ IMAGE ?= rag-email-runtime:smoke
 
 image-smoke:
 	docker build -t $(IMAGE) .
-	docker run --rm -i $(IMAGE) python - < scripts/image_smoke.py
+	docker run --rm -i --network none $(IMAGE) python - < scripts/image_smoke.py
 
 smoke:
 	$(UV) run python scripts/stack_smoke.py

@@ -62,6 +62,7 @@ class _ScriptedProvider(FakeLLMProvider):
         if isinstance(step, BaseException):
             raise step
         self._default_response = dict(step)
+        self._explicit_default = True
         result = await super().generate(**kwargs)
         return replace(result, raw_finish_reason=self.finish_reason)
 

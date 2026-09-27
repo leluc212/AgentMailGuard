@@ -113,3 +113,18 @@ def test_image_installs_locked_runtime_dependencies_only() -> None:
 def test_pyyaml_is_a_declared_runtime_dependency() -> None:
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
     assert '"pyyaml' in text, "production imports yaml directly; declare it, not rely on uvicorn"
+
+
+def test_image_bakes_the_bpe_encoding() -> None:
+    """No container may download the tokenizer at start (4.13b live gate: ~56 s startup).
+
+    tiktoken fetches its encoding over the network on first use, with no timeout; baking it
+    into the image keeps readiness fast and makes offline deployments work.
+    """
+    from packages.knowledge.token_counter import DEFAULT_ENCODING
+
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "TIKTOKEN_CACHE_DIR=" in text
+    fetch = f"tiktoken.get_encoding('{DEFAULT_ENCODING}')"
+    assert fetch in text
+    assert text.index(fetch) > text.index("RUN uv sync --locked --no-dev\n")

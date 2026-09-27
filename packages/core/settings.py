@@ -337,6 +337,14 @@ class SummarizationSettings(BaseModel):
     keep_latest_messages: int = Field(
         default=2, ge=1, description="Number of verbatim messages kept alongside summary"
     )
+    resummarize_lag_messages: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Re-summarize only after more than this many messages arrived since "
+            "summarized_through_message_id (R8.4, design.md §5.4 LAG)"
+        ),
+    )
     summarizer_model: str = Field(
         default="gpt-4o-mini", description="Model used for generating conversation summaries"
     )

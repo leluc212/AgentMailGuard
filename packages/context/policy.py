@@ -148,6 +148,24 @@ class SummarizationPolicy:
                 latest_message_id=latest_msg_id,
             )
 
+        # R8.4 / design §5.4 LAG: an existing summary is refreshed only once more than
+        # `resummarize_lag_messages` messages arrived after it; the verbatim window covers
+        # the newer ones until then. An unknown summarized-through id forces a refresh.
+        if current_state is not None and current_state.summary:
+            ids = [_to_uuid(m.message_id) for m in sorted_messages]
+            through = current_state.summarized_through_message_id
+            if through is not None and through in ids:
+                newer = len(ids) - 1 - ids.index(through)
+                if newer <= self.settings.resummarize_lag_messages:
+                    return SummarizationDecision(
+                        should_summarize=False,
+                        reason="within_lag",
+                        message_count=count,
+                        estimated_tokens=est_tokens,
+                        messages_to_summarize=sorted_messages,
+                        latest_message_id=latest_msg_id,
+                    )
+
         # R8.3: Threshold exceeded and new messages exist -> trigger summarization
         reason = (
             "message_count_threshold_exceeded" if count_triggered else "token_threshold_exceeded"

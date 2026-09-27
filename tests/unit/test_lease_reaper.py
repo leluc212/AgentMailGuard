@@ -354,3 +354,25 @@ async def test_consumer_acquires_lease_on_claim() -> None:
     assert stored_job is not None
     assert stored_job.lease_expires_at is not None
     assert stored_job.lease_expires_at > datetime.now(UTC)
+
+
+@pytest.mark.asyncio
+async def test_reaper_skips_drafted_jobs() -> None:
+    """Review Focus 5: a drafted job waits for a human; its old lease must not reclaim it."""
+    store = InMemoryJobStore()
+    past_time = datetime.now(UTC) - timedelta(seconds=600)
+    job, _ = await store.create_job(
+        Job(
+            organization_id=uuid4(),
+            state=JobState.DRAFTED.value,
+            lease_expires_at=past_time,
+            idempotency_key=str(uuid4()),
+        )
+    )
+    job.lease_expires_at = past_time
+
+    reaped = await store.reap_expired_jobs(batch_size=10)
+
+    assert reaped == []
+    stored = await store.get_job(job.organization_id, job.id)
+    assert stored is not None and stored.state == JobState.DRAFTED.value

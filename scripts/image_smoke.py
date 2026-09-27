@@ -15,6 +15,7 @@ for module in (
     "services.email_worker.main",
     "services.knowledge_worker.main",
     "services.triage_worker.main",
+    "services.ai_worker.main",
     "services.mail_connector.main",
     "packages.broker.cli",
     "packages.db.cli",
@@ -43,4 +44,8 @@ templates = load_templates_from_file(settings.triage.templates_path)
 for template in templates.templates:
     if template.body.endswith((".txt", ".j2", ".md")):
         assert Path(template.body).is_file(), template.body
+from packages.knowledge.token_counter import TokenCounter  # noqa: E402
+
+# Run with --network none: the BPE encoding must already be in the image (4.13b).
+assert TokenCounter()._encoding is not None, "tiktoken encoding is not baked into the image"
 print("image smoke OK")

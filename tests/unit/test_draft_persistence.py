@@ -94,3 +94,17 @@ async def test_draft_without_job_is_refused() -> None:
 
     with pytest.raises(ValueError, match="job_id"):
         await persistence.persist_drafted(orphan)
+
+
+async def test_drafted_job_releases_its_claim_lease() -> None:
+    """A drafted job waits for a human; the worker's claim lease ends with the draft (4.13b)."""
+    from datetime import UTC, datetime, timedelta
+
+    persistence, jobs, job = await _setup(JobState.GENERATING)
+    job.lease_expires_at = datetime.now(UTC) + timedelta(minutes=5)
+
+    outcome = await persistence.persist_drafted(_draft(job))
+
+    assert outcome.job.lease_expires_at is None
+    stored = await jobs.get_job(job.organization_id, job.id)
+    assert stored is not None and stored.lease_expires_at is None

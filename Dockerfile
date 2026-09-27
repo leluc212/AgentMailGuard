@@ -35,6 +35,12 @@ COPY artifacts/models/ artifacts/models/
 # Layer 3: install the project itself (editable, into /app/.venv).
 RUN uv sync --locked --no-dev
 
+# Layer 4: bake the BPE encoding into the image. tiktoken otherwise downloads it on first use,
+# with no timeout, in every fresh container: that delayed ai-worker readiness by ~56 s in the
+# 4.13b live gate and would hang offline deployments.
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
+RUN /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
@@ -43,6 +49,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 EXPOSE 8000
 
-# The frontend, ai-worker and dispatch-worker still run this stub until they are built
-# (Phase 4.11+ / Phase 6); every real service overrides the command in docker-compose.yml.
+# The frontend and dispatch-worker still run this stub until they are built (Phase 6);
+# every real service overrides the command in docker-compose.yml.
 CMD ["python", "services/placeholder.py"]

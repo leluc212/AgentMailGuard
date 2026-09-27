@@ -247,18 +247,21 @@ services:
   ai-worker:
     build: *app-build
     restart: unless-stopped
+    command: ["python", "-m", "services.ai_worker.main"]
+    stop_grace_period: 45s
     expose:
       - "8004"
     environment:
+      <<: *app-env
       SERVICE_NAME: ai_worker
       PORT: "8004"
     depends_on: *after-init
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8004/readyz"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 30s
 
   dispatch-worker:
     build: *app-build

@@ -7,7 +7,7 @@ Run on the host after `make up` (reads .env like every host tool):
 Checks, stopping at the first failure:
   1. The API is ready and every hosted queue has at least one consumer.
   2. A billing email injected into email.normalize is normalized, classified by rule and
-     routed to email.billing.<lane>; its job reaches QUEUED.
+     routed to email.billing.<lane>; the ai-worker drafts it (job DRAFTED, one draft).
   3. A no-reply newsletter reaches COMPLETED (early exit before any AI stage).
   4. A sync request naming another tenant's mailbox is dead-lettered with its reason.
 Creates one throwaway organization and deletes it at the end. The routed billing job stays
@@ -193,7 +193,7 @@ async def run() -> None:
         channel = await connection.channel(on_return_raises=True)
         org_id, mailbox_id = await seed_tenant(pool)
 
-        # 2. Billing email -> email.billing.<lane>, job QUEUED
+        # 2. Billing email -> email.billing.<lane> -> ai-worker, job DRAFTED
         route_probe = await channel.declare_queue("", exclusive=True, auto_delete=True)
         await route_probe.bind(settings.broker.exchange_email_route, routing_key="email.#")
         billing_job = await inject_email(
@@ -213,8 +213,14 @@ async def run() -> None:
         routed = await wait_for_job_message(route_probe, str(billing_job))
         if not (routed.routing_key or "").startswith("email.billing."):
             raise SmokeFailure(f"billing email routed to {routed.routing_key!r}")
-        await wait_for_state(pool, org_id, billing_job, {JobState.QUEUED.value})
-        print(f"ok   billing email -> {routed.routing_key}, job QUEUED")
+        await wait_for_state(pool, org_id, billing_job, {JobState.DRAFTED.value})
+        async with pool.acquire() as conn:
+            drafts = await conn.fetchval(
+                "SELECT count(*) FROM generated_draft WHERE job_id = $1", billing_job
+            )
+        if drafts != 1:
+            raise SmokeFailure(f"billing job {billing_job} has {drafts} drafts, expected 1")
+        print(f"ok   billing email -> {routed.routing_key} -> ai-worker, job DRAFTED (1 draft)")
 
         # 3. No-reply newsletter -> COMPLETED (early exit)
         newsletter_job = await inject_email(

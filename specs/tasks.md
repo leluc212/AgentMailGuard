@@ -367,6 +367,11 @@
   - `POST /v1/search/debug` returning the constructed query, both branch result lists with ranks, fused scores, rerank scores, and the final selection.
   - _Requirements: R23.3_
 
+- [ ] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
+  - Nothing in the production path fills `RetrievalQuery.query_vector`, so the pgvector branch returns no candidates (`packages/retrieval/postgres.py:192`) and hybrid retrieval runs lexical-only. Evidence: `grep -rn "query_vector" packages services` finds no producer.
+  - Embed the query's semantic text with the configured embedder (`packages/knowledge/embedder.py`, the same model and dimension as the corpus, R5.10) in `RetrievalQueryBuilder` or the `ContextBuilder`, guarded by a timeout so a slow embedder degrades to lexical-only (R10.9). Count embedding tokens (`embedding_tokens_total`).
+  - _Requirements: R10.1, R10.9, R9.11_
+
 > **Phase 3 gate:** a support email retrieves the correct procedure chunk; an invoice-identifier email retrieves the correct billing chunk via the lexical branch; disabling either branch degrades gracefully; the debug endpoint explains every ranking decision; hybrid retrieval measurably beats vector-only on the **seed** benchmark set from task 0.13 (first evidence for H1; the full comparison is exp02 in Phase 3's successor phase); and filtered vector search returns full top-N across ≥3 seeded tenants.
 
 ---
@@ -535,7 +540,7 @@
   - Deferred: `failed_jobs_total{error_type}` labels policy dead-letters as `FatalError`, and the reason header is double-prefixed (label with the cause). The integration tests assert final states, not the `processing_event` trails. There is no unit test for re-entry at `GENERATING` across two deliveries, or for a triage snapshot round-trip. DoD #3 and #5 (live stack, scrapeable metrics) are shown by 4.13b.
   - _Requirements: R3.3, R3.5, R7.3, R16.3, R18.1, R19.3, R19.5, R19.6, R19.7_
 
-- [ ] **4.13b AI-worker service wiring & live gate**
+- [x] **4.13b AI-worker service wiring & live gate**
   - `services/ai_worker/main.py` on the shared `WorkerRuntime` (`/healthz`, `/readyz`, graceful drain), one `AIWorkerConsumer` per lane queue in `routing.configured_consumers` with a bounded, configurable `prefetch`. Replace the `ai-worker` placeholder in `docker-compose.yml`.
   - Compose with telemetry (4.12): wrap the summarizer's provider in `InstrumentedLLMProvider(kind=CallKind.SUMMARIZE)`, and pass `metrics` and `settings.llm.price_table` to `SinglePassGenerator` and `DraftingService`, so every request in the worker is measured.
   - Prove the wiring with a composed-worker test: one actionable job through the built components moves `llm_context_tokens{kind="generate"}` and `emails_generated_total`, and `llm_context_tokens{kind="summarize"}` when the thread crosses the summarization threshold (R11.7).
@@ -543,6 +548,26 @@
   - Worker-kill test (`design.md` §9): kill the worker mid-generation → redelivery → exactly one `generated_draft` row.
   - Extend `make smoke` so an actionable email reaches `DRAFTED` through the live stack.
   - Clear the job's lease at `DRAFTED` (or exclude `DRAFTED` from the lease reaper), so enabling `LEASE_REAPER__ENABLED` never reclaims and regenerates a drafted job (4.13a final review).
+  - Implemented: `services/ai_worker/main.py` composes one pipeline for all lanes:
+    - `ThreadSummarizer`, instrumented as `summarize` and threshold-triggered;
+    - `ContextBuilder` with `HybridRetriever` over Postgres;
+    - `ComplexityRouter`;
+    - `DraftingService` with a plain provider, metrics and price table.
+
+    One `AIWorkerConsumer` runs per configured lane, with lane prefetch. The compose `ai-worker` runs it with a `/readyz` healthcheck and a 45 s stop grace. The fake provider answers the draft and summary schemas, so the default stack drafts. The lease reaper skips `DRAFTED`. The composed-worker telemetry and worker-kill proofs pass on a real broker.
+  - Closed 2026-09-27 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1316, integration 156). The user ran the live gate: `make up` rebuilt the images, ai-worker was healthy with consumers started about 3 s after container start, and `make smoke` showed the billing email reaching `email.billing.priority` → ai-worker → `DRAFTED` with one draft. `/metrics` exposes `llm_context_tokens` and `emails_generated_total` (4.13a DoD #3, #5). The fix pass before flipping:
+    - The `cl100k_base` encoding is baked into the image (`TIKTOKEN_CACHE_DIR`), because a download at first use took the first live start to 56 s. The image smoke now runs offline.
+    - R8.4 / design §5.4 `LAG`: a thread already summarized is re-summarized only after more than `SUMMARIZATION__RESUMMARIZE_LAG_MESSAGES` (default 2) new messages.
+    - `persist_drafted` clears the claim lease in the `DRAFTED` transaction. The reaper's `DRAFTED` exclusion stays as a backstop.
+    - The worker-kill test is an in-process broker-connection drop. It proves kill → redelivery → one draft. It does not prove a slow live worker racing a redelivery. The `docker kill` run belongs to 7.13.
+  - Deferred:
+    - The drain window is `TELEMETRY__DRAIN_TIMEOUT_S` (15 s) under a 45 s stop grace, so a longer job is cut and re-billed on deploy.
+    - A worker with zero resolved lanes starts silent and reports ready.
+    - Default prefetch gives priority lanes 5 and normal lanes 10.
+    - Smoke step 1 does not check the ai-worker lane consumers.
+    - LLM API keys are not forwarded into compose.
+    - Nothing validates `RESUMMARIZE_LAG_MESSAGES` ≤ `KEEP_LATEST_MESSAGES`; a larger lag silently drops the messages between the summary point and the verbatim window.
+    - Query embedding is 3.16.
   - _Requirements: R3.4, R11.7, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
 
 > **Phase 4 gate:** a support email with a 12-message thread produces a schema-valid, citation-verified draft in `DRAFTED` through the `ai-worker` consumer (4.13a, 4.13b); a draft that fails validation twice reaches the DLQ with its reason (4.13a policy) with no draft persisted; a short thread triggers no summarization; a low-confidence job escalates exactly once; forcing single-tier mode still works end to end.
@@ -778,10 +803,10 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1 |
 | R6 Triage | 2.2–2.8, 2.9 |
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
-| R8 Thread state | 4.1, 4.2, 4.3 |
-| R9 Knowledge ingestion | 3.1–3.6 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 8.6 |
-| R11 Rerank & packing | 3.11, 3.12, 3.14 |
+| R8 Thread state | 4.1, 4.2, 4.3, 4.13b |
+| R9 Knowledge ingestion | 3.1–3.6, 3.16 |
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 8.6, 3.16 |
+| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b |
 | R12 Query construction | 3.13 |
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12 |

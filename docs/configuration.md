@@ -166,6 +166,7 @@ A model with no entry in the table has an **unknown** cost, not a free one: its 
 | `SUMMARIZATION__MIN_MESSAGES_THRESHOLD` | `integer` | `4` | $\ge 1$ | Message count threshold triggering summarization |
 | `SUMMARIZATION__CONTEXT_TOKEN_THRESHOLD` | `integer` | `1500` | $\ge 100$ | Token threshold triggering summarization |
 | `SUMMARIZATION__KEEP_LATEST_MESSAGES` | `integer` | `2` | $\ge 1$ | Verbatim messages preserved with summary |
+| `SUMMARIZATION__RESUMMARIZE_LAG_MESSAGES` | `integer` | `2` | $\ge 0$ | An existing summary is refreshed only after more than this many new messages arrive (R8.4, design §5.4 LAG); `0` re-summarizes on every new message above the threshold |
 | `SUMMARIZATION__SUMMARIZER_MODEL` | `string` | `gpt-4o-mini` | Non-empty | Model used for generating summaries |
 
 ### 2.10 Retry Ladder Intervals & Backoff (`RETRY__*`)
