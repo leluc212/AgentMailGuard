@@ -8,7 +8,7 @@ so it can never be persisted.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -32,6 +32,7 @@ from packages.llm import (
     UnvalidatedDraftError,
 )
 from packages.observability.metrics import (
+    PipelineMetrics,
     create_pipeline_metrics,
     generate_metrics_payload,
 )
@@ -485,7 +486,7 @@ async def test_metric_failure_does_not_mask_the_real_job_failure(
     generator = SinglePassGenerator(
         llm_provider=fake_llm,
         profile_registry=profile_registry,
-        metrics=metrics,
+        metrics=cast(PipelineMetrics, metrics),
     )
 
     with pytest.raises(UnvalidatedDraftError):
@@ -504,7 +505,7 @@ async def test_metric_failure_does_not_break_a_successful_generation(
     generator = SinglePassGenerator(
         llm_provider=fake_llm,
         profile_registry=profile_registry,
-        metrics=metrics,
+        metrics=cast(PipelineMetrics, metrics),
     )
 
     result = await generator.generate_draft(sample_context, category="support")
@@ -757,7 +758,7 @@ async def test_one_broken_counter_does_not_silence_the_budget_histogram(
     generator = SinglePassGenerator(
         llm_provider=fake_llm,
         profile_registry=profile_registry,
-        metrics=metrics,
+        metrics=cast(PipelineMetrics, metrics),
     )
 
     with pytest.raises(UnvalidatedDraftError):

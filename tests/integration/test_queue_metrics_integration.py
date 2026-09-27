@@ -68,7 +68,7 @@ def _get_gauge_value(metrics: Any, metric_name: str, labels: dict[str, str]) -> 
                 if sample.name == metric_name and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return -1.0
 
 
@@ -80,7 +80,7 @@ def _get_histogram_sum(metrics: Any, metric_name: str, labels: dict[str, str]) -
                 if sample.name == f"{metric_name}_sum" and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return 0.0
 
 
@@ -92,7 +92,7 @@ def _get_histogram_count(metrics: Any, metric_name: str, labels: dict[str, str])
                 if sample.name == f"{metric_name}_count" and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return 0.0
 
 

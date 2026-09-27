@@ -131,7 +131,7 @@ def test_assemble_long_thread_with_summary_latest_n_messages() -> None:
         summary="Customer discussed enterprise deployment with support across messages 1 to 5.",
         open_questions=["Can agreement be finalized?"],
         resolved_items=["Deployment topology chosen", "Pricing agreed"],
-        summarized_through_message_id=messages[-1].message_id,
+        summarized_through_message_id=UUID(str(messages[-1].message_id)),
         version=2,
     )
 

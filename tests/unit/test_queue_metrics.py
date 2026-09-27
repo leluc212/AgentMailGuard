@@ -62,14 +62,16 @@ class DummyBatchConsumer(BaseBatchConsumer):
         self.processed.append(envelope)
 
 
-def _make_mock_message(envelope: JobEnvelope) -> AbstractIncomingMessage:
+def _make_mock_message(
+    envelope: JobEnvelope, routing_key: str = "test.queue"
+) -> AbstractIncomingMessage:
     """Create a mock AMQP message carrying a serialized JobEnvelope."""
     body = json.dumps(envelope.model_dump(mode="json")).encode()
     msg = AsyncMock(spec=AbstractIncomingMessage)
     msg.body = body
     msg.headers = {}
     msg.exchange = ""
-    msg.routing_key = "test.queue"
+    msg.routing_key = routing_key
     msg.ack = AsyncMock()
     msg.nack = AsyncMock()
     msg.reject = AsyncMock()
@@ -85,7 +87,7 @@ def _get_histogram_sum(metrics: Any, metric_name: str, labels: dict[str, str]) -
                 if sample.name == f"{metric_name}_sum" and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return 0.0
 
 
@@ -97,7 +99,7 @@ def _get_histogram_count(metrics: Any, metric_name: str, labels: dict[str, str])
                 if sample.name == f"{metric_name}_count" and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return 0.0
 
 
@@ -109,7 +111,7 @@ def _get_gauge_value(metrics: Any, metric_name: str, labels: dict[str, str]) -> 
                 if sample.name == metric_name and all(
                     sample.labels.get(k) == v for k, v in labels.items()
                 ):
-                    return sample.value
+                    return float(sample.value)
     return -1.0
 
 
@@ -172,8 +174,7 @@ async def test_batch_consumer_records_queue_wait_ms() -> None:
         organization_id="org-2",
         enqueued_at=enqueued_at,
     )
-    mock_msg = _make_mock_message(envelope)
-    mock_msg.routing_key = "email.billing.priority"
+    mock_msg = _make_mock_message(envelope, routing_key="email.billing.priority")
 
     item = BatchItem(envelope=envelope, raw_message=mock_msg)
 

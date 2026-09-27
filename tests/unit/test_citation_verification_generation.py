@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -20,6 +20,7 @@ from packages.llm import (
     SinglePassGenerator,
 )
 from packages.observability.metrics import (
+    PipelineMetrics,
     create_pipeline_metrics,
     generate_metrics_payload,
 )
@@ -261,7 +262,7 @@ async def test_broken_verified_counter_does_not_lose_a_successful_draft(
     generator = SinglePassGenerator(
         llm_provider=FakeLLMProvider(default_response=_reply("DOC-125-08")),
         profile_registry=profile_registry,
-        metrics=metrics,
+        metrics=cast(PipelineMetrics, metrics),
     )
 
     result = await generator.generate_draft(_context(_supplied_chunk()), category="support")
@@ -279,7 +280,7 @@ async def test_broken_mismatch_counter_does_not_lose_a_flagged_draft(
     generator = SinglePassGenerator(
         llm_provider=FakeLLMProvider(default_response=_reply("DOC-999-99")),
         profile_registry=profile_registry,
-        metrics=metrics,
+        metrics=cast(PipelineMetrics, metrics),
     )
 
     result = await generator.generate_draft(_context(_supplied_chunk()), category="support")

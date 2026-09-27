@@ -174,7 +174,7 @@ async def test_thread_context_assembly_live_postgres(db_pool: asyncpg.Pool) -> N
         summary="Customer and support discussed account configuration across messages 1 to 4.",
         open_questions=["Awaiting final approval confirmation"],
         resolved_items=["Credentials validated", "SLA tier selected"],
-        summarized_through_message_id=hist_messages[-1].message_id,
+        summarized_through_message_id=uuid.UUID(str(hist_messages[-1].message_id)),
         version=1,
     )
     await state_store.save(thread_state)
