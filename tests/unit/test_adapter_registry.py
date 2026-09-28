@@ -1,7 +1,7 @@
 """Unit tests for MailProviderAdapter protocol and provider registry.
 
 Requirements:
-- R1.1: Single MailProviderAdapter interface exposing the 7 methods.
+- R1.1: Single MailProviderAdapter interface exposing the 11 methods.
 - R1.3: Adapter registry keyed by mailbox.provider.
 """
 
@@ -22,6 +22,7 @@ from packages.adapters.registry import (
     register_adapter,
     register_default_adapters,
 )
+from packages.domain import ProviderDraftStatus
 from packages.domain.entities import (
     Checkpoint,
     DraftRef,
@@ -71,6 +72,24 @@ class ConformingDummyAdapter:
 
     async def send_reply(self, mailbox: Mailbox, reply: OutboundReply) -> SentRef:
         return SentRef(provider_message_id="sent-1")
+
+    async def send_draft(self, mailbox: Mailbox, provider_draft_id: str) -> SentRef:
+        return SentRef(provider_message_id="sent-1")
+
+    async def get_draft_status(
+        self, mailbox: Mailbox, provider_draft_id: str
+    ) -> ProviderDraftStatus:
+        return ProviderDraftStatus.MISSING
+
+    async def find_sent_message(
+        self, mailbox: Mailbox, provider_thread_id: str, provider_message_id: str
+    ) -> SentRef | None:
+        return None
+
+    async def find_draft(
+        self, mailbox: Mailbox, provider_thread_id: str, message_id: str
+    ) -> DraftRef | None:
+        return None
 
 
 @pytest.fixture(autouse=True)

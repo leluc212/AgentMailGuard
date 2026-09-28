@@ -9,6 +9,7 @@ Requirements:
 """
 
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -17,10 +18,13 @@ from packages.adapters.exceptions import (
     AuthExpired,
     NotFound,
     Permanent,
+    PermanentProviderError,
     RateLimited,
+    RetryableProviderError,
     Transient,
 )
 from packages.adapters.graph import (
+    IMMUTABLE_ID_PREFER,
     GraphProviderAdapter,
     MicrosoftGraphProviderAdapter,
     parse_graph_notification,
@@ -28,7 +32,8 @@ from packages.adapters.graph import (
 from packages.adapters.protocol import MailProviderAdapter
 from packages.adapters.registry import get_adapter, get_adapter_for_mailbox
 from packages.adapters.testing import MailProviderAdapterContractSuite
-from packages.domain.entities import Checkpoint, Mailbox
+from packages.domain import ProviderDraftStatus
+from packages.domain.entities import Checkpoint, EmailAddress, Mailbox, OutboundReply
 
 # ---------------------------------------------------------------------------
 # Step 1: Change notification parsing & error translation tests
@@ -202,13 +207,14 @@ async def test_error_translation_transient_and_permanent() -> None:
 
 
 def create_mock_graph_transport() -> httpx.MockTransport:
-    """Create an httpx MockTransport simulating Microsoft Graph API endpoints."""
+    """Recorded Microsoft Graph responses; drafts are stateful so send changes isDraft."""
+    drafts: dict[str, bool] = {}  # draft id -> sent?
+    rfc_ids: dict[str, str] = {}  # draft id -> internetMessageId set by createReply
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         method = request.method
 
-        # Subscriptions
         if path == "/v1.0/subscriptions" and method == "POST":
             return httpx.Response(
                 201,
@@ -230,8 +236,6 @@ def create_mock_graph_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
-
-        # Delta sync
         if path == "/v1.0/me/mailFolders/Inbox/messages/delta":
             return httpx.Response(
                 200,
@@ -241,8 +245,27 @@ def create_mock_graph_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
-
-        # Raw message content ($value)
+        if path == "/v1.0/me/messages/msg-001/createReply" and method == "POST":
+            assert request.headers.get("Prefer") == IMMUTABLE_ID_PREFER
+            draft_id = "draft-graph-contract-001"
+            drafts[draft_id] = False
+            sent_message = json.loads(request.content or b"{}").get("message") or {}
+            rfc_ids[draft_id] = str(
+                sent_message.get("internetMessageId") or "<AM0PR01MB0001@eurprd01.prod.outlook.com>"
+            )
+            return httpx.Response(
+                201,
+                json={"id": draft_id, "conversationId": "conv-contract-001", "isDraft": True},
+                request=request,
+            )
+        if path.endswith("/send") and method == "POST":
+            draft_id = path.split("/")[-2]
+            if draft_id not in drafts or drafts[draft_id]:
+                return httpx.Response(
+                    404, json={"error": {"code": "ErrorItemNotFound"}}, request=request
+                )
+            drafts[draft_id] = True
+            return httpx.Response(202, request=request)
         if path.endswith("/$value"):
             return httpx.Response(
                 200,
@@ -253,8 +276,15 @@ def create_mock_graph_transport() -> httpx.MockTransport:
                 headers={"Content-Type": "message/rfc822"},
                 request=request,
             )
-
-        # Message metadata
+        if path.startswith("/v1.0/me/messages/draft-") and method == "GET":
+            draft_id = path.split("/")[-1]
+            if draft_id not in drafts:
+                return httpx.Response(
+                    404, json={"error": {"code": "ErrorItemNotFound"}}, request=request
+                )
+            return httpx.Response(
+                200, json={"id": draft_id, "isDraft": not drafts[draft_id]}, request=request
+            )
         if "/v1.0/me/messages/" in path:
             msg_id = path.split("/")[-1]
             return httpx.Response(
@@ -266,34 +296,27 @@ def create_mock_graph_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
-
-        # Thread messages query
-        if path == "/v1.0/me/messages" and request.url.query:
-            return httpx.Response(
-                200,
-                json={"value": [{"id": "graph-msg-sync-1", "conversationId": "conv-contract-001"}]},
-                request=request,
-            )
-
-        # Create draft
-        if path == "/v1.0/me/messages" and method == "POST":
-            return httpx.Response(
-                201,
-                json={
-                    "id": "draft-graph-contract-001",
+        if path == "/v1.0/me/messages" and method == "GET" and request.url.query:
+            value: list[dict[str, Any]] = [
+                {
+                    "id": "graph-msg-sync-1",
                     "conversationId": "conv-contract-001",
-                },
-                request=request,
-            )
-
-        # Send mail
-        if path == "/v1.0/me/sendMail" and method == "POST":
-            return httpx.Response(
-                202,
-                headers={"client-request-id": "sent-graph-contract-001"},
-                request=request,
-            )
-
+                    "isDraft": False,
+                    "internetMessageId": "<orig-001@example.com>",
+                    "sentDateTime": "2026-09-16T12:00:00Z",
+                }
+            ]
+            for draft_id, sent in drafts.items():
+                value.append(
+                    {
+                        "id": draft_id,
+                        "conversationId": "conv-contract-001",
+                        "isDraft": not sent,
+                        "internetMessageId": rfc_ids[draft_id],
+                        "sentDateTime": "2026-09-28T12:00:00Z" if sent else None,
+                    }
+                )
+            return httpx.Response(200, json={"value": value}, request=request)
         return httpx.Response(404, json={"error": "Not Found"}, request=request)
 
     return httpx.MockTransport(handler)
@@ -464,3 +487,281 @@ async def test_delta_token_resync_required_error_code() -> None:
     assert res.requires_full_resync is True
     assert res.new_checkpoint.sync_state == "full_resync"
     assert res.new_checkpoint.delta_link is None
+
+
+# ---------------------------------------------------------------------------
+# 6.3a: createReply + send with immutable ids; status; sent lookup; errors.
+# ---------------------------------------------------------------------------
+
+GRAPH_BASE = "https://graph.microsoft.com/v1.0/me"
+
+
+def _graph_mailbox() -> Mailbox:
+    return Mailbox(
+        id="mbx-graph-63a",
+        organization_id="org-63a",
+        address="support@example.com",
+        provider="graph",
+    )
+
+
+def _graph_reply(original_id: str | None = "AAMkAGI2-orig=") -> OutboundReply:
+    return OutboundReply(
+        thread_id="AAQkAGI2-conv=",
+        mailbox_id="mbx-graph-63a",
+        organization_id="org-63a",
+        to=[EmailAddress(email="customer@example.com", name="Customer")],
+        cc=[EmailAddress(email="lead@example.com")],
+        body_text="Your order shipped.",
+        subject="Re: Order",
+        reply_to_provider_message_id=original_id,
+    )
+
+
+def _graph_client(
+    routes: dict[tuple[str, str], httpx.Response], seen: list[httpx.Request]
+) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        recorded = routes.get((request.method, request.url.path))
+        if recorded is None:
+            return httpx.Response(
+                404,
+                json={"error": {"code": "ErrorItemNotFound", "message": "Not found."}},
+                request=request,
+            )
+        return httpx.Response(
+            recorded.status_code,
+            headers=recorded.headers,
+            content=recorded.content,
+            request=request,
+        )
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.asyncio
+async def test_graph_create_draft_uses_create_reply_with_immutable_ids() -> None:
+    """6.3a / R17.2: the draft is a createReply on the original, not a new message."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("POST", "/v1.0/me/messages/AAMkAGI2-orig=/createReply"): httpx.Response(
+            201,
+            json={
+                "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0Ad-draft",
+                "conversationId": "AAQkAGI2-conv=",
+                "isDraft": True,
+            },
+        )
+    }
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+
+    draft = await adapter.create_draft(_graph_mailbox(), _graph_reply())
+
+    assert draft.provider_draft_id == "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0Ad-draft"
+    assert draft.provider_message_id == draft.provider_draft_id
+    assert draft.provider_thread_id == "AAQkAGI2-conv="
+    request = seen[0]
+    assert request.headers["Prefer"] == 'IdType="ImmutableId"'
+    body = json.loads(request.content)
+    assert "comment" not in body
+    assert body["message"]["body"] == {"contentType": "Text", "content": "Your order shipped."}
+    assert body["message"]["toRecipients"][0]["emailAddress"]["address"] == "customer@example.com"
+    assert body["message"]["ccRecipients"][0]["emailAddress"]["address"] == "lead@example.com"
+
+
+@pytest.mark.asyncio
+async def test_graph_create_draft_without_original_id_is_permanent() -> None:
+    """Without the original message id there is nothing to reply to: permanent."""
+    seen: list[httpx.Request] = []
+    adapter = GraphProviderAdapter(client=_graph_client({}, seen), base_url=GRAPH_BASE)
+    with pytest.raises(Permanent):
+        await adapter.create_draft(_graph_mailbox(), _graph_reply(None))
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_graph_send_draft_posts_send_and_returns_the_immutable_id() -> None:
+    """6.3a / R17.4: send returns 202 with no body; the stored id is the real message id."""
+    seen: list[httpx.Request] = []
+    routes = {("POST", "/v1.0/me/messages/draft-imm-1/send"): httpx.Response(202)}
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+
+    sent = await adapter.send_draft(_graph_mailbox(), "draft-imm-1")
+
+    assert sent.provider_message_id == "draft-imm-1"
+    assert seen[0].headers["Prefer"] == 'IdType="ImmutableId"'
+
+
+@pytest.mark.asyncio
+async def test_graph_send_reply_never_calls_send_mail() -> None:
+    """6.3a / design §5.8: send_reply is createReply + send; sendMail starts a new conversation."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("POST", "/v1.0/me/messages/AAMkAGI2-orig=/createReply"): httpx.Response(
+            201, json={"id": "draft-imm-2", "conversationId": "AAQkAGI2-conv=", "isDraft": True}
+        ),
+        ("POST", "/v1.0/me/messages/draft-imm-2/send"): httpx.Response(202),
+    }
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+
+    sent = await adapter.send_reply(_graph_mailbox(), _graph_reply())
+
+    assert [r.url.path for r in seen] == [
+        "/v1.0/me/messages/AAMkAGI2-orig=/createReply",
+        "/v1.0/me/messages/draft-imm-2/send",
+    ]
+    assert sent.provider_message_id == "draft-imm-2"
+    assert sent.provider_thread_id == "AAQkAGI2-conv="
+
+
+@pytest.mark.parametrize(
+    ("is_draft", "expected"),
+    [(True, ProviderDraftStatus.DRAFT), (False, ProviderDraftStatus.SENT)],
+)
+@pytest.mark.asyncio
+async def test_graph_get_draft_status_reads_is_draft(
+    is_draft: bool, expected: ProviderDraftStatus
+) -> None:
+    """6.3a: isDraft true is DRAFT, false is SENT (the Sent Items copy keeps the id)."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("GET", "/v1.0/me/messages/draft-imm-3"): httpx.Response(
+            200, json={"id": "draft-imm-3", "isDraft": is_draft}
+        )
+    }
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+    assert await adapter.get_draft_status(_graph_mailbox(), "draft-imm-3") is expected
+    assert seen[0].url.params["$select"] == "id,isDraft"
+
+
+@pytest.mark.asyncio
+async def test_graph_get_draft_status_missing_on_404() -> None:
+    """6.3a: a deleted draft is MISSING."""
+    seen: list[httpx.Request] = []
+    adapter = GraphProviderAdapter(client=_graph_client({}, seen), base_url=GRAPH_BASE)
+    status = await adapter.get_draft_status(_graph_mailbox(), "draft-gone")
+    assert status is ProviderDraftStatus.MISSING
+
+
+@pytest.mark.asyncio
+async def test_graph_find_sent_message_by_id_or_internet_message_id() -> None:
+    """6.3a: only an isDraft=false item matches, by immutable id or internetMessageId."""
+    seen: list[httpx.Request] = []
+    listing: dict[str, Any] = {
+        "value": [
+            {"id": "draft-unsent", "isDraft": True, "internetMessageId": "<unsent@outlook.com>"},
+            {
+                "id": "draft-imm-4",
+                "isDraft": False,
+                "internetMessageId": "<AM0PR01@outlook.com>",
+                "sentDateTime": "2026-09-28T12:00:00Z",
+            },
+        ]
+    }
+    routes = {("GET", "/v1.0/me/messages"): httpx.Response(200, json=listing)}
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+    mailbox = _graph_mailbox()
+
+    by_id = await adapter.find_sent_message(mailbox, "AAQk'conv", "draft-imm-4")
+    assert by_id is not None and by_id.provider_message_id == "draft-imm-4"
+    assert seen[0].url.params["$filter"] == "conversationId eq 'AAQk''conv'"
+    by_rfc = await adapter.find_sent_message(mailbox, "AAQk'conv", "AM0PR01@outlook.com")
+    assert by_rfc is not None and by_rfc.provider_message_id == "draft-imm-4"
+    assert await adapter.find_sent_message(mailbox, "AAQk'conv", "draft-unsent") is None
+
+
+@pytest.mark.asyncio
+async def test_graph_create_draft_sets_our_message_id() -> None:
+    """6.5 / D3: the draft carries our Message-ID as internetMessageId for find_draft."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("POST", "/v1.0/me/messages/AAMkAGI2-orig=/createReply"): httpx.Response(
+            201, json={"id": "draft-imm-5", "conversationId": "AAQkAGI2-conv=", "isDraft": True}
+        )
+    }
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+    reply = OutboundReply(
+        thread_id="AAQkAGI2-conv=",
+        mailbox_id="mbx-graph-63a",
+        organization_id="org-63a",
+        to=[EmailAddress(email="customer@example.com")],
+        body_text="Your order shipped.",
+        subject="Re: Order",
+        message_id="dispatch-abc@example.com",
+        reply_to_provider_message_id="AAMkAGI2-orig=",
+    )
+
+    await adapter.create_draft(_graph_mailbox(), reply)
+
+    body = json.loads(seen[0].content)
+    assert body["message"]["internetMessageId"] == "<dispatch-abc@example.com>"
+
+
+@pytest.mark.asyncio
+async def test_graph_find_draft_matches_only_an_unsent_draft_with_our_message_id() -> None:
+    """6.5: the orphan-draft lookup ignores sent copies and other drafts."""
+    seen: list[httpx.Request] = []
+    listing: dict[str, Any] = {
+        "value": [
+            {
+                "id": "draft-other",
+                "isDraft": True,
+                "internetMessageId": "<someone-else@outlook.com>",
+                "conversationId": "AAQk'conv",
+            },
+            {
+                "id": "sent-ours",
+                "isDraft": False,
+                "internetMessageId": "<dispatch-abc@example.com>",
+                "conversationId": "AAQk'conv",
+            },
+            {
+                "id": "draft-ours",
+                "isDraft": True,
+                "internetMessageId": "<dispatch-abc@example.com>",
+                "conversationId": "AAQk'conv",
+            },
+        ]
+    }
+    routes = {("GET", "/v1.0/me/messages"): httpx.Response(200, json=listing)}
+    adapter = GraphProviderAdapter(client=_graph_client(routes, seen), base_url=GRAPH_BASE)
+    mailbox = _graph_mailbox()
+
+    found = await adapter.find_draft(mailbox, "AAQk'conv", "dispatch-abc@example.com")
+    assert found is not None
+    assert (found.provider_draft_id, found.provider_message_id) == ("draft-ours", "draft-ours")
+    assert seen[0].url.params["$filter"] == "conversationId eq 'AAQk''conv'"
+    assert seen[0].headers["Prefer"] == 'IdType="ImmutableId"'
+    assert await adapter.find_draft(mailbox, "AAQk'conv", "<missing@example.com>") is None
+
+
+@pytest.mark.asyncio
+async def test_graph_503_retry_after_is_retryable_and_403_is_permanent() -> None:
+    """6.3a / R17.5: 503 keeps Retry-After as retry_after_s; Graph 403 stays AuthExpired."""
+
+    def handler_503(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            headers={"Retry-After": "10"},
+            json={"error": {"code": "serviceNotAvailable"}},
+            request=request,
+        )
+
+    adapter = GraphProviderAdapter(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler_503))
+    )
+    with pytest.raises(Transient) as exc_info:
+        await adapter._request("GET", GRAPH_BASE)
+    assert isinstance(exc_info.value, RetryableProviderError)
+    assert exc_info.value.retry_after_s == 10.0
+
+    def handler_403(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": {"code": "ErrorAccessDenied"}}, request=request)
+
+    adapter_403 = GraphProviderAdapter(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler_403))
+    )
+    with pytest.raises(AuthExpired) as exc_403:
+        await adapter_403._request("GET", GRAPH_BASE)
+    assert isinstance(exc_403.value, PermanentProviderError)

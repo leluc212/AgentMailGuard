@@ -135,18 +135,27 @@ async def test_error_translation_transient_and_permanent() -> None:
 
 
 def create_mock_gmail_transport() -> httpx.MockTransport:
-    """Create a mock HTTP transport returning standard Gmail API JSON payloads."""
+    """Recorded Gmail API responses; drafts.send deletes the draft and adds a SENT message."""
     raw_b64 = encode_urlsafe_b64(b"From: user@example.com\r\nSubject: Contract\r\n\r\nBody")
+    state: dict[str, bool] = {"draft_exists": False, "sent": False}
+
+    def meta(msg_id: str, labels: list[str], rfc_id: str) -> dict[str, Any]:
+        return {
+            "id": msg_id,
+            "threadId": "th-001",
+            "labelIds": labels,
+            "internalDate": "1790000000000",
+            "payload": {"headers": [{"name": "Message-ID", "value": rfc_id}]},
+        }
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
+        path = request.url.path
         method = request.method
 
         if "/watch" in url:
             return httpx.Response(
-                200,
-                json={"historyId": "100", "expiration": "1789000000000"},
-                request=request,
+                200, json={"historyId": "100", "expiration": "1789000000000"}, request=request
             )
         if "/history" in url:
             return httpx.Response(
@@ -159,11 +168,47 @@ def create_mock_gmail_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
-        if "/messages?" in url or url.rstrip("/").endswith("/messages"):
+        if path.endswith("/drafts/send") and method == "POST":
+            if not state["draft_exists"]:
+                return httpx.Response(
+                    404, json={"error": {"code": 404, "message": "Not Found"}}, request=request
+                )
+            state["draft_exists"] = False
+            state["sent"] = True
             return httpx.Response(
                 200,
-                json={"messages": [{"id": "msg-001", "threadId": "th-001"}]},
+                json={"id": "sent-msg-102", "threadId": "th-001", "labelIds": ["SENT"]},
                 request=request,
+            )
+        if path.endswith("/drafts") and method == "GET":
+            # drafts.list?q=rfc822msgid:<id> (find_draft): only the unsent contract draft matches.
+            query = request.url.params.get("q", "")
+            listed = (
+                [{"id": "draft-101", "message": {"id": "msg-draft-101", "threadId": "th-001"}}]
+                if state["draft_exists"] and query == "rfc822msgid:contract-reply-001@example.com"
+                else []
+            )
+            return httpx.Response(
+                200, json={"drafts": listed, "resultSizeEstimate": len(listed)}, request=request
+            )
+        if path.endswith("/drafts") and method == "POST":
+            state["draft_exists"] = True
+            return httpx.Response(
+                200,
+                json={"id": "draft-101", "message": {"id": "msg-draft-101", "threadId": "th-001"}},
+                request=request,
+            )
+        if path.endswith("/drafts/draft-101") and method == "GET" and state["draft_exists"]:
+            return httpx.Response(
+                200, json={"id": "draft-101", "message": {"id": "msg-draft-101"}}, request=request
+            )
+        if "/messages?" in url or path.rstrip("/").endswith("/messages"):
+            return httpx.Response(
+                200, json={"messages": [{"id": "msg-001", "threadId": "th-001"}]}, request=request
+            )
+        if "/messages/send" in url and method == "POST":
+            return httpx.Response(
+                200, json={"id": "sent-msg-101", "threadId": "th-001"}, request=request
             )
         if "/messages/msg-001" in url:
             return httpx.Response(
@@ -176,6 +221,15 @@ def create_mock_gmail_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
+        if path.endswith("/threads/th-001") and request.url.params.get("format") == "metadata":
+            messages = [meta("msg-001", ["INBOX"], "<orig-001@example.com>")]
+            if state["draft_exists"]:
+                messages.append(
+                    meta("msg-draft-101", ["DRAFT"], "<contract-reply-001@example.com>")
+                )
+            if state["sent"]:
+                messages.append(meta("sent-msg-102", ["SENT"], "<contract-reply-001@example.com>"))
+            return httpx.Response(200, json={"id": "th-001", "messages": messages}, request=request)
         if "/threads/th-001" in url:
             return httpx.Response(
                 200,
@@ -185,19 +239,6 @@ def create_mock_gmail_transport() -> httpx.MockTransport:
                 },
                 request=request,
             )
-        if "/drafts" in url and method == "POST":
-            return httpx.Response(
-                200,
-                json={"id": "draft-101", "message": {"id": "msg-draft-101", "threadId": "th-001"}},
-                request=request,
-            )
-        if "/messages/send" in url and method == "POST":
-            return httpx.Response(
-                200,
-                json={"id": "sent-msg-101", "threadId": "th-001"},
-                request=request,
-            )
-
         return httpx.Response(404, json={"error": "Not Found"}, request=request)
 
     return httpx.MockTransport(handler)

@@ -4,6 +4,8 @@ Requirements:
 - R1.7: FakeProviderAdapter driven by fixture files, usable in CI with no network access.
 - R24.5: Offline, credential-free provider double.
 - design.md §5.1: MailProviderAdapter protocol conformance and sync algorithm.
+- R17.1, R17.3 (task 6.3a): draft send/status/lookup, method-targeted and
+  after-success fault injection.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from packages.adapters.exceptions import (
     Transient,
 )
 from packages.adapters.registry import register_adapter
+from packages.domain import ProviderDraftStatus
 from packages.domain.entities import (
     Checkpoint,
     DraftRef,
@@ -41,9 +44,19 @@ from packages.domain.entities import (
 class FakeProviderAdapter:
     """In-memory, deterministic mail provider adapter implementing MailProviderAdapter."""
 
-    def __init__(self, batch_size: int = 50, mailbox_id: str = "mbx-fake", **kwargs: Any) -> None:
+    def __init__(
+        self,
+        batch_size: int = 50,
+        mailbox_id: str = "mbx-fake",
+        *,
+        deletes_sent_drafts: bool = False,
+        **kwargs: Any,
+    ) -> None:
         self.batch_size = batch_size
         self.mailbox_id = mailbox_id
+        # False: Graph-like (sent draft reads SENT, keeps its id).
+        # True: Gmail-like (sent draft is deleted -> MISSING, sent copy gets a new id).
+        self.deletes_sent_drafts = deletes_sent_drafts
         self.is_connected = False
         self.kwargs = kwargs
         self._messages: dict[str, RawMessage] = {}
@@ -51,6 +64,9 @@ class FakeProviderAdapter:
         self._threads: dict[str, list[str]] = {}
         self._subscriptions: dict[str, Subscription] = {}
         self._drafts: dict[str, OutboundReply] = {}
+        self._draft_message_ids: dict[str, str] = {}
+        self._sent_drafts: dict[str, SentRef] = {}
+        self._deleted_drafts: set[str] = set()
         self._sent_messages: list[tuple[SentRef, OutboundReply]] = []
         self._expired_checkpoints: set[str] = set()
         self._injected_faults: list[dict[str, Any]] = []
@@ -66,13 +82,22 @@ class FakeProviderAdapter:
 
     @property
     def sent_count(self) -> int:
-        """Count of outbound messages dispatched."""
+        """Count of outbound messages dispatched (send_reply and send_draft)."""
         return len(self._sent_messages)
 
     @property
     def draft_count(self) -> int:
-        """Count of drafts created."""
-        return len(self._drafts)
+        """Count of drafts ever created (sending or deleting one does not lower it)."""
+        return self._draft_counter
+
+    @property
+    def pending_draft_count(self) -> int:
+        """Drafts that exist and are unsent."""
+        return sum(
+            1
+            for draft_id in self._drafts
+            if draft_id not in self._sent_drafts and draft_id not in self._deleted_drafts
+        )
 
     async def connect(self) -> None:
         """Simulate establishing connection."""
@@ -90,67 +115,111 @@ class FakeProviderAdapter:
         """Mark a checkpoint history_id as expired to simulate stale sync tokens."""
         self._expired_checkpoints.add(history_id)
 
+    def _add_fault(
+        self,
+        fault_type: str,
+        calls: int,
+        message: str,
+        method: str | None,
+        after_success: bool,
+        **extra: Any,
+    ) -> None:
+        self._injected_faults.append(
+            {
+                "type": fault_type,
+                "calls": calls,
+                "message": message,
+                "method": method,
+                "phase": "after" if after_success else "before",
+                **extra,
+            }
+        )
+
     def inject_rate_limit(
         self,
         retry_after: float = 30.0,
         calls: int = 1,
         message: str = "Provider rate limit exceeded",
+        *,
+        method: str | None = None,
+        after_success: bool = False,
     ) -> None:
         """Inject a RateLimited fault carrying retry_after."""
-        self._injected_faults.append(
-            {
-                "type": "rate_limited",
-                "retry_after": retry_after,
-                "calls": calls,
-                "message": message,
-            }
+        self._add_fault(
+            "rate_limited", calls, message, method, after_success, retry_after=retry_after
         )
 
     def inject_auth_expired(
         self,
         calls: int = 1,
         message: str = "Credentials expired or revoked",
+        *,
+        method: str | None = None,
+        after_success: bool = False,
     ) -> None:
         """Inject an AuthExpired fault."""
-        self._injected_faults.append({"type": "auth_expired", "calls": calls, "message": message})
+        self._add_fault("auth_expired", calls, message, method, after_success)
 
     def inject_transient_failure(
         self,
         message: str = "Temporary network error",
         calls: int = 1,
+        *,
+        method: str | None = None,
+        after_success: bool = False,
     ) -> None:
-        """Inject a Transient fault."""
-        self._injected_faults.append({"type": "transient", "calls": calls, "message": message})
+        """Inject a Transient fault; with after_success it models an ambiguous send."""
+        self._add_fault("transient", calls, message, method, after_success)
 
     def inject_permanent_failure(
         self,
         message: str = "Fatal request format error",
         calls: int = 1,
+        *,
+        method: str | None = None,
+        after_success: bool = False,
     ) -> None:
         """Inject a Permanent fault."""
-        self._injected_faults.append({"type": "permanent", "calls": calls, "message": message})
+        self._add_fault("permanent", calls, message, method, after_success)
 
     def inject_not_found(
         self,
         message: str = "Resource not found",
         calls: int = 1,
+        *,
+        method: str | None = None,
+        after_success: bool = False,
     ) -> None:
         """Inject a NotFound fault."""
-        self._injected_faults.append({"type": "not_found", "calls": calls, "message": message})
+        self._add_fault("not_found", calls, message, method, after_success)
 
     def clear_injected_faults(self) -> None:
         """Clear all active failure injections."""
         self._injected_faults.clear()
 
-    def _maybe_raise_fault(self, method_name: str, mailbox: Mailbox | None = None) -> None:
-        """Inspect and execute active fault injections."""
-        if not self._injected_faults:
+    def _maybe_raise_fault(
+        self,
+        method_name: str,
+        mailbox: Mailbox | None = None,
+        phase: str = "before",
+    ) -> None:
+        """Fire the first injected fault targeting this method (or any) in this phase."""
+        index = next(
+            (
+                i
+                for i, fault in enumerate(self._injected_faults)
+                if fault.get("method") in (None, method_name)
+                and fault.get("phase", "before") == phase
+            ),
+            None,
+        )
+        if index is None:
             return
 
-        fault = self._injected_faults[0]
+        fault = self._injected_faults[index]
         fault["calls"] -= 1
         if fault["calls"] <= 0:
-            self._injected_faults.pop(0)
+            self._injected_faults.pop(index)
 
         mbx_id = str(mailbox.id) if mailbox else None
         ftype = fault["type"]
@@ -436,13 +505,17 @@ class FakeProviderAdapter:
         )
 
     async def create_draft(self, mailbox: Mailbox, reply: OutboundReply) -> DraftRef:
-        """Store draft in-memory and return DraftRef."""
+        """Store a draft in memory; the DraftRef carries its draft and message ids."""
         self._maybe_raise_fault("create_draft", mailbox)
         self._draft_counter += 1
         draft_id = f"draft-fake-{self._draft_counter}"
+        draft_message_id = f"draft-msg-fake-{self._draft_counter}"
         self._drafts[draft_id] = reply
+        self._draft_message_ids[draft_id] = draft_message_id
+        self._maybe_raise_fault("create_draft", mailbox, phase="after")
         return DraftRef(
             provider_draft_id=draft_id,
+            provider_message_id=draft_message_id,
             provider_thread_id=str(reply.thread_id),
         )
 
@@ -457,7 +530,96 @@ class FakeProviderAdapter:
             sent_at=datetime.now(UTC),
         )
         self._sent_messages.append((ref, reply))
+        self._maybe_raise_fault("send_reply", mailbox, phase="after")
         return ref
+
+    async def send_draft(self, mailbox: Mailbox, provider_draft_id: str) -> SentRef:
+        """Send an unsent draft once; a sent, deleted or unknown draft is NotFound."""
+        self._maybe_raise_fault("send_draft", mailbox)
+        if (
+            provider_draft_id not in self._drafts
+            or provider_draft_id in self._sent_drafts
+            or provider_draft_id in self._deleted_drafts
+        ):
+            raise NotFound(
+                f"Draft '{provider_draft_id}' not found.",
+                provider="fake",
+                mailbox_id=str(mailbox.id),
+            )
+        reply = self._drafts[provider_draft_id]
+        if self.deletes_sent_drafts:
+            self._sent_counter += 1
+            sent_id = f"sent-fake-{self._sent_counter}"
+        else:
+            sent_id = self._draft_message_ids[provider_draft_id]
+        ref = SentRef(
+            provider_message_id=sent_id,
+            provider_thread_id=str(reply.thread_id),
+            sent_at=datetime.now(UTC),
+        )
+        self._sent_drafts[provider_draft_id] = ref
+        self._sent_messages.append((ref, reply))
+        self._maybe_raise_fault("send_draft", mailbox, phase="after")
+        return ref
+
+    async def get_draft_status(
+        self, mailbox: Mailbox, provider_draft_id: str
+    ) -> ProviderDraftStatus:
+        """DRAFT until sent; then SENT, or MISSING when the fake deletes sent drafts."""
+        self._maybe_raise_fault("get_draft_status", mailbox)
+        if provider_draft_id in self._deleted_drafts or provider_draft_id not in self._drafts:
+            return ProviderDraftStatus.MISSING
+        if provider_draft_id in self._sent_drafts:
+            if self.deletes_sent_drafts:
+                return ProviderDraftStatus.MISSING
+            return ProviderDraftStatus.SENT
+        return ProviderDraftStatus.DRAFT
+
+    async def find_sent_message(
+        self,
+        mailbox: Mailbox,
+        provider_thread_id: str,
+        provider_message_id: str,
+    ) -> SentRef | None:
+        """Find a sent draft in the thread by sent message id or by the reply's Message-ID."""
+        self._maybe_raise_fault("find_sent_message", mailbox)
+        wanted = provider_message_id.strip().strip("<>").strip()
+        for draft_id, ref in self._sent_drafts.items():
+            if ref.provider_thread_id != provider_thread_id:
+                continue
+            reply = self._drafts[draft_id]
+            rfc_id = (reply.message_id or "").strip().strip("<>").strip()
+            if ref.provider_message_id == provider_message_id or (rfc_id and rfc_id == wanted):
+                return ref
+        return None
+
+    async def find_draft(
+        self,
+        mailbox: Mailbox,
+        provider_thread_id: str,
+        message_id: str,
+    ) -> DraftRef | None:
+        """Find an unsent, undeleted draft in the thread carrying this Message-ID (6.5)."""
+        self._maybe_raise_fault("find_draft", mailbox)
+        wanted = message_id.strip().strip("<>").strip()
+        if not wanted:
+            return None
+        for draft_id, reply in self._drafts.items():
+            if draft_id in self._sent_drafts or draft_id in self._deleted_drafts:
+                continue
+            if str(reply.thread_id) != provider_thread_id:
+                continue
+            if (reply.message_id or "").strip().strip("<>").strip() == wanted:
+                return DraftRef(
+                    provider_draft_id=draft_id,
+                    provider_message_id=self._draft_message_ids[draft_id],
+                    provider_thread_id=str(reply.thread_id),
+                )
+        return None
+
+    def delete_draft(self, provider_draft_id: str) -> None:
+        """Test helper: a person deletes the draft in the mailbox before it is sent."""
+        self._deleted_drafts.add(provider_draft_id)
 
 
 # Register FakeProviderAdapter in the default registry

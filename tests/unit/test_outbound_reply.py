@@ -222,3 +222,27 @@ def test_building_a_reply_does_not_mutate_the_inputs() -> None:
         message_id_domain=DOMAIN,
     )
     assert (original, draft) == before
+
+
+def test_outbound_reply_carries_the_original_provider_message_id() -> None:
+    """6.3a: Graph createReply needs the original email's provider id on the reply."""
+    original = NormalizedMessage(
+        message_id="00000000-0000-0000-0000-00000000a001",
+        thread_id="00000000-0000-0000-0000-00000000b001",
+        mailbox_id="00000000-0000-0000-0000-00000000c001",
+        organization_id="00000000-0000-0000-0000-00000000d001",
+        provider="graph",
+        provider_message_id="AAMkAGI2-orig-001",
+        sender=EmailAddress(email="customer@example.com"),
+        received_at=datetime(2026, 9, 28, tzinfo=UTC),
+        rfc822_message_id="orig-001@example.com",
+        subject="Order question",
+    )
+    draft = GeneratedDraft(body="Your order shipped.", organization_id=original.organization_id)
+    reply = build_outbound_reply(
+        draft=draft,
+        original=original,
+        provider_thread_id="conv-001",
+        message_id_domain="mail.example.com",
+    )
+    assert reply.reply_to_provider_message_id == "AAMkAGI2-orig-001"

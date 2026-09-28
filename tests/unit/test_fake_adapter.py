@@ -20,7 +20,8 @@ from packages.adapters.fake import FakeProviderAdapter
 from packages.adapters.protocol import MailProviderAdapter
 from packages.adapters.registry import get_adapter
 from packages.adapters.testing import MailProviderAdapterContractSuite
-from packages.domain.entities import Checkpoint, Mailbox
+from packages.domain import ProviderDraftStatus
+from packages.domain.entities import Checkpoint, EmailAddress, Mailbox, OutboundReply
 
 
 class TestFakeProviderAdapterContract(MailProviderAdapterContractSuite):
@@ -173,3 +174,141 @@ async def test_failure_injection_permanent_not_found_and_clear() -> None:
     adapter.clear_injected_faults()
     th = await adapter.get_thread(mbx, "th-1")
     assert th.provider_thread_id == "th-1"
+
+
+def _fake_mailbox() -> Mailbox:
+    return Mailbox(
+        id="mbx-fake-63a", organization_id="org-63a", provider="gmail", address="s@x.com"
+    )
+
+
+def _fake_reply() -> OutboundReply:
+    return OutboundReply(
+        thread_id="th-63a",
+        mailbox_id="mbx-fake-63a",
+        organization_id="org-63a",
+        to=[EmailAddress(email="c@example.com")],
+        body_text="Reply",
+        message_id="<fake-reply-63a@mail.example.com>",
+    )
+
+
+@pytest.mark.asyncio
+async def test_fake_gmail_like_mode_deletes_sent_drafts() -> None:
+    """6.3a: deletes_sent_drafts models Gmail: MISSING after send, new id, found by Message-ID."""
+    adapter = FakeProviderAdapter(deletes_sent_drafts=True)
+    mailbox = _fake_mailbox()
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    sent = await adapter.send_draft(mailbox, draft.provider_draft_id)
+
+    assert sent.provider_message_id != draft.provider_message_id
+    assert (
+        await adapter.get_draft_status(mailbox, draft.provider_draft_id)
+        is ProviderDraftStatus.MISSING
+    )
+    assert (
+        await adapter.find_sent_message(mailbox, "th-63a", draft.provider_message_id or "") is None
+    )
+    found = await adapter.find_sent_message(mailbox, "th-63a", "fake-reply-63a@mail.example.com")
+    assert found == sent
+    assert adapter.draft_count == 1
+    assert adapter.pending_draft_count == 0
+    assert adapter.sent_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fake_graph_like_mode_keeps_the_draft_id() -> None:
+    """6.3a: default mode models Graph immutable ids: SENT after send, same id."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    sent = await adapter.send_draft(mailbox, draft.provider_draft_id)
+
+    assert sent.provider_message_id == draft.provider_message_id
+    assert (
+        await adapter.get_draft_status(mailbox, draft.provider_draft_id) is ProviderDraftStatus.SENT
+    )
+    assert await adapter.find_sent_message(mailbox, "th-63a", sent.provider_message_id) == sent
+    assert (
+        await adapter.find_sent_message(mailbox, "other-thread", sent.provider_message_id) is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_fake_send_draft_twice_is_not_found_and_sends_once() -> None:
+    """A second send of the same draft cannot produce a second email."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    await adapter.send_draft(mailbox, draft.provider_draft_id)
+    with pytest.raises(NotFound):
+        await adapter.send_draft(mailbox, draft.provider_draft_id)
+    assert adapter.sent_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fake_deleted_draft_is_missing_and_never_found() -> None:
+    """design §5.8 step 4: a person deleted the draft -> MISSING and no sent copy."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    adapter.delete_draft(draft.provider_draft_id)
+    assert (
+        await adapter.get_draft_status(mailbox, draft.provider_draft_id)
+        is ProviderDraftStatus.MISSING
+    )
+    assert (
+        await adapter.find_sent_message(mailbox, "th-63a", "fake-reply-63a@mail.example.com")
+        is None
+    )
+    with pytest.raises(NotFound):
+        await adapter.send_draft(mailbox, draft.provider_draft_id)
+
+
+@pytest.mark.asyncio
+async def test_fake_after_success_fault_models_an_ambiguous_send() -> None:
+    """6.3a: the send happens, then the caller sees Transient (the crash-after-send case)."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    adapter.inject_transient_failure(method="send_draft", after_success=True)
+
+    with pytest.raises(Transient):
+        await adapter.send_draft(mailbox, draft.provider_draft_id)
+
+    assert adapter.sent_count == 1
+    assert (
+        await adapter.get_draft_status(mailbox, draft.provider_draft_id) is ProviderDraftStatus.SENT
+    )
+
+
+@pytest.mark.asyncio
+async def test_fake_method_targeted_fault_skips_other_methods() -> None:
+    """A fault aimed at send_draft does not fire on create_draft."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    adapter.inject_rate_limit(retry_after=7.0, method="send_draft")
+    draft = await adapter.create_draft(mailbox, _fake_reply())
+    with pytest.raises(RateLimited) as exc_info:
+        await adapter.send_draft(mailbox, draft.provider_draft_id)
+    assert exc_info.value.retry_after_s == 7.0
+    assert adapter.sent_count == 0
+
+
+@pytest.mark.asyncio
+async def test_fake_find_draft_skips_sent_deleted_and_other_threads() -> None:
+    """6.5: only an unsent draft of this thread with our Message-ID is adopted."""
+    adapter = FakeProviderAdapter()
+    mailbox = _fake_mailbox()
+    first = await adapter.create_draft(mailbox, _fake_reply())
+    found = await adapter.find_draft(mailbox, "th-63a", "fake-reply-63a@mail.example.com")
+    assert found is not None and found.provider_draft_id == first.provider_draft_id
+    assert (
+        await adapter.find_draft(mailbox, "other-thread", "<fake-reply-63a@mail.example.com>")
+        is None
+    )
+    await adapter.send_draft(mailbox, first.provider_draft_id)
+    assert await adapter.find_draft(mailbox, "th-63a", "<fake-reply-63a@mail.example.com>") is None
+    second = await adapter.create_draft(mailbox, _fake_reply())
+    adapter.delete_draft(second.provider_draft_id)
+    assert await adapter.find_draft(mailbox, "th-63a", "<fake-reply-63a@mail.example.com>") is None

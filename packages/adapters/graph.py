@@ -6,6 +6,8 @@ Requirements:
 - R2.6: Delta query following @odata.nextLink to terminal @odata.deltaLink.
 - R2.7: Invalid delta token detection triggering bounded full resync.
 - design.md §5.1: MailProviderAdapter protocol conformance.
+- R17.1, R17.2, R17.3, R17.5: createReply + send with immutable ids; draft status
+  and sent lookup (task 6.3a).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -25,11 +28,14 @@ from packages.adapters.exceptions import (
     Permanent,
     RateLimited,
     Transient,
+    parse_retry_after,
 )
 from packages.adapters.registry import register_adapter
+from packages.domain import ProviderDraftStatus
 from packages.domain.entities import (
     Checkpoint,
     DraftRef,
+    EmailAddress,
     Mailbox,
     OutboundReply,
     RawMessage,
@@ -38,6 +44,43 @@ from packages.domain.entities import (
     Subscription,
     SyncResult,
 )
+
+# Graph "Obtain immutable identifiers": ids in responses survive folder moves, so the
+# draft id we store is also the id of the copy in Sent Items after send.
+IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"'
+_FIND_SENT_MAX_PAGES = 10
+
+
+def _immutable_id_headers() -> dict[str, str]:
+    return {"Prefer": IMMUTABLE_ID_PREFER}
+
+
+def _graph_path_id(value: str) -> str:
+    """Percent-encode a Graph id for a URL path segment ('=' padding kept)."""
+    return quote(value, safe="=")
+
+
+def _odata_string(value: str) -> str:
+    """Escape a value for an OData single-quoted string literal."""
+    return value.replace("'", "''")
+
+
+def _bare_message_id(value: str) -> str:
+    return value.strip().strip("<>").strip()
+
+
+def _graph_recipients(addresses: list[EmailAddress]) -> list[dict[str, Any]]:
+    return [
+        {"emailAddress": {"address": str(a.email), "name": a.name or str(a.email)}}
+        for a in addresses
+    ]
+
+
+def _graph_datetime(value: Any) -> datetime:
+    if isinstance(value, str) and value:
+        with contextlib.suppress(ValueError):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -199,17 +242,11 @@ class GraphProviderAdapter:
             raw_payload = resp.text
 
         status = resp.status_code
+        retry_after_s = parse_retry_after(resp.headers.get("Retry-After"))
         if status == 429:
-            retry_after_hdr = resp.headers.get("Retry-After")
-            retry_after_val: float | None = None
-            if retry_after_hdr:
-                try:
-                    retry_after_val = float(retry_after_hdr)
-                except ValueError:
-                    retry_after_val = 60.0
             raise RateLimited(
                 "Microsoft Graph rate limit exceeded",
-                retry_after=retry_after_val,
+                retry_after=retry_after_s,
                 provider="graph",
                 mailbox_id=mailbox_id,
                 raw_error=raw_payload,
@@ -246,6 +283,7 @@ class GraphProviderAdapter:
                 provider="graph",
                 mailbox_id=mailbox_id,
                 raw_error=raw_payload,
+                retry_after_s=retry_after_s,
             )
 
         raise Permanent(
@@ -427,69 +465,199 @@ class GraphProviderAdapter:
         )
 
     async def create_draft(self, mailbox: Mailbox, reply: OutboundReply) -> DraftRef:
-        """Create draft email in Microsoft Graph (R1.1, R1.4, R17.1)."""
-        url = f"{self.base_url}/messages"
+        """Create a reply draft with createReply (R1.1, R17.1, R17.2).
 
-        body = {
-            "subject": reply.subject or "",
+        The draft is addressed to the original message, so Exchange threads it; ids
+        are immutable (Prefer IdType), so the draft id is also the sent copy's id.
+        """
+        original_id = reply.reply_to_provider_message_id
+        if not original_id:
+            raise Permanent(
+                "Graph reply drafts need the original provider message id (createReply)",
+                provider="graph",
+                mailbox_id=str(mailbox.id),
+            )
+        url = f"{self.base_url}/messages/{_graph_path_id(original_id)}/createReply"
+        message: dict[str, Any] = {
+            "toRecipients": _graph_recipients(reply.to),
             "body": {
                 "contentType": "HTML" if reply.body_html else "Text",
                 "content": reply.body_html or reply.body_text or "",
             },
-            "toRecipients": [
-                {"emailAddress": {"address": str(r.email), "name": r.name or str(r.email)}}
-                for r in reply.to
-            ],
-            "ccRecipients": [
-                {"emailAddress": {"address": str(r.email), "name": r.name or str(r.email)}}
-                for r in reply.cc
-            ],
-            "conversationId": str(reply.thread_id),
         }
-
-        resp = await self._request("POST", url, mailbox_id=str(mailbox.id), json=body)
+        if reply.cc:
+            message["ccRecipients"] = _graph_recipients(reply.cc)
+        if reply.message_id:
+            # Our deterministic Message-ID, so find_draft can adopt this draft after a crash
+            # before its id was recorded (tasks.md 6.5). Graph "Update message":
+            # internetMessageId is updatable while isDraft = true (open question D3).
+            message["internetMessageId"] = f"<{_bare_message_id(reply.message_id)}>"
+        # Graph rejects `comment` together with `message.body` (HTTP 400); send body only.
+        resp = await self._request(
+            "POST",
+            url,
+            mailbox_id=str(mailbox.id),
+            json={"message": message},
+            headers=_immutable_id_headers(),
+        )
         data = resp.json()
-
+        draft_id = data.get("id")
+        if not draft_id:
+            raise Permanent(
+                "Graph createReply returned no draft id",
+                provider="graph",
+                mailbox_id=str(mailbox.id),
+                raw_error=data,
+            )
         return DraftRef(
-            provider_draft_id=data.get("id", ""),
-            provider_message_id=data.get("id"),
-            provider_thread_id=data.get("conversationId", str(reply.thread_id)),
+            provider_draft_id=str(draft_id),
+            provider_message_id=str(draft_id),
+            provider_thread_id=data.get("conversationId") or str(reply.thread_id),
         )
 
     async def send_reply(self, mailbox: Mailbox, reply: OutboundReply) -> SentRef:
-        """Send outbound reply email through Microsoft Graph (R1.1, R1.4, R17.4)."""
-        url = f"{self.base_url}/sendMail"
-
-        message_obj = {
-            "subject": reply.subject or "",
-            "body": {
-                "contentType": "HTML" if reply.body_html else "Text",
-                "content": reply.body_html or reply.body_text or "",
-            },
-            "toRecipients": [
-                {"emailAddress": {"address": str(r.email), "name": r.name or str(r.email)}}
-                for r in reply.to
-            ],
-            "ccRecipients": [
-                {"emailAddress": {"address": str(r.email), "name": r.name or str(r.email)}}
-                for r in reply.cc
-            ],
-            "conversationId": str(reply.thread_id),
-        }
-
-        body = {
-            "message": message_obj,
-            "saveToSentItems": True,
-        }
-
-        resp = await self._request("POST", url, mailbox_id=str(mailbox.id), json=body)
-        sent_id = resp.headers.get("client-request-id", f"msg-sent-{reply.thread_id}")
-
+        """Reply in-thread: createReply then send, never sendMail (R1.1, R17.2, R17.4)."""
+        draft = await self.create_draft(mailbox, reply)
+        sent = await self.send_draft(mailbox, draft.provider_draft_id)
         return SentRef(
-            provider_message_id=sent_id,
-            provider_thread_id=str(reply.thread_id),
+            provider_message_id=sent.provider_message_id,
+            provider_thread_id=draft.provider_thread_id,
+            sent_at=sent.sent_at,
+        )
+
+    async def send_draft(self, mailbox: Mailbox, provider_draft_id: str) -> SentRef:
+        """Send an existing draft (POST /messages/{id}/send, 202) (R17.3, R17.4).
+
+        With immutable ids the Sent Items copy keeps the draft's id, so that id is the
+        real provider message id (not a request correlation id).
+        """
+        url = f"{self.base_url}/messages/{_graph_path_id(provider_draft_id)}/send"
+        await self._request(
+            "POST", url, mailbox_id=str(mailbox.id), headers=_immutable_id_headers()
+        )
+        return SentRef(
+            provider_message_id=provider_draft_id,
+            provider_thread_id=None,
             sent_at=datetime.now(UTC),
         )
+
+    async def get_draft_status(
+        self, mailbox: Mailbox, provider_draft_id: str
+    ) -> ProviderDraftStatus:
+        """Read isDraft by immutable id: true DRAFT, false SENT, 404 MISSING (R17.3)."""
+        url = f"{self.base_url}/messages/{_graph_path_id(provider_draft_id)}"
+        try:
+            resp = await self._request(
+                "GET",
+                url,
+                mailbox_id=str(mailbox.id),
+                params={"$select": "id,isDraft"},
+                headers=_immutable_id_headers(),
+            )
+        except NotFound:
+            return ProviderDraftStatus.MISSING
+        is_draft = resp.json().get("isDraft")
+        if is_draft is True:
+            return ProviderDraftStatus.DRAFT
+        if is_draft is False:
+            return ProviderDraftStatus.SENT
+        raise Transient(
+            "Graph message response has no isDraft flag",
+            provider="graph",
+            mailbox_id=str(mailbox.id),
+        )
+
+    async def find_sent_message(
+        self,
+        mailbox: Mailbox,
+        provider_thread_id: str,
+        provider_message_id: str,
+    ) -> SentRef | None:
+        """Find a sent (isDraft false) message in the conversation (R17.3, §5.8 step 4).
+
+        Matches the immutable id or the RFC 5322 internetMessageId (brackets optional).
+        """
+        wanted = _bare_message_id(provider_message_id)
+        next_url: str | None = f"{self.base_url}/messages"
+        params: dict[str, str] | None = {
+            "$filter": f"conversationId eq '{_odata_string(provider_thread_id)}'",
+            "$select": "id,isDraft,internetMessageId,sentDateTime,conversationId",
+            "$top": "50",
+        }
+        pages = 0
+        while next_url and pages < _FIND_SENT_MAX_PAGES:
+            pages += 1
+            try:
+                resp = await self._request(
+                    "GET",
+                    next_url,
+                    mailbox_id=str(mailbox.id),
+                    params=params,
+                    headers=_immutable_id_headers(),
+                )
+            except NotFound:
+                return None
+            data = resp.json()
+            for item in data.get("value", []):
+                if item.get("isDraft") is not False:
+                    continue
+                rfc_id = _bare_message_id(str(item.get("internetMessageId") or ""))
+                if item.get("id") == provider_message_id or (wanted and rfc_id == wanted):
+                    return SentRef(
+                        provider_message_id=str(item["id"]),
+                        provider_thread_id=provider_thread_id,
+                        sent_at=_graph_datetime(item.get("sentDateTime")),
+                    )
+            next_url = data.get("@odata.nextLink")
+            params = None  # nextLink already carries the query
+        return None
+
+    async def find_draft(
+        self,
+        mailbox: Mailbox,
+        provider_thread_id: str,
+        message_id: str,
+    ) -> DraftRef | None:
+        """Find an unsent (isDraft true) message in the conversation with our Message-ID.
+
+        create_draft sets internetMessageId to our deterministic Message-ID, so a
+        redelivery adopts a draft whose id was never recorded (tasks.md 6.5).
+        """
+        wanted = _bare_message_id(message_id)
+        if not wanted:
+            return None
+        next_url: str | None = f"{self.base_url}/messages"
+        params: dict[str, str] | None = {
+            "$filter": f"conversationId eq '{_odata_string(provider_thread_id)}'",
+            "$select": "id,isDraft,internetMessageId,conversationId",
+            "$top": "50",
+        }
+        pages = 0
+        while next_url and pages < _FIND_SENT_MAX_PAGES:
+            pages += 1
+            try:
+                resp = await self._request(
+                    "GET",
+                    next_url,
+                    mailbox_id=str(mailbox.id),
+                    params=params,
+                    headers=_immutable_id_headers(),
+                )
+            except NotFound:
+                return None
+            data = resp.json()
+            for item in data.get("value", []):
+                if item.get("isDraft") is not True or not item.get("id"):
+                    continue
+                if _bare_message_id(str(item.get("internetMessageId") or "")) == wanted:
+                    return DraftRef(
+                        provider_draft_id=str(item["id"]),
+                        provider_message_id=str(item["id"]),
+                        provider_thread_id=str(item.get("conversationId") or provider_thread_id),
+                    )
+            next_url = data.get("@odata.nextLink")
+            params = None
+        return None
 
 
 # Alias according to R1.2

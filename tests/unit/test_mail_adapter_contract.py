@@ -17,6 +17,7 @@ from packages.adapters.exceptions import (
 )
 from packages.adapters.protocol import MailProviderAdapter
 from packages.adapters.testing import MailProviderAdapterContractSuite
+from packages.domain import ProviderDraftStatus
 from packages.domain.entities import (
     Checkpoint,
     DraftRef,
@@ -32,6 +33,10 @@ from packages.domain.entities import (
 
 class ConformingMockAdapter:
     """Minimal conforming adapter implementation for contract suite verification."""
+
+    def __init__(self) -> None:
+        self._sent: set[str] = set()
+        self._draft_message_ids: set[str] = set()
 
     async def subscribe(self, mailbox: Mailbox) -> Subscription:
         return Subscription(
@@ -82,8 +87,11 @@ class ConformingMockAdapter:
         )
 
     async def create_draft(self, mailbox: Mailbox, reply: OutboundReply) -> DraftRef:
+        if reply.message_id:
+            self._draft_message_ids.add(reply.message_id.strip("<>"))
         return DraftRef(
             provider_draft_id="draft-001",
+            provider_message_id="draft-msg-001",
             provider_thread_id=str(reply.thread_id),
         )
 
@@ -92,6 +100,39 @@ class ConformingMockAdapter:
             provider_message_id="sent-001",
             provider_thread_id=str(reply.thread_id),
             sent_at=datetime.now(UTC),
+        )
+
+    async def send_draft(self, mailbox: Mailbox, provider_draft_id: str) -> SentRef:
+        self._sent.add(provider_draft_id)
+        return SentRef(provider_message_id="draft-msg-001", sent_at=datetime.now(UTC))
+
+    async def get_draft_status(
+        self, mailbox: Mailbox, provider_draft_id: str
+    ) -> ProviderDraftStatus:
+        if provider_draft_id != "draft-001":
+            return ProviderDraftStatus.MISSING
+        if provider_draft_id in self._sent:
+            return ProviderDraftStatus.SENT
+        return ProviderDraftStatus.DRAFT
+
+    async def find_sent_message(
+        self, mailbox: Mailbox, provider_thread_id: str, provider_message_id: str
+    ) -> SentRef | None:
+        if "draft-001" in self._sent and provider_message_id == "draft-msg-001":
+            return SentRef(
+                provider_message_id="draft-msg-001", provider_thread_id=provider_thread_id
+            )
+        return None
+
+    async def find_draft(
+        self, mailbox: Mailbox, provider_thread_id: str, message_id: str
+    ) -> DraftRef | None:
+        if "draft-001" in self._sent or message_id.strip("<>") not in self._draft_message_ids:
+            return None
+        return DraftRef(
+            provider_draft_id="draft-001",
+            provider_message_id="draft-msg-001",
+            provider_thread_id=provider_thread_id,
         )
 
 
