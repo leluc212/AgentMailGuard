@@ -703,47 +703,68 @@
 
 *Deliverable: real incoming email → pipeline → generated reply → provider mailbox.*
 
+> **Design (2026-09-28, ADR-0009):** dispatch sends exactly once through claim → provider draft → send → confirm (`specs/design.md` §5.8, §9). Mode is per category, default `create_draft`. The review UI is server-rendered (FastAPI + Jinja2 + htmx), local only, with no login (accepted scope limit). The live gate uses a Gmail test account with a short-lived token (`docs/demo-runbook.md` §3). Research: `artifacts/superpowers/2026-09-28-phase6-dispatch-review-research.md`.
+
 - [ ] **6.1 Draft management API**
-  - List, read, edit, approve, reject drafts; filter by status, category, mailbox.
+  - `GET /v1/drafts` (filter by `status`, `category`, `mailbox`; cursor pagination), `GET /v1/drafts/{id}` (with the original email, thread summary, cited chunks and `[BUSINESS DATA]` facts), `PATCH /v1/drafts/{id}` (edit while `status=draft`), `POST …/approve`, `POST …/reject`. Every query is org-scoped.
+  - Approve commits first, then publishes the dispatch job. A repeated approve re-publishes while the job is not `COMPLETED` (dispatch is idempotent), so a lost publish cannot strand an approved draft; it writes no second `feedback` row. Reject moves the job `DRAFTED → COMPLETED` with no send; a repeated reject returns the first result.
   - _Requirements: R16.6, R23.2, R23.6_
 
 - [ ] **6.2 Feedback capture**
-  - Reviewer action writes a `feedback` row with decision, edited body, edit distance, optional rating.
-  - Export draft acceptance rate as a metric — this is the headline quality signal (SC3).
+  - Every decision writes one `feedback` row: `decision` (`accepted` / `edited` / `rejected`), `edited_body`, character-level `edit_distance`, optional `rating`, `reviewer` (free-text label) and `review_ms`. Migration 0005 adds `feedback.review_ms` and `UNIQUE (draft_id)`, plus the dispatch columns of 6.5.
+  - Export `draft_decisions_total{decision, category}`; document the acceptance-rate and approved-without-edits PromQL in `docs/observability.md` (SC3).
   - _Requirements: R16.7, R21.4_
 
 - [ ] **6.3 Outbound reply construction**
-  - Build `OutboundReply` with correct threading (`In-Reply-To`, `References`, or provider thread id) and quoted-original handling.
+  - Pure `build_outbound_reply(draft, original, thread)`: `In-Reply-To` = original `Message-ID`; `References` = original References + its `Message-ID`; a new `Message-ID` (Gmail/MIME only; Graph's `createReply` sets its own); exactly one `Re: ` before the original subject; the provider thread id (never our UUID); quoted original below the reply. Unit-tested, including subjects that already start with `Re:`/`RE:` and originals without References.
+  - Entity changes: `OutboundReply` gains `message_id`, and its thread field carries the provider thread id as a string. A null `email_thread.provider_thread_id` (allowed since migration 0003) makes the dispatch fail permanently (dead-letter).
   - _Requirements: R17.2_
 
+- [ ] **6.3a Adapter fixes & draft operations**
+  - Discovered missing work (GEMINI.md §7, Phase 6 research): the Graph adapter posts new messages (`/messages`, `/sendMail`) instead of replies and stores a request id as the message id; the Gmail reply has no `Message-ID`; both map every 403 to an expired token.
+  - Graph: `createReply` + `send` with `Prefer: IdType="ImmutableId"`, real message ids. Gmail: set the reply's `Message-ID`. Both: 429, 5xx and rate-limit 403s are retryable with `Retry-After`; 400/404/auth are permanent.
+  - Add `send_draft(mailbox, provider_draft_id)` and `get_draft_status(mailbox, provider_draft_id) -> DRAFT | SENT | MISSING` to `MailProviderAdapter`, the fake and both adapters, with the shared contract suite extended (recorded HTTP responses, no live calls).
+  - _Requirements: R1.1, R17.1, R17.2, R17.5_
+
 - [ ] **6.4 Dispatch modes**
-  - `create_draft` and `send_reply` through the adapter interface; mode configurable per category.
-  - Explicit approval required before `send` unless auto-send is enabled for that category; human-in-the-loop is the default posture.
+  - `dispatch_mode: create_draft | send_reply` per category in `config/categories.yaml`, default `create_draft` for every category.
+  - `send_reply` requires an explicit approval unless the category's `auto_send_eligible` is true (false for every category); human-in-the-loop is the default posture.
   - _Requirements: R17.1, R17.6, R16.8_
 
 - [ ] **6.5 Idempotent dispatch**
-  - Guard with the `dispatch` idempotency key; redelivery cannot send a second copy.
-  - Forced-redelivery test asserting exactly one provider send.
-  - _Requirements: R17.3, R19.2, R19.3_
+  - The `dispatch-worker` consumes `email.dispatch` and runs design §5.8's five steps on the existing job: claim the R19.2 key `key(org, mailbox, original provider_message_id, "dispatch")` into `generated_draft.dispatch_idempotency_key` (UNIQUE) with `DRAFTED → DISPATCHED`; create or reuse the provider draft (`provider_draft_id`, `provider_draft_message_id`); in `create_draft` mode complete there; in `send_reply` mode send, confirm with `get_draft_status` after an ambiguous failure (MISSING ⇒ look for our sent message in the provider thread, else dead-letter), then finish in one transaction.
+  - State machine: add `RETRY_PENDING → DISPATCHED` (operator replay of a dead-lettered dispatch) to `packages/domain/state_machine.py` and design §8. The lease reaper skips `DISPATCHED` jobs.
+  - Forced-redelivery tests that crash the worker after each step and assert exactly one provider send and one provider draft.
+  - Replace the `dispatch-worker` placeholder in `docker-compose.yml`.
+  - _Requirements: R17.3, R18.3, R18.7, R19.2, R19.3_
 
 - [ ] **6.6 Dispatch completion & failure**
-  - Success ⇒ persist provider ref, `DISPATCHED → COMPLETED`.
-  - Transient failure ⇒ backoff retry; permanent ⇒ dead-letter with the provider error retained.
+  - Success ⇒ persist the provider ref, draft `dispatched`, `DISPATCHED → COMPLETED`.
+  - Transient failure (429, 5xx, Gmail rate-limit 403) ⇒ the job stays `DISPATCHED` and the broker retry ladder redelivers; a `Retry-After` picks the first ladder tier ≥ its value, capped at the last tier. Permanent (400, 404 on send, auth, null provider thread id) ⇒ `DISPATCHED → FAILED → DEAD_LETTER` with the provider error retained on the job.
   - _Requirements: R17.4, R17.5_
 
 - [ ] **6.7 Outbound message write-back**
-  - Record the sent reply into `email_message` as `direction='outbound'` and update the thread, so subsequent inbound messages see the full conversation.
+  - In `send_reply` mode, record the sent reply into `email_message` as `direction='outbound'` in step 5's transaction and update the thread, so subsequent inbound messages see the full conversation.
+  - In `create_draft` mode nothing is recorded at dispatch (the customer has received nothing). Check whether mailbox sync ingests the mailbox's own sent mail and does not re-triage it; if it does not, add the gap to this task's notes rather than recording unsent drafts.
   - _Requirements: R17.7_
 
 - [ ] **6.8 Review UI**
-  - Pending-draft queue showing the original email, thread summary, cited chunks, and approve/edit/reject actions.
-  - Job timeline and current state per message.
-  - Knowledge upload view with per-document ingestion status.
+  - Server-rendered pages in the `frontend` service (FastAPI + Jinja2 + htmx) calling only `/v1`:
+    - pending-draft queue: original email, thread summary, citations next to the sentences they support, `[BUSINESS DATA]` facts highlighted, edit / approve / reject;
+    - job timeline and current state per message (from `processing_event`);
+    - knowledge upload with per-document ingestion status.
+  - Local only, no login (ADR-0009): bind the `frontend` and `api` ports to `127.0.0.1` in `docker-compose.yml`. New settings `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID` (sent as the `X-Organization-Id` header, R23.6) in `.env.example` and `docs/configuration.md`. WCAG 2.2 AA basics: visible focus, 24 px targets, live-region status messages. Playwright tests for the approve and edit flows.
   - _Requirements: R23.4, R23.5, R23.7_
 
 - [ ] **6.9 Full end-to-end smoke test**
-  - Fixture email → ingest → normalize → triage → context → RAG → generate → approve → dispatch, asserted in CI against fakes.
+  - Fixture email → ingest → normalize → triage → context → RAG → generate → approve → dispatch, asserted in CI against fakes, ending with exactly one fake-provider draft (or send) and an outbound `email_message`.
   - _Requirements: R24.7_
+
+- [ ] **6.10 Connect a real Gmail mailbox & live gate**
+  - `make connect-gmail ADDRESS=…` registers the test account as a watched mailbox with `credentials_ref=env:GMAIL_ACCESS_TOKEN`; compose forwards `GMAIL_ACCESS_TOKEN` to the services that call Gmail; a blank `GMAIL_ACCESS_TOKEN=` and the `dispatch_mode` key go into `.env.example` / `docs/configuration.md`.
+  - `make phase6-gate`, run live by the owner: a real email to the test inbox becomes a reviewable draft; approving it (with that category set to `send_reply` for the gate) delivers a correctly threaded reply in Gmail; the reply appears in our thread; replaying the dispatch job sends nothing.
+  - Complete the **[after Phase 6]** sections of `docs/demo-runbook.md` (§3.4, §5.3, §6).
+  - _Requirements: R17.1–R17.7_
 
 > **Phase 6 gate:** a real email sent to a connected mailbox produces a reviewable draft; approving it delivers a correctly threaded reply to the provider; the reply is visible in the thread; replaying the dispatch job sends nothing further.
 
@@ -890,7 +911,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 
 | Requirement group | Tasks |
 |---|---|
-| R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7 |
+| R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7, 6.3a |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
 | R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13 |
@@ -906,8 +927,8 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |
 | R15 Model cascade | 4.8, 4.13a, 4.13b |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
-| R17 Dispatch | 6.3–6.7 |
-| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a |
+| R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
+| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4 |

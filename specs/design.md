@@ -681,20 +681,50 @@ Retrying a failure that does not go away only multiplies cost (each redelivery r
 
 **Draft lifecycle:** `draft → (edited) → approved | rejected → dispatched`.
 
-Human-in-the-loop is the default posture (R16.8): the system creates provider drafts, a reviewer approves, and only then does it send. Auto-send is opt-in per category.
+Human-in-the-loop is the default posture (R16.8): a reviewer approves in the review UI, and only then does the system create the provider draft (default mode) or send the reply (`send_reply` mode). Auto-send is opt-in per category.
 
-**Dispatch:**
+**Review API (R16.6, R23.2, R23.6):** `GET /v1/drafts` (filter by `status`, `category`, `mailbox`; cursor-paginated, org-scoped), `GET /v1/drafts/{id}` (draft with the original email, thread summary, cited chunks and the `[BUSINESS DATA]` facts), `PATCH /v1/drafts/{id}` (edit the body while `status=draft`), `POST /v1/drafts/{id}/approve`, `POST /v1/drafts/{id}/reject`. Approve and reject are idempotent: a repeated call returns the first result and publishes nothing new.
+
+**Feedback (R16.7, R21.4):** every decision writes one `feedback` row: `decision` (`accepted` = approved unchanged, `edited`, `rejected`), `edited_body`, character-level `edit_distance`, optional `rating`, `reviewer` (a free-text label; there is no login, see ADR-0009) and `review_ms` (time from opening the draft to deciding). `draft_decisions_total{decision, category}` is exported; the acceptance rate and the approved-without-edits rate are reported separately, because an unchanged approval can also mean an unread draft.
+
+**Dispatch mode (R17.1, R17.6, R16.8):** set per category in `config/categories.yaml` (`dispatch_mode: create_draft | send_reply`), default `create_draft` for every category. `send_reply` needs an approval unless that category's `auto_send_eligible` is true; it is false for every category.
+
+**Outbound reply (R17.2):** a pure `build_outbound_reply(draft, original, thread)` sets `In-Reply-To` to the original `Message-ID`, `References` to the original References plus its `Message-ID`, a new `Message-ID` of our own (Gmail/MIME only; Graph's `createReply` sets `internetMessageId` itself), exactly one `Re: ` before the original subject, the **provider** thread id (`email_thread.provider_thread_id`, never our UUID; a null provider thread id dead-letters the dispatch), and the quoted original below the reply. Gmail keeps a reply in the thread only when `threadId`, the headers and the subject all match. The Graph adapter uses `createReply` + `send` with `Prefer: IdType="ImmutableId"`, never `sendMail` (which starts a new conversation).
+
+**Dispatch — exactly once without a transactional send (R17.3–R17.5, R19.2, R19.3; ADR-0009):**
+
+One job per email carries the whole lifecycle; dispatch drives the same `processing_job` that generation moved to `DRAFTED`. The dispatch idempotency key follows R19.2, `key(organization_id, mailbox_id, provider_message_id of the original email, "dispatch")`, and is stored `UNIQUE` on `generated_draft.dispatch_idempotency_key` (one draft per job, migration 0004), so no second job row is needed.
 
 ```
-approved draft
-   → build OutboundReply (threading headers: In-Reply-To, References / provider thread id)
-   → idempotency check on (org, mailbox, provider_message_id, "dispatch")
-   → adapter.create_draft() | adapter.send_reply()
-   → persist provider ref, record outbound message into thread
-   → DISPATCHED → COMPLETED
+approve (commit first, then publish) ─▶ queue email.dispatch ─▶ dispatch-worker
+  1 claim    one txn: set generated_draft.dispatch_idempotency_key, job DRAFTED → DISPATCHED
+             job already COMPLETED ⇒ ack, send nothing · already DISPATCHED ⇒ resume at 2
+  2 draft    adapter.create_draft(reply) → store provider_draft_id and the draft's provider message id
+             (already stored ⇒ reuse it, never create a second draft)
+  ── create_draft mode stops here: job DISPATCHED → COMPLETED, draft status dispatched,
+     no outbound email_message (the customer has received nothing yet)
+  3 send     send_reply mode only: adapter.send_draft(provider_draft_id)
+  4 confirm  after an ambiguous failure (timeout, crash, unknown 5xx, Graph 202 not yet visible) the retry
+             first asks adapter.get_draft_status(provider_draft_id):
+               DRAFT   ⇒ send (Graph: re-check once after a short delay before resending)
+               SENT    ⇒ go to 5 without sending
+               MISSING ⇒ look in the provider thread for a sent message with the stored message id:
+                         found ⇒ go to 5 · not found (a person deleted the draft) ⇒ dead-letter for an operator
+  5 finish   one transaction: provider ref, draft status dispatched, DISPATCHED → COMPLETED,
+             outbound email_message (direction='outbound'), thread updated
+errors: 429, 5xx, Gmail rate-limit 403s ⇒ job stays DISPATCHED, the broker retry ladder redelivers
+          (a Retry-After picks the first ladder tier ≥ Retry-After, capped at the last tier)
+        400, 404 on send, auth failures, a null provider thread id ⇒ DISPATCHED → FAILED → DEAD_LETTER,
+          provider error kept on the job; operator replay DEAD_LETTER → RETRY_PENDING → DISPATCHED
 ```
+
+Approve is published only after its transaction commits. A repeated approve re-publishes the dispatch job while the job is not `COMPLETED` (dispatch is idempotent), so a lost publish cannot strand an approved draft; a repeated approve writes no second `feedback` row (`UNIQUE (draft_id)`). The lease reaper skips `DISPATCHED` jobs: the dispatch-worker does not take leases, and redelivery is the broker's.
+
+A provider send cannot be rolled back, so it never runs inside the database transaction: the provider draft is the durable handle that makes a retry safe.
 
 The outbound message is written back into `email_message` with `direction='outbound'` (R17.7) so the next inbound reply sees a complete conversation.
+
+**Review UI (R23.4, R23.5, R23.7):** server-rendered pages (FastAPI + Jinja2 + htmx) in the `frontend` service, calling the `/v1` API only: the pending-draft queue (original email, thread summary, citations shown next to the sentences they support, business facts highlighted, edit / approve / reject), a job timeline per message from `processing_event`, and knowledge upload with per-document ingestion status. Local use only, with no login (ADR-0009): compose binds the `frontend` and `api` ports to `127.0.0.1`. The UI reads `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID` and sends the organization as the `X-Organization-Id` header the API already requires (R23.6). Meets the WCAG 2.2 AA basics: visible focus, 24 px targets, status changes announced through a live region.
 
 ---
 
@@ -803,7 +833,10 @@ CREATE TABLE generated_draft (
   prompt_version TEXT, input_tokens INT, output_tokens INT,
   cost_estimate NUMERIC(10,6),
   status TEXT NOT NULL DEFAULT 'draft',        -- draft|approved|rejected|dispatched
-  provider_ref TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+  provider_ref TEXT,
+  provider_draft_id TEXT, provider_draft_message_id TEXT,        -- ADR-0009 dispatch handle
+  dispatch_idempotency_key TEXT UNIQUE,                          -- R19.2 key, operation "dispatch"
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 
 CREATE TABLE knowledge_document (
   id UUID PRIMARY KEY, organization_id UUID NOT NULL,
@@ -836,7 +869,9 @@ CREATE TABLE feedback (
   id UUID PRIMARY KEY, draft_id UUID NOT NULL REFERENCES generated_draft(id),
   reviewer TEXT, decision TEXT NOT NULL,       -- accepted|edited|rejected
   edited_body TEXT, edit_distance INT, rating INT, comment TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+  review_ms INT,                               -- time from opening the draft to deciding (ADR-0009)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (draft_id));                          -- one decision per draft
 
 CREATE TABLE processing_event (
   id BIGSERIAL PRIMARY KEY, organization_id UUID NOT NULL,
@@ -943,7 +978,7 @@ TRANSITIONS: dict[JobState, set[JobState]] = {
     QUEUED: {CONTEXT_READY, FAILED},
     CONTEXT_READY: {GENERATING, FAILED},
     GENERATING: {DRAFTED, RETRY_PENDING, FAILED},
-    RETRY_PENDING: {GENERATING, FAILED},
+    RETRY_PENDING: {GENERATING, DISPATCHED, FAILED},  # DISPATCHED: replay of a dead-lettered dispatch (ADR-0009)
     DRAFTED: {DISPATCHED, COMPLETED, FAILED},
     DISPATCHED: {COMPLETED, FAILED},
     FAILED: {DEAD_LETTER, RETRY_PENDING},
@@ -974,6 +1009,8 @@ async def execute_once(key: str, op: Callable[[], Awaitable[T]]) -> T:
     except IntegrityError:  # lost a concurrent race
         return (await repo.find_completed(key)).result
 ```
+
+**Non-transactional side effects (dispatch, ADR-0009):** `execute_once` above fits side effects that live in our own database. A provider send cannot join the transaction, so dispatch claims the key first, creates a provider draft as a durable handle, and on retry asks the provider whether that draft was already sent before sending (§5.8). Exactly one provider send under redelivery is asserted by a test that crashes the worker after each step.
 
 **Stuck jobs:** a lease (`lease_expires_at`) is taken on claim; a reaper transitions expired leases back to a retryable state (R19.8).
 
@@ -1088,6 +1125,7 @@ evaluation/
 | 0006 | Thread state as compressed summary | prevents long threads from re-consuming full history every message |
 | 0007 | Human-in-the-loop default | drafts are reviewable; auto-send is opt-in per category |
 | 0008 | Business data fetched by a code-side plan, not by intent alone or model tool calls | the ML stage emits no intent; tool calls need a second generation call; typed IDs and profile policy are deterministic and model-independent |
+| 0009 | Dispatch: claim → provider draft → send → confirm; local review UI without login | a provider send cannot be rolled back; the draft id lets a retry check instead of resend; auth is out of scope (GEMINI.md §6) |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 
