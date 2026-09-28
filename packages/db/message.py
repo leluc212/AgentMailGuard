@@ -34,6 +34,90 @@ def _clean_pg_str(val: str | None) -> str | None:
     return val.replace("\x00", "")
 
 
+_INSERT_MESSAGE_SQL = """
+    INSERT INTO email_message (
+        id,
+        organization_id,
+        mailbox_id,
+        thread_id,
+        provider_message_id,
+        rfc822_message_id,
+        in_reply_to,
+        references_ids,
+        direction,
+        sender_email,
+        sender_name,
+        recipients,
+        cc,
+        subject,
+        subject_normalized,
+        body_text,
+        body_text_clean,
+        snippet,
+        raw_object_key,
+        html_object_key,
+        received_at,
+        has_attachments,
+        normalization_failed,
+        search_tsv
+    ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12::jsonb, $13::jsonb, $14, $15, $16, $17, $18, $19, $20,
+        $21, $22, $23,
+        setweight(to_tsvector('english', coalesce($14, '')), 'A')
+        || setweight(to_tsvector('english', coalesce($17, '')), 'B')
+    )
+    ON CONFLICT (organization_id, mailbox_id, provider_message_id) DO NOTHING
+    RETURNING id, thread_id;
+"""
+
+
+def _recipients_json(recipients: Sequence[EmailAddress]) -> str:
+    return json.dumps([{"name": r.name or "", "email": r.email} for r in recipients])
+
+
+def _message_insert_args(message: NormalizedMessage, *, has_attachments: bool) -> tuple[Any, ...]:
+    """Positional parameters of ``_INSERT_MESSAGE_SQL`` for ``message``."""
+    return (
+        _to_uuid(message.message_id),
+        _to_uuid(message.organization_id),
+        _to_uuid(message.mailbox_id),
+        _to_uuid(message.thread_id),
+        message.provider_message_id,
+        message.rfc822_message_id,
+        message.in_reply_to,
+        list(message.references_ids) if message.references_ids else [],
+        message.direction,
+        message.sender.email if message.sender else None,
+        message.sender.name if message.sender else None,
+        _recipients_json(message.recipients),
+        _recipients_json(message.cc),
+        _clean_pg_str(message.subject),
+        _clean_pg_str(message.subject_normalized),
+        _clean_pg_str(message.body_text),
+        _clean_pg_str(message.body_text_clean),
+        _clean_pg_str(message.snippet),
+        message.raw_object_key,
+        message.html_object_key,
+        message.received_at,
+        has_attachments,
+        message.normalization_failed,
+    )
+
+
+async def insert_message_on(conn: Any, message: NormalizedMessage) -> bool:
+    """Insert ``message`` (no attachments) on a caller-owned connection and transaction.
+
+    Returns False when ``(organization_id, mailbox_id, provider_message_id)`` already exists
+    (R4.8). Dispatch step 5 uses it so the outbound row commits together with
+    ``DISPATCHED -> COMPLETED`` (R17.7, R18.5).
+    """
+    row = await conn.fetchrow(
+        _INSERT_MESSAGE_SQL, *_message_insert_args(message, has_attachments=False)
+    )
+    return row is not None
+
+
 @dataclass(frozen=True)
 class MessageInsertResult:
     """Outcome of an email message insertion attempt (R4.8, R5.4)."""
@@ -288,8 +372,7 @@ class PostgresMessageStore:
         self.pool = pool
 
     def _serialize_recipients(self, recipients: Sequence[EmailAddress]) -> str:
-        data = [{"name": r.name or "", "email": r.email} for r in recipients]
-        return json.dumps(data)
+        return _recipients_json(recipients)
 
     def _deserialize_recipients(self, raw: Any) -> list[EmailAddress]:
         if not raw:
@@ -368,73 +451,9 @@ class PostgresMessageStore:
                     all_att_refs.append(att)
 
         has_atts = len(all_att_refs) > 0
-        recipients_json = self._serialize_recipients(message.recipients)
-        cc_json = self._serialize_recipients(message.cc)
-        references_list = list(message.references_ids) if message.references_ids else []
-
-        query = """
-            INSERT INTO email_message (
-                id,
-                organization_id,
-                mailbox_id,
-                thread_id,
-                provider_message_id,
-                rfc822_message_id,
-                in_reply_to,
-                references_ids,
-                direction,
-                sender_email,
-                sender_name,
-                recipients,
-                cc,
-                subject,
-                subject_normalized,
-                body_text,
-                body_text_clean,
-                snippet,
-                raw_object_key,
-                html_object_key,
-                received_at,
-                has_attachments,
-                normalization_failed,
-                search_tsv
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12::jsonb, $13::jsonb, $14, $15, $16, $17, $18, $19, $20,
-                $21, $22, $23,
-                setweight(to_tsvector('english', coalesce($14, '')), 'A')
-                || setweight(to_tsvector('english', coalesce($17, '')), 'B')
-            )
-            ON CONFLICT (organization_id, mailbox_id, provider_message_id) DO NOTHING
-            RETURNING id, thread_id;
-        """
-
         async with self.pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
-                query,
-                msg_u,
-                org_u,
-                mbx_u,
-                thd_u,
-                message.provider_message_id,
-                message.rfc822_message_id,
-                message.in_reply_to,
-                references_list,
-                message.direction,
-                message.sender.email if message.sender else None,
-                message.sender.name if message.sender else None,
-                recipients_json,
-                cc_json,
-                _clean_pg_str(message.subject),
-                _clean_pg_str(message.subject_normalized),
-                _clean_pg_str(message.body_text),
-                _clean_pg_str(message.body_text_clean),
-                _clean_pg_str(message.snippet),
-                message.raw_object_key,
-                message.html_object_key,
-                message.received_at,
-                has_atts,
-                message.normalization_failed,
+                _INSERT_MESSAGE_SQL, *_message_insert_args(message, has_attachments=has_atts)
             )
 
             if not row:

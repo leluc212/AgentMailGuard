@@ -8,8 +8,9 @@ counter/timestamp maintenance with multi-tenant isolation.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 import asyncpg
@@ -21,6 +22,43 @@ logger = logging.getLogger(__name__)
 
 def _to_uuid(val: UUID | str) -> UUID:
     return val if isinstance(val, UUID) else UUID(str(val))
+
+
+_TOUCH_THREAD_SQL = """
+    UPDATE email_thread
+    SET
+        message_count = message_count + 1,
+        first_message_at = LEAST(first_message_at, $3),
+        last_message_at = GREATEST(last_message_at, $3),
+        participants = (
+            SELECT array_agg(DISTINCT p)
+            FROM unnest(participants || $4::text[]) AS p
+        ),
+        provider_thread_id = COALESCE(email_thread.provider_thread_id, $5)
+    WHERE id = $1 AND organization_id = $2
+    RETURNING id, organization_id, mailbox_id, provider_thread_id,
+              subject_normalized, participants, first_message_at, last_message_at,
+              message_count, status;
+"""
+
+
+async def touch_thread_on(
+    conn: Any,
+    *,
+    thread_id: UUID,
+    organization_id: UUID,
+    message_time: datetime,
+    participants: Sequence[str],
+) -> bool:
+    """Count one more message on the thread, on a caller-owned connection (R17.7).
+
+    Returns False when the thread does not exist in the organization.
+    """
+    clean = [p.strip().lower() for p in participants if p.strip()]
+    row = await conn.fetchrow(
+        _TOUCH_THREAD_SQL, thread_id, organization_id, message_time, clean, None
+    )
+    return row is not None
 
 
 @runtime_checkable
@@ -471,25 +509,9 @@ class PostgresThreadStore:
         org_u = _to_uuid(organization_id)
         clean_parts = [p.strip().lower() for p in participants if p.strip()]
 
-        query = """
-            UPDATE email_thread
-            SET
-                message_count = message_count + 1,
-                first_message_at = LEAST(first_message_at, $3),
-                last_message_at = GREATEST(last_message_at, $3),
-                participants = (
-                    SELECT array_agg(DISTINCT p)
-                    FROM unnest(participants || $4::text[]) AS p
-                ),
-                provider_thread_id = COALESCE(email_thread.provider_thread_id, $5)
-            WHERE id = $1 AND organization_id = $2
-            RETURNING id, organization_id, mailbox_id, provider_thread_id,
-                      subject_normalized, participants, first_message_at, last_message_at,
-                      message_count, status;
-        """
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                query,
+                _TOUCH_THREAD_SQL,
                 thread_u,
                 org_u,
                 message_time,
