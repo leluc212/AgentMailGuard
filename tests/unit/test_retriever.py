@@ -12,12 +12,15 @@ Requirements:
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import time
 from typing import Any
 
+import httpx
 import pytest
 
-from packages.knowledge.embedder import EmbeddingError, FakeEmbedder
+from packages.knowledge.embedder import EmbeddingError, FakeEmbedder, HttpEmbedder
 from packages.observability.metrics import create_pipeline_metrics, generate_metrics_payload
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.models import Candidate, RetrievalQuery
@@ -477,3 +480,27 @@ class TestQueryEmbedding:
 
         counted = metrics.embedding_tokens_total.labels(model="embed-test")._value.get()
         assert counted > 0
+
+    async def test_provider_error_echoing_the_query_is_not_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """GEMINI.md: email-derived query text must not reach logs through a provider error."""
+        text = "Customer Jane Roe asks about the card ending 4242"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent = json.loads(request.content)["input"]
+            return httpx.Response(422, json={"detail": [{"input": sent}]})
+
+        embedder = HttpEmbedder(
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), max_retries=0
+        )
+        backend = _RecordingVectorBackend(lexical_candidates=[_make_candidate("c_lex")])
+
+        with caplog.at_level(logging.DEBUG):
+            result = await HybridRetriever(backend, embedder=embedder).retrieve(
+                _unembedded_query(text)
+            )
+
+        assert result.retrieval_degraded and result.surviving_branch == "lexical"
+        assert "Jane Roe" not in caplog.text
+        assert "Jane Roe" not in (result.vector_error or "")

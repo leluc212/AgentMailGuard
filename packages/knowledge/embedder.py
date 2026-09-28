@@ -242,11 +242,10 @@ class HttpEmbedder(Embedder):
                         )
                         await asyncio.sleep(delay)
                         continue
-                    err_msg = (
-                        f"Embedding server error {response.status_code} "
-                        f"after retries: {response.text}"
+                    # Never the response body: providers can echo the input (email text).
+                    raise EmbeddingError(
+                        f"Embedding server error {response.status_code} after retries"
                     )
-                    raise EmbeddingError(err_msg)
 
                 response.raise_for_status()
                 data = response.json()
@@ -287,8 +286,9 @@ class HttpEmbedder(Embedder):
 
             except httpx.HTTPStatusError as exc:
                 # 4xx client errors (400, 401, 403) fail fast immediately
+                # Never the response body: providers can echo the input (email text).
                 raise EmbeddingError(
-                    f"Embedding client error HTTP {exc.response.status_code}: {exc.response.text}"
+                    f"Embedding client error HTTP {exc.response.status_code}"
                 ) from exc
 
         raise EmbeddingError("Failed to generate embeddings after all retry attempts")

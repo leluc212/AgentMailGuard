@@ -4,13 +4,19 @@ Run on the host after `make up` (reads .env like every host tool):
 
     make retrieval-gate
 
+This is a wiring check. The default stack embeds with FakeEmbedder (hash-based vectors) and
+pgvector applies no similarity floor, so any non-zero query vector returns the tenant's only
+chunk: it proves queries are embedded and reach pgvector, not semantic quality.
+
 Checks, stopping at the first failure:
   1. A knowledge document uploaded through the API is ingested to `active`.
-  2. /v1/search/debug with a query sharing no words with the document returns it from the
-     vector branch: vector_count >= 1, lexical_count == 0, not degraded.
-  3. A billing email with no word in common with the document reaches DRAFTED, and its
-     CONTEXT_READY event reports retrieved_chunks_count >= 1. The ai-worker could only
-     have found the chunk through the embedded query.
+  2. /v1/search/debug with a query sharing no word with the document finds the document
+     through the vector branch alone (not degraded, lexical_count 0, a vector hit on it).
+  3. The same holds for the billing email's own query (subject, body, intent, category), so
+     the lexical branch cannot find the document for that email.
+  4. The billing email reaches DRAFTED, and its CONTEXT_READY event reports
+     retrieved_chunks_count >= 1: with check 3, the ai-worker found the document only through
+     its embedded query.
 Creates one throwaway organization, deletes it at the end, and deletes the uploaded file.
 """
 
@@ -47,6 +53,9 @@ DOCUMENT = (
 )
 # Shares no word with DOCUMENT, so the lexical branch cannot find it (checked below).
 QUERY = "How should a sunrise kettle be tuned?"
+EMAIL_SUBJECT = "Overdue payment failure on account"
+EMAIL_BODY = "Our account balance is past due after a payment failure. Please advise."
+EMAIL_INTENT = "overdue_payment"  # config/triage_rules.yaml, urgent-billing
 
 
 async def upload_and_wait(http: httpx.AsyncClient, org_id: UUID) -> tuple[str, str | None]:
@@ -76,22 +85,27 @@ async def upload_and_wait(http: httpx.AsyncClient, org_id: UUID) -> tuple[str, s
     raise SmokeFailure(f"document {doc_id} ended in {status!r}, expected 'active'")
 
 
-async def check_debug(http: httpx.AsyncClient, org_id: UUID) -> None:
+async def check_vector_only_hit(
+    http: httpx.AsyncClient, org_id: UUID, doc_id: str, query: dict[str, Any]
+) -> None:
+    """Assert /search/debug finds the document through the vector branch alone."""
     resp = await http.post(
         f"{API}/search/debug",
         headers={"X-Organization-ID": str(org_id)},
-        json={"query": QUERY, "category": "billing", "apply_rerank": False},
+        json={**query, "apply_rerank": False},
     )
     if resp.status_code != 200:
         raise SmokeFailure(f"/search/debug returned {resp.status_code}: {resp.text}")
     body = resp.json()
     ex = body["explanation"]
-    if ex["retrieval_degraded"] or ex["vector_count"] < 1 or ex["lexical_count"] != 0:
-        raise SmokeFailure(f"expected a vector-only hit (vector >= 1, lexical 0): {ex}")
+    hit_docs = {str(r["document_id"]) for r in body.get("vector_results", [])}
+    if ex["retrieval_degraded"] or ex["lexical_count"] != 0 or doc_id not in hit_docs:
+        raise SmokeFailure(
+            f"expected a vector-only hit on document {doc_id}: {ex}, vector hits {sorted(hit_docs)}"
+        )
     print(
-        f"ok   /search/debug -> vector_count {ex['vector_count']}, lexical_count "
-        f"{ex['lexical_count']}, query vector dim "
-        f"{body['constructed_query']['query_vector_dimension']}"
+        f"ok   /search/debug {sorted(query)} -> vector hit on the document, lexical_count 0, "
+        f"query vector dim {body['constructed_query']['query_vector_dimension']}"
     )
 
 
@@ -107,11 +121,7 @@ async def check_ai_worker(
         channel,
         org_id,
         mailbox,
-        build_mime(
-            "client@enterprise.example.com",
-            "Overdue payment failure on account",
-            "Our account balance is past due after a payment failure. Please advise.",
-        ),
+        build_mime("client@enterprise.example.com", EMAIL_SUBJECT, EMAIL_BODY),
         raw_keys,
     )
     await wait_for_state(pool, org_id, job_id, {JobState.DRAFTED.value})
@@ -143,7 +153,20 @@ async def run() -> None:
         async with httpx.AsyncClient(timeout=10.0) as http:
             doc_id, object_key = await upload_and_wait(http, org_id)
             print(f"ok   document {doc_id} ingested -> active")
-            await check_debug(http, org_id)
+            await check_vector_only_hit(
+                http, org_id, doc_id, {"query": QUERY, "category": "billing"}
+            )
+            await check_vector_only_hit(
+                http,
+                org_id,
+                doc_id,
+                {
+                    "subject": EMAIL_SUBJECT,
+                    "body_text": EMAIL_BODY,
+                    "intent": EMAIL_INTENT,
+                    "category": "billing",
+                },
+            )
         await check_ai_worker(settings, pool, channel, org_id, mailbox_id)
     finally:
         if org_id is not None:

@@ -227,6 +227,26 @@ class TestHttpEmbedder:
         assert calls == 1
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [422, 503])
+    async def test_provider_error_body_never_reaches_the_error_message(
+        self, status_code: int
+    ) -> None:
+        """GEMINI.md: a provider echoing its input must not carry email text into errors."""
+        text = "Customer Jane Roe asks about the card ending 4242"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent = json.loads(request.content)["input"]
+            return httpx.Response(status_code=status_code, json={"detail": [{"input": sent}]})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        embedder = HttpEmbedder(client=client, max_retries=0, retry_delay_s=0.0)
+
+        with pytest.raises(EmbeddingError) as excinfo:
+            await embedder.embed_texts([text])
+        assert "Jane Roe" not in str(excinfo.value)
+        assert str(status_code) in str(excinfo.value)
+
+    @pytest.mark.asyncio
     async def test_timeout_error(self) -> None:
         def handler(_request: httpx.Request) -> httpx.Response:
             raise httpx.TimeoutException("Connection timed out")

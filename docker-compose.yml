@@ -24,6 +24,8 @@ x-app-env: &app-env
   EMBEDDING__MODEL_NAME: ${EMBEDDING__MODEL_NAME:-text-embedding-3-small}
   EMBEDDING__BASE_URL: ${EMBEDDING__BASE_URL:-https://api.openai.com/v1}
   EMBEDDING__API_KEY: ${EMBEDDING__API_KEY:-}
+  # Per-branch retrieval budget; the vector branch spends it on query embedding + ANN (R10.9).
+  RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-500}
 
 x-app-build: &app-build
   context: .
