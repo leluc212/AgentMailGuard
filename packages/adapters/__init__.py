@@ -5,12 +5,16 @@ and concrete adapter implementations (Fake, Gmail).
 """
 
 from packages.adapters.exceptions import (
+    DEFAULT_RETRY_AFTER_S,
     AuthExpired,
     NotFound,
     Permanent,
+    PermanentProviderError,
     ProviderError,
     RateLimited,
+    RetryableProviderError,
     Transient,
+    parse_retry_after,
 )
 from packages.adapters.fake import FakeProviderAdapter
 from packages.adapters.gmail import (
@@ -37,6 +41,7 @@ from packages.adapters.registry import (
 from packages.adapters.webhooks import webhook_router
 
 __all__ = [
+    "DEFAULT_RETRY_AFTER_S",
     "AuthExpired",
     "FakeProviderAdapter",
     "GmailProviderAdapter",
@@ -47,8 +52,10 @@ __all__ = [
     "MicrosoftGraphProviderAdapter",
     "NotFound",
     "Permanent",
+    "PermanentProviderError",
     "ProviderError",
     "RateLimited",
+    "RetryableProviderError",
     "Transient",
     "clear_registry",
     "get_adapter",
@@ -57,6 +64,7 @@ __all__ = [
     "list_registered_providers",
     "parse_graph_notification",
     "parse_pubsub_notification",
+    "parse_retry_after",
     "register_adapter",
     "register_default_adapters",
     "webhook_router",

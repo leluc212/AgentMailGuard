@@ -6,22 +6,28 @@ Requirements:
 - R2.5: history.list() sync from stored historyId.
 """
 
+import base64
 import json
 from email import message_from_bytes
+from typing import Any
 
 import httpx
 import pytest
 
 from packages.adapters.exceptions import (
     AuthExpired,
+    NotFound,
     Permanent,
+    PermanentProviderError,
     RateLimited,
+    RetryableProviderError,
     Transient,
 )
 from packages.adapters.gmail import (
     GmailProviderAdapter,
     GmailPushNotification,
     build_rfc822_mime,
+    classify_gmail_error,
     decode_urlsafe_b64,
     encode_urlsafe_b64,
     parse_pubsub_notification,
@@ -29,6 +35,7 @@ from packages.adapters.gmail import (
 from packages.adapters.protocol import MailProviderAdapter
 from packages.adapters.registry import get_adapter
 from packages.adapters.testing import MailProviderAdapterContractSuite
+from packages.domain import ProviderDraftStatus
 from packages.domain.entities import Checkpoint, EmailAddress, Mailbox, OutboundReply
 
 
@@ -382,3 +389,380 @@ async def test_history_list_pagination() -> None:
     assert ids == ["msg-p1", "msg-p2"]
     assert res.new_checkpoint.history_id == "300"
     assert res.has_more is False
+
+
+# ---------------------------------------------------------------------------
+# 6.3a: Message-ID, error classification, draft send / status / sent lookup.
+# Every HTTP response below is a recorded Gmail REST shape; no live calls (R24.5).
+# ---------------------------------------------------------------------------
+
+GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+
+def _gmail_mailbox() -> Mailbox:
+    return Mailbox(
+        id="mbx-gmail-63a",
+        organization_id="org-63a",
+        provider="gmail",
+        address="support@example.com",
+    )
+
+
+def _gmail_reply(message_id: str | None = "<reply-63a@mail.example.com>") -> OutboundReply:
+    return OutboundReply(
+        thread_id="18f2c0ffee000001",
+        mailbox_id="mbx-gmail-63a",
+        organization_id="org-63a",
+        to=[EmailAddress(email="customer@example.com")],
+        body_text="Thanks, your order has shipped.",
+        subject="Re: Order #441",
+        in_reply_to="<orig-441@example.com>",
+        references=["<orig-441@example.com>"],
+        message_id=message_id,
+    )
+
+
+def _gmail_error(status: int, reason: str, message: str) -> dict[str, Any]:
+    return {
+        "error": {
+            "code": status,
+            "message": message,
+            "errors": [{"message": message, "domain": "usageLimits", "reason": reason}],
+        }
+    }
+
+
+def test_build_rfc822_mime_sets_message_id() -> None:
+    """6.3a / R17.2: the Gmail reply carries our own Message-ID, bracketed."""
+    parsed = message_from_bytes(build_rfc822_mime(_gmail_reply()))
+    assert parsed["Message-ID"] == "<reply-63a@mail.example.com>"
+
+
+def test_build_rfc822_mime_brackets_a_bare_message_id() -> None:
+    """A Message-ID stored without angle brackets is written as a valid msg-id."""
+    parsed = message_from_bytes(build_rfc822_mime(_gmail_reply("reply-63a@mail.example.com")))
+    assert parsed["Message-ID"] == "<reply-63a@mail.example.com>"
+
+
+def test_build_rfc822_mime_without_message_id_omits_header() -> None:
+    """No message_id on the reply means no Message-ID header from us."""
+    parsed = message_from_bytes(build_rfc822_mime(_gmail_reply(None)))
+    assert parsed["Message-ID"] is None
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "payload", "expected", "retry_after_s"),
+    [
+        (
+            429,
+            {"Retry-After": "30"},
+            _gmail_error(429, "rateLimitExceeded", "Too many"),
+            RateLimited,
+            30.0,
+        ),
+        (
+            403,
+            {"Retry-After": "12"},
+            _gmail_error(403, "rateLimitExceeded", "Rate Limit Exceeded"),
+            RateLimited,
+            12.0,
+        ),
+        (
+            403,
+            {},
+            _gmail_error(403, "userRateLimitExceeded", "User Rate Limit Exceeded"),
+            RateLimited,
+            None,
+        ),
+        (
+            503,
+            {"Retry-After": "120"},
+            _gmail_error(503, "backendError", "Backend Error"),
+            Transient,
+            120.0,
+        ),
+        (500, {}, _gmail_error(500, "backendError", "Backend Error"), Transient, None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_gmail_retryable_errors(
+    status: int,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    expected: type[RetryableProviderError],
+    retry_after_s: float | None,
+) -> None:
+    """6.3a / R17.5: 429, 5xx and rate-limit 403s are retryable and keep Retry-After."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, headers=headers, json=payload, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(expected) as exc_info:
+        await adapter._request("GET", f"{GMAIL_BASE}/drafts/d-1", mailbox_id="mbx-1")
+    assert isinstance(exc_info.value, RetryableProviderError)
+    assert exc_info.value.retry_after_s == retry_after_s
+    assert exc_info.value.provider == "gmail"
+    assert exc_info.value.mailbox_id == "mbx-1"
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "expected"),
+    [
+        (400, _gmail_error(400, "invalidArgument", "Invalid To header"), Permanent),
+        (401, _gmail_error(401, "authError", "Invalid Credentials"), AuthExpired),
+        (403, _gmail_error(403, "insufficientPermissions", "Insufficient Permission"), AuthExpired),
+        (403, _gmail_error(403, "dailyLimitExceeded", "Daily Limit Exceeded"), Permanent),
+        (403, {"error": "forbidden"}, AuthExpired),
+        (404, _gmail_error(404, "notFound", "Requested entity was not found."), NotFound),
+    ],
+)
+@pytest.mark.asyncio
+async def test_gmail_permanent_errors(
+    status: int, payload: dict[str, Any], expected: type[PermanentProviderError]
+) -> None:
+    """6.3a / R17.5: 400, 404, auth and non-rate-limit 403s are permanent."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=payload, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(expected) as exc_info:
+        await adapter._request("GET", f"{GMAIL_BASE}/drafts/d-1")
+    assert isinstance(exc_info.value, PermanentProviderError)
+
+
+def test_classify_gmail_error_is_pure() -> None:
+    """The mapping is a pure function of status, header and body."""
+    err = classify_gmail_error(
+        403,
+        retry_after_header=None,
+        raw_payload=_gmail_error(403, "userRateLimitExceeded", "slow"),
+        mailbox_id="m",
+    )
+    assert isinstance(err, RateLimited)
+    assert err.retry_after is None
+
+
+def _recording_transport(
+    routes: dict[tuple[str, str], httpx.Response], seen: list[httpx.Request]
+) -> httpx.MockTransport:
+    """Recorded responses keyed by (method, path); every request is kept for assertions."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        response = routes.get((request.method, request.url.path))
+        if response is None:
+            return httpx.Response(
+                404, json=_gmail_error(404, "notFound", "Not Found"), request=request
+            )
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            content=response.content,
+            request=request,
+        )
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_draft_sends_message_id_and_returns_both_ids() -> None:
+    """6.3a / R17.1: drafts.create carries threadId + our Message-ID; DraftRef has both ids."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("POST", "/gmail/v1/users/me/drafts"): httpx.Response(
+            200,
+            json={
+                "id": "r-4410001",
+                "message": {
+                    "id": "18f2d0000000abcd",
+                    "threadId": "18f2c0ffee000001",
+                    "labelIds": ["DRAFT"],
+                },
+            },
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+
+    draft = await adapter.create_draft(_gmail_mailbox(), _gmail_reply())
+
+    assert draft.provider_draft_id == "r-4410001"
+    assert draft.provider_message_id == "18f2d0000000abcd"
+    assert draft.provider_thread_id == "18f2c0ffee000001"
+    body = json.loads(seen[0].content)
+    assert body["message"]["threadId"] == "18f2c0ffee000001"
+    raw = base64.urlsafe_b64decode(body["message"]["raw"] + "==")
+    assert message_from_bytes(raw)["Message-ID"] == "<reply-63a@mail.example.com>"
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_draft_without_ids_is_permanent() -> None:
+    """A draft we cannot track must not be reported as created (it could never be reused)."""
+    seen: list[httpx.Request] = []
+    routes = {("POST", "/gmail/v1/users/me/drafts"): httpx.Response(200, json={"message": {}})}
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+    with pytest.raises(Permanent):
+        await adapter.create_draft(_gmail_mailbox(), _gmail_reply())
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_draft_posts_draft_id_and_returns_new_message_id() -> None:
+    """6.3a / R17.3: drafts.send sends by draft id; the sent copy has a NEW message id."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("POST", "/gmail/v1/users/me/drafts/send"): httpx.Response(
+            200,
+            json={"id": "18f2e11111110001", "threadId": "18f2c0ffee000001", "labelIds": ["SENT"]},
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+
+    sent = await adapter.send_draft(_gmail_mailbox(), "r-4410001")
+
+    assert json.loads(seen[0].content) == {"id": "r-4410001"}
+    assert sent.provider_message_id == "18f2e11111110001"
+    assert sent.provider_thread_id == "18f2c0ffee000001"
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_draft_without_message_id_is_ambiguous_transient() -> None:
+    """A 200 without an id may have sent; retry so dispatch reconciles instead of dead-lettering."""
+    seen: list[httpx.Request] = []
+    routes = {("POST", "/gmail/v1/users/me/drafts/send"): httpx.Response(200, json={})}
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+    with pytest.raises(Transient):
+        await adapter.send_draft(_gmail_mailbox(), "r-4410001")
+
+
+@pytest.mark.asyncio
+async def test_gmail_get_draft_status_draft_and_missing() -> None:
+    """6.3a: drafts.get 200 is DRAFT; 404 (sent or deleted) is MISSING. Gmail never reports SENT."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("GET", "/gmail/v1/users/me/drafts/r-4410001"): httpx.Response(
+            200, json={"id": "r-4410001", "message": {"id": "18f2d0000000abcd"}}
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+
+    assert (
+        await adapter.get_draft_status(_gmail_mailbox(), "r-4410001") is ProviderDraftStatus.DRAFT
+    )
+    assert await adapter.get_draft_status(_gmail_mailbox(), "r-gone") is ProviderDraftStatus.MISSING
+    assert seen[0].url.params["format"] == "minimal"
+
+
+def _thread_metadata(*messages: dict[str, Any]) -> httpx.Response:
+    return httpx.Response(200, json={"id": "18f2c0ffee000001", "messages": list(messages)})
+
+
+def _meta_message(msg_id: str, labels: list[str], rfc_id: str) -> dict[str, Any]:
+    return {
+        "id": msg_id,
+        "threadId": "18f2c0ffee000001",
+        "labelIds": labels,
+        "internalDate": "1790000000000",
+        "payload": {"headers": [{"name": "Message-Id", "value": rfc_id}]},
+    }
+
+
+@pytest.mark.asyncio
+async def test_gmail_find_sent_message_matches_our_message_id() -> None:
+    """6.3a / design §5.8 step 4: the SENT copy is found by our Message-ID, not the draft copy."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("GET", "/gmail/v1/users/me/threads/18f2c0ffee000001"): _thread_metadata(
+            _meta_message("18f2c0ffee000001", ["INBOX"], "<orig-441@example.com>"),
+            _meta_message("18f2d0000000abcd", ["DRAFT"], "<reply-63a@mail.example.com>"),
+            _meta_message("18f2e11111110001", ["SENT"], "<reply-63a@mail.example.com>"),
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+
+    found = await adapter.find_sent_message(
+        _gmail_mailbox(), "18f2c0ffee000001", "reply-63a@mail.example.com"
+    )
+
+    assert found is not None
+    assert found.provider_message_id == "18f2e11111110001"
+    assert found.provider_thread_id == "18f2c0ffee000001"
+    assert seen[0].url.params["format"] == "metadata"
+    assert seen[0].url.params.get_list("metadataHeaders") == ["Message-ID"]
+
+
+@pytest.mark.asyncio
+async def test_gmail_find_sent_message_matches_provider_id_and_ignores_drafts() -> None:
+    """A provider id matches only a SENT message; an unsent draft or unknown id is None."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("GET", "/gmail/v1/users/me/threads/18f2c0ffee000001"): _thread_metadata(
+            _meta_message("18f2d0000000abcd", ["DRAFT"], "<reply-63a@mail.example.com>"),
+            _meta_message("18f2e11111110001", ["SENT"], "<reply-63a@mail.example.com>"),
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+    mailbox = _gmail_mailbox()
+
+    by_id = await adapter.find_sent_message(mailbox, "18f2c0ffee000001", "18f2e11111110001")
+    assert by_id is not None and by_id.provider_message_id == "18f2e11111110001"
+    assert await adapter.find_sent_message(mailbox, "18f2c0ffee000001", "18f2d0000000abcd") is None
+    assert await adapter.find_sent_message(mailbox, "18f2c0ffee000001", "<other@x>") is None
+    assert (
+        await adapter.find_sent_message(mailbox, "thread-gone", "<reply-63a@mail.example.com>")
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_gmail_find_draft_searches_drafts_by_rfc822msgid() -> None:
+    """6.5: a redelivery adopts the unrecorded draft carrying our Message-ID (no second draft)."""
+    seen: list[httpx.Request] = []
+    routes = {
+        ("GET", "/gmail/v1/users/me/drafts"): httpx.Response(
+            200,
+            json={
+                "drafts": [
+                    {
+                        "id": "r-4410001",
+                        "message": {"id": "18f2d0000000abcd", "threadId": "18f2c0ffee000001"},
+                    }
+                ],
+                "resultSizeEstimate": 1,
+            },
+        )
+    }
+    adapter = GmailProviderAdapter(
+        client=httpx.AsyncClient(transport=_recording_transport(routes, seen))
+    )
+    mailbox = _gmail_mailbox()
+
+    found = await adapter.find_draft(mailbox, "18f2c0ffee000001", "<reply-63a@mail.example.com>")
+
+    assert found is not None
+    assert (found.provider_draft_id, found.provider_message_id, found.provider_thread_id) == (
+        "r-4410001",
+        "18f2d0000000abcd",
+        "18f2c0ffee000001",
+    )
+    assert seen[0].url.params["q"] == "rfc822msgid:reply-63a@mail.example.com"
+    # A draft in another thread is not ours to adopt.
+    assert (
+        await adapter.find_draft(mailbox, "18f2c0ffee999999", "<reply-63a@mail.example.com>")
+        is None
+    )
+    assert await adapter.find_draft(mailbox, "18f2c0ffee000001", "  ") is None
