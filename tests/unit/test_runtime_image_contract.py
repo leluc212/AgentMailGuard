@@ -137,6 +137,11 @@ def test_image_bakes_the_bpe_encoding() -> None:
         "ROUTER_CONFIDENCE_THRESHOLD",
         "LLM__OPENAI_API_KEY",
         "LLM__ANTHROPIC_API_KEY",
+        "LLM__OPENAI_BASE_URL",
+        "LLM__FAST_MODEL",
+        "LLM__STRONG_MODEL",
+        "LLM__FALLBACK_MODEL",
+        "LLM__PRICE_TABLE",
         "EMBEDDING__MODEL_NAME",
         "EMBEDDING__BASE_URL",
         "EMBEDDING__API_KEY",
@@ -149,3 +154,25 @@ def test_compose_forwards_the_switch_into_app_containers(variable: str) -> None:
     ai_worker_env = compose["services"]["ai-worker"]["environment"]
     assert variable in ai_worker_env
     assert str(ai_worker_env[variable]).startswith("${" + variable), "must follow the host .env"
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "LLM__OPENAI_BASE_URL",
+        "LLM__FAST_MODEL",
+        "LLM__STRONG_MODEL",
+        "LLM__FALLBACK_MODEL",
+        "LLM__PRICE_TABLE",
+    ],
+)
+def test_compose_llm_endpoint_defaults_defer_to_settings(variable: str) -> None:
+    """R20.6: an unset host value reaches the container blank, and settings restores its default.
+
+    A non-blank compose default would duplicate settings.py (and drift); the settings-side
+    blank-means-default validator is covered in tests/unit/test_settings.py.
+    """
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    for service in ("api", "triage-worker", "ai-worker"):
+        env = compose["services"][service]["environment"]
+        assert env[variable] == "${" + variable + ":-}", service

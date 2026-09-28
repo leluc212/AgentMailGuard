@@ -17,6 +17,14 @@ x-app-env: &app-env
   # Real-provider keys (empty keeps the fake working) and the R15.6 cascade switch.
   LLM__OPENAI_API_KEY: ${LLM__OPENAI_API_KEY:-}
   LLM__ANTHROPIC_API_KEY: ${LLM__ANTHROPIC_API_KEY:-}
+  # OpenAI-compatible endpoint (e.g. the Gemini API), its tier models and the per-model price
+  # table (R14.7, R21.6). Blank means "settings default" (packages/core/settings.py), so the
+  # defaults live in one place; a Gemini/Gemma model on the default URL fails fast (R20.6).
+  LLM__OPENAI_BASE_URL: ${LLM__OPENAI_BASE_URL:-}
+  LLM__FAST_MODEL: ${LLM__FAST_MODEL:-}
+  LLM__STRONG_MODEL: ${LLM__STRONG_MODEL:-}
+  LLM__FALLBACK_MODEL: ${LLM__FALLBACK_MODEL:-}
+  LLM__PRICE_TABLE: ${LLM__PRICE_TABLE:-}
   ROUTER_FORCE_SINGLE_TIER: ${ROUTER_FORCE_SINGLE_TIER:-false}
   ROUTER_CONFIDENCE_THRESHOLD: ${ROUTER_CONFIDENCE_THRESHOLD:-0.75}
   EMBEDDING__MOCK: ${EMBEDDING__MOCK:-true}

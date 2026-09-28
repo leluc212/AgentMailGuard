@@ -11,7 +11,15 @@ import os
 import re
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -207,6 +215,15 @@ class EmbeddingSettings(BaseModel):
     retry_delay_s: float = Field(default=0.5, ge=0.0, description="Initial retry delay in seconds")
 
 
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+"""The `openai` provider's default endpoint; a blank LLM__OPENAI_BASE_URL resolves to it."""
+
+GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+"""Google's OpenAI-compatible Gemini endpoint, used by the project's live runs (task 5.0)."""
+
+_GOOGLE_MODEL_MARKERS = ("gemini", "gemma")
+
+
 class LLMTiersSettings(BaseModel):
     """Tiered LLM routing, provider configuration, and token price table.
 
@@ -219,7 +236,10 @@ class LLMTiersSettings(BaseModel):
     )
     openai_api_key: str | None = Field(default=None, description="OpenAI API key")
     openai_base_url: str = Field(
-        default="https://api.openai.com/v1", description="OpenAI API base URL"
+        default=OPENAI_DEFAULT_BASE_URL,
+        description=(
+            f"OpenAI-compatible API base URL; the Gemini API uses {GEMINI_OPENAI_BASE_URL} (R14.7)"
+        ),
     )
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
     anthropic_base_url: str = Field(
@@ -267,6 +287,51 @@ class LLMTiersSettings(BaseModel):
         },
         description="Per-model token pricing in USD per 1M tokens",
     )
+
+    @field_validator(
+        "openai_base_url",
+        "fast_model",
+        "strong_model",
+        "fallback_model",
+        "price_table",
+        mode="before",
+    )
+    @classmethod
+    def _blank_means_default(cls, value: Any, info: ValidationInfo) -> Any:
+        """Treat a blank value as unset (R20.6).
+
+        Docker Compose forwards an unset host variable as an empty string. An empty model
+        name or price table is never a valid setting, and an empty base URL would otherwise
+        make the OpenAI client fall back to api.openai.com silently.
+        """
+        if isinstance(value, str) and not value.strip() and info.field_name is not None:
+            return cls.model_fields[info.field_name].get_default(call_default_factory=True)
+        return value
+
+    @model_validator(mode="after")
+    def validate_openai_endpoint_matches_models(self) -> "LLMTiersSettings":
+        """Fail fast when the openai provider would send a Google key to OpenAI (R20.6, R14.7).
+
+        Gemini and Gemma models are served by Google's OpenAI-compatible endpoint. Naming one
+        while LLM__OPENAI_BASE_URL is still the OpenAI default means the configured key would
+        be sent to the wrong host, so startup refuses the configuration instead.
+        """
+        if self.provider.lower().strip() != "openai":
+            return self
+        if self.openai_base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
+            return self
+        google_models = [
+            model
+            for model in (self.fast_model, self.strong_model, self.fallback_model)
+            if any(marker in model.lower() for marker in _GOOGLE_MODEL_MARKERS)
+        ]
+        if google_models:
+            raise ValueError(
+                "LLM__PROVIDER=openai names Gemini/Gemma model(s) "
+                f"{', '.join(google_models)} but LLM__OPENAI_BASE_URL is the OpenAI default; "
+                f"set LLM__OPENAI_BASE_URL={GEMINI_OPENAI_BASE_URL}"
+            )
+        return self
 
 
 class RetrievalSettings(BaseModel):

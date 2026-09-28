@@ -1,5 +1,7 @@
 """Unit tests for configuration and settings management (R20.6, R5.10, R21.6)."""
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,6 +13,7 @@ from packages.core.settings import (
     DispatchWorkerSettings,
     EmailWorkerSettings,
     KnowledgeWorkerSettings,
+    LLMTiersSettings,
     MailConnectorSettings,
     ModelPricing,
     RetryLadderSettings,
@@ -185,3 +188,107 @@ def test_retry_ladder_backoff_settings_validation() -> None:
     # Invalid jitter_mode raises ValidationError
     with pytest.raises(ValidationError, match="Invalid jitter_mode"):
         RetryLadderSettings(jitter_mode="unknown_jitter")
+
+
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+GEMINI_PRICE_TABLE = {
+    "gemma-4-26b-a4b-it": {"input_per_m": 0, "output_per_m": 0},
+    "gemma-4-31b-it": {"input_per_m": 0, "output_per_m": 0},
+    "gemini-3.1-flash-lite": {"input_per_m": 0.25, "output_per_m": 1.50},
+}
+
+
+@pytest.mark.parametrize("field", ["fast_model", "strong_model", "fallback_model"])
+@pytest.mark.parametrize(
+    "model", ["gemma-4-26b-a4b-it", "gemini-3.1-flash-lite", "Gemini-3.1-Flash-Lite"]
+)
+def test_openai_provider_refuses_google_models_on_the_openai_url(field: str, model: str) -> None:
+    """R20.6: a Gemini/Gemma model on the OpenAI default URL fails fast; the key stays home."""
+    with pytest.raises(ValidationError, match="LLM__OPENAI_BASE_URL is the OpenAI default"):
+        LLMTiersSettings.model_validate({"provider": "openai", "openai_api_key": "k", field: model})
+
+
+def test_openai_default_url_with_trailing_slash_is_still_refused() -> None:
+    with pytest.raises(ValidationError, match="LLM__OPENAI_BASE_URL is the OpenAI default"):
+        LLMTiersSettings(
+            provider="openai",
+            openai_base_url="https://api.openai.com/v1/",
+            fast_model="gemma-4-26b-a4b-it",
+        )
+
+
+def test_gemini_models_on_the_gemini_url_are_accepted() -> None:
+    llm = LLMTiersSettings(
+        provider="openai",
+        openai_base_url=GEMINI_BASE_URL,
+        fast_model="gemma-4-26b-a4b-it",
+        strong_model="gemma-4-31b-it",
+        fallback_model="gemini-3.1-flash-lite",
+    )
+    assert llm.openai_base_url == GEMINI_BASE_URL
+    assert llm.fallback_model == "gemini-3.1-flash-lite"
+
+
+def test_openai_models_on_the_openai_url_are_accepted() -> None:
+    llm = LLMTiersSettings(provider="openai", fast_model="gpt-4o-mini", strong_model="gpt-4o")
+    assert llm.openai_base_url == "https://api.openai.com/v1"
+
+
+def test_fake_provider_ignores_google_model_names() -> None:
+    """The fake provider sends nothing, so the endpoint check does not apply."""
+    llm = LLMTiersSettings(provider="fake", fast_model="gemma-4-26b-a4b-it")
+    assert llm.fast_model == "gemma-4-26b-a4b-it"
+
+
+def test_blank_llm_env_values_keep_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compose forwards an unset host variable as ''; that must mean 'use the default'."""
+    for var in (
+        "LLM__OPENAI_BASE_URL",
+        "LLM__FAST_MODEL",
+        "LLM__STRONG_MODEL",
+        "LLM__FALLBACK_MODEL",
+        "LLM__PRICE_TABLE",
+    ):
+        monkeypatch.setenv(var, "")
+    llm = AppSettings(_env_file=None).llm
+    defaults = LLMTiersSettings()
+    assert llm.openai_base_url == defaults.openai_base_url
+    assert llm.fast_model == defaults.fast_model
+    assert llm.strong_model == defaults.strong_model
+    assert llm.fallback_model == defaults.fallback_model
+    assert llm.price_table == defaults.price_table
+
+
+def test_blank_base_url_with_a_gemini_model_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM__PROVIDER", "openai")
+    monkeypatch.setenv("LLM__FAST_MODEL", "gemma-4-26b-a4b-it")
+    monkeypatch.setenv("LLM__OPENAI_BASE_URL", "")
+    with pytest.raises(ValidationError, match="LLM__OPENAI_BASE_URL is the OpenAI default"):
+        AppSettings(_env_file=None)
+
+
+def test_gemini_configuration_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The documented Gemini block parses, including the JSON price table (R21.6)."""
+    monkeypatch.setenv("LLM__PROVIDER", "openai")
+    monkeypatch.setenv("LLM__OPENAI_BASE_URL", GEMINI_BASE_URL)
+    monkeypatch.setenv("LLM__FAST_MODEL", "gemma-4-26b-a4b-it")
+    monkeypatch.setenv("LLM__STRONG_MODEL", "gemma-4-31b-it")
+    monkeypatch.setenv("LLM__FALLBACK_MODEL", "gemini-3.1-flash-lite")
+    monkeypatch.setenv("LLM__PRICE_TABLE", json.dumps(GEMINI_PRICE_TABLE))
+    llm = AppSettings(_env_file=None).llm
+    assert llm.provider == "openai"
+    assert llm.strong_model == "gemma-4-31b-it"
+    assert llm.price_table["gemini-3.1-flash-lite"] == ModelPricing(
+        input_per_m=0.25, output_per_m=1.50
+    )
+    assert llm.price_table["gemma-4-26b-a4b-it"] == ModelPricing(input_per_m=0, output_per_m=0)
+
+
+def test_tests_always_run_with_the_fake_llm_provider() -> None:
+    """R24.5: the autouse guard pins the fake provider even when the host .env names a real one."""
+    assert AppSettings().llm.provider == "fake"
+
+
+def test_tests_always_run_with_the_mock_embedder() -> None:
+    """R24.5: the autouse guard pins EMBEDDING__MOCK=true even when the host .env turns it off."""
+    assert AppSettings().embedding.mock is True

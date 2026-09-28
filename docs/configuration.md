@@ -108,18 +108,18 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `LLM__PROVIDER` | `string` | `fake` | `fake`, `openai`, `anthropic`, `local` | Active LLMProvider implementation (R14.7, R24.5) |
-| `LLM__FAST_MODEL` | `string` | `gpt-4o-mini` | Non-empty | Tier 1 model for triage & summarization |
-| `LLM__STRONG_MODEL` | `string` | `gpt-4o` | Non-empty | Tier 2 model for complex draft generation |
-| `LLM__FALLBACK_MODEL` | `string` | `claude-3-haiku`| Non-empty | Tier 3 model for retry recovery |
+| `LLM__FAST_MODEL` | `string` | `gpt-4o-mini` | Blank = default | Tier 1 (routine) model for triage, summarization and routine drafts (R15.1) |
+| `LLM__STRONG_MODEL` | `string` | `gpt-4o` | Blank = default | Tier 2 (high-capability) model for escalated drafts (R15.1) |
+| `LLM__FALLBACK_MODEL` | `string` | `claude-3-haiku`| Blank = default | Tier 3 model for retry recovery |
 | `LLM__FORCE_SINGLE_TIER` | `boolean` | `false` | `true/false` | Force strong model only (ablation study R15.6) |
 | `LLM__TIMEOUT_S` | `float` | `15.0` | $\ge 0.1$ | Request timeout for LLM inference calls in seconds |
 | `LLM__OPENAI_API_KEY` | `string` | `null` | Optional | OpenAI API secret key |
-| `LLM__OPENAI_BASE_URL` | `string` | `https://api.openai.com/v1` | URL | OpenAI API base endpoint |
+| `LLM__OPENAI_BASE_URL` | `string` | `https://api.openai.com/v1` | URL; blank = default | Base URL of any OpenAI-compatible `/chat/completions` endpoint, e.g. the Gemini API. With `LLM__PROVIDER=openai`, a Gemini/Gemma model on this default fails startup validation (R14.7, R20.6) |
 | `LLM__ANTHROPIC_API_KEY` | `string` | `null` | Optional | Anthropic Claude API key |
 | `LLM__ANTHROPIC_BASE_URL` | `string` | `https://api.anthropic.com/v1` | URL | Anthropic Claude API base endpoint |
 | `LLM__LOCAL_BASE_URL` | `string` | `http://localhost:11434/v1` | URL | OpenAI-compatible local model server base endpoint |
 | `LLM__LOCAL_API_KEY` | `string` | `ollama` | Non-empty | API key for local endpoint |
-| `LLM__PRICE_TABLE` | `JSON object` | the four models below | `{model: {input_per_m, output_per_m}}`, USD per 1M tokens, each `≥ 0` | Replaces the **whole** price table (not merged). Keys must match the model names providers report (e.g. `LLM__FAST_MODEL`); a local model (`LLM__PROVIDER=local`) needs its own entry (R21.6) |
+| `LLM__PRICE_TABLE` | `JSON object` | the four models below | `{model: {input_per_m, output_per_m}}`, USD per 1M tokens, each `≥ 0`; blank = default | Replaces the **whole** price table (not merged). Keys must match the model names providers report (e.g. `LLM__FAST_MODEL`); a local model (`LLM__PROVIDER=local`) needs its own entry (R21.6) |
 
 **Cost Accounting Table (R21.6):**
 The system maintains a configurable per-model price table to convert token usage to estimated inference costs per draft:
@@ -133,6 +133,25 @@ price_table = {
 ```
 
 A model with no entry in the table has an **unknown** cost, not a free one: its tokens are still counted, `estimated_ai_cost_total` and `generated_draft_cost_total` are not incremented, `generated_draft.cost_estimate` is stored as `NULL`, and a warning is logged per request. Add every model you route to, including local ones.
+
+#### Hosted OpenAI-compatible endpoint: Google Gemini API (R14.7, R20.6, R21.6)
+
+The `openai` provider talks to any OpenAI-compatible `/chat/completions` endpoint. The project's live runs use the Google Gemini API this way:
+
+```dotenv
+LLM__PROVIDER=openai
+LLM__OPENAI_API_KEY=<Gemini API key from Google AI Studio>
+LLM__OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+LLM__FAST_MODEL=gemma-4-26b-a4b-it
+LLM__STRONG_MODEL=gemma-4-31b-it
+LLM__FALLBACK_MODEL=gemini-3.1-flash-lite
+LLM__PRICE_TABLE={"gemma-4-26b-a4b-it":{"input_per_m":0,"output_per_m":0},"gemma-4-31b-it":{"input_per_m":0,"output_per_m":0},"gemini-3.1-flash-lite":{"input_per_m":0.25,"output_per_m":1.50},"text-embedding-3-small":{"input_per_m":0.02,"output_per_m":0}}
+```
+
+- **Prices.** Gemma is free of charge (free tier only); `gemini-3.1-flash-lite` costs $0.25 / $1.50 per 1M input / output tokens (Google pricing page, updated 2026-09-24). Because `LLM__PRICE_TABLE` replaces the whole table, keep every model you route to in it, or its cost is recorded as unknown.
+- **Fail-fast check.** With `LLM__PROVIDER=openai`, settings validation refuses a Gemini or Gemma model name while `LLM__OPENAI_BASE_URL` is still `https://api.openai.com/v1` (with or without a trailing slash), so the key is never sent to the wrong host.
+- **Docker Compose.** `LLM__PROVIDER`, `LLM__OPENAI_API_KEY`, `LLM__OPENAI_BASE_URL`, `LLM__FAST_MODEL`, `LLM__STRONG_MODEL`, `LLM__FALLBACK_MODEL` and `LLM__PRICE_TABLE` are forwarded from the host `.env` into every service that uses the shared `x-app-env` block (init, api, mail-connector, email-worker, triage-worker, knowledge-worker, ai-worker). An unset host value arrives blank, and a blank value means "use the default" for the base URL, the three model names and the price table.
+- **Live smoke check.** `make llm-smoke` sends one triage request and one draft request through the configured provider and reports, per request, whether the response parsed and validated, the `finish_reason` and the token counts. It never prints the key. It is run by hand and is not part of CI (R24.5); tests always run on the fake provider.
 
 ### 2.7 Hybrid Retrieval Parameters (`RETRIEVAL__*`)
 *Reciprocal Rank Fusion and cross-encoder reranking (R10, R11).*
@@ -279,7 +298,7 @@ A model with no entry in the table has an **unknown** cost, not a free one: its 
 ### 2.19 Complexity Router & Model Cascade (`ROUTER_*` / `COMPLEXITY_ROUTER__*`)
 *Complexity-based model cascading, escalation thresholds, and single-tier ablation evaluation (R15.1–R15.6, design.md §5.7).*
 
-Under Docker Compose only `ROUTER_FORCE_SINGLE_TIER` and `ROUTER_CONFIDENCE_THRESHOLD` (with `LLM__OPENAI_API_KEY` and `LLM__ANTHROPIC_API_KEY`) are forwarded from the host `.env` into the app containers; set another router variable in `docker-compose.yml` before relying on it there. The per-job escalation cap (`ROUTER_MAX_ESCALATIONS_PER_JOB`, R15.5) counts escalations recorded on the job's earlier `GENERATING` transitions, so a redelivered job does not escalate again once the cap is reached.
+Under Docker Compose only `ROUTER_FORCE_SINGLE_TIER` and `ROUTER_CONFIDENCE_THRESHOLD` (with `LLM__PROVIDER`, the API keys, `LLM__OPENAI_BASE_URL`, the three `LLM__*_MODEL` names and `LLM__PRICE_TABLE`, see §2.6) are forwarded from the host `.env` into the app containers; set another router variable in `docker-compose.yml` before relying on it there. The per-job escalation cap (`ROUTER_MAX_ESCALATIONS_PER_JOB`, R15.5) counts escalations recorded on the job's earlier `GENERATING` transitions, so a redelivered job does not escalate again once the cap is reached.
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|

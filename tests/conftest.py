@@ -22,10 +22,18 @@ PROVIDER_SECRET_ENV_VARS = [
 
 @pytest.fixture(autouse=True)
 def guard_live_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no live provider API keys leak into test executions."""
+    """Ensure no live provider API keys leak into test executions (R24.5).
+
+    Process env outranks the .env file in pydantic-settings, so pinning LLM__PROVIDER=fake
+    and EMBEDDING__MOCK=true here keeps every AppSettings()/AIWorkerSettings() built by a
+    test on the fake LLM provider and the mock embedder, even after the owner sets
+    LLM__PROVIDER=openai or EMBEDDING__MOCK=false in the host .env for live runs.
+    """
     for var in PROVIDER_SECRET_ENV_VARS:
         if var in os.environ:
             monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("LLM__PROVIDER", "fake")
+    monkeypatch.setenv("EMBEDDING__MOCK", "true")
 
 
 @pytest.fixture
