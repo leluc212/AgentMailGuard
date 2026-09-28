@@ -186,3 +186,20 @@ def test_citation_verification_metrics() -> None:
     assert 'citations_verified_total{category="support"} 1.0' in payload_str
     assert 'citations_verified_total{category="billing"} 1.0' in payload_str
     assert 'citation_mismatches_total{category="support"} 1.0' in payload_str
+
+
+def test_draft_decisions_metric() -> None:
+    """R16.7 / R21.4 (task 6.2): one series per review decision and category."""
+    m = create_pipeline_metrics()
+
+    m.draft_decisions_total.labels(decision="accepted", category="billing").inc()
+    m.draft_decisions_total.labels(decision="edited", category="billing").inc()
+    m.draft_decisions_total.labels(decision="rejected", category="support").inc()
+
+    payload, _ = generate_metrics_payload(m.registry)
+    text = payload.decode("utf-8")
+
+    # The text exposition sorts label names, so category comes before decision.
+    assert 'draft_decisions_total{category="billing",decision="accepted"} 1.0' in text
+    assert 'draft_decisions_total{category="billing",decision="edited"} 1.0' in text
+    assert 'draft_decisions_total{category="support",decision="rejected"} 1.0' in text

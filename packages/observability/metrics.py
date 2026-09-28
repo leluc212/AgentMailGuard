@@ -108,6 +108,7 @@ class PipelineMetrics:
     citations_verified_total: Counter
     citation_mismatches_total: Counter
     business_lookups_total: Counter
+    draft_decisions_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -306,6 +307,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "business_lookups_total",
             "Business facts produced per lookup, by entity and status (R13.6, R13.7)",
             ["entity", "status"],
+            registry=reg,
+        ),
+        draft_decisions_total=Counter(
+            "draft_decisions_total",
+            "First reviewer decision per draft: accepted, edited or rejected (R16.7, R21.4)",
+            ["decision", "category"],
             registry=reg,
         ),
         # Histograms (latency and calls per job)

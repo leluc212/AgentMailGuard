@@ -5,7 +5,11 @@ both services and core/database packages can handle paginated datasets
 without circular or architectural boundary violations.
 """
 
+import base64
+import json
 from collections.abc import Sequence
+from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -51,3 +55,33 @@ def paginate[T](
         offset=params.offset,
         has_more=has_more,
     )
+
+
+class InvalidCursorError(ValueError):
+    """A pagination cursor that :func:`encode_cursor` did not produce (R23.6)."""
+
+
+def encode_cursor(created_at: datetime, item_id: UUID) -> str:
+    """Opaque keyset cursor for ``ORDER BY created_at DESC, id DESC`` pages (R23.6).
+
+    The cursor names the last item of a page; the next page holds items strictly
+    before it. base64url without padding, so it is safe in a query string.
+    """
+    if created_at.tzinfo is None:
+        raise ValueError("cursor timestamps must be timezone-aware")
+    raw = json.dumps({"t": created_at.isoformat(), "id": str(item_id)}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    """Inverse of :func:`encode_cursor`; anything else raises InvalidCursorError."""
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+        created_at = datetime.fromisoformat(data["t"])
+        item_id = UUID(data["id"])
+    except (ValueError, KeyError, TypeError) as err:
+        raise InvalidCursorError(f"Invalid pagination cursor: {cursor!r}") from err
+    if created_at.tzinfo is None:
+        raise InvalidCursorError(f"Invalid pagination cursor: {cursor!r}")
+    return created_at, item_id
