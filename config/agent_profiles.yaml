@@ -12,9 +12,9 @@ profiles:
     response_style: professional
     model_tier: routine
     context_policy: thread_plus_rag
-    prompt_template: prompts/support.v1.j2
+    prompt_template: prompts/support.v2.j2
     output_schema: schemas/reply.v1.json
-    prompt_version: support.v1
+    prompt_version: support.v2
     categories:
       - support
       - technical_support
@@ -27,9 +27,9 @@ profiles:
     response_style: precise_formal
     model_tier: routine
     context_policy: thread_plus_rag_plus_business
-    prompt_template: prompts/billing.v1.j2
+    prompt_template: prompts/billing.v2.j2
     output_schema: schemas/reply.v1.json
-    prompt_version: billing.v1
+    prompt_version: billing.v2
     categories:
       - billing
       - payment
@@ -43,9 +43,9 @@ profiles:
     response_style: persuasive_professional
     model_tier: routine
     context_policy: thread_plus_rag
-    prompt_template: prompts/sales.v1.j2
+    prompt_template: prompts/sales.v2.j2
     output_schema: schemas/reply.v1.json
-    prompt_version: sales.v1
+    prompt_version: sales.v2
     categories:
       - sales
       - quote
@@ -59,9 +59,9 @@ profiles:
     response_style: polite_helpful
     model_tier: routine
     context_policy: thread_plus_rag
-    prompt_template: prompts/general.v1.j2
+    prompt_template: prompts/general.v2.j2
     output_schema: schemas/reply.v1.json
-    prompt_version: general.v1
+    prompt_version: general.v2
     categories:
       - general_inquiry
       - administration

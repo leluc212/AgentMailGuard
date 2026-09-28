@@ -32,7 +32,7 @@ from packages.domain.entities import (
     ThreadState,
 )
 from packages.domain.state_machine import JobState
-from packages.llm.profile import ContextPolicy
+from packages.llm.profile import DEFAULT_ENTERPRISE_INSTRUCTIONS, ContextPolicy
 from packages.observability.context import bind_log_context
 from packages.retrieval.query_builder import RetrievalQueryBuilder
 
@@ -66,11 +66,8 @@ class InstructionProvider(Protocol):
 class DefaultInstructionProvider:
     """Default static instruction provider returning cacheable prompt instructions."""
 
-    DEFAULT_AGENT_INSTRUCTIONS = (
-        "You are an enterprise AI assistant for customer email correspondence. "
-        "Provide professional, concise, and helpful responses grounded in the "
-        "provided thread history and reference knowledge."
-    )
+    # The live path sends this text; it is the registry's default, so the two cannot drift.
+    DEFAULT_AGENT_INSTRUCTIONS = DEFAULT_ENTERPRISE_INSTRUCTIONS
 
     CATEGORY_INSTRUCTIONS: dict[str, str] = {
         "billing": (

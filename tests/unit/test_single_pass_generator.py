@@ -101,7 +101,7 @@ async def test_single_pass_generation_normal_flow(
     assert len(fake_llm.recorded_calls) == 1
     assert result.budget_tracker.count(CallKind.GENERATE) == 1
     assert result.budget_tracker.total_calls == 1
-    assert result.prompt_version == "support.v1"
+    assert result.prompt_version == "support.v2"
     assert result.tier == ModelTier.ROUTINE
     assert result.content["action"] == "reply"
     assert result.content["draft"] == canned_reply["draft"]
@@ -332,7 +332,7 @@ async def test_single_pass_generation_fallback_profile(
     result = await generator.generate_draft(sample_context, category="unmapped_mystery_category")
 
     assert result.profile.profile == "general_inquiry"
-    assert result.prompt_version == "general.v1"
+    assert result.prompt_version == "general.v2"
 
 
 @pytest.mark.asyncio

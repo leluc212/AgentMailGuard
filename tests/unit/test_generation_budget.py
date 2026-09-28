@@ -618,7 +618,7 @@ async def test_integration_context_builder_to_single_pass_generator(
     # 4. Verify GenerationResult attributes
     assert isinstance(result, GenerationResult)
     assert result.profile.profile == "billing"
-    assert result.prompt_version == "billing.v1"
+    assert result.prompt_version == "billing.v2"
     assert result.tier == ModelTier.ROUTINE
     assert result.budget_tracker.count(CallKind.GENERATE) == 1
     assert result.budget_tracker.total_calls == 1

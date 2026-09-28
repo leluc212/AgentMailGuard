@@ -31,10 +31,10 @@ def test_schema_file_valid_json() -> None:
 def test_prompt_template_files_exist() -> None:
     """Verify versioned prompt template files exist and contain core jinja2 markers (R14.6)."""
     expected_templates = [
-        "prompts/support.v1.j2",
-        "prompts/billing.v1.j2",
-        "prompts/sales.v1.j2",
-        "prompts/general.v1.j2",
+        "prompts/support.v2.j2",
+        "prompts/billing.v2.j2",
+        "prompts/sales.v2.j2",
+        "prompts/general.v2.j2",
     ]
     for tmpl in expected_templates:
         p = Path(tmpl)
@@ -62,7 +62,7 @@ def test_agent_profiles_yaml_valid() -> None:
     assert tech["response_style"] == "professional"
     assert tech["model_tier"] == "routine"
     assert tech["context_policy"] == "thread_plus_rag"
-    assert tech["prompt_template"] == "prompts/support.v1.j2"
+    assert tech["prompt_template"] == "prompts/support.v2.j2"
     assert tech["output_schema"] == "schemas/reply.v1.json"
 
 
@@ -124,7 +124,7 @@ def test_registry_resolve_by_category() -> None:
     support_prof = registry.resolve_profile("support")
     assert support_prof.profile == "technical_support"
     assert support_prof.knowledge_domain == "support"
-    assert support_prof.prompt_version == "support.v1"
+    assert support_prof.prompt_version == "support.v2"
 
     billing_prof = registry.resolve_profile("billing")
     assert billing_prof.profile == "billing"
@@ -161,6 +161,13 @@ def test_registry_render_prompt_with_context_package() -> None:
     from datetime import UTC, datetime
     from uuid import uuid4
 
+    from packages.domain.business import (
+        BusinessContext,
+        BusinessFact,
+        CustomerStatus,
+        EntityType,
+        FactStatus,
+    )
     from packages.domain.entities import Candidate, ContextPackage, EmailAddress, NormalizedMessage
     from packages.llm.profile import AgentProfileRegistry
 
@@ -195,11 +202,22 @@ def test_registry_render_prompt_with_context_package() -> None:
         rerank_score=0.95,
         external_id="DOC-PG-01",
     )
+    business = BusinessContext(
+        customer_status=CustomerStatus.FOUND,
+        as_of=datetime.now(UTC),
+        customer=(("plan", "Enterprise"),),
+        facts=(
+            BusinessFact(
+                entity=EntityType.TICKET, reference="TICK-4402", status=FactStatus.NOT_FOUND
+            ),
+        ),
+    )
     context_pkg = ContextPackage(
         agent_instructions="You are an enterprise AI assistant.",
         category_instructions="Address technical questions with structured steps.",
         current_message=msg,
         retrieved_chunks=[chunk],
+        business_data=business,
     )
 
     rendered = registry.render_prompt(profile, context_pkg)
@@ -208,6 +226,8 @@ def test_registry_render_prompt_with_context_package() -> None:
     assert "Database connection failure" in rendered
     assert "Unable to connect to database at host db.local:5432." in rendered
     assert "[CITATION: DOC-PG-01]" in rendered
+    assert business.render() in rendered
+    assert "Enterprise" in rendered
 
 
 def test_registry_satisfies_instruction_provider_protocol() -> None:

@@ -22,11 +22,17 @@ from packages.llm.protocol import ModelTier
 
 logger = logging.getLogger(__name__)
 
+BUSINESS_DATA_PRECEDENCE_RULE = (
+    "Order, ticket and invoice status, dates and amounts come only from [BUSINESS DATA]; "
+    "if a fact is NOT_FOUND or UNAVAILABLE, say so; knowledge chunks explain procedure only."
+)
+"""Business facts beat knowledge chunks for transactional facts (R13.3, R13.5, design.md §5.4)."""
+
 DEFAULT_ENTERPRISE_INSTRUCTIONS = (
     "You are an enterprise AI assistant for customer email correspondence. "
     "Provide professional, concise, and helpful responses grounded in the "
-    "provided thread history and reference knowledge."
-)
+    "provided thread history and reference knowledge. "
+) + BUSINESS_DATA_PRECEDENCE_RULE
 
 
 class ContextPolicy(StrEnum):
