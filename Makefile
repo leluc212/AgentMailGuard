@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate llm-smoke
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke
 
 UV ?= uv
 
@@ -18,6 +18,7 @@ help:
 	@echo "  image-smoke - Build the runtime image and smoke-check its entrypoints and assets (RA.11)"
 	@echo "  smoke    - End-to-end check of the running stack (RA gate)"
 	@echo "  llm-smoke - Live check: one triage + one draft request through the configured LLM (task 5.0; not CI)"
+	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -92,6 +93,9 @@ phase4-gate:
 
 retrieval-gate:
 	$(UV) run python scripts/retrieval_gate.py
+
+phase5-gate:
+	$(UV) run python scripts/phase5_gate.py
 
 llm-smoke:
 	$(UV) run python scripts/llm_smoke.py
