@@ -604,34 +604,73 @@
 
 *Deliverable: RAG knowledge + live operational data → response.*
 
+> **Design change (2026-09-28, ADR-0008):** the fetch is decided by a code-side plan from typed IDs, the profile's `context_policy` and the intent — not by the intent alone, because the ML triage stage emits no intent. See `specs/design.md` §5.4 "Business data (R13)" and `artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`. Live runs use the Google Gemini API (Gemma 4 and Gemini 3.1 Flash-Lite, chosen as the cheapest working models on 2026-09-28) through the `openai` provider's OpenAI-compatible base URL. Local models are not run on the owner's laptop.
+
+- [ ] **5.0 Hosted OpenAI-compatible provider wiring (Gemini) & live smoke check**
+  - Discovered missing work (GEMINI.md §7): compose forwards `LLM__PROVIDER` and the API keys, but not `LLM__OPENAI_BASE_URL` or `LLM__FAST_MODEL` / `LLM__STRONG_MODEL` / `LLM__FALLBACK_MODEL`, so containers would send a Gemini key to the default OpenAI URL with OpenAI model names.
+  - Forward those four settings and `LLM__PRICE_TABLE` through the shared compose environment. Document them in `.env.example` and `docs/configuration.md` with the Gemini configuration:
+    - base URL `https://generativelanguage.googleapis.com/v1beta/openai`;
+    - `LLM__FAST_MODEL=gemma-4-26b-a4b-it`, `LLM__STRONG_MODEL=gemma-4-31b-it`, `LLM__FALLBACK_MODEL=gemini-3.1-flash-lite`;
+    - a price-table example with those three models: Gemma is free of charge (free tier only), and `gemini-3.1-flash-lite` costs $0.25 / $1.50 per 1M input / output tokens (Google pricing page, updated 2026-09-24) (R21.6).
+  - Settings validation fails fast when `LLM__PROVIDER=openai` names a Gemini or Gemma model but `LLM__OPENAI_BASE_URL` is still the OpenAI default, so the key is never sent to the wrong host (R20.6).
+  - Add a one-call-per-schema live smoke script the owner runs by hand (not part of CI, R24.5): one triage call and one draft call through the configured provider. It reports whether each response parses and validates, the `finish_reason`, and the token counts, and it never prints the key.
+  - Pre-check (2026-09-28, throwaway probe through `OpenAILLMProvider` with the real triage schema at 250 tokens and the reply schema at 1000 tokens): `gemma-4-26b-a4b-it`, `gemma-4-31b-it`, `gemini-3.1-flash-lite` and `gemini-3.5-flash-lite` all returned schema-valid triage and draft JSON, and each draft stated the given order status and cited the given chunk. `gemini-2.5-flash-lite` returned 404 "no longer available to new users".
+  - _Requirements: R14.7, R20.6, R21.6, R24.5_
+
 - [ ] **5.1 Business schema & seed data**
-  - `customer`, `product`, `order`, `order_item`, `ticket` with realistic seed records tied to the fixture emails.
+  - `customer`, `product`, `order`, `order_item`, `ticket` with realistic seed records tied to the fixture emails. The tables already exist (migration 0001) and match design §6.2.
+  - Seed order `ORD-82915` for Alice (`alice.smith@clientcorp.com`), and add a fixture email from Alice asking "What is the status of order 82915?".
+  - Keep the existing cross-customer case: Edward's `identifier_order_ticket` email asks about Dana's `ORD-9901` (expected `NOT_FOUND` under R13.4 scoping).
+  - Test fixtures for the business provider seed ≥3 tenants with overlapping customer emails and order numbers (GEMINI.md §8).
   - _Requirements: R13.1, R5.9_
 
-- [ ] **5.2 BusinessDataProvider interface**
-  - Protocol with a local PostgreSQL implementation, structured so a CRM/ERP adapter can replace it without touching the Context Builder.
-  - Contract test suite.
+- [ ] **5.2 BusinessDataProvider interface & implementations**
+  - Move the protocol from `packages/context/builder.py` into `packages/business/`, with typed models (`FetchPlan`, `BusinessFact`, `BusinessContext` with `customer_status`, the two status enums) and `get_business_context(organization_id, sender_email, plan)`.
+  - The provider's first step is sender → customer resolution (design §5.4); its rules and proofs are 5.3.
+  - A local PostgreSQL implementation using fixed, parameterised queries that always carry `organization_id`. An in-memory implementation for unit tests.
+  - One shared contract test suite that both implementations pass: typed-ID lookups, snapshot rows, `NOT_FOUND`, `NOT_LOOKED_UP`, and each `customer_status`.
+  - Not wired into the ai-worker yet; that is 5.4.
   - _Requirements: R13.2_
 
-- [ ] **5.3 Sender → customer resolution**
-  - Resolve the sender address to a customer record; scope all business lookups to that customer.
+- [ ] **5.3 Sender → customer resolution & scoping proof**
+  - Case-insensitive match on the whole sender address within the organization. 0 rows ⇒ `customer_status=UNKNOWN_SENDER`, >1 rows ⇒ `AMBIGUOUS_CUSTOMER`; in both cases every planned order and ticket fact is `NOT_LOOKED_UP` with reason `unknown_sender` / `ambiguous_customer`. `INV-` references keep `unsupported_entity`, because no invoice is looked up for any sender (owner decision 2026-09-28).
+  - Every order and ticket lookup is scoped to the resolved customer: another customer's order is `NOT_FOUND`.
+  - Integration tests on real Postgres over the ≥3-tenant fixtures from 5.1, with overlapping customer emails and order numbers.
+  - The identity assumption is recorded in ADR-0008. Add no verification control (GEMINI.md §6).
   - _Requirements: R13.4_
 
-- [ ] **5.4 Intent-driven fact fetching**
-  - When the intent names transactional facts (order status, ticket state, invoice), fetch them from the business subsystem — never answer from RAG chunks.
-  - Timeout-bounded; degrade with a recorded flag on failure.
-  - _Requirements: R13.3, R13.7_
+- [ ] **5.4 Fetch plan, Context Builder wiring & timeout**
+  - A pure `FetchPlan` builder in `packages/business/plan.py`, as in design §5.4. Typed IDs are always planned, the snapshot follows `context_policy` or `INTENT_ENTITIES`, `INV-` references get `NOT_LOOKED_UP` (`unsupported_entity`), and nothing planned ⇒ no provider call.
+  - A typed-ID extractor in the forms of design §5.4, run on every job, independent of `retrieval_required`.
+  - Unit tests for the builder and the extractor, including the negatives "in order to", "an order 2 days ago" and "ticket 3 of 5", `ORD`/`TICK` normalisation, and typed IDs overriding `context_policy`.
+  - Wiring:
+    - `ContextBuilder` takes the `AgentProfileRegistry` and reads the routed profile's `context_policy` (design §5.4). The builder's call site changes to `get_business_context(org_id, sender_email, plan)`.
+    - `services/ai_worker/main.py` passes the registry it already builds for `SinglePassGenerator` and the Postgres provider, replacing the stub.
+  - The provider call runs under `BUSINESS_DATA__TIMEOUT_MS`. On timeout or error, statuses become `UNAVAILABLE`, `business_data_degraded=true` is recorded, and the draft is still produced.
+  - Settings: add a `business_data` group (`BUSINESS_DATA__TIMEOUT_MS=500`, `BUSINESS_DATA__SNAPSHOT_ORDERS=3`, `BUSINESS_DATA__SNAPSHOT_TICKETS=3`) to the validated settings, forward it through compose, and document it in `.env.example` and `docs/configuration.md`.
+  - Observability:
+    - The plan, `customer_status`, fact statuses and `business_data_degraded` go into the `CONTEXT_READY` payload.
+    - Emit the `business.fetch` span, `business_lookups_total{entity, status}` and the `business_lookup_latency_ms` histogram.
+    - Log one structured `business_fetch` line per job with `trace_id`, `job_id` and `organization_id`.
+  - _Requirements: R13.3, R13.7, R20.6, R21.3_
 
 - [ ] **5.5 Fact labelling & missing-entity handling**
-  - Business facts labelled distinctly from retrieved knowledge in the assembled context.
-  - Missing entity ⇒ explicit "not found" fact passed to the agent, never silent omission.
+  - Business facts render as one `[BUSINESS DATA]` section (with `source` and `as_of`) in every profile template, replacing the four different headers the templates use today.
+  - `customer_status` and every planned entity appear with their status: a missing entity is an explicit `NOT_FOUND` fact, never an omission. `NOT_FOUND` and `UNAVAILABLE` stay distinct.
+  - Add the precedence rule (design §5.4) to the agent instructions the live path sends, `DefaultInstructionProvider` in `packages/context/builder.py`, and the same line to `DEFAULT_ENTERPRISE_INSTRUCTIONS` in `packages/llm/profile.py`.
+  - Bump all four profiles to `*.v2`: new `prompts/*.v2.j2` files, `prompt_template` and `prompt_version` in `config/agent_profiles.yaml`, and the tests that assert `v1`.
   - _Requirements: R13.5, R13.6_
 
-- [ ] **5.6 End-to-end business-data scenario test**
-  - "What is the status of order 82915?" ⇒ the draft states the real seeded status, and the procedural framing comes from RAG.
+- [ ] **5.6 End-to-end business-data scenario test & live gate**
+  - Integration test with the stub LLM, covering both fixture emails:
+    - Alice's "What is the status of order 82915?" email reaches `DRAFTED`. The context carries `ORD-82915` as `FOUND` with its seeded status in `[BUSINESS DATA]`, and the order-status procedure chunk is among the retrieved knowledge.
+    - Edward's email yields `NOT_FOUND` for `ORD-9901` (Dana's order) and `FOUND` for `TICK-4402` (seeded with `customer_id = CUST_EDWARD_ID`, status `open`).
+  - A `make phase5-gate` script, run live by the owner with Gemini, checks that the draft text contains the exact seeded status and cites the procedure chunk.
+  - The live gate runs with `EMBEDDING__MOCK=true`. The procedure chunk reaches the prompt through the vector branch with the mock embedder: this proves wiring, not semantic retrieval quality. The lexical branch cannot carry it, because `websearch_to_tsquery` ANDs every term and the procedure must not contain the order number (R13.3). A live Gemini embedder is out of Phase 5 scope.
+  - Seeded knowledge is filed under `source_type` categories that no ai-worker lane retrieves (pre-existing, `packages/retrieval/query_builder.py`). The test and the gate file the procedure under the lane category as a workaround; the real fix is task 7.18.
   - _Requirements: R13.3, R13.5, R16.1_
 
-> **Phase 5 gate:** an order-status email produces a draft containing the actual order status from the business tables, with a knowledge citation for the procedure — demonstrating the knowledge/transactional distinction.
+> **Phase 5 gate:** an order-status email produces a draft containing the actual order status from the business tables, with a knowledge citation for the procedure — demonstrating the knowledge/transactional distinction. The live draft comes from a real model (Gemini API through the OpenAI-compatible endpoint), because the stub LLM cannot state a status or cite a chunk. The stub-LLM integration test in 5.6 proves the context side in CI.
 
 ---
 
@@ -761,6 +800,10 @@
   - Human review round producing acceptance rate, edit rate, edit distance, and ratings.
   - _Requirements: R22.10, R16.7_
 
+- [ ] **7.18 Knowledge category ↔ lane mapping**
+  - Discovered missing work (GEMINI.md §7, 2026-09-28, Phase 5 planning): retrieval filters `d.category` on the classification category, but the seed files knowledge under `source_type` categories (`fulfillment`, `policy`, …) that no lane uses, so seeded knowledge is unreachable from every ai-worker lane. Map document categories to lane categories (or index documents under the lanes that may cite them) so evaluation runs on reachable knowledge. Must land before 7.15–7.17 produce results.
+  - _Requirements: R9.5, R10.4, R12.4_
+
 - [ ] **7.17 Success-criteria report**
   - Single report measuring SC1–SC10 against targets, with the funnel, latency percentiles, and cost per generated email.
   - Report measured values honestly; do not tune the dataset to hit a target.
@@ -830,22 +873,22 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R6 Triage | 2.2–2.8, 2.9 |
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b |
-| R9 Knowledge ingestion | 3.1–3.6, 3.16 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 8.6 |
+| R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18 |
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 8.6 |
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b |
-| R12 Query construction | 3.13 |
+| R12 Query construction | 3.13, 7.18 |
 | R13 Business data | 5.1–5.6, 8.4 |
-| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12 |
+| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |
 | R15 Model cascade | 4.8, 4.13a, 4.13b |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
 | R17 Dispatch | 6.3–6.7 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
-| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 6.2, 7.1–7.4 |
+| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4 |
 | R22 Evaluation | 0.13, 4.13b, 7.5–7.17 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 6.9, 8.6, 8.7 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

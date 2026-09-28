@@ -399,7 +399,52 @@ class RetrievalQuery:
 
 Built from `current email + thread summary + classification intent` — no extra LLM call in the default path (R12.5). Persisted with the job for replay (R12.6).
 
-**Business data (R13):** resolve sender → customer, then fetch only the entities the intent names. Facts are labelled `[BUSINESS DATA]` in the prompt so the model cannot confuse a live order status with a procedure document. Missing entity ⇒ explicit "not found" fact, never silence (R13.6).
+**Business data (R13) — code-side fetch plan (ADR-0008):** the decision to fetch is made in code, before the one generation call, from signals the pipeline already has. The model never calls a lookup tool: a tool call needs a second model request, which breaks the one-generation budget (§5.7). An intent-only trigger is not enough, because the ML triage stage always emits `intent=None`.
+
+```
+inputs: organization_id, sender address, category → profile context_policy, intent, typed IDs
+        │
+        ▼
+FetchPlan (pure function, packages/business/plan.py, no I/O, no model)
+  1. typed IDs in subject + body:  ORD-… / "order 82915" → order lookup
+                                   TICK-… / "ticket 4402" → ticket lookup
+                                   INV-…                 → NOT_LOOKED_UP (unsupported_entity)
+  2. snapshot:
+       routed profile's context_policy == thread_plus_rag_plus_business ⇒ orders + tickets
+       else intent in INTENT_ENTITIES (constant in plan.py)            ⇒ only the mapped entities
+            invoice_inquiry, receipt_lookup, payment_failure, refund_request → orders
+  3. nothing planned ⇒ no provider call, no customer resolution
+        │
+        ▼
+BusinessDataProvider.get_business_context(org_id, sender_email, plan)   under BUSINESS_DATA__TIMEOUT_MS
+  • resolve sender → customer first (R13.4): lower(email) match within organization_id
+      → customer_status FOUND | UNKNOWN_SENDER (0 rows) | AMBIGUOUS_CUSTOMER (>1 rows)
+      → not FOUND ⇒ no lookups run
+  • every lookup is a fixed, parameterised query scoped to (organization_id, customer_id)
+        │
+        ▼
+BusinessContext: customer_status (once) + one BusinessFact per planned lookup or snapshot row
+```
+
+- **Typed IDs.** A separate extractor keeps the entity type (the retrieval query builder's untyped regex stays as it is). It accepts two forms, case-insensitive:
+  - prefixed: `ORD-<digits>` / `ORDER-<digits>`, `TICK-<digits>` / `TICKET-<digits>`, `INV-<digits>[-<digits>…]`;
+  - bare: the word `order` or `ticket`, optionally followed by `#`, `no.` or `number`, then **at least 4 digits** ("order 82915", "order #82915", "ticket number 4402").
+
+  "in order to", "an order 2 days ago" and "ticket 3 of 5" do not match. Orders normalise to `ORD-<digits>` and tickets to `TICK-<digits>`, the stored `order_number` / `ticket_number` format. The extractor runs on every job, independent of `retrieval_required`.
+- **Typed IDs override `context_policy`.** An order number typed into a `general_inquiry` email is still looked up. `context_policy` gates only the full snapshot. Which categories get it is configuration (`config/agent_profiles.yaml`), not code.
+- **Where the policy comes from.** The Context Builder takes the `AgentProfileRegistry` as a constructor dependency; the ai-worker passes the same instance it gives `SinglePassGenerator`. `build_context` resolves the profile with `registry.resolve_profile(category)` — the default profile when there is no classification, the same rule the generator uses — and reads `profile.context_policy`. The instruction source is not changed by this.
+- **Snapshot.** The customer's most recent orders by `placed_at DESC` (`BUSINESS_DATA__SNAPSHOT_ORDERS`, default 3) and tickets whose status is not `closed` or `resolved`, newest `opened_at` first (`BUSINESS_DATA__SNAPSHOT_TICKETS`, default 3). One `FOUND` fact per row; one `NOT_FOUND` fact per entity type when the customer has none.
+- **Statuses (R13.6).** Two levels, so each case has exactly one representation:
+  - `customer_status`, recorded once: `FOUND` · `UNKNOWN_SENDER` · `AMBIGUOUS_CUSTOMER` · `UNAVAILABLE`.
+  - per fact: `FOUND` · `NOT_FOUND` (lookup ran, no row for this customer) · `NOT_LOOKED_UP` with a reason (`unsupported_entity` for `INV-`; `unknown_sender` / `ambiguous_customer` for orders and tickets when resolution did not give one customer; `INV-` keeps `unsupported_entity`) · `UNAVAILABLE` (timeout or error).
+
+  `NOT_FOUND` and `UNAVAILABLE` are never merged: a timeout must not become "we have no such order". A missing entity is always an explicit fact, never an omission.
+- **Timeout and degradation (R13.7).** The provider call runs under its own deadline (`BUSINESS_DATA__TIMEOUT_MS`, default 500), and the Postgres implementation also sets `statement_timeout` for its transaction. On timeout or error, `customer_status` and every planned fact become `UNAVAILABLE`, `business_data_degraded=true` is recorded, and the draft is still written. The three `BUSINESS_DATA__*` keys form a `business_data` settings group.
+- **Label and precedence (R13.3, R13.5).** Facts render as one `[BUSINESS DATA]` section (section 7 above) in every profile's template, with a `source` and `as_of` header and one `key: value` line per fact — never a JSON array. The agent instructions the live path sends (today `DefaultInstructionProvider` in `packages/context/builder.py`; `DEFAULT_ENTERPRISE_INSTRUCTIONS` in `packages/llm/profile.py` carries the same line so the two cannot drift) carry one precedence rule: *order, ticket and invoice status, dates and amounts come only from `[BUSINESS DATA]`; if a fact is `NOT_FOUND` or `UNAVAILABLE`, say so; knowledge chunks explain procedure only.* Knowledge chunks stay in the context, because the reply still cites the procedure.
+- **Replaceability (R13.2).** The plan is built outside the provider, so a CRM/ERP adapter only executes lookups and replaces the Postgres implementation without touching the Context Builder.
+- **Replay and observability.** The plan, each fact's status and `business_data_degraded` go into the `CONTEXT_READY` payload, next to `retrieval_performed`. The step emits the `business.fetch` span (§10), a `business_lookups_total{entity, status}` counter and a `business_lookup_latency_ms` histogram.
+- **Identity assumption.** The sender address is treated as the customer's identity, as R13.4 requires. This is an accepted trust assumption, not a verification control: sender verification is out of scope (GEMINI.md §6) and recorded in ADR-0008.
+- **Not in scope here.** Business facts in template replies (`workflow_hint=template` stays zero-lookup in Phase 5); an invoice table (there is none, so `INV-` references are `NOT_LOOKED_UP`); model-written SQL (never).
 
 ---
 
@@ -1042,6 +1087,7 @@ evaluation/
 | 0005 | RRF over score normalization | BM25 and cosine scores aren't comparable; rank fusion needs no calibration |
 | 0006 | Thread state as compressed summary | prevents long threads from re-consuming full history every message |
 | 0007 | Human-in-the-loop default | drafts are reviewable; auto-send is opt-in per category |
+| 0008 | Business data fetched by a code-side plan, not by intent alone or model tool calls | the ML stage emits no intent; tool calls need a second generation call; typed IDs and profile policy are deterministic and model-independent |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 
@@ -1086,7 +1132,9 @@ Each worker class scales on its own signal: mail connector on mailbox/event coun
 
 ### 13.3 Configuration (R20.6)
 
-One validated settings object per service, loaded from environment, failing fast on missing/invalid values. Key groups: database, broker, object storage, provider credentials refs, embedding model + dimension, LLM tiers + price table, retrieval (`TOP_N`, `RRF_K`, `TOP_K`, `RERANK_ENABLED`, timeouts), triage thresholds, thread summarization thresholds, retry ladder, worker prefetch/concurrency.
+One validated settings object per service, loaded from environment, failing fast on missing/invalid values. Key groups: database, broker, object storage, provider credentials refs, embedding model + dimension, LLM tiers + price table, retrieval (`TOP_N`, `RRF_K`, `TOP_K`, `RERANK_ENABLED`, timeouts), triage thresholds, thread summarization thresholds, retry ladder, worker prefetch/concurrency, business-data timeout.
+
+**Hosted OpenAI-compatible endpoints.** The `openai` provider talks to any OpenAI-compatible `/chat/completions` endpoint through `LLM__OPENAI_BASE_URL`, with tier models from `LLM__FAST_MODEL` / `LLM__STRONG_MODEL` / `LLM__FALLBACK_MODEL`. The project's live runs use the Google Gemini API this way (base URL `https://generativelanguage.googleapis.com/v1beta/openai`; routine `gemma-4-26b-a4b-it`, high-capability `gemma-4-31b-it`, fallback `gemini-3.1-flash-lite`). After task 5.0, compose forwards the base URL, the three model names and `LLM__PRICE_TABLE` into every service that merges the shared `x-app-env` block (init, api, mail-connector, email-worker, triage-worker, knowledge-worker, ai-worker). An unset base URL still falls back to `https://api.openai.com/v1`, so settings validation fails fast when `provider=openai` names a Gemini or Gemma model while the base URL is still the OpenAI default — the key is never sent to the wrong host.
 
 **Startup assertion (R5.10):** configured embedding dimension must equal the `VECTOR(n)` column width, or the service refuses to start.
 
