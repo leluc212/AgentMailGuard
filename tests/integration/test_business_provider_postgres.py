@@ -22,10 +22,12 @@ from packages.business.protocol import BusinessDataProvider
 from packages.business.testing import (
     BusinessDataProviderContractSuite,
     BusinessDataset,
+    check_business_tenant_fixtures,
     order_ref,
 )
 from packages.core.settings import AppSettings
 from packages.db.connection import create_pool_from_settings
+from packages.db.seed import seed_business_tenant_fixtures
 from packages.domain.business import FetchPlan
 
 
@@ -139,3 +141,11 @@ async def test_statement_timeout_does_not_leak_to_the_pooled_connection(
 def test_constructor_rejects_a_non_positive_timeout() -> None:
     with pytest.raises(ValueError, match="statement_timeout_ms"):
         PostgresBusinessDataProvider(object(), statement_timeout_ms=0)
+
+
+async def test_seeded_business_tenant_fixtures_are_scoped_on_postgres(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    """tasks.md 5.3: the 5.1 ≥3-tenant fixtures, loaded by the seed helper, on real PostgreSQL."""
+    await seed_business_tenant_fixtures(db_pool)  # idempotent upserts by fixed id
+    await check_business_tenant_fixtures(PostgresBusinessDataProvider(db_pool))

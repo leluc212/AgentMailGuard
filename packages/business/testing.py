@@ -19,6 +19,13 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from packages.business.protocol import BusinessDataProvider
+from packages.db.fixtures.business_tenants import (
+    AMBIGUOUS_CUSTOMER_EMAIL,
+    BIZ_DELTA_ORG_ID,
+    BIZ_HARBOR_ORG_ID,
+    BIZ_SUMMIT_ORG_ID,
+    SHARED_CUSTOMER_EMAIL,
+)
 from packages.domain.business import (
     BusinessContext,
     CustomerStatus,
@@ -137,6 +144,56 @@ def invoice_ref(number: str) -> EntityRef:
 def fact_rows(ctx: BusinessContext) -> list[tuple[str, str | None, str, str | None]]:
     """(entity, reference, status, reason) per fact, for compact assertions."""
     return [(f.entity.value, f.reference, f.status.value, f.reason) for f in ctx.facts]
+
+
+SHARED_EMAIL = "pat.buyer@example.com"
+"""One address that is a different customer in each of the three tenants."""
+TWIN_EMAIL = "twin@example.com"
+"""Two customers in tenant A, one in tenant C."""
+RIVAL_EMAIL = "rival@example.com"
+"""A second customer of tenant A only."""
+SHARED_ORDER = "ORD-50001"
+"""One order number stored in tenants A and B for different customers."""
+
+
+@dataclass(frozen=True)
+class MultiTenantBusinessData:
+    """Three tenants with overlapping customer emails and order numbers (GEMINI.md §8)."""
+
+    dataset: BusinessDataset
+    org_a: UUID
+    org_b: UUID
+    org_c: UUID
+
+
+def build_multi_tenant_dataset() -> MultiTenantBusinessData:
+    """Fresh ids on every call, so it can be inserted into a database that is not reset.
+
+    Tenant A: Pat (ORD-50001 shipped, TICK-7001 open); Rival (ORD-60002, TICK-7002);
+              two customers sharing TWIN_EMAIL.
+    Tenant B: Pat stored in mixed case (ORD-50001 cancelled). No Rival.
+    Tenant C: Pat with only ORD-50002; one TWIN_EMAIL customer.
+    """
+    org_a, org_b, org_c = uuid4(), uuid4(), uuid4()
+    data = BusinessDataset()
+
+    pat_a = data.add_customer(org_a, SHARED_EMAIL, "Pat Alpha")
+    data.add_order(org_a, pat_a, SHARED_ORDER, "shipped", placed_at=T0)
+    data.add_ticket(org_a, pat_a, "TICK-7001", "open")
+    rival_a = data.add_customer(org_a, RIVAL_EMAIL, "Rival Alpha")
+    data.add_order(org_a, rival_a, "ORD-60002", "processing", placed_at=T0 + timedelta(days=1))
+    data.add_ticket(org_a, rival_a, "TICK-7002", "open", opened_at=T0 + timedelta(days=1))
+    data.add_customer(org_a, TWIN_EMAIL, "Twin One")
+    data.add_customer(org_a, TWIN_EMAIL.upper(), "Twin Two")
+
+    pat_b = data.add_customer(org_b, "Pat.Buyer@Example.COM", "Pat Beta")
+    data.add_order(org_b, pat_b, SHARED_ORDER, "cancelled", placed_at=T0)
+
+    pat_c = data.add_customer(org_c, SHARED_EMAIL, "Pat Gamma")
+    data.add_order(org_c, pat_c, "ORD-50002", "delivered", placed_at=T0)
+    data.add_customer(org_c, TWIN_EMAIL, "Twin Gamma")
+
+    return MultiTenantBusinessData(dataset=data, org_a=org_a, org_b=org_b, org_c=org_c)
 
 
 class BusinessDataProviderContractSuite(ABC):
@@ -410,3 +467,169 @@ class BusinessDataProviderContractSuite(ABC):
 
         assert ctx.customer_status is CustomerStatus.FOUND
         assert ctx.facts == ()
+
+    # --- Sender resolution and scoping over three tenants (task 5.3, R13.4) -----------
+
+    async def test_sender_match_ignores_case_and_surrounding_space(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+
+        ctx = await provider.get_business_context(mt.org_b, "  PAT.BUYER@example.com ", FetchPlan())
+
+        assert ctx.customer_status is CustomerStatus.FOUND
+        assert ("name", "Pat Beta") in ctx.customer
+
+    async def test_sender_match_is_on_the_whole_address(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+
+        for near_miss in ("at.buyer@example.com", "pat.buyer@example.co", "pat.buyer", ""):
+            ctx = await provider.get_business_context(mt.org_a, near_miss, FetchPlan())
+            assert ctx.customer_status is CustomerStatus.UNKNOWN_SENDER, near_miss
+
+    async def test_same_email_resolves_to_each_tenants_own_customer_and_orders(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+        plan = FetchPlan(refs=(order_ref(SHARED_ORDER),))
+
+        seen = {}
+        for org in (mt.org_a, mt.org_b, mt.org_c):
+            ctx = await provider.get_business_context(org, SHARED_EMAIL, plan)
+            assert ctx.customer_status is CustomerStatus.FOUND
+            fact = ctx.facts[0]
+            seen[org] = (
+                dict(ctx.customer)["name"],
+                fact.status,
+                dict(fact.attributes).get("status"),
+            )
+
+        assert seen == {
+            mt.org_a: ("Pat Alpha", FactStatus.FOUND, "shipped"),
+            mt.org_b: ("Pat Beta", FactStatus.FOUND, "cancelled"),
+            mt.org_c: ("Pat Gamma", FactStatus.NOT_FOUND, None),
+        }
+
+    async def test_another_customers_order_and_ticket_are_not_found(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+
+        ctx = await provider.get_business_context(
+            mt.org_a,
+            SHARED_EMAIL,
+            FetchPlan(refs=(order_ref("ORD-60002"), ticket_ref("TICK-7002"))),
+        )
+
+        assert ctx.customer_status is CustomerStatus.FOUND
+        assert fact_rows(ctx) == [
+            ("order", "ORD-60002", "NOT_FOUND", None),
+            ("ticket", "TICK-7002", "NOT_FOUND", None),
+        ]
+        assert all(f.attributes == () for f in ctx.facts)
+
+    async def test_ambiguous_in_one_tenant_is_found_in_another(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+        plan = FetchPlan(refs=(order_ref(SHARED_ORDER),))
+
+        in_a = await provider.get_business_context(mt.org_a, TWIN_EMAIL, plan)
+        in_c = await provider.get_business_context(mt.org_c, TWIN_EMAIL, plan)
+
+        assert in_a.customer_status is CustomerStatus.AMBIGUOUS_CUSTOMER
+        assert fact_rows(in_a) == [("order", SHARED_ORDER, "NOT_LOOKED_UP", "ambiguous_customer")]
+        assert in_c.customer_status is CustomerStatus.FOUND
+        assert ("name", "Twin Gamma") in in_c.customer
+        assert fact_rows(in_c) == [("order", SHARED_ORDER, "NOT_FOUND", None)]
+
+    async def test_customer_of_another_tenant_is_an_unknown_sender(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+
+        ctx = await provider.get_business_context(
+            mt.org_b,
+            RIVAL_EMAIL,
+            FetchPlan(refs=(order_ref("ORD-60002"),), snapshot=frozenset({EntityType.ORDER})),
+        )
+
+        assert ctx.customer_status is CustomerStatus.UNKNOWN_SENDER
+        assert fact_rows(ctx) == [
+            ("order", "ORD-60002", "NOT_LOOKED_UP", "unknown_sender"),
+            ("order", None, "NOT_LOOKED_UP", "unknown_sender"),
+        ]
+
+    async def test_snapshot_holds_only_the_senders_rows_in_the_senders_tenant(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+        plan = FetchPlan(snapshot=frozenset({EntityType.ORDER, EntityType.TICKET}))
+
+        in_a = await provider.get_business_context(mt.org_a, SHARED_EMAIL, plan)
+        in_b = await provider.get_business_context(mt.org_b, SHARED_EMAIL, plan)
+
+        assert fact_rows(in_a) == [
+            ("order", SHARED_ORDER, "FOUND", None),
+            ("ticket", "TICK-7001", "FOUND", None),
+        ]
+        assert fact_rows(in_b) == [
+            ("order", SHARED_ORDER, "FOUND", None),
+            ("ticket", None, "NOT_FOUND", None),
+        ]
+        assert dict(in_b.facts[0].attributes)["status"] == "cancelled"
+
+    async def test_unknown_organization_resolves_nobody(self) -> None:
+        mt = build_multi_tenant_dataset()
+        provider = await self.make_provider(mt.dataset)
+
+        ctx = await provider.get_business_context(
+            uuid4(), SHARED_EMAIL, FetchPlan(refs=(order_ref(SHARED_ORDER),))
+        )
+
+        assert ctx.customer_status is CustomerStatus.UNKNOWN_SENDER
+        assert fact_rows(ctx) == [("order", SHARED_ORDER, "NOT_LOOKED_UP", "unknown_sender")]
+
+
+async def check_business_tenant_fixtures(provider: BusinessDataProvider) -> None:
+    """Scoping over the 5.1 fixtures (packages/db/fixtures/business_tenants.py, R13.4).
+
+    `provider` must hold BUSINESS_TENANT_CUSTOMERS / _ORDERS / _TICKETS. ORD-82915 exists in all
+    three tenants for three different customers; Summit stores Alice's address in mixed case;
+    two Delta customers share AMBIGUOUS_CUSTOMER_EMAIL; Delta's Alice has no orders or tickets.
+    """
+    plan = FetchPlan(refs=(order_ref("ORD-82915"),))
+
+    harbor = await provider.get_business_context(BIZ_HARBOR_ORG_ID, SHARED_CUSTOMER_EMAIL, plan)
+    assert harbor.customer_status is CustomerStatus.FOUND
+    assert fact_rows(harbor) == [("order", "ORD-82915", "FOUND", None)]
+    assert dict(harbor.facts[0].attributes)["status"] == "shipped"
+
+    summit = await provider.get_business_context(
+        BIZ_SUMMIT_ORG_ID, SHARED_CUSTOMER_EMAIL.upper(), plan
+    )
+    assert summit.customer_status is CustomerStatus.FOUND
+    assert dict(summit.facts[0].attributes)["status"] == "processing"
+
+    delta = await provider.get_business_context(BIZ_DELTA_ORG_ID, SHARED_CUSTOMER_EMAIL, plan)
+    assert delta.customer_status is CustomerStatus.FOUND
+    assert fact_rows(delta) == [("order", "ORD-82915", "NOT_FOUND", None)]  # Brightline's order
+
+    ambiguous = await provider.get_business_context(
+        BIZ_DELTA_ORG_ID, AMBIGUOUS_CUSTOMER_EMAIL, plan
+    )
+    assert ambiguous.customer_status is CustomerStatus.AMBIGUOUS_CUSTOMER
+    assert fact_rows(ambiguous) == [("order", "ORD-82915", "NOT_LOOKED_UP", "ambiguous_customer")]
+
+    snapshot = FetchPlan(snapshot=frozenset({EntityType.ORDER, EntityType.TICKET}))
+    harbor_snapshot = await provider.get_business_context(
+        BIZ_HARBOR_ORG_ID, SHARED_CUSTOMER_EMAIL, snapshot
+    )
+    assert fact_rows(harbor_snapshot) == [  # 4 orders, limit 3; closed/resolved tickets skipped
+        ("order", "ORD-82915", "FOUND", None),
+        ("order", "ORD-7003", "FOUND", None),
+        ("order", "ORD-7002", "FOUND", None),
+        ("ticket", "TICK-4402", "FOUND", None),
+    ]
+    empty_snapshot = await provider.get_business_context(
+        BIZ_DELTA_ORG_ID, SHARED_CUSTOMER_EMAIL, snapshot
+    )
+    assert fact_rows(empty_snapshot) == [  # a customer with zero orders and tickets
+        ("order", None, "NOT_FOUND", None),
+        ("ticket", None, "NOT_FOUND", None),
+    ]
