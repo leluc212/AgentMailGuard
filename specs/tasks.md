@@ -673,7 +673,7 @@
   - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1522, integration 191). All four profiles point at `prompts/*.v2.j2`, each renders one `[BUSINESS DATA]` block through `business_data.render()` (with `source` and `as_of`). `DefaultInstructionProvider` sends `DEFAULT_ENTERPRISE_INSTRUCTIONS`, which ends with `BUSINESS_DATA_PRECEDENCE_RULE`, so the live path and the registry default carry the same rule. `NOT_FOUND` and `UNAVAILABLE` stay distinct in the rendered block. The fix pass before flipping:
     - none
 
-- [~] **5.6 End-to-end business-data scenario test & live gate**
+- [x] **5.6 End-to-end business-data scenario test & live gate**
   - Integration test with the stub LLM, covering both fixture emails:
     - Alice's "What is the status of order 82915?" email reaches `DRAFTED`. The context carries `ORD-82915` as `FOUND` with its seeded status in `[BUSINESS DATA]`, and the order-status procedure chunk is among the retrieved knowledge.
     - Edward's email yields `NOT_FOUND` for `ORD-9901` (Dana's order) and `FOUND` for `TICK-4402` (seeded with `customer_id = CUST_EDWARD_ID`, status `open`).
@@ -683,7 +683,10 @@
   - _Requirements: R13.3, R13.5, R16.1_
   - Audit 2026-09-28: PASS WITH NOTES (`make ci` green, unit 1522, integration 191). `tests/integration/test_business_data_e2e.py` drives the composed ai-worker with the stub LLM: Alice's email carries `ORD-82915` `FOUND` with its seeded status and the procedure chunk's `[CITATION: …]` line, Edward's carries `ORD-9901` `NOT_FOUND` with no status leak and `TICK-4402` `FOUND` `open`, and `business_lookups_total` moves for each. `scripts/phase5_gate.py` and `make phase5-gate` exist and are unit-tested (`tests/unit/test_phase5_gate.py`); they have not been run live. Findings: none.
   - Live gate passed on 2026-09-28 (`PHASE 5 GATE OK`, evidence below).
-  - Left: the regression runs on the Gemini stack, `make smoke`, `make retrieval-gate` and `make phase4-gate`. 5.6 flips to `[x]` once they pass.
+  - Closed 2026-09-28 after the regression runs on the Gemini stack, all run by the owner:
+    - `make smoke` (`SMOKE OK`): the billing email reached `DRAFTED` with one draft, the newsletter exited early, and the cross-tenant sync was dead-lettered.
+    - `make retrieval-gate` (`RETRIEVAL GATE OK`): vector hits with a 1536-dim query, and the ai-worker retrieved one chunk via the embedded query.
+    - `make phase4-gate` default mode (`PHASE 4 GATE (default) OK`): the 12-message thread reached `DRAFTED` with summary v3, escalated to `high_capability` for `insufficient_retrieval_evidence`, with 0 citations and no mismatch. The one-message thread drafted with no summarization.
 
 > **Phase 5 gate:** an order-status email produces a draft containing the actual order status from the business tables, with a knowledge citation for the procedure — demonstrating the knowledge/transactional distinction. The live draft comes from a real model (Gemini API through the OpenAI-compatible endpoint), because the stub LLM cannot state a status or cite a chunk. The stub-LLM integration test in 5.6 proves the context side in CI.
 >
