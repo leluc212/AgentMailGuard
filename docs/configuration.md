@@ -84,6 +84,8 @@ All configuration in `rag-email` is read from environment variables (or local `.
 ### 2.5 Embedding Model & Dimension (`EMBEDDING__*`)
 *Semantic indexing parameters and vector width enforcement (R5.10).*
 
+The ai-worker and the API embed retrieval queries with this model; the knowledge worker embeds the corpus with it. Every service must use the same `EMBEDDING__MODEL_NAME` and `EMBEDDING__DIMENSION` (R5.10; the ai-worker and knowledge worker refuse to start on a dimension mismatch). Under Docker Compose, `EMBEDDING__MOCK`, `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL` and `EMBEDDING__API_KEY` are forwarded into the app containers. Query and ingestion tokens are both counted in `embedding_tokens_total{model}` (R9.11).
+
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `EMBEDDING__MODEL_NAME` | `string` | `text-embedding-3-small` | Non-empty | Embedding model identifier |
@@ -142,7 +144,7 @@ A model with no entry in the table has an **unknown** cost, not a free one: its 
 | `RETRIEVAL__TOP_K` | `integer` | `5` | 1–50 | Final chunk count passed to LLM context |
 | `RETRIEVAL__RERANK_ENABLED` | `boolean` | `true` | `true/false` | Enable cross-encoder reranker stage |
 | `RETRIEVAL__RELEVANCE_FLOOR` | `float` | `0.70` | 0.0–1.0 | Minimum reranker relevance score |
-| `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` | `integer` | `500` | $\ge 10$ | Retrieval timeout SLA in milliseconds |
+| `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` | `integer` | `500` | $\ge 10$ | Per-branch retrieval timeout in milliseconds (R10.9). The vector branch's budget covers query embedding plus the ANN search; a branch that exceeds it is dropped and retrieval continues on the other branch (`retrieval_degraded=true`, R10.6). Used by the ai-worker and `/v1/search/debug`. |
 
 ### 2.8 Cascading Triage Thresholds (`TRIAGE__*`)
 *Three-stage triage cascade early exit rules (R6.1, R6.2, R6.11).*

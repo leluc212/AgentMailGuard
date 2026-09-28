@@ -367,9 +367,12 @@
   - `POST /v1/search/debug` returning the constructed query, both branch result lists with ranks, fused scores, rerank scores, and the final selection.
   - _Requirements: R23.3_
 
-- [ ] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
+- [~] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
   - Nothing in the production path fills `RetrievalQuery.query_vector`, so the pgvector branch returns no candidates (`packages/retrieval/postgres.py:192`) and hybrid retrieval runs lexical-only. Evidence: `grep -rn "query_vector" packages services` finds no producer.
   - Embed the query's semantic text with the configured embedder (`packages/knowledge/embedder.py`, the same model and dimension as the corpus, R5.10) in `RetrievalQueryBuilder` or the `ContextBuilder`, guarded by a timeout so a slow embedder degrades to lexical-only (R10.9). Count embedding tokens (`embedding_tokens_total`).
+  - Implemented: `HybridRetriever` embeds `semantic_text` inside the vector branch when a query has no vector. Embedding and the ANN search share the vector-branch timeout (`RETRIEVAL__RETRIEVAL_TIMEOUT_MS`, now honoured by the ai-worker and `/v1/search/debug`). An embedder error, timeout, or unusable vector (wrong length or all zeros) fails only the vector branch, and retrieval degrades to lexical (R10.6). The ai-worker and the API use the configured embedder (the corpus model, R5.10) with metrics, so query and ingestion tokens are counted (R9.11). The ai-worker checks the vector dimension at startup, both workers close their embedder after their consumers drain, and compose forwards the embedding model, URL and key.
+  - Proof so far: unit tests for embed, timeout, error, unusable vector, empty text, no re-embed, no mutation, token count and shutdown order; live pgvector integration (vector-only hit, tenant-isolated); API lifespan integration (configured embedder attached). `make ci` green (unit 1341, integration 158).
+  - Left: the live gate (`make up`, then `make retrieval-gate`), then a completion audit before `[x]`.
   - _Requirements: R10.1, R10.9, R9.11_
 
 > **Phase 3 gate:** a support email retrieves the correct procedure chunk; an invoice-identifier email retrieves the correct billing chunk via the lexical branch; disabling either branch degrades gracefully; the debug endpoint explains every ranking decision; hybrid retrieval measurably beats vector-only on the **seed** benchmark set from task 0.13 (first evidence for H1; the full comparison is exp02 in Phase 3's successor phase); and filtered vector search returns full top-N across ≥3 seeded tenants.
@@ -818,7 +821,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b |
 | R9 Knowledge ingestion | 3.1–3.6, 3.16 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 8.6, 3.16 |
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 8.6 |
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b |
 | R12 Query construction | 3.13 |
 | R13 Business data | 5.1–5.6, 8.4 |

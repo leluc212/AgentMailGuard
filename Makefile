@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate
 
 UV ?= uv
 
@@ -88,3 +88,6 @@ smoke:
 
 phase4-gate:
 	$(UV) run python scripts/phase4_gate.py --mode $(or $(MODE),default)
+
+retrieval-gate:
+	$(UV) run python scripts/retrieval_gate.py
