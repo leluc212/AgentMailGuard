@@ -1,7 +1,6 @@
 """Unit tests for Context Builder orchestration (R14.8, R6.6, R18.1).
 
 Verifies:
-- BusinessDataProvider protocol and StubBusinessDataProvider (R13 stub).
 - InstructionProvider protocol and DefaultInstructionProvider (R14.1, R14.8 static prefix).
 - ContextBuilder gathers thread context, business data, and hybrid RAG.
 - R6.6: Conditional hybrid RAG gating on retrieval_required.
@@ -17,11 +16,9 @@ from uuid import UUID, uuid4
 
 from packages.context.assembly import ThreadContextAssembler
 from packages.context.builder import (
-    BusinessDataProvider,
     ContextBuilder,
     DefaultInstructionProvider,
     InstructionProvider,
-    StubBusinessDataProvider,
 )
 from packages.core.settings import SummarizationSettings
 from packages.db.job import InMemoryJobStore
@@ -62,20 +59,6 @@ def _create_test_message(
         body_text_clean=body,
         received_at=received_at or datetime.now(UTC),
     )
-
-
-def test_business_data_provider_protocols_and_stub() -> None:
-    """Verify BusinessDataProvider protocol compliance and default stub behavior."""
-    stub = StubBusinessDataProvider()
-    assert isinstance(stub, BusinessDataProvider)
-
-    org_id = uuid4()
-    thread_id = uuid4()
-    msg = _create_test_message(org_id, thread_id)
-
-    data = asyncio.run(stub.get_business_data(org_id, msg, intent="invoice_inquiry"))
-    assert isinstance(data, dict)
-    assert data == {}
 
 
 def test_instruction_provider_protocols_and_defaults() -> None:

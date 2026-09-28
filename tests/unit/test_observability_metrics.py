@@ -38,6 +38,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.model_escalations_total is not None
     assert m.draft_repairs_total is not None
     assert m.draft_validation_failures_total is not None
+    assert m.business_lookups_total is not None
 
     # Histograms
     assert m.classification_latency_ms is not None
@@ -48,6 +49,7 @@ def test_metrics_registry_initialization_all_r21_metrics() -> None:
     assert m.queue_wait_ms is not None
     assert m.llm_calls_per_job is not None
     assert m.raw_payload_size_bytes is not None
+    assert m.business_lookup_latency_ms is not None
 
     # Gauges
     assert m.queue_depth is not None

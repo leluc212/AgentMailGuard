@@ -34,6 +34,10 @@ x-app-env: &app-env
   EMBEDDING__API_KEY: ${EMBEDDING__API_KEY:-}
   # Per-branch retrieval budget; the vector branch spends it on query embedding + ANN (R10.9).
   RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-500}
+  # Business-data lookup deadline (also the Postgres statement_timeout) and snapshot sizes (R13.7).
+  BUSINESS_DATA__TIMEOUT_MS: ${BUSINESS_DATA__TIMEOUT_MS:-500}
+  BUSINESS_DATA__SNAPSHOT_ORDERS: ${BUSINESS_DATA__SNAPSHOT_ORDERS:-3}
+  BUSINESS_DATA__SNAPSHOT_TICKETS: ${BUSINESS_DATA__SNAPSHOT_TICKETS:-3}
 
 x-app-build: &app-build
   context: .

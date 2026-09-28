@@ -101,6 +101,8 @@ ratio is the share of drafts containing at least one ungrounded citation.
 | `failed_jobs_total` | Counter | `queue, job_type, error_type` | Terminal job failures routed to dead-letter queue. |
 | `llm_context_tokens` | Histogram | `kind`, `tier` | Final assembled context size per inference request, counted before the call (R11.7). |
 | `generated_draft_cost_total` | Counter | `category`, `model_tier` | Estimated USD cost of persisted AI drafts; unpriced models add nothing (R21.6). |
+| `business_lookups_total` | Counter | `entity`, `status` | One increment per business fact the business step produced: `entity` is `order`, `ticket` or `invoice`; `status` is `FOUND`, `NOT_FOUND`, `NOT_LOOKED_UP` or `UNAVAILABLE`. Customer resolution is not counted here (R13.6, R13.7). |
+| `business_lookup_latency_ms` | Histogram | — | Duration of one bounded business-data provider call, timeouts included (R13.7). |
 
 #### Generation cost, context size and latency (R11.7, R21.4–R21.6, NFR8)
 
@@ -128,6 +130,28 @@ histogram_quantile(0.95, sum by (le) (rate(generation_latency_ms_bucket[5m]))) >
 
 Per-email cost is the `generated_draft.cost_estimate` column; `NULL` means the model had no
 price in `LLM__PRICE_TABLE`, and such drafts are excluded from cost sums rather than counted as free.
+
+#### Business data lookups (R13.7, R21.3)
+
+`packages/business/fetch.py::fetch_business_context` wraps the one provider call per job. A
+non-empty plan opens a `business.fetch` span (attributes `organization_id`, `planned_refs`,
+`snapshot`, `timeout_ms`, `outcome` = `ok`/`timeout`/`error`, `customer_status`,
+`business_data_degraded`; status ERROR on timeout or error), increments
+`business_lookups_total` once per fact and observes `business_lookup_latency_ms`. Every job
+writes exactly one JSON log line `business_fetch`, also when nothing was planned
+(`outcome=not_planned`, no span, no metrics). Its `fields` carry `planned, refs, snapshot,
+customer_status, facts[{entity, reference, status, reason}], business_data_degraded, outcome,
+latency_ms`, and the line carries `trace_id`, `job_id` and `organization_id`. The sender
+address and provider error text are never logged. The same plan, statuses and
+`business_data_degraded` are stored on the job's `CONTEXT_READY` event for replay.
+
+```promql
+# Share of business facts that degraded to UNAVAILABLE (timeouts and errors, R13.7)
+sum(rate(business_lookups_total{status="UNAVAILABLE"}[5m])) / sum(rate(business_lookups_total[5m]))
+
+# p95 lookup latency against the 500 ms default deadline
+histogram_quantile(0.95, sum by (le) (rate(business_lookup_latency_ms_bucket[5m])))
+```
 
 ---
 

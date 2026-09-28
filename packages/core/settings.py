@@ -351,6 +351,27 @@ class RetrievalSettings(BaseModel):
     )
 
 
+class BusinessDataSettings(BaseModel):
+    """Business-data lookup deadline and snapshot sizes (R13.4, R13.7, design.md §5.4)."""
+
+    timeout_ms: int = Field(
+        default=500,
+        ge=10,
+        description=(
+            "Deadline for one business-data provider call in milliseconds; also the Postgres "
+            "statement_timeout (R13.7)"
+        ),
+    )
+    snapshot_orders: int = Field(
+        default=3, ge=0, description="Most recent orders in a customer snapshot (design.md §5.4)"
+    )
+    snapshot_tickets: int = Field(
+        default=3,
+        ge=0,
+        description="Open tickets (not closed or resolved) in a customer snapshot (design.md §5.4)",
+    )
+
+
 class TriageSettings(BaseModel):
     """Cascading triage thresholds and routing floors (R6.1, R6.2)."""
 
@@ -743,6 +764,7 @@ class AppSettings(BaseSettings):
     )
     lease_reaper: LeaseReaperSettings = Field(default_factory=LeaseReaperSettings)
     agent_profiles: AgentProfileSettings = Field(default_factory=AgentProfileSettings)
+    business_data: BusinessDataSettings = Field(default_factory=BusinessDataSettings)
     complexity_router: ComplexityRouterSettings = Field(
         default_factory=ComplexityRouterSettings,
         validation_alias=AliasChoices("complexity_router", "router"),

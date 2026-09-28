@@ -316,3 +316,14 @@ Under Docker Compose only `ROUTER_FORCE_SINGLE_TIER` and `ROUTER_CONFIDENCE_THRE
 | `ROUTER_MAX_ESCALATIONS_PER_JOB` | `integer` | `1` | $\ge 0$ | Maximum allowed escalations per job to prevent retry loops (R15.5) |
 | `ROUTER_SINGLE_TIER_OVERRIDE` | `string` | `high_capability` | Non-empty | Model tier to use when `force_single_tier` is true (R15.6) |
 
+### 2.20 Business Data Lookups (`BUSINESS_DATA__*`)
+*Deadline and snapshot sizes for the transactional lookups the Context Builder plans in code (R13.4, R13.7, design.md §5.4, ADR-0008).*
+
+The ai-worker decides in code which business facts to fetch before the one generation call: typed order and ticket numbers in the email are always looked up, and the routed profile's `context_policy` (`thread_plus_rag_plus_business`, set per profile in `config/agent_profiles.yaml`) or a mapped intent adds a snapshot of the sender's recent orders and open tickets. The provider call runs under `BUSINESS_DATA__TIMEOUT_MS`, and the Postgres provider also sets it as the transaction's `statement_timeout`. On timeout or error every planned fact becomes `UNAVAILABLE`, `business_data_degraded=true` is recorded on the `CONTEXT_READY` event, and the draft is still written. Under Docker Compose the three keys are forwarded into the app containers.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `BUSINESS_DATA__TIMEOUT_MS` | `integer` | `500` | $\ge 10$ | Deadline for one business-data provider call in milliseconds; also the Postgres `statement_timeout` (R13.7) |
+| `BUSINESS_DATA__SNAPSHOT_ORDERS` | `integer` | `3` | $\ge 0$ | Most recent orders (by `placed_at`) in a customer snapshot (design.md §5.4) |
+| `BUSINESS_DATA__SNAPSHOT_TICKETS` | `integer` | `3` | $\ge 0$ | Newest tickets whose status is not `closed` or `resolved` in a customer snapshot (design.md §5.4) |
+

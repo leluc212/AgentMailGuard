@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from packages.business.postgres import PostgresBusinessDataProvider
 from packages.core.settings import AIWorkerSettings, AppSettings, CategoryRoutingSettings
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm import InstrumentedLLMProvider
@@ -161,3 +162,16 @@ async def test_build_components_checks_the_vector_dimension_and_closes_the_embed
     callbacks = res.shutdown._cleanup_callbacks
     last_consumer_close = max(i for i, cb in enumerate(callbacks) if cb.__name__ == "close")
     assert callbacks.index(embedder.aclose) > last_consumer_close  # closes after lanes drain
+
+
+def test_context_builder_shares_the_generator_registry_and_uses_the_postgres_provider() -> None:
+    """5.4: the builder reads context_policy from the generator's registry; no stub remains."""
+    settings = AIWorkerSettings()
+    res = fake_worker_resources(settings)
+    first = build_consumers(res, token_counter=TokenCounter())[0]
+    builder = first.context_builder
+
+    assert builder.profile_registry is first.drafting.generator.profile_registry
+    assert isinstance(builder.business_data_provider, PostgresBusinessDataProvider)
+    assert builder.business_timeout_ms == settings.business_data.timeout_ms
+    assert builder.metrics is res.metrics

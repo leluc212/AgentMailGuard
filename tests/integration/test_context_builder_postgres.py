@@ -13,12 +13,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
 
+from packages.business.postgres import PostgresBusinessDataProvider
 from packages.context.assembly import ThreadContextAssembler
 from packages.context.builder import (
     ContextBuilder,
@@ -28,6 +30,7 @@ from packages.db.connection import create_pool_from_settings
 from packages.db.job import PostgresJobStore
 from packages.db.message import PostgresMessageStore
 from packages.db.thread_state import PostgresThreadStateStore
+from packages.domain.business import CustomerStatus, EntityType, FactStatus
 from packages.domain.entities import (
     Classification,
     ContextPackage,
@@ -37,6 +40,7 @@ from packages.domain.entities import (
     ThreadState,
 )
 from packages.domain.state_machine import JobState
+from packages.llm.profile import AgentProfileRegistry
 from packages.retrieval.postgres import PostgresSearchBackend
 from packages.retrieval.query_builder import RetrievalQueryBuilder
 from packages.retrieval.retriever import HybridRetriever
@@ -512,3 +516,112 @@ async def test_context_builder_postgres_tenant_isolation(
 
     # Must NOT retrieve Org B chunk
     assert len(pkg.retrieved_chunks) == 0
+
+
+async def _seed_customer_with_order(
+    pool: asyncpg.Pool[Any], org_id: UUID, *, email: str, order_number: str, status: str
+) -> None:
+    await _seed_org(pool, org_id)
+    customer_id = uuid4()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO customer (id, organization_id, email, name) VALUES ($1, $2, $3, $4);",
+            customer_id,
+            org_id,
+            email,
+            "Alice Example",
+        )
+        await conn.execute(
+            'INSERT INTO "order" (id, organization_id, customer_id, order_number, status, total) '
+            "VALUES ($1, $2, $3, $4, $5, $6);",
+            uuid4(),
+            org_id,
+            customer_id,
+            order_number,
+            status,
+            Decimal("120.00"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_context_builder_postgres_fetches_the_senders_typed_order(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    """R13.3/R13.7 wiring: a typed order number in a general inquiry is looked up for the
+    sender inside the tenant, rendered as section 7 and recorded in CONTEXT_READY."""
+    org_id, other_org = uuid4(), uuid4()
+    mbx_id, thread_id, msg_id = uuid4(), uuid4(), uuid4()
+    await _seed_thread(db_pool, org_id, mbx_id, thread_id, subject="Order status")
+    await _seed_customer_with_order(
+        db_pool, org_id, email="alice@customer.com", order_number="ORD-82915", status="shipped"
+    )
+    # Same address and order number in another tenant must not leak (GEMINI.md §8).
+    await _seed_customer_with_order(
+        db_pool, other_org, email="alice@customer.com", order_number="ORD-82915", status="cancelled"
+    )
+
+    curr_msg = NormalizedMessage(
+        message_id=msg_id,
+        organization_id=org_id,
+        mailbox_id=mbx_id,
+        thread_id=thread_id,
+        provider="gmail",
+        provider_message_id=f"prov-{msg_id}",
+        sender=EmailAddress(email="alice@customer.com", name="Alice"),
+        recipients=[EmailAddress(email="support@example.com")],
+        subject="Order status",
+        body_text="Hi, what is the status of order 82915?",
+        body_text_clean="Hi, what is the status of order 82915?",
+        received_at=datetime.now(UTC),
+    )
+    await _seed_message(db_pool, curr_msg)
+
+    job_store = PostgresJobStore(db_pool)
+    job = Job(
+        id=uuid4(),
+        organization_id=org_id,
+        thread_id=thread_id,
+        message_id=msg_id,
+        state=JobState.QUEUED,
+        idempotency_key=f"job-{msg_id}",
+    )
+    await job_store.create_job(job)
+
+    builder = ContextBuilder(
+        thread_assembler=ThreadContextAssembler(
+            message_store=PostgresMessageStore(db_pool),
+            thread_state_store=PostgresThreadStateStore(db_pool),
+        ),
+        job_store=job_store,
+        business_data_provider=PostgresBusinessDataProvider(db_pool),
+        profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
+        business_timeout_ms=2000,
+    )
+
+    pkg = await builder.build_context(
+        job=job,
+        message=curr_msg,
+        classification=Classification(category="general_inquiry", retrieval_required=False),
+    )
+
+    business = pkg.business_data
+    assert business is not None
+    assert business.customer_status == CustomerStatus.FOUND
+    assert business.degraded is False
+    order = next(
+        f for f in business.facts if f.entity == EntityType.ORDER and f.reference == "ORD-82915"
+    )
+    assert order.status == FactStatus.FOUND
+    assert dict(order.attributes)["status"] == "shipped"
+    assert pkg.get_ordered_sections()[-1][0] == "business_data"
+
+    events = await job_store.list_events_for_job(org_id, job.id)
+    ready = next(e for e in events if e.state_to == JobState.CONTEXT_READY.value)
+    assert ready.payload["customer_status"] == "FOUND"
+    assert ready.payload["business_data_degraded"] is False
+    assert {
+        "entity": "order",
+        "reference": "ORD-82915",
+        "status": "FOUND",
+        "reason": None,
+    } in ready.payload["business_fact_statuses"]

@@ -9,6 +9,7 @@ from packages.core.settings import (
     AIWorkerSettings,
     APISettings,
     AppSettings,
+    BusinessDataSettings,
     DatabaseSettings,
     DispatchWorkerSettings,
     EmailWorkerSettings,
@@ -292,3 +293,30 @@ def test_tests_always_run_with_the_fake_llm_provider() -> None:
 def test_tests_always_run_with_the_mock_embedder() -> None:
     """R24.5: the autouse guard pins EMBEDDING__MOCK=true even when the host .env turns it off."""
     assert AppSettings().embedding.mock is True
+
+
+def test_business_data_settings_defaults_and_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13.7 / R20.6: the business_data group validates and reads BUSINESS_DATA__*."""
+    defaults = AppSettings(_env_file=None).business_data
+    assert (defaults.timeout_ms, defaults.snapshot_orders, defaults.snapshot_tickets) == (500, 3, 3)
+
+    monkeypatch.setenv("BUSINESS_DATA__TIMEOUT_MS", "750")
+    monkeypatch.setenv("BUSINESS_DATA__SNAPSHOT_ORDERS", "5")
+    monkeypatch.setenv("BUSINESS_DATA__SNAPSHOT_TICKETS", "0")
+    overridden = AppSettings(_env_file=None).business_data
+    assert (overridden.timeout_ms, overridden.snapshot_orders, overridden.snapshot_tickets) == (
+        750,
+        5,
+        0,
+    )
+
+
+def test_business_data_settings_reject_out_of_range_values() -> None:
+    with pytest.raises(ValidationError, match="timeout_ms"):
+        BusinessDataSettings(timeout_ms=5)
+    with pytest.raises(ValidationError, match="snapshot_orders"):
+        BusinessDataSettings(snapshot_orders=-1)
+    with pytest.raises(ValidationError, match="snapshot_tickets"):
+        BusinessDataSettings(snapshot_tickets=-1)

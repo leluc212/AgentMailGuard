@@ -200,7 +200,6 @@ def test_registry_render_prompt_with_context_package() -> None:
         category_instructions="Address technical questions with structured steps.",
         current_message=msg,
         retrieved_chunks=[chunk],
-        business_data={"plan": "Enterprise"},
     )
 
     rendered = registry.render_prompt(profile, context_pkg)
@@ -209,7 +208,6 @@ def test_registry_render_prompt_with_context_package() -> None:
     assert "Database connection failure" in rendered
     assert "Unable to connect to database at host db.local:5432." in rendered
     assert "[CITATION: DOC-PG-01]" in rendered
-    assert "plan: Enterprise" in rendered
 
 
 def test_registry_satisfies_instruction_provider_protocol() -> None:

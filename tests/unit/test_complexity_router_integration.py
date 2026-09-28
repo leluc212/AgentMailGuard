@@ -91,7 +91,6 @@ def _make_sample_context(
         thread_summary=thread_summary,
         recent_messages=recent_messages or [],
         retrieved_chunks=chunks,
-        business_data={"customer_tier": "gold"},
     )
 
 

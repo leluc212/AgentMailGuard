@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0)
 RETRIEVAL_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0)
 RERANK_BUCKETS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0)
+# 500 is the default BUSINESS_DATA__TIMEOUT_MS, so a p95 against the deadline reads a real edge.
+BUSINESS_LOOKUP_BUCKETS = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0)
 # 1000 and 5000 are the NFR8 edges (LLM generation 1-5 s), so p95 checks read a real bucket.
 GENERATION_BUCKETS = (100.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 5000.0, 8000.0, 15000.0)
 END_TO_END_BUCKETS = (500.0, 1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0, 20000.0)
@@ -105,6 +107,7 @@ class PipelineMetrics:
     draft_validation_failures_total: Counter
     citations_verified_total: Counter
     citation_mismatches_total: Counter
+    business_lookups_total: Counter
 
     # --- Histograms (R21.4, R21.5) ---
     classification_latency_ms: Histogram
@@ -116,6 +119,7 @@ class PipelineMetrics:
     llm_calls_per_job: Histogram
     llm_context_tokens: Histogram
     raw_payload_size_bytes: Histogram
+    business_lookup_latency_ms: Histogram
 
     # --- Gauges (R21.4) ---
     queue_depth: Gauge
@@ -298,6 +302,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             ["category"],
             registry=reg,
         ),
+        business_lookups_total=Counter(
+            "business_lookups_total",
+            "Business facts produced per lookup, by entity and status (R13.6, R13.7)",
+            ["entity", "status"],
+            registry=reg,
+        ),
         # Histograms (latency and calls per job)
         classification_latency_ms=Histogram(
             "classification_latency_ms",
@@ -358,6 +368,12 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "Size of archived raw email payloads in bytes",
             ["provider"],
             buckets=PAYLOAD_SIZE_BUCKETS,
+            registry=reg,
+        ),
+        business_lookup_latency_ms=Histogram(
+            "business_lookup_latency_ms",
+            "Duration of one bounded business-data provider call in milliseconds (R13.7)",
+            buckets=BUSINESS_LOOKUP_BUCKETS,
             registry=reg,
         ),
         # Gauges

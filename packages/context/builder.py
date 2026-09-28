@@ -1,20 +1,26 @@
-"""Context Builder orchestrator for prompt assembly and RAG gating (R14.8, R6.6, R18.1).
+"""Context Builder orchestrator for prompt assembly, RAG gating and business data.
 
-Orchestrates:
+Orchestrates (R14.8, R6.6, R13, R18.1):
 1. Resolving static agent and category instructions (cacheable prefix).
 2. Gathering thread conversation context via ThreadContextAssembler (Task 4.3).
 3. Conditionally invoking hybrid RAG only when retrieval_required=True (R6.6).
-4. Fetching business data (stubbed until Phase 5, R13).
+4. Planning business lookups in code and running them under a deadline (R13.3, R13.7,
+   design.md §5.4, ADR-0008). The routed profile's context_policy comes from the
+   AgentProfileRegistry; the instruction source is unchanged.
 5. Emitting ContextPackage in fixed assembly order (R14.8, design.md §5.4).
-6. Transitioning processing job state from QUEUED to CONTEXT_READY (R18.1).
+6. Transitioning processing job state from QUEUED to CONTEXT_READY (R18.1), with the
+   business plan, statuses and degradation flag in the payload for replay.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import UUID
 
+from packages.business.fetch import business_payload, fetch_business_context
+from packages.business.plan import build_fetch_plan
+from packages.domain.business import BusinessContext, FetchPlan
 from packages.domain.entities import (
     Candidate as DomainCandidate,
 )
@@ -26,45 +32,26 @@ from packages.domain.entities import (
     ThreadState,
 )
 from packages.domain.state_machine import JobState
+from packages.llm.profile import ContextPolicy
+from packages.observability.context import bind_log_context
 from packages.retrieval.query_builder import RetrievalQueryBuilder
 
 if TYPE_CHECKING:
+    from packages.business.protocol import BusinessDataProvider
     from packages.context.assembly import ThreadContextAssembler
     from packages.db.job import JobStore
+    from packages.llm.profile import AgentProfileRegistry
+    from packages.observability.metrics import PipelineMetrics
     from packages.retrieval.retriever import HybridRetriever
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_BUSINESS_TIMEOUT_MS = 500
+"""Matches BusinessDataSettings.timeout_ms; the ai-worker passes the configured value."""
+
 
 def _to_uuid(val: UUID | str) -> UUID:
     return val if isinstance(val, UUID) else UUID(str(val))
-
-
-@runtime_checkable
-class BusinessDataProvider(Protocol):
-    """Protocol for fetching transactional business facts (R13)."""
-
-    async def get_business_data(
-        self,
-        organization_id: UUID | str,
-        message: NormalizedMessage,
-        intent: str | None = None,
-    ) -> dict[str, Any]:
-        """Fetch customer or transactional business data for prompt injection."""
-        ...
-
-
-class StubBusinessDataProvider:
-    """Stub business data provider returning empty or default business facts until Phase 5."""
-
-    async def get_business_data(
-        self,
-        organization_id: UUID | str,
-        message: NormalizedMessage,
-        intent: str | None = None,
-    ) -> dict[str, Any]:
-        """Return empty business data dictionary in Phase 4 stub."""
-        return {}
 
 
 @runtime_checkable
@@ -115,6 +102,8 @@ class ContextBuilder:
 
     Enforces:
     - R6.6: Skip hybrid RAG when retrieval_required == False.
+    - R13.3 / R13.7: business lookups planned in code and bounded by a deadline; with no
+      business_data_provider nothing is planned or fetched.
     - R14.8: Strict fixed assembly order: agent_instructions, category_instructions,
       thread_summary, recent_messages, current_email, retrieved_knowledge, business_data.
     - R18.1: Transition Job state QUEUED -> CONTEXT_READY.
@@ -129,14 +118,20 @@ class ContextBuilder:
         instruction_provider: InstructionProvider | None = None,
         job_store: JobStore | None = None,
         top_k: int = 5,
+        profile_registry: AgentProfileRegistry | None = None,
+        business_timeout_ms: int = DEFAULT_BUSINESS_TIMEOUT_MS,
+        metrics: PipelineMetrics | None = None,
     ) -> None:
         self.thread_assembler = thread_assembler
         self.retriever = retriever
         self.query_builder = query_builder or RetrievalQueryBuilder()
-        self.business_data_provider = business_data_provider or StubBusinessDataProvider()
+        self.business_data_provider = business_data_provider
         self.instruction_provider = instruction_provider or DefaultInstructionProvider()
         self.job_store = job_store
         self.top_k = top_k
+        self.profile_registry = profile_registry
+        self.business_timeout_ms = business_timeout_ms
+        self.metrics = metrics
 
     async def build_context(
         self,
@@ -197,13 +192,8 @@ class ContextBuilder:
                     )
                 )
 
-        # 4. Transactional Business Data (stubbed until Phase 5, R13)
-        intent = classification.intent if classification else None
-        business_data = await self.business_data_provider.get_business_data(
-            organization_id=org_id,
-            message=message,
-            intent=intent,
-        )
+        # 4. Transactional business data: code-side plan, one bounded fetch (R13, ADR-0008)
+        plan, business_data = await self._business_data(job, org_id, message, classification)
 
         # 5. Emit ContextPackage with fixed assembly order (R14.8)
         pkg = ContextPackage(
@@ -227,8 +217,46 @@ class ContextBuilder:
                     "retrieved_chunks_count": len(retrieved_chunks),
                     "thread_has_summary": thread_ctx.has_summary,
                     "tokens_saved": thread_ctx.tokens_saved,
+                    **business_payload(plan, business_data),
                 },
             )
             job.state = updated_job.state
 
         return pkg
+
+    def _context_policy(self, classification: Classification | None) -> str:
+        """The routed profile's context_policy, resolved by the generator's rule (§5.4)."""
+        if self.profile_registry is None:
+            return ContextPolicy.THREAD_PLUS_RAG.value
+        category = classification.category if classification is not None else None
+        return str(self.profile_registry.resolve_profile(category).context_policy)
+
+    async def _business_data(
+        self,
+        job: Job,
+        org_id: UUID,
+        message: NormalizedMessage,
+        classification: Classification | None,
+    ) -> tuple[FetchPlan, BusinessContext | None]:
+        if self.business_data_provider is None:
+            return FetchPlan(), None
+        plan = build_fetch_plan(
+            subject=message.subject,
+            body=message.body_text_clean or message.body_text,
+            context_policy=self._context_policy(classification),
+            intent=classification.intent if classification is not None else None,
+        )
+        # The consumer already binds these; binding here keeps the business_fetch line
+        # correlated when the builder runs outside a consumer (R21.3).
+        with bind_log_context(
+            trace_id=job.trace_id, job_id=str(job.id), organization_id=str(org_id)
+        ):
+            business_data = await fetch_business_context(
+                self.business_data_provider,
+                organization_id=org_id,
+                sender_email=message.sender.email,
+                plan=plan,
+                timeout_ms=self.business_timeout_ms,
+                metrics=self.metrics,
+            )
+        return plan, business_data

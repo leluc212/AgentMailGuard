@@ -11,6 +11,13 @@ from uuid import uuid4
 
 import pytest
 
+from packages.domain.business import (
+    BusinessContext,
+    BusinessFact,
+    CustomerStatus,
+    EntityType,
+    FactStatus,
+)
 from packages.domain.entities import (
     AttachmentRef,
     Candidate,
@@ -156,6 +163,18 @@ def test_context_package_fixed_assembly_order() -> None:
         external_id="SHIPPING-01",
     )
 
+    business = BusinessContext(
+        customer_status=CustomerStatus.FOUND,
+        as_of=datetime(2026, 9, 28, 12, 0, tzinfo=UTC),
+        facts=(
+            BusinessFact(
+                entity=EntityType.ORDER,
+                reference="ORD-8821",
+                status=FactStatus.FOUND,
+                attributes=(("status", "Shipped"),),
+            ),
+        ),
+    )
     pkg = ContextPackage(
         agent_instructions="You are an enterprise email assistant.",
         category_instructions="Category: Billing.",
@@ -163,7 +182,7 @@ def test_context_package_fixed_assembly_order() -> None:
         thread_summary="Customer inquiring about shipping schedule.",
         recent_messages=[recent_msg],
         retrieved_chunks=[chunk],
-        business_data={"order_id": "8821", "status": "Shipped"},
+        business_data=business,
     )
 
     sections = pkg.get_ordered_sections()
@@ -189,7 +208,9 @@ def test_context_package_fixed_assembly_order() -> None:
     assert "Please check order 8821" in sections[4][1]
     assert "[CITATION: SHIPPING-01]" in sections[5][1]
     assert "[BUSINESS DATA]" in sections[6][1]
-    assert "status: Shipped" in sections[6][1]
+    assert sections[6][1] == business.render()
+    assert "ORD-8821" in sections[6][1]
+    assert "Shipped" in sections[6][1]
 
 
 def test_job_and_processing_event_dataclasses() -> None:

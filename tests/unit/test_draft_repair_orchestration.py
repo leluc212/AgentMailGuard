@@ -64,7 +64,6 @@ def _create_sample_context() -> ContextPackage:
         category_instructions="Address technical support questions.",
         current_message=msg,
         retrieved_chunks=[chunk],
-        business_data={"customer_tier": "gold"},
     )
 
 

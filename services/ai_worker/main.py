@@ -14,6 +14,7 @@ import os
 
 from packages.broker.routing import is_queue_consumed, load_categories_from_yaml
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
+from packages.business.postgres import PostgresBusinessDataProvider
 from packages.context.assembly import ThreadContextAssembler
 from packages.context.builder import ContextBuilder
 from packages.context.summarizer import ThreadSummarizer
@@ -84,6 +85,9 @@ def build_consumers(
     jobs = PostgresJobStore(res.db_pool)
     messages = PostgresMessageStore(res.db_pool)
     states = PostgresThreadStateStore(res.db_pool)
+    # One registry: the generator picks the template, the builder reads context_policy (§5.4).
+    profile_registry = AgentProfileRegistry.from_yaml(settings.agent_profiles.config_path)
+    business = settings.business_data
 
     summarizer = ThreadSummarizer(
         llm=InstrumentedLLMProvider(
@@ -112,15 +116,24 @@ def build_consumers(
             metrics=res.metrics,
             embedder=query_embedder,
         ),
+        business_data_provider=PostgresBusinessDataProvider(
+            res.db_pool,
+            snapshot_orders=business.snapshot_orders,
+            snapshot_tickets=business.snapshot_tickets,
+            statement_timeout_ms=business.timeout_ms,
+        ),
         job_store=jobs,
         top_k=settings.retrieval.top_k,
+        profile_registry=profile_registry,
+        business_timeout_ms=business.timeout_ms,
+        metrics=res.metrics,
     )
     drafting = DraftingService(
         # The plain provider: SinglePassGenerator wraps it per job with its own budget and
         # telemetry; a pre-built BudgetedLLMProvider would keep its own metrics/price table.
         generator=SinglePassGenerator(
             llm_provider=provider,
-            profile_registry=AgentProfileRegistry.from_yaml(settings.agent_profiles.config_path),
+            profile_registry=profile_registry,
             metrics=res.metrics,
             price_table=settings.llm.price_table,
         ),

@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from packages.domain.business import BusinessContext
+
 
 @dataclass(frozen=True)
 class EmailAddress:
@@ -158,7 +160,7 @@ class ContextPackage:
     thread_summary: str | None = None
     recent_messages: list[NormalizedMessage] = field(default_factory=list)
     retrieved_chunks: list[Candidate] = field(default_factory=list)
-    business_data: dict[str, Any] = field(default_factory=dict)
+    business_data: BusinessContext | None = None
 
     def get_ordered_sections(self) -> list[tuple[str, str]]:
         """Return assembled prompt sections in strictly fixed assembly order (R14.8).
@@ -198,9 +200,8 @@ class ContextPackage:
                 chunk_texts.append(f"[CITATION: {cid}]\n{chunk.content}")
             sections.append(("retrieved_knowledge", "\n\n".join(chunk_texts)))
 
-        if self.business_data:
-            biz_lines = [f"{k}: {v}" for k, v in sorted(self.business_data.items())]
-            sections.append(("business_data", "[BUSINESS DATA]\n" + "\n".join(biz_lines)))
+        if self.business_data is not None:
+            sections.append(("business_data", self.business_data.render()))
 
         return sections
 
