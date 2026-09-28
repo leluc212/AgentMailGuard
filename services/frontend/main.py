@@ -21,6 +21,8 @@ from packages.observability.health import HealthRegistry, create_health_router
 from packages.observability.logging import setup_logging
 from services.frontend.api_client import ApiError, ReviewApiClient, build_http_client
 from services.frontend.drafts import drafts_router
+from services.frontend.knowledge import knowledge_router
+from services.frontend.timeline import timeline_router
 from services.frontend.web import api_error_handler
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -75,6 +77,8 @@ def create_app(
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(create_health_router(health))
     app.include_router(drafts_router)
+    app.include_router(timeline_router)
+    app.include_router(knowledge_router)
     app.add_exception_handler(ApiError, api_error_handler)
     return app
 

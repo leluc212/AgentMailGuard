@@ -21,6 +21,8 @@ from packages.core.settings import FrontendSettings
 ORG_HEADER = "X-Organization-Id"
 API_TIMEOUT_S = 10.0
 DRAFT_PAGE_SIZE = 25
+TIMELINE_PAGE_SIZE = 100  # the API's page cap (services/api/pagination.py)
+DOCUMENT_PAGE_SIZE = 100
 
 
 class ApiError(Exception):
@@ -127,6 +129,66 @@ class DraftDetail(DraftSummary):
         return data
 
 
+class SenderView(_ApiModel):
+    email: str
+    name: str | None = None
+
+
+class MessageHeader(_ApiModel):
+    """GET /v1/messages/{id}: what the timeline page shows about the email."""
+
+    id: UUID
+    subject: str = ""
+    sender: SenderView | None = None
+    received_at: datetime | None = None
+    direction: str = "inbound"
+
+
+class TimelineEvent(_ApiModel):
+    """One processing_event row (R18.4, R23.5)."""
+
+    id: int | None = None
+    job_id: UUID | None = None
+    event_type: str
+    state_from: str | None = None
+    state_to: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class MessageTimeline(_ApiModel):
+    """GET /v1/messages/{id}/timeline (R23.5)."""
+
+    message_id: UUID
+    current_state: str | None = None
+    total_events: int = 0
+    events: list[TimelineEvent] = Field(default_factory=list)
+
+
+class KnowledgeDocumentView(_ApiModel):
+    """A knowledge document and its ingestion status (R9.10, R23.7)."""
+
+    id: UUID
+    title: str
+    category: str | None = None
+    version: int = 1
+    status: str
+    failure_reason: str | None = None
+    updated_at: datetime | None = None
+
+
+class DocumentPage(_ApiModel):
+    items: list[KnowledgeDocumentView] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class DocumentUpload(_ApiModel):
+    """POST /v1/knowledge/documents 202 response."""
+
+    document: KnowledgeDocumentView
+    job_id: str
+
+
 def build_http_client(
     settings: FrontendSettings, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> httpx.AsyncClient:
@@ -215,3 +277,37 @@ class ReviewApiClient:
             f"/v1/drafts/{draft_id}/reject",
             json={"review_ms": review_ms, "reviewer": reviewer, "comment": comment},
         )
+
+    async def get_message(self, message_id: UUID) -> MessageHeader:
+        return MessageHeader.model_validate(
+            await self._request("GET", f"/v1/messages/{message_id}")
+        )
+
+    async def get_message_timeline(self, message_id: UUID) -> MessageTimeline:
+        payload = await self._request(
+            "GET", f"/v1/messages/{message_id}/timeline", params={"limit": TIMELINE_PAGE_SIZE}
+        )
+        return MessageTimeline.model_validate(payload)
+
+    async def list_documents(self, *, limit: int = DOCUMENT_PAGE_SIZE) -> DocumentPage:
+        payload = await self._request("GET", "/v1/knowledge/documents", params={"limit": limit})
+        return DocumentPage.model_validate(payload)
+
+    async def get_document(self, document_id: UUID) -> KnowledgeDocumentView:
+        return KnowledgeDocumentView.model_validate(
+            await self._request("GET", f"/v1/knowledge/documents/{document_id}")
+        )
+
+    async def upload_document(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str,
+        title: str | None,
+        category: str | None,
+    ) -> DocumentUpload:
+        data = {k: v for k, v in (("title", title), ("category", category)) if v is not None}
+        files = {"file": (filename, content, content_type)}
+        payload = await self._request("POST", "/v1/knowledge/documents", data=data, files=files)
+        return DocumentUpload.model_validate(payload)

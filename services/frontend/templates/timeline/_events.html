@@ -1,0 +1,27 @@
+<div id="timeline-events"{% if live %} hx-get="/messages/{{ timeline.message_id }}/timeline" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <p>Current state: <strong>{{ timeline.current_state or "no events yet" }}</strong>{% if live %} <span class="note">(refreshes every 5 seconds)</span>{% endif %}</p>
+  {% if timeline.events %}
+  <table>
+    <caption class="visually-hidden">Processing events, oldest first</caption>
+    <thead>
+      <tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Details</th></tr>
+    </thead>
+    <tbody>
+    {% for e in timeline.events %}
+      <tr>
+        <td>{{ e.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+        <td>{{ e.event_type }}</td>
+        <td>{{ e.state_from or "—" }}</td>
+        <td>{{ e.state_to }}</td>
+        <td>{% for key in detail_keys if key in e.payload %}{{ key }}={{ e.payload[key] }}{% if not loop.last %}; {% endif %}{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if timeline.total_events > timeline.events|length %}
+  <p class="note">Showing the first {{ timeline.events|length }} of {{ timeline.total_events }} events.</p>
+  {% endif %}
+  {% else %}
+  <p>No processing events are recorded for this message.</p>
+  {% endif %}
+</div>

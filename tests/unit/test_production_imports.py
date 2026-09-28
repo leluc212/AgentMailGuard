@@ -19,7 +19,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIPPED_ROOTS = ("packages", "services")
-DEV_ONLY_ROOTS = ("pytest", "_pytest", "pytest_asyncio", "pytest_cov", "pytest_mock", "mypy")
+DEV_ONLY_ROOTS = (
+    "pytest",
+    "_pytest",
+    "pytest_asyncio",
+    "pytest_cov",
+    "pytest_mock",
+    "mypy",
+    "playwright",
+)
 TEST_SUPPORT_MODULE = "testing"  # packages/*/testing.py: contract suites, test-only by design
 
 ENTRYPOINTS = (

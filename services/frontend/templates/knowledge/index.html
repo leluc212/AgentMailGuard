@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Knowledge{% endblock %}
+{% block content %}
+<h1>Knowledge documents</h1>
+<section class="panel" aria-labelledby="upload-heading">
+  <h2 id="upload-heading">Upload a document</h2>
+  <form method="post" action="/knowledge" enctype="multipart/form-data"
+        hx-post="/knowledge" hx-encoding="multipart/form-data" hx-target="#documents" hx-swap="outerHTML"
+        hx-on::after-request="if (event.detail.successful) this.reset()">
+    <label for="file">File (PDF, DOCX, HTML, Markdown or text)</label>
+    <input id="file" name="file" type="file" required accept=".pdf,.docx,.html,.htm,.md,.txt">
+    <label for="title">Title (optional)</label>
+    <input id="title" name="title">
+    <label for="doc-category">Category (optional)</label>
+    <input id="doc-category" name="category">
+    <div class="actions"><button type="submit" class="primary">Upload</button></div>
+  </form>
+</section>
+{% include "knowledge/_documents.html" %}
+{% endblock %}

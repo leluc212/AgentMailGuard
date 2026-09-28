@@ -1,0 +1,8 @@
+<tr id="doc-{{ doc.id }}"{% if doc.status not in terminal %} hx-get="/knowledge/documents/{{ doc.id }}/status" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <td>{{ doc.title }}</td>
+  <td>{{ doc.category or "—" }}</td>
+  <td>{{ doc.version }}</td>
+  <td>{{ doc.status }}{% if doc.failure_reason %}<br><span class="note">{{ doc.failure_reason }}</span>{% endif %}</td>
+  <td>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") if doc.updated_at else "—" }}</td>
+</tr>
+{% if row_notice %}<div id="status-region" hx-swap-oob="innerHTML">{{ row_notice }}</div>{% endif %}

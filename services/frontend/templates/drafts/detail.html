@@ -7,7 +7,7 @@
   <dt>Category</dt><dd>{{ draft.category or "—" }}</dd>
   <dt>Confidence</dt><dd>{{ "%.2f"|format(draft.confidence) if draft.confidence is not none else "—" }}</dd>
   <dt>Dispatch mode</dt><dd>{{ draft.dispatch_mode or "—" }}</dd>
-  <dt>Job state</dt><dd>{{ draft.job_state or "—" }}</dd>
+  <dt>Job state</dt><dd>{{ draft.job_state or "—" }}{% if draft.message_id %} · <a href="/messages/{{ draft.message_id }}/timeline">Job timeline</a>{% endif %}</dd>
 </dl>
 <div class="layout">
   <div>

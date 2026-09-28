@@ -1,0 +1,17 @@
+<section id="documents" aria-labelledby="documents-heading">
+  <h2 id="documents-heading">Documents</h2>
+  {% if page.items %}
+  <table>
+    <caption class="visually-hidden">Knowledge documents and their ingestion status</caption>
+    <thead>
+      <tr><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Updated</th></tr>
+    </thead>
+    <tbody>
+    {% for doc in page.items %}{% include "knowledge/_row.html" %}{% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No documents have been uploaded yet.</p>
+  {% endif %}
+</section>
+{% if status_message %}{% include "_status.html" %}{% endif %}
