@@ -201,6 +201,8 @@ services:
       SERVICE_NAME: mail_connector
       PORT: "8001"
       LEASE_REAPER__ENABLED: "false"
+      # Short-lived Gmail token for the live test mailbox (6.10); blank keeps it offline.
+      GMAIL_ACCESS_TOKEN: ${GMAIL_ACCESS_TOKEN:-}
     depends_on: *after-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/readyz"]

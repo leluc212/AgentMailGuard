@@ -80,6 +80,11 @@ All configuration in `rag-email` is read from environment variables (or local `.
 | `PROVIDERS__GMAIL_CREDENTIALS_REF` | `string` | `vault/gmail` | Non-empty | Vault secret pointer for Gmail OAuth |
 | `PROVIDERS__GRAPH_CREDENTIALS_REF` | `string` | `vault/graph` | Non-empty | Vault secret pointer for Microsoft Graph OAuth |
 | `PROVIDERS__IMAP_CREDENTIALS_REF` | `string` | `vault/imap` | Non-empty | Vault secret pointer for IMAP credentials |
+| `GMAIL_ACCESS_TOKEN` | `string` (secret) | blank | A `ya29.` access token, about 1 hour lifetime | Token read at call time by the Gmail adapter for mailboxes with `credentials_ref=env:GMAIL_ACCESS_TOKEN` (set by `make connect-gmail`), and as the registry fallback for `gmail` mailboxes with no `credentials_ref`. Never refreshed by the stack (ADR-0009). Blank in CI; the test guard strips it (R24.5). |
+
+- **Docker Compose.** `GMAIL_ACCESS_TOKEN` is forwarded from the host `.env` only to `mail-connector` (sync) and `dispatch-worker` (drafts and sends), not through `x-app-env`. Containers read it at start: after minting a new token, run `make up`.
+- **Connecting the test account.** `make connect-gmail ADDRESS=<address>` checks that the token belongs to that address, then registers it in the demo tenant with `credentials_ref=env:GMAIL_ACCESS_TOKEN`, starting from the account's current `historyId` (`docs/demo-runbook.md` §3.4).
+- **Dispatch mode** is not an environment variable: it is set per category as `dispatch_mode: create_draft | send_reply` in `config/categories.yaml` (default `create_draft`, task 6.4). The image copies `config/`, so a change needs `make up`.
 
 ### 2.5 Embedding Model & Dimension (`EMBEDDING__*`)
 *Semantic indexing parameters and vector width enforcement (R5.10).*

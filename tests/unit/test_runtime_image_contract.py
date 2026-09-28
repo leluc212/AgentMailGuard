@@ -217,3 +217,17 @@ def test_frontend_runs_the_review_ui_with_its_settings() -> None:
     assert env["FRONTEND__API_BASE_URL"] == "http://api:8000"
     assert str(env["FRONTEND__ORGANIZATION_ID"]).startswith("${FRONTEND__ORGANIZATION_ID")
     assert frontend["healthcheck"]["test"][-1] == "http://localhost:3001/readyz"
+
+
+def test_compose_forwards_the_gmail_token_only_to_the_services_that_call_gmail() -> None:
+    """6.10: mail-connector syncs and dispatch-worker drafts/sends; nothing else gets the token."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    holders = sorted(
+        name
+        for name, service in compose["services"].items()
+        if "GMAIL_ACCESS_TOKEN" in (service.get("environment") or {})
+    )
+    assert holders == ["dispatch-worker", "mail-connector"]
+    for name in holders:
+        env = compose["services"][name]["environment"]
+        assert env["GMAIL_ACCESS_TOKEN"] == "${GMAIL_ACCESS_TOKEN:-}", name

@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate
 
 UV ?= uv
 
@@ -20,6 +20,8 @@ help:
 	@echo "  smoke    - End-to-end check of the running stack (RA gate)"
 	@echo "  llm-smoke - Live check: one triage + one draft request through the configured LLM (task 5.0; not CI)"
 	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
+	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
+	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -100,6 +102,13 @@ retrieval-gate:
 
 phase5-gate:
 	$(UV) run python scripts/phase5_gate.py
+
+connect-gmail:
+	@test -n "$(ADDRESS)" || { echo "usage: make connect-gmail ADDRESS=<test account address>"; exit 2; }
+	$(UV) run python scripts/connect_gmail.py --address $(ADDRESS)
+
+phase6-gate:
+	$(UV) run python scripts/phase6_gate.py
 
 llm-smoke:
 	$(UV) run python scripts/llm_smoke.py
