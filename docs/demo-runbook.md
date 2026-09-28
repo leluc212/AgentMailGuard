@@ -136,7 +136,25 @@ Then run `make up` (§4) so the containers pick it up. When the token expires yo
 
 ### 3.4 Connect the mailbox to the stack
 
-Known gap: Phase 6 adds the command that registers the test account as a watched mailbox. This section is completed when that command exists. Until then the stack only watches the seeded demo mailboxes.
+Run this once after `make up` and `make seed` (§4), and again whenever you want the stack to start watching "from now":
+
+```bash
+make connect-gmail ADDRESS=ragemail.demo.<yourname>@gmail.com
+```
+
+Expected:
+
+```
+ok   token belongs to ragemail.demo.<yourname>@gmail.com; current historyId 1234567
+ok   mailbox <id> in organization 00000000-0000-0000-0000-000000000001: provider gmail, credentials_ref env:GMAIL_ACCESS_TOKEN, status active, watching from now
+CONNECT GMAIL OK mailbox_id=<id>
+```
+
+- It checks that the token in `.env` belongs to that address, so a token minted while signed in to another account is refused.
+- The mailbox joins the demo tenant (Acme), so the seeded customers, orders and knowledge apply to its emails.
+- Only mail that arrives after this command is imported. Older mail in the test inbox is left alone.
+- Copy the mailbox id: §6 step 4 uses it. Nothing pushes new mail to a stack on `localhost`, so you pull it with one command (§6 step 4); `make phase6-gate` pulls it for you.
+- If Gmail calls failed with 401, the stack marks the mailbox `needs_reauth`. After minting a new token (§3.2–3.3) and `make up`, run this command again to re-activate it.
 
 ---
 
@@ -189,18 +207,56 @@ make phase4-gate       # PHASE 4 GATE (default) OK: a 12-message thread is summa
 
 ### 5.3 Phase 6 gate **[after Phase 6]**
 
-The command and its expected output are added when Phase 6 is built. It will cover: a real email to the test inbox produces a reviewable draft, approving it delivers a threaded reply, and replaying the dispatch sends nothing more.
+The gate sends a real reply from the test account, so it needs the billing category set to send directly. Do this only for the gate:
+
+1. In `config/categories.yaml`, under `- category: billing`, set `dispatch_mode: send_reply`.
+2. Run `make up`, which rebuilds the image with the changed file.
+3. Run:
+
+   ```bash
+   make phase6-gate
+   ```
+
+4. When it prints `>>> From ANOTHER address, send an email to … now.`, send that email exactly, from an address other than the test account. The subject carries a code like `[gate-1a2b3c4d]` that the gate looks for. You have 10 minutes.
+
+Expected, ending in `PHASE 6 GATE OK`:
+
+```
+ok   GMAIL_ACCESS_TOKEN is set (not printed)
+ok   config/categories.yaml: billing dispatch_mode send_reply
+ok   api ready; consumers on mail.sync.requested, email.normalize, email.triage, knowledge.ingest
+ok   consumer on email.dispatch
+ok   connected mailbox ragemail.demo.<yourname>@gmail.com (<id>)
+ok   email <gmail id> ingested into our thread
+ok   job DRAFTED (billing); draft <id> listed, readable, send_reply
+ok   approved -> COMPLETED; one outbound email_message replies to the original
+ok   Gmail thread <gmail thread id> holds the threaded reply
+ok   replayed dispatch + repeated approve: nothing sent (Gmail thread 2 messages, job COMPLETED)
+PHASE 6 GATE OK
+```
+
+Your sending address receives the reply in the same conversation. Afterwards, set billing back to `dispatch_mode: create_draft` and run `make up`, so the demo (§6) creates drafts, as it does by default.
+
+If it prints `FAIL …`, the message names the check. `FAIL Gmail: … 401` means the token expired: repeat §3.2–3.3, `make up`, `make connect-gmail`, then rerun.
 
 ---
 
 ## 6. Demo script (what to show, in order)
 
-About 10 minutes. Steps 1–3 work now; steps 4–7 need Phase 6.
+About 10 minutes. Steps 4–7 need Phase 6 (see the check at the top) and a connected mailbox (§3.4).
 
 1. **The problem (1 min).** One email: "What is the status of order 82915?" A plain retrieval system would answer from documents, but the right answer is live data.
 2. **Run `make phase5-gate` (2 min).** While it runs, explain the pipeline: the email is cleaned up, classified, queued, then the ai-worker builds its context and makes one model call.
 3. **Read the draft aloud (1 min).** Point out the two sources: "has been dispatched" came from the business tables; the tracking-link sentence came from the knowledge base and carries a citation.
-4. **[after Phase 6] Send a real email (1 min).** From another address, email the Gmail test account asking about an order.
+4. **[after Phase 6] Send a real email (1 min).** From another address, email the Gmail test account asking about an order (for example Alice's "What is the status of order 82915?"; send it from `alice.smith@clientcorp.com` only if you control that address, otherwise the sender is an unknown customer and the draft says so). Then pull it into the stack, with the mailbox id from §3.4:
+
+   ```bash
+   curl -s -X POST -H 'X-Organization-ID: 00000000-0000-0000-0000-000000000001' \
+     -H 'Content-Type: application/json' -d '{}' \
+     http://localhost:8000/v1/mailboxes/<mailbox id>/resync
+   ```
+
+   Expected: HTTP 202 and a JSON body with `"status": "enqueued"`. The draft appears in the review UI within about a minute.
 5. **[after Phase 6] Review it (2 min).** In the review UI at `http://localhost:3001`, open the pending draft. Show the original email, the cited knowledge and the business facts, edit one sentence, and approve.
 6. **[after Phase 6] Show the reply (1 min).** In Gmail, show the reply in the same thread. By default the stack creates a Gmail **draft** reply, which you send from Gmail; categories configured for direct sending send it straight away.
 7. **[after Phase 6] Show the timeline (1 min).** In the review UI, open the message's job timeline from arrival to `COMPLETED`.
@@ -220,6 +276,9 @@ Any fix that touches `.env`, AI Studio or the OAuth Playground: switch the proje
 | A model call fails with HTTP 429 | The Gemini API's rate limit for your key | Wait a minute and rerun; leave a couple of minutes between gate runs |
 | A model call fails with HTTP 401 or 403 | Wrong or revoked Gemini key | Create a new key in AI Studio, update `.env`, `make up` |
 | **[after Phase 6]** Gmail calls fail with HTTP 401 | The Gmail access token expired (about an hour) | Mint a new one (§3.2), update `.env`, `make up` (under a minute) |
+| **[after Phase 6]** `make connect-gmail` says the token belongs to another account | The Playground was signed in to a different Google account | Mint the token in a private window signed in only to the test account (§3.2) |
+| **[after Phase 6]** Resync returns 409, or the gate says `needs_reauth` | A 401 marked the mailbox for re-authentication | New token (§3.2–3.3), `make up`, then `make connect-gmail ADDRESS=…` again |
+| **[after Phase 6]** An approved draft ends `DEAD_LETTER` | A permanent provider error (expired token, the email's thread was deleted in Gmail) | `curl -H 'X-Organization-ID: …' http://localhost:8000/v1/jobs/<job id>` shows `last_error`; fix the cause, then `POST /v1/jobs/<job id>/replay` |
 | A service is not `healthy` | Still starting, or it crashed | Wait 30 s and recheck (§4). Then read its log: `docker compose logs <service> --tail 50`, using a service name from §4. Restart it with `docker compose up -d <service>`; if it still fails, `make down && make up` |
 | A gate times out waiting for `DRAFTED` | The ai-worker is down, or the model call failed | `docker compose logs ai-worker --tail 50` |
 | Changing `.env` had no effect | Containers read `.env` only when they start | `make up` again |
