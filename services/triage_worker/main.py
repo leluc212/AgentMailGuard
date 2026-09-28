@@ -19,6 +19,7 @@ from aio_pika.abc import AbstractRobustConnection
 from packages.broker.publisher import MessagePublisher
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AppSettings, TriageWorkerSettings
+from packages.db.classification import ClassificationStore, PostgresClassificationStore
 from packages.db.draft import DraftStore, PostgresDraftStore
 from packages.db.job import JobStore, PostgresJobStore
 from packages.db.message import MessageStore, PostgresMessageStore
@@ -102,11 +103,16 @@ def build_triage_consumer(
     job_store: JobStore,
     message_store: MessageStore,
     draft_store: DraftStore,
+    classification_store: ClassificationStore | None = None,
     connection: AbstractRobustConnection | None = None,
     shutdown_coordinator: GracefulShutdownCoordinator | None = None,
     metrics: PipelineMetrics | None = None,
 ) -> TriageConsumer:
-    """Compose the production TriageConsumer from settings and injected stores."""
+    """Compose the production TriageConsumer from settings and injected stores.
+
+    ``classification_store`` receives every classification result (R6.7); dispatch reads the
+    category (and so its ``dispatch_mode``) from it.
+    """
     triage_cfg = settings.triage
     rule_engine = _load_rule_engine(_require_file(triage_cfg.rules_path, "Triage rules file"))
     template_registry = _load_template_registry(
@@ -142,6 +148,7 @@ def build_triage_consumer(
         threshold_manager=ThresholdManager(settings=triage_cfg),
         template_registry=template_registry,
         draft_store=draft_store,
+        classification_store=classification_store,
         gate=gate,
     )
     return TriageConsumer(
@@ -168,6 +175,7 @@ async def build_components(res: WorkerResources) -> list[StartFn]:
         job_store=PostgresJobStore(res.db_pool),
         message_store=PostgresMessageStore(res.db_pool),
         draft_store=PostgresDraftStore(res.db_pool),
+        classification_store=PostgresClassificationStore(res.db_pool),
         connection=res.connection,
         shutdown_coordinator=res.shutdown,
         metrics=res.metrics,

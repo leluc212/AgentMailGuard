@@ -158,9 +158,12 @@ class TriageConsumer(BaseConsumer):
 
         # Execute cascading triage
         try:
+            # R6.7: persist the result against the message; dispatch reads its category.
             cascade_result = await self.cascade.triage(
                 email_ctx,
                 organization_id=org_id,
+                message_id=job.message_id,
+                persist=True,
             )
             classification = cascade_result.classification
         except Exception as err:

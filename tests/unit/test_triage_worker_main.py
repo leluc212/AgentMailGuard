@@ -14,6 +14,7 @@ import pytest
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
 from packages.core.settings import TriageSettings, TriageWorkerSettings
+from packages.db.classification import InMemoryClassificationStore, PostgresClassificationStore
 from packages.db.draft import InMemoryDraftStore
 from packages.db.job import InMemoryJobStore
 from packages.db.message import InMemoryMessageStore
@@ -125,13 +126,10 @@ def test_build_rejects_template_with_unresolvable_body(repo_cwd: Path, tmp_path:
         _build(_settings(templates_path=str(tpl)))
 
 
-async def test_composed_consumer_routes_email_worker_envelope(repo_cwd: Path) -> None:
-    """Real rules+ML+gate path on the exact envelope shape the email worker emits."""
-    job_store, message_store, publisher = InMemoryJobStore(), InMemoryMessageStore(), _publisher()
-    consumer = _build(
-        _settings(), job_store=job_store, message_store=message_store, publisher=publisher
-    )
-
+async def _urgent_billing_job(
+    job_store: InMemoryJobStore, message_store: InMemoryMessageStore
+) -> tuple[JobEnvelope, Job]:
+    """A stored message and NORMALIZED job, and the envelope the email worker emits for it."""
     org, mbx, mid, tid = uuid4(), uuid4(), uuid4(), uuid4()
     msg = NormalizedMessage(
         message_id=mid,
@@ -175,6 +173,17 @@ async def test_composed_consumer_routes_email_worker_envelope(repo_cwd: Path) ->
             "received_at": msg.received_at.isoformat(),
         },
     )
+    return envelope, job
+
+
+async def test_composed_consumer_routes_email_worker_envelope(repo_cwd: Path) -> None:
+    """Real rules+ML+gate path on the exact envelope shape the email worker emits."""
+    job_store, message_store, publisher = InMemoryJobStore(), InMemoryMessageStore(), _publisher()
+    consumer = _build(
+        _settings(), job_store=job_store, message_store=message_store, publisher=publisher
+    )
+    envelope, job = await _urgent_billing_job(job_store, message_store)
+    org = job.organization_id
     await consumer.process_job(envelope, MagicMock())
 
     publisher.publish.assert_awaited_once()
@@ -239,3 +248,40 @@ async def test_build_components_starts_token_counter_warmup(
     await build_components(fake_worker_resources(_settings()))
 
     assert started == [True]
+
+
+async def test_composed_consumer_persists_the_classification(repo_cwd: Path) -> None:
+    """R6.7: every triaged message leaves a classification_result row.
+
+    Dispatch (design §5.8) and the review queue read the category from it, so without the row
+    every category falls back to create_draft and the review UI shows no category.
+    """
+    job_store, message_store = InMemoryJobStore(), InMemoryMessageStore()
+    classifications = InMemoryClassificationStore()
+    consumer = build_triage_consumer(
+        _settings(),
+        publisher=_publisher(),
+        job_store=job_store,
+        message_store=message_store,
+        draft_store=InMemoryDraftStore(),
+        classification_store=classifications,
+    )
+    envelope, job = await _urgent_billing_job(job_store, message_store)
+
+    await consumer.process_job(envelope, MagicMock())
+
+    assert job.message_id is not None
+    row = await classifications.get_latest_classification_by_message(
+        job.organization_id, job.message_id
+    )
+    assert row is not None
+    assert row.category == "billing"
+    assert row.decided_by == "rule"
+
+
+async def test_build_components_persists_classifications_in_postgres(repo_cwd: Path) -> None:
+    """The production composition root wires the Postgres classification store (R6.7)."""
+    start_fns = await build_components(fake_worker_resources(_settings()))
+    consumer = start_fns[0].__self__  # type: ignore[attr-defined]
+    assert isinstance(consumer, TriageConsumer)
+    assert isinstance(consumer.cascade.classification_store, PostgresClassificationStore)
