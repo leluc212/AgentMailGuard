@@ -123,21 +123,21 @@ async def retrieval_debug(
                 query.lexical_terms.append(term)
                 seen_terms.add(term)
 
-    # 3. Dense vector embedding generation if not supplied (R9.6, design.md §5.5)
+    # 3. Dense query vector (R10.1): an explicit override wins; otherwise the retriever embeds
+    #    semantic_text inside the vector branch, under the retrieval timeout (R10.9).
     if request_data.query_vector is not None:
         query.query_vector = list(request_data.query_vector)
-    elif query.query_vector is None:
-        target_text = query.semantic_text or (request_data.query or "")
-        if target_text:
-            query.query_vector = await embedder.embed_query(target_text)
 
     # 4. Concurrent Hybrid Retrieval (R10.5, R10.6, R10.8)
     metrics = getattr(request.app.state, "metrics", None)
+    settings = request.app.state.settings
     retriever = HybridRetriever(
         backend=search_backend,
         rrf_k=request_data.rrf_k,
         metrics=metrics,
         raise_on_both_failed=False,
+        embedder=embedder,
+        timeout_seconds=settings.retrieval.retrieval_timeout_ms / 1000,
     )
 
     retrieval_result = await retriever.retrieve(
@@ -181,8 +181,8 @@ async def retrieval_debug(
         lexical_terms=list(query.lexical_terms),
         identifiers=list(query.identifiers),
         filters=dict(query.filters),
-        query_vector_present=query.query_vector is not None,
-        query_vector_dimension=len(query.query_vector) if query.query_vector else None,
+        query_vector_present=retrieval_result.query_vector_dimension is not None,
+        query_vector_dimension=retrieval_result.query_vector_dimension,
     )
 
     explanation = RetrievalExplanation(

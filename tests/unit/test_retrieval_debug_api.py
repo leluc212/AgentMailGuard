@@ -317,3 +317,58 @@ class TestOpenAPIAndDocsIntegration:
         # Validate entire spec structure
         valid, errors = validate_openapi_spec(spec)
         assert valid, f"OpenAPI validation errors: {errors}"
+
+
+class TestQueryEmbeddingGuard:
+    """3.16 / R10.9: the debug route embeds under the configured retrieval timeout."""
+
+    async def test_slow_embedder_does_not_block_the_debug_endpoint(
+        self, fake_backend: FakeSearchBackend
+    ) -> None:
+        import time
+
+        from packages.core.settings import APISettings, RetrievalSettings
+
+        app = create_app(
+            settings=APISettings(retrieval=RetrievalSettings(retrieval_timeout_ms=100)),
+            lifespan_enabled=False,
+        )
+        app.state.search_backend = fake_backend
+        app.state.embedder = FakeEmbedder(simulate_latency_ms=3000)
+        app.state.metrics = create_pipeline_metrics()
+        app.state.rerank_service = RerankService(reranker=StubReranker())
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+            t0 = time.perf_counter()
+            resp = await ac.post(
+                "/v1/search/debug",
+                headers={"X-Organization-ID": str(TEST_ORG_ID)},
+                json={"query": "invoice INV-2026-01829 payment", "apply_rerank": False},
+            )
+            elapsed = time.perf_counter() - t0
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert elapsed < 1.5, f"debug endpoint blocked {elapsed:.2f}s behind the embedder"
+        body = resp.json()
+        assert body["explanation"]["retrieval_degraded"] is True
+        assert body["explanation"]["surviving_branch"] == "lexical"
+        assert body["constructed_query"]["query_vector_present"] is False
+
+    async def test_embedded_query_dimension_is_reported(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/v1/search/debug",
+            headers={"X-Organization-ID": str(TEST_ORG_ID)},
+            json={"query": "password reset procedure", "apply_rerank": False},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        constructed = resp.json()["constructed_query"]
+        assert constructed["query_vector_present"] is True
+        assert constructed["query_vector_dimension"] == 1536
+
+    def test_create_app_exposes_its_settings(self) -> None:
+        from packages.core.settings import APISettings, RetrievalSettings
+
+        settings = APISettings(retrieval=RetrievalSettings(retrieval_timeout_ms=123))
+        app = create_app(settings=settings, lifespan_enabled=False)
+        assert app.state.settings is settings

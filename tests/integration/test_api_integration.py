@@ -77,3 +77,16 @@ class TestLiveAPIIntegration:
         assert data["limit"] == 25
         assert data["offset"] == 50
         assert data["has_more"] is True
+
+
+async def test_lifespan_attaches_the_configured_query_embedder() -> None:
+    """3.16 / R5.10: /search/debug embeds with EMBEDDING__* settings, not a default fake."""
+    from packages.core.settings import EmbeddingSettings
+
+    settings = APISettings(embedding=EmbeddingSettings(model_name="embed-api-test"))
+    app = create_app(settings=settings, lifespan_enabled=True)
+
+    async with app.router.lifespan_context(app):
+        embedder = app.state.embedder
+        assert embedder.model_name == "embed-api-test"
+        assert embedder.dimension == settings.embedding.dimension

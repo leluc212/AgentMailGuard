@@ -133,6 +133,14 @@ def create_app(
             logger.warning("Storage client initialization failed: %s", exc)
             app_instance.state.storage_client = None
 
+        # 5. Query embedder: the corpus model (R5.10), counted (R9.11), used by /search/debug.
+        from packages.knowledge.embedder import get_embedder
+
+        embedder = get_embedder(
+            active_settings.embedding, metrics=getattr(app_instance.state, "metrics", None)
+        )
+        app_instance.state.embedder = embedder
+
         yield {"db_pool": db_pool, "publisher": publisher, "storage_client": storage_client}
 
         # 4. Shutdown cleanup
@@ -140,6 +148,9 @@ def create_app(
         if publisher is not None:
             await publisher.close()
             logger.info("Message publisher closed")
+        embedder_close = getattr(embedder, "aclose", None)
+        if embedder_close is not None:
+            await embedder_close()
         if db_pool is not None:
             await db_pool.close()
             logger.info("Database connection pool closed")
@@ -153,6 +164,7 @@ def create_app(
         redoc_url="/redoc",
         lifespan=app_lifespan,
     )
+    app.state.settings = active_settings
 
     # Middleware registration
     app.add_middleware(TraceContextMiddleware)
