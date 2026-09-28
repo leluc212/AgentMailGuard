@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
@@ -43,6 +44,8 @@ from packages.domain.entities import (
     Subscription,
     SyncResult,
 )
+
+logger = logging.getLogger(__name__)
 
 # Gmail "Resolve errors" guide: these 403 reasons are rate limits, retried with backoff.
 _GMAIL_RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
@@ -331,10 +334,11 @@ class GmailProviderAdapter:
         )
 
     async def synchronize(self, mailbox: Mailbox, cp: Checkpoint) -> SyncResult:
-        """Incrementally synchronize Gmail changes using history.list (R1.1, R2.5)."""
+        """Incrementally sync Gmail INBOX additions using history.list (R1.1, R2.5, R17.7)."""
         if cp.history_id:
             base_history_url = (
-                f"{self.base_url}/history?startHistoryId={cp.history_id}&historyTypes=messageAdded"
+                f"{self.base_url}/history?startHistoryId={cp.history_id}"
+                "&historyTypes=messageAdded&labelId=INBOX"
             )
             page_token = None
             msg_ids: list[str] = []
@@ -383,7 +387,16 @@ class GmailProviderAdapter:
 
             fetched_messages: list[RawMessage] = []
             for mid in msg_ids:
-                fetched_messages.append(await self.get_message(mailbox, mid))
+                try:
+                    fetched_messages.append(await self.get_message(mailbox, mid))
+                except NotFound:
+                    # Deleted between history.list and messages.get (a draft that drafts.send
+                    # replaced, or mail the user deleted): nothing left to ingest (6.7).
+                    logger.warning(
+                        "Gmail message %s vanished before fetch; skipped",
+                        mid,
+                        extra={"mailbox_id": str(mailbox.id)},
+                    )
 
             new_cp = Checkpoint(
                 mailbox_id=mailbox.id,
@@ -399,7 +412,7 @@ class GmailProviderAdapter:
             )
 
         # Initial synchronization fallback
-        url = f"{self.base_url}/messages?maxResults=50"
+        url = f"{self.base_url}/messages?maxResults=50&labelIds=INBOX"
         resp = await self._request("GET", url, mailbox_id=str(mailbox.id))
         data = resp.json()
 

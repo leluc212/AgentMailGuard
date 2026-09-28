@@ -807,3 +807,74 @@ async def test_gmail_find_draft_searches_drafts_by_rfc822msgid() -> None:
         is None
     )
     assert await adapter.find_draft(mailbox, "18f2c0ffee000001", "  ") is None
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_asks_only_for_inbox_messages() -> None:
+    """6.7: our own drafts and sent copies carry DRAFT/SENT, not INBOX; sync skips them."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "/history" in str(request.url):
+            return httpx.Response(200, json={"history": [], "historyId": "501"}, request=request)
+        return httpx.Response(404, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    mailbox = Mailbox(id="mbx-inbox", organization_id="org-01", provider="gmail", address="a@b.c")
+    await adapter.synchronize(mailbox, Checkpoint(mailbox_id="mbx-inbox", history_id="500"))
+
+    history_calls = [u for u in seen if "/history" in u]
+    assert len(history_calls) == 1
+    assert "labelId=INBOX" in history_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_initial_sync_lists_only_inbox_messages() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if request.url.path.endswith("/messages"):
+            return httpx.Response(200, json={"messages": []}, request=request)
+        return httpx.Response(404, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    mailbox = Mailbox(id="mbx-init", organization_id="org-01", provider="gmail", address="a@b.c")
+    await adapter.synchronize(mailbox, Checkpoint(mailbox_id="mbx-init", history_id=None))
+
+    assert any("labelIds=INBOX" in u for u in seen), seen
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_a_message_deleted_after_history_listed_it() -> None:
+    """drafts.send deletes the draft; a 404 on one message must not fail the whole sync (6.7)."""
+    raw_ok = encode_urlsafe_b64(b"Subject: kept\r\n\r\nbody")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/history" in url:
+            return httpx.Response(
+                200,
+                json={
+                    "history": [
+                        {"messagesAdded": [{"message": {"id": "gone-1"}}]},
+                        {"messagesAdded": [{"message": {"id": "kept-1"}}]},
+                    ],
+                    "historyId": "700",
+                },
+                request=request,
+            )
+        if "/messages/kept-1" in url:
+            return httpx.Response(
+                200, json={"id": "kept-1", "threadId": "th-k", "raw": raw_ok}, request=request
+            )
+        return httpx.Response(404, json={"error": {"code": 404}}, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    mailbox = Mailbox(id="mbx-gone", organization_id="org-01", provider="gmail", address="a@b.c")
+    res = await adapter.synchronize(mailbox, Checkpoint(mailbox_id="mbx-gone", history_id="650"))
+
+    assert [m.provider_message_id for m in res.messages] == ["kept-1"]
+    assert res.requires_full_resync is False
+    assert res.new_checkpoint.history_id == "700"

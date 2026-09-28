@@ -17,6 +17,10 @@ PROVIDER_SECRET_ENV_VARS = [
     "COHERE_API_KEY",
     "GMAIL_CLIENT_SECRET",
     "MS_GRAPH_CLIENT_SECRET",
+    # Short-lived mailbox tokens for the owner-run live gate (6.10); the registry falls back to
+    # them for any mailbox without credentials_ref (packages/adapters/registry.py).
+    "GMAIL_ACCESS_TOKEN",
+    "GRAPH_ACCESS_TOKEN",
 ]
 
 
