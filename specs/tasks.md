@@ -901,6 +901,11 @@
   - Document the scaled architecture (RabbitMQ cluster, managed PostgreSQL, S3, Kubernetes) and the per-service scaling signals, without requiring implementation.
   - _Requirements: R20.9_
 
+- [ ] **8.10 Per-mailbox Gmail credentials only**
+  - Discovered missing work (GEMINI.md §7, Phase 6 planning, owner decision E5 on 2026-09-29): `resolve_provider_credentials` in `packages/adapters/registry.py` falls back to the `GMAIL_ACCESS_TOKEN` environment variable for any Gmail mailbox without a resolvable `credentials_ref`, so one token reaches every Gmail mailbox, including seeded demo mailboxes. Drop the fallback so a mailbox only gets the token its own `credentials_ref` names (`make connect-gmail` already sets `env:GMAIL_ACCESS_TOKEN`), and update the adapter-registry tests.
+  - Until this lands: do not approve drafts of seeded demo mailboxes while `GMAIL_ACCESS_TOKEN` is set (`docs/demo-runbook.md`).
+  - _Requirements: R1.1, R23.6_
+
 > **Phase 8 gate:** a 20× burst is absorbed without job loss; adding AI-worker replicas measurably raises throughput; every failure scenario recovers with zero duplicates; the migration path is documented and the decision record is complete.
 
 ---
@@ -911,7 +916,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 
 | Requirement group | Tasks |
 |---|---|
-| R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7, 6.3a |
+| R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7, 6.3a, 8.10 |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
 | R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13 |
