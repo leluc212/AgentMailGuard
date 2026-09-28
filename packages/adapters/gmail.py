@@ -451,21 +451,28 @@ class GmailProviderAdapter:
         )
 
     async def get_thread(self, mailbox: Mailbox, provider_thread_id: str) -> RawThread:
-        """Fetch raw messages belonging to a thread (R1.1, R1.4)."""
-        url = f"{self.base_url}/threads/{provider_thread_id}?format=raw"
+        """Fetch raw messages belonging to a thread (R1.1, R1.4).
+
+        threads.get offers no RAW format (only full / metadata / minimal), so the thread
+        lists the message ids and each message's raw MIME comes from messages.get.
+        """
+        url = f"{self.base_url}/threads/{quote(provider_thread_id, safe='')}?format=minimal"
         resp = await self._request("GET", url, mailbox_id=str(mailbox.id))
         data = resp.json()
 
         messages: list[RawMessage] = []
         for msg_data in data.get("messages", []):
-            mid = msg_data.get("id", "")
-            raw_b64 = msg_data.get("raw", "")
-            raw_b = decode_urlsafe_b64(raw_b64) if raw_b64 else b""
+            mid = msg_data.get("id")
+            if not mid:
+                continue
+            fetched = await self.get_message(mailbox, mid)
             messages.append(
                 RawMessage(
                     provider_message_id=mid,
                     provider_thread_id=provider_thread_id,
-                    raw_payload=raw_b,
+                    raw_payload=fetched.raw_payload,
+                    internal_date=fetched.internal_date,
+                    history_id=fetched.history_id,
                 )
             )
 

@@ -230,13 +230,11 @@ def create_mock_gmail_transport() -> httpx.MockTransport:
             if state["sent"]:
                 messages.append(meta("sent-msg-102", ["SENT"], "<contract-reply-001@example.com>"))
             return httpx.Response(200, json={"id": "th-001", "messages": messages}, request=request)
-        if "/threads/th-001" in url:
+        if path.endswith("/threads/th-001") and request.url.params.get("format") == "minimal":
+            # threads.get has no RAW format; get_thread fetches each message's raw MIME.
             return httpx.Response(
                 200,
-                json={
-                    "id": "th-001",
-                    "messages": [{"id": "msg-001", "threadId": "th-001", "raw": raw_b64}],
-                },
+                json={"id": "th-001", "messages": [{"id": "msg-001", "threadId": "th-001"}]},
                 request=request,
             )
         return httpx.Response(404, json={"error": "Not Found"}, request=request)
@@ -878,3 +876,51 @@ async def test_sync_skips_a_message_deleted_after_history_listed_it() -> None:
     assert [m.provider_message_id for m in res.messages] == ["kept-1"]
     assert res.requires_full_resync is False
     assert res.new_checkpoint.history_id == "700"
+
+
+@pytest.mark.asyncio
+async def test_get_thread_lists_ids_then_fetches_each_message_raw() -> None:
+    """threads.get has no RAW format (only full/metadata/minimal, Gmail REST reference, checked
+    2026-09-28): the thread lists ids and each message's raw MIME comes from messages.get."""
+    raw_a = b"Subject: first\r\n\r\nA"
+    raw_b = b"Subject: Re: first\r\n\r\nB"
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        path = request.url.path
+        fmt = request.url.params.get("format")
+        if path.endswith("/threads/th-9"):
+            if fmt != "minimal":
+                return httpx.Response(
+                    400, json={"error": {"code": 400, "message": "Invalid format"}}, request=request
+                )
+            return httpx.Response(
+                200,
+                json={"id": "th-9", "messages": [{"id": "m-a"}, {"id": "m-b"}]},
+                request=request,
+            )
+        if path.endswith("/messages/m-a") and fmt == "raw":
+            return httpx.Response(
+                200,
+                json={"id": "m-a", "threadId": "th-9", "raw": encode_urlsafe_b64(raw_a)},
+                request=request,
+            )
+        if path.endswith("/messages/m-b") and fmt == "raw":
+            return httpx.Response(
+                200,
+                json={"id": "m-b", "threadId": "th-9", "raw": encode_urlsafe_b64(raw_b)},
+                request=request,
+            )
+        return httpx.Response(404, json={"error": {"code": 404}}, request=request)
+
+    adapter = GmailProviderAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    mailbox = Mailbox(id="mbx-th", organization_id="org-01", provider="gmail", address="a@b.c")
+    thread = await adapter.get_thread(mailbox, "th-9")
+
+    assert thread.provider_thread_id == "th-9"
+    assert [(m.provider_message_id, m.raw_payload) for m in thread.messages] == [
+        ("m-a", raw_a),
+        ("m-b", raw_b),
+    ]
+    assert all(m.provider_thread_id == "th-9" for m in thread.messages)
