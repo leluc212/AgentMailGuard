@@ -367,12 +367,21 @@
   - `POST /v1/search/debug` returning the constructed query, both branch result lists with ranks, fused scores, rerank scores, and the final selection.
   - _Requirements: R23.3_
 
-- [~] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
+- [x] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
   - Nothing in the production path fills `RetrievalQuery.query_vector`, so the pgvector branch returns no candidates (`packages/retrieval/postgres.py:192`) and hybrid retrieval runs lexical-only. Evidence: `grep -rn "query_vector" packages services` finds no producer.
   - Embed the query's semantic text with the configured embedder (`packages/knowledge/embedder.py`, the same model and dimension as the corpus, R5.10) in `RetrievalQueryBuilder` or the `ContextBuilder`, guarded by a timeout so a slow embedder degrades to lexical-only (R10.9). Count embedding tokens (`embedding_tokens_total`).
-  - Implemented: `HybridRetriever` embeds `semantic_text` inside the vector branch when a query has no vector. Embedding and the ANN search share the vector-branch timeout (`RETRIEVAL__RETRIEVAL_TIMEOUT_MS`, now honoured by the ai-worker and `/v1/search/debug`). An embedder error, timeout, or unusable vector (wrong length or all zeros) fails only the vector branch, and retrieval degrades to lexical (R10.6). The ai-worker and the API use the configured embedder (the corpus model, R5.10) with metrics, so query and ingestion tokens are counted (R9.11). The ai-worker checks the vector dimension at startup, both workers close their embedder after their consumers drain, and compose forwards the embedding model, URL and key.
-  - Proof so far: unit tests for embed, timeout, error, unusable vector, empty text, no re-embed, no mutation, token count and shutdown order; live pgvector integration (vector-only hit, tenant-isolated); API lifespan integration (configured embedder attached). `make ci` green (unit 1341, integration 158).
-  - Left: the live gate (`make up`, then `make retrieval-gate`), then a completion audit before `[x]`.
+  - Implemented: `HybridRetriever` embeds `semantic_text` inside the vector branch when a query has no vector. Embedding and the ANN search share the vector-branch timeout (`RETRIEVAL__RETRIEVAL_TIMEOUT_MS`, now honoured by the ai-worker and `/v1/search/debug`). An embedder error, timeout, or unusable vector (wrong length or all zeros) fails only the vector branch, and retrieval degrades to lexical (R10.6). The ai-worker and the API use the configured embedder (the corpus model, R5.10); the ai-worker and the knowledge worker count its tokens (R9.11). The ai-worker checks the vector dimension at startup, both workers close their embedder after their consumers drain, and compose forwards the embedding model, URL and key.
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1350, integration 158). Every bullet and R10.1, R10.9 and R9.11 was traced to code and to a test that fails without it. The embedding sits in `HybridRetriever`, so it shares the vector-branch budget and `RetrievalQueryBuilder` stays synchronous. The user ran the live gate: `make up` rebuilt the images, and the ai-worker logged `configured=1536, database=1536`. `make retrieval-gate` found the uploaded document through the vector branch alone (not degraded, `lexical_count` 0, dimension 1536), both for a probe query and for the billing email's own query, and the ai-worker retrieved 1 chunk for that email. `embedding_tokens_total` moved on the ai-worker (queries) and the knowledge worker (ingestion). `make smoke` and `make phase4-gate` still pass. The stack embeds with `FakeEmbedder`, so this proves wiring, not semantic quality. The fix pass before flipping:
+    - `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` is forwarded into the app containers.
+    - Embedder errors carry the HTTP status only, never the provider body, which can echo email text.
+    - The gate asserts the vector-only hit instead of arguing it.
+  - Deferred:
+    - `/v1/search/debug` query tokens are not counted in mock mode (the API gives `FakeEmbedder` no metrics); real embeddings are counted.
+    - The debug API does not validate a caller-supplied `query_vector` (wrong length, all zeros, or empty).
+    - The gate leaks raw MIME objects when the email never reaches `DRAFTED`.
+    - A hosted embedding request cut off by the timeout is billed but not counted.
+    - No hosted embedder has run live. NFR5 with one is unmeasured, and the 500 ms per-branch default may need raising (docs/configuration.md §2.5).
+    - Compose does not forward `EMBEDDING__DIMENSION`: every container uses the default 1536, and changing it in `.env` has no effect under compose.
   - _Requirements: R10.1, R10.9, R9.11_
 
 > **Phase 3 gate:** a support email retrieves the correct procedure chunk; an invoice-identifier email retrieves the correct billing chunk via the lexical branch; disabling either branch degrades gracefully; the debug endpoint explains every ranking decision; hybrid retrieval measurably beats vector-only on the **seed** benchmark set from task 0.13 (first evidence for H1; the full comparison is exp02 in Phase 3's successor phase); and filtered vector search returns full top-N across ≥3 seeded tenants.
@@ -570,6 +579,7 @@
     - Smoke step 1 does not check the ai-worker lane consumers.
     - LLM API keys are not forwarded into compose.
     - Nothing validates `RESUMMARIZE_LAG_MESSAGES` ≤ `KEEP_LATEST_MESSAGES`; a larger lag silently drops the messages between the summary point and the verbatim window.
+    - The lag rule's result may depend on arrival timing: `make phase4-gate`'s 12-message thread ended at summary v2 on 2026-09-27 and v3 on 2026-09-28 (v3 matches refreshes at messages 5, 8, 11). Suspected cause: messages that share a 1-second `Date` header sort ambiguously.
     - Query embedding is 3.16.
   - _Requirements: R3.4, R11.7, R19.7, R20.1, R20.7, R20.8, R22.8, R24.7_
 
