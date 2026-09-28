@@ -3,6 +3,17 @@
 Imports standard library and packages/core ONLY.
 """
 
+from packages.domain.business import (
+    BusinessContext,
+    BusinessFact,
+    CustomerStatus,
+    EntityRef,
+    EntityType,
+    FactStatus,
+    FetchPlan,
+    NotLookedUpReason,
+    unavailable_context,
+)
 from packages.domain.entities import (
     AttachmentRef,
     Candidate,
@@ -77,10 +88,13 @@ __all__ = [
     "RETRIEVAL_CATEGORIES",
     "TRANSITIONS",
     "AttachmentRef",
+    "BusinessContext",
+    "BusinessFact",
     "Candidate",
     "Category",
     "CategoryDefinition",
     "Checkpoint",
+    "CustomerStatus",
     "Classification",
     "ContextPackage",
     "DraftRef",
@@ -91,6 +105,10 @@ __all__ = [
     "EmailContext",
     "EmailThread",
     "EmbeddingRecord",
+    "EntityRef",
+    "EntityType",
+    "FactStatus",
+    "FetchPlan",
     "GeneratedDraft",
     "IllegalStateTransitionError",
     "Job",
@@ -99,6 +117,7 @@ __all__ = [
     "KnowledgeDocument",
     "Mailbox",
     "NormalizedMessage",
+    "NotLookedUpReason",
     "OutboundReply",
     "ParsedDocument",
     "ProcessingEvent",
@@ -123,6 +142,7 @@ __all__ = [
     "normalize_category",
     "substitute_variables",
     "transition_job",
+    "unavailable_context",
     "validate_category",
     "validate_transition",
 ]
