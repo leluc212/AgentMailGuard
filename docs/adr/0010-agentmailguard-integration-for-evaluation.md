@@ -7,7 +7,7 @@
 
 ## Context
 
-`GEMINI.md` §6 and `requirements.md` §0.5 exclude prompt-injection defences from rag-email and say they are "designed as separate cross-cutting subsystems". AgentMailGuard, on branch `feature/mailguard-defense-stack` (separate history, no shared commits), is that subsystem: a five-layer guard (L1 inbound scanner, L2 intent extraction, L3/L3b channel isolation and retrieved-chunk scanning, L4 output scanner, L5 policy) with integration adapters that work with rag-email's `ContextPackage` and `LLMProvider` without importing them. The owner needs rag-email measured against prompt-injection attacks with and without it.
+`GEMINI.md` §6 and `requirements.md` §0.5 exclude prompt-injection defences from rag-email and say they are "designed as separate cross-cutting subsystems". AgentMailGuard, on branch `feature/mailguard-defense-stack` (separate history, no shared commits), is that subsystem: a five-layer guard (L1 inbound scanner, L2 intent extraction, L3/L3b channel isolation and retrieved-chunk scanning, L4 output scanner, L5 policy) with integration adapters that work with rag-email's `ContextPackage` and `LLMProvider` without importing them. AgentMailGuard is the project's main contribution. rag-email was built as its host because no company's RAG email system was available to integrate with, so AgentMailGuard must be evaluated running inside rag-email, with and without the guard, on the same attacks.
 
 ## Decision
 
