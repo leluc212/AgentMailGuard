@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate llm-smoke
 
 UV ?= uv
 
@@ -17,6 +17,7 @@ help:
 	@echo "  broker-migrate-retry - One-time: delete empty stale retry queues (RA.3)"
 	@echo "  image-smoke - Build the runtime image and smoke-check its entrypoints and assets (RA.11)"
 	@echo "  smoke    - End-to-end check of the running stack (RA gate)"
+	@echo "  llm-smoke - Live check: one triage + one draft request through the configured LLM (task 5.0; not CI)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -91,3 +92,6 @@ phase4-gate:
 
 retrieval-gate:
 	$(UV) run python scripts/retrieval_gate.py
+
+llm-smoke:
+	$(UV) run python scripts/llm_smoke.py
