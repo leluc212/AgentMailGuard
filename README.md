@@ -278,6 +278,10 @@ make test
 ```
 Integration tests run in an isolated vhost/database (`rag_email_test`) and never touch the running stack.
 
+The review UI browser tests (`make test-e2e`, part of `make ci`) need Chromium once:
+`uv run playwright install chromium`. They run the real UI and API against the isolated
+`rag_email_test` database and never touch the running stack.
+
 ### 5. Access Management & Telemetry Consoles
 - **Review UI (drafts, timelines, knowledge upload)**: [http://localhost:3001](http://localhost:3001) — bound to 127.0.0.1, no login (ADR-0009); set `FRONTEND__ORGANIZATION_ID` in `.env`
 - **API Documentation (OpenAPI / Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)

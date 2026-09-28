@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke
 
 UV ?= uv
 
@@ -10,6 +10,7 @@ help:
 	@echo "  migrate  - Run database migrations (Task 0.4)"
 	@echo "  seed     - Seed database with reference organizations/mailboxes (Task 0.12)"
 	@echo "  test     - Run unit and integration tests"
+	@echo "  test-e2e - Browser tests of the review UI (Playwright; needs 'uv run playwright install chromium')"
 	@echo "  lint     - Run static analysis and formatting checks (ruff, mypy)"
 	@echo "  fmt      - Auto-format codebase using ruff"
 	@echo "  eval     - Run RAG and classification evaluation benchmarks (Phase 7)"
@@ -52,6 +53,9 @@ test-unit:
 test-integration:
 	$(UV) run pytest tests/integration -v
 
+test-e2e:
+	$(UV) run pytest tests/e2e -v
+
 lint:
 	$(UV) run ruff check .
 	$(UV) run mypy packages services tests evaluation
@@ -63,7 +67,7 @@ fmt:
 fmt-check:
 	$(UV) run ruff format --check .
 
-ci: fmt-check lint test-unit test-integration
+ci: fmt-check lint test-unit test-integration test-e2e
 
 eval:
 	@echo "[INFO] Evaluation benchmark runners configured in Phase 7 / Task 0.13."
