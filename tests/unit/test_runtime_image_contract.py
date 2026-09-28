@@ -179,3 +179,14 @@ def test_compose_llm_endpoint_defaults_defer_to_settings(variable: str) -> None:
     for service in ("api", "triage-worker", "ai-worker"):
         env = compose["services"][service]["environment"]
         assert env[variable] == "${" + variable + ":-}", service
+
+
+def test_dispatch_worker_runs_its_entrypoint_with_readiness() -> None:
+    """6.5: the dispatch-worker is a real service, not the Phase-0 stub."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    service = compose["services"]["dispatch-worker"]
+    assert service["command"] == ["python", "-m", "services.dispatch_worker.main"]
+    assert "http://localhost:8006/readyz" in service["healthcheck"]["test"]
+    assert service["environment"]["SERVICE_NAME"] == "dispatch_worker"
+    assert service["environment"]["DATABASE__HOST"] == "postgres"  # merged *app-env
+    assert service["environment"]["GMAIL_ACCESS_TOKEN"] == "${GMAIL_ACCESS_TOKEN:-}"

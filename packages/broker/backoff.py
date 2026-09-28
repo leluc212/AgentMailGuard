@@ -7,6 +7,7 @@ Requirements:
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Literal
 
@@ -93,3 +94,20 @@ def resolve_retry_tier_delay(
         return cfg.tier_2_delay_s
     else:
         return cfg.tier_3_delay_s
+
+
+def resolve_retry_after_tier_delay(
+    retry_after_s: float,
+    settings: RetryLadderSettings | None = None,
+) -> int:
+    """First declared retry tier whose delay is >= Retry-After, capped at the last tier.
+
+    Requirements: R17.5, design.md §5.8 ("a Retry-After picks the first ladder tier >=
+    Retry-After, capped at the last tier"). Negative values count as 0.
+    """
+    cfg = settings or RetryLadderSettings()
+    wait = math.ceil(max(0.0, retry_after_s))
+    for tier in (cfg.tier_1_delay_s, cfg.tier_2_delay_s, cfg.tier_3_delay_s):
+        if wait <= tier:
+            return tier
+    return cfg.tier_3_delay_s

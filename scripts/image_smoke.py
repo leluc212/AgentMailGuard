@@ -16,6 +16,7 @@ for module in (
     "services.knowledge_worker.main",
     "services.triage_worker.main",
     "services.ai_worker.main",
+    "services.dispatch_worker.main",
     "services.mail_connector.main",
     "packages.broker.cli",
     "packages.db.cli",

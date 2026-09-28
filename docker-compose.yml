@@ -289,18 +289,23 @@ services:
   dispatch-worker:
     build: *app-build
     restart: unless-stopped
+    command: ["python", "-m", "services.dispatch_worker.main"]
+    stop_grace_period: 30s
     expose:
       - "8006"
     environment:
+      <<: *app-env
       SERVICE_NAME: dispatch_worker
       PORT: "8006"
+      # The dispatch-worker calls the provider; the token is short-lived (ADR-0009).
+      GMAIL_ACCESS_TOKEN: ${GMAIL_ACCESS_TOKEN:-}
     depends_on: *after-init
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8006/readyz"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 20s
 
   frontend:
     build: *app-build

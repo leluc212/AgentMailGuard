@@ -14,7 +14,11 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from packages.broker.backoff import calculate_exponential_backoff, resolve_retry_tier_delay
+from packages.broker.backoff import (
+    calculate_exponential_backoff,
+    resolve_retry_after_tier_delay,
+    resolve_retry_tier_delay,
+)
 from packages.broker.envelope import JobEnvelope
 from packages.core.settings import RetryLadderSettings
 from packages.domain.state_machine import JobState
@@ -92,6 +96,7 @@ async def handle_job_transient_failure(
     origin_routing_key: str,
     queue_name: str,
     job_store: JobStoreProtocol | None = None,
+    retry_after_s: float | None = None,
 ) -> JobEnvelope:
     """Handle a transient failure: transition to RETRY_PENDING and publish to retry ladder.
 
@@ -115,6 +120,9 @@ async def handle_job_transient_failure(
         Name of the queue being consumed.
     job_store : JobStoreProtocol | None
         Optional durable store for state transitions.
+    retry_after_s : float | None
+        Provider-requested wait (Retry-After). When given, it picks the first ladder tier
+        >= its value, capped at the last tier, instead of the attempt-based tier (R17.5).
 
     Returns
     -------
@@ -122,7 +130,11 @@ async def handle_job_transient_failure(
         Updated envelope with incremented attempt count.
     """
     next_attempt = envelope.attempt + 1
-    delay_s = resolve_retry_tier_delay(next_attempt, retry_settings)
+    delay_s = (
+        resolve_retry_tier_delay(next_attempt, retry_settings)
+        if retry_after_s is None
+        else resolve_retry_after_tier_delay(retry_after_s, retry_settings)
+    )
     jittered_s = calculate_exponential_backoff(
         attempt=next_attempt,
         base_s=retry_settings.backoff_base_s,
@@ -150,6 +162,7 @@ async def handle_job_transient_failure(
                         "attempt": next_attempt,
                         "delay_s": delay_s,
                         "jittered_delay_s": round(jittered_s, 2),
+                        "retry_after_s": retry_after_s,
                         "error": str(exception),
                         "error_type": type(exception).__name__,
                         "origin_routing_key": origin_routing_key,

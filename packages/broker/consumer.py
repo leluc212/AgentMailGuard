@@ -118,6 +118,31 @@ class BaseConsumer(ABC):
         """Determine whether an exception qualifies for retry backoff."""
         return not isinstance(exc, FatalError)
 
+    def retry_after_s(self, exc: Exception) -> float | None:
+        """Provider-requested wait carried by ``exc`` (Retry-After), or None (R17.5).
+
+        A non-None value picks the first retry tier >= it instead of the attempt tier.
+        """
+        return None
+
+    async def prepare_delivery(self, envelope: JobEnvelope) -> None:
+        """Run before ``process_job``: recover a RETRY_PENDING job and take a claim lease.
+
+        Requirements: R19.5 (RETRY_PENDING -> GENERATING on redelivery), R19.8 (lease on
+        claim). Consumers whose job claims itself (the dispatch-worker, design.md §5.8)
+        override this.
+        """
+        await handle_job_recovery(envelope=envelope, job_store=self.job_store)
+        if self.job_store is not None and is_valid_uuid(envelope.job_id):
+            try:
+                await self.job_store.acquire_lease(
+                    organization_id=envelope.organization_id,
+                    job_id=UUID(envelope.job_id),
+                    lease_timeout_s=self.lease_timeout_s,
+                )
+            except Exception as lease_err:
+                logger.warning("Failed to acquire lease for job %s: %s", envelope.job_id, lease_err)
+
     def get_retry_delay_s(self, attempt: int) -> int:
         """Calculate delay in seconds for the given retry attempt tier (R3.4, R7.2)."""
         return resolve_retry_tier_delay(attempt, self.retry_settings)
@@ -308,22 +333,8 @@ class BaseConsumer(ABC):
             track_ctx,
         ):
             try:
-                # 3.5 Re-deliver recovery: if job is in RETRY_PENDING,
-                # transition to GENERATING (R19.5, R18.2)
-                await handle_job_recovery(envelope=envelope, job_store=self.job_store)
-
-                # 3.6 Acquire lease on claim (R19.8, design.md §9)
-                if self.job_store is not None and is_valid_uuid(envelope.job_id):
-                    try:
-                        await self.job_store.acquire_lease(
-                            organization_id=envelope.organization_id,
-                            job_id=UUID(envelope.job_id),
-                            lease_timeout_s=self.lease_timeout_s,
-                        )
-                    except Exception as lease_err:
-                        logger.warning(
-                            "Failed to acquire lease for job %s: %s", envelope.job_id, lease_err
-                        )
+                # 3.5 / 3.6 Redelivery recovery and claim lease (R19.5, R19.8), overridable
+                await self.prepare_delivery(envelope)
 
                 # 4. Execute consumer processing
                 await self.process_job(envelope, message)
@@ -344,6 +355,7 @@ class BaseConsumer(ABC):
                         origin_routing_key=origin_routing_key,
                         queue_name=self.queue_name,
                         job_store=self.job_store,
+                        retry_after_s=self.retry_after_s(exc),
                     )
                     # Ack original message so it doesn't block prefetch or queue
                     await self._ack_or_warn(message, envelope)
