@@ -56,15 +56,15 @@ async def test_seed_database_live_lifecycle(
     assert summary.mailboxes_count == 4
     assert summary.customers_count == 4
     assert summary.products_count == 3
-    assert summary.orders_count == 2
-    assert summary.order_items_count == 2
+    assert summary.orders_count == 3
+    assert summary.order_items_count == 4
     assert summary.tickets_count == 2
     assert summary.knowledge_docs_count == expected_docs
     assert summary.knowledge_chunks_count == expected_chunks
     assert summary.embeddings_count == expected_chunks
-    assert summary.threads_count == 6
-    assert summary.messages_count == 9
-    assert summary.mime_objects_uploaded == 9
+    assert summary.threads_count == 7
+    assert summary.messages_count == 10
+    assert summary.mime_objects_uploaded == 10
 
     # 2. Verify rows in PostgreSQL
     async with db_pool.acquire() as conn:
@@ -102,7 +102,7 @@ async def test_seed_database_live_lifecycle(
             'SELECT count(*) FROM "order" WHERE organization_id = $1',
             DEMO_ORG_ID,
         )
-        assert order_count == 2
+        assert order_count == 3
 
         chunk_count = await conn.fetchval(
             "SELECT count(*) FROM knowledge_chunk WHERE organization_id = ANY($1::uuid[])",
@@ -120,13 +120,13 @@ async def test_seed_database_live_lifecycle(
             "SELECT count(*) FROM email_thread WHERE organization_id = $1",
             DEMO_ORG_ID,
         )
-        assert thread_count == 6
+        assert thread_count == 7
 
         msg_count = await conn.fetchval(
             "SELECT count(*) FROM email_message WHERE organization_id = $1",
             DEMO_ORG_ID,
         )
-        assert msg_count == 9
+        assert msg_count == 10
 
 
 async def test_seed_database_idempotency(
@@ -142,7 +142,7 @@ async def test_seed_database_idempotency(
     # Second pass
     summary = await seed_database(pool=db_pool, storage=storage_client, clean=False)
     assert summary.tenants_count == 3
-    assert summary.messages_count == 9
+    assert summary.messages_count == 10
     assert summary.knowledge_chunks_count == expected_chunks
 
     # Verify counts remain unchanged
@@ -151,7 +151,7 @@ async def test_seed_database_idempotency(
             "SELECT count(*) FROM email_message WHERE organization_id = $1",
             DEMO_ORG_ID,
         )
-        assert msg_count == 9
+        assert msg_count == 10
 
         chunk_count = await conn.fetchval(
             "SELECT count(*) FROM knowledge_chunk WHERE organization_id = ANY($1::uuid[])",

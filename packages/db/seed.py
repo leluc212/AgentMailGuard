@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.message import EmailMessage
@@ -36,6 +37,12 @@ from packages.db.fixtures.business import (
     BUSINESS_ORDERS,
     BUSINESS_PRODUCTS,
     BUSINESS_TICKETS,
+)
+from packages.db.fixtures.business_tenants import (
+    BUSINESS_TENANT_CUSTOMERS,
+    BUSINESS_TENANT_ORDERS,
+    BUSINESS_TENANT_ORGS,
+    BUSINESS_TENANT_TICKETS,
 )
 from packages.db.fixtures.emails import FIXTURE_EMAILS
 from packages.db.fixtures.knowledge import (
@@ -130,6 +137,156 @@ def deterministic_embed(text: str, dim: int = 1536) -> list[float]:
     return [x / norm for x in raw_values]
 
 
+async def upsert_business_records(
+    conn: asyncpg.Connection[Any],
+    *,
+    customers: Sequence[Mapping[str, Any]],
+    orders: Sequence[Mapping[str, Any]],
+    tickets: Sequence[Mapping[str, Any]],
+    products: Sequence[Mapping[str, Any]] = (),
+    order_items: Sequence[Mapping[str, Any]] = (),
+) -> None:
+    """Upsert business CRM/ERP rows by id (R13.1). Idempotent; the caller owns the transaction.
+
+    Records use the packages/db/fixtures/business.py shape. An order without `placed_at` is
+    placed two days ago and a ticket without `opened_at` was opened a day ago, as before.
+    """
+    for cust in customers:
+        await conn.execute(
+            """
+            INSERT INTO customer (id, organization_id, email, name, account_status, tier)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                email = EXCLUDED.email,
+                account_status = EXCLUDED.account_status,
+                tier = EXCLUDED.tier
+            """,
+            cust["id"],
+            cust["organization_id"],
+            cust["email"],
+            cust["name"],
+            cust.get("account_status", "active"),
+            cust.get("tier", "standard"),
+        )
+
+    for prod in products:
+        await conn.execute(
+            """
+            INSERT INTO product (id, organization_id, sku, name, price, status)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (id) DO UPDATE SET
+                sku = EXCLUDED.sku,
+                name = EXCLUDED.name,
+                price = EXCLUDED.price,
+                status = EXCLUDED.status
+            """,
+            prod["id"],
+            prod["organization_id"],
+            prod["sku"],
+            prod["name"],
+            prod["price"],
+            prod["status"],
+        )
+
+    for order in orders:
+        await conn.execute(
+            """
+            INSERT INTO "order" (
+                id, organization_id, customer_id, order_number, status, total,
+                placed_at, shipped_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                COALESCE($7::timestamptz, now() - INTERVAL '2 days'), $8::timestamptz
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                order_number = EXCLUDED.order_number,
+                status = EXCLUDED.status,
+                total = EXCLUDED.total,
+                placed_at = EXCLUDED.placed_at,
+                shipped_at = EXCLUDED.shipped_at
+            """,
+            order["id"],
+            order["organization_id"],
+            order["customer_id"],
+            order["order_number"],
+            order["status"],
+            order["total"],
+            order.get("placed_at"),
+            order.get("shipped_at"),
+        )
+
+    for item in order_items:
+        await conn.execute(
+            """
+            INSERT INTO order_item (
+                id, organization_id, order_id, product_id, quantity, unit_price
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            item["id"],
+            item["organization_id"],
+            item["order_id"],
+            item["product_id"],
+            item["quantity"],
+            item["unit_price"],
+        )
+
+    for ticket in tickets:
+        await conn.execute(
+            """
+            INSERT INTO ticket (
+                id, organization_id, customer_id, ticket_number, status,
+                priority, subject, opened_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                COALESCE($8::timestamptz, now() - INTERVAL '1 day')
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                ticket_number = EXCLUDED.ticket_number,
+                status = EXCLUDED.status,
+                priority = EXCLUDED.priority,
+                subject = EXCLUDED.subject,
+                opened_at = EXCLUDED.opened_at
+            """,
+            ticket["id"],
+            ticket["organization_id"],
+            ticket["customer_id"],
+            ticket["ticket_number"],
+            ticket["status"],
+            ticket["priority"],
+            ticket["subject"],
+            ticket.get("opened_at"),
+        )
+
+
+async def seed_business_tenant_fixtures(pool: asyncpg.Pool[Any]) -> None:
+    """Load the 3-tenant business test fixtures (GEMINI.md §8, R13.4). Idempotent.
+
+    Test-only: `make seed` does not call this, so the demo seed and its counts stay as they are.
+    """
+    async with pool.acquire() as conn, conn.transaction():
+        for org in BUSINESS_TENANT_ORGS:
+            await conn.execute(
+                """
+                INSERT INTO organization (id, name, settings)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    settings = EXCLUDED.settings
+                """,
+                org["id"],
+                org["name"],
+                json.dumps(org["settings"]),
+            )
+        await upsert_business_records(
+            conn,
+            customers=BUSINESS_TENANT_CUSTOMERS,
+            orders=BUSINESS_TENANT_ORDERS,
+            tickets=BUSINESS_TENANT_TICKETS,
+        )
+
+
 async def seed_database(
     pool: asyncpg.Pool[Any],
     storage: StorageProtocol | None = None,
@@ -204,100 +361,14 @@ async def seed_database(
 
         # 3. Seed Business CRM & ERP Records
         logger.info("Seeding business records (customers, products, orders, tickets)...")
-        for cust in BUSINESS_CUSTOMERS:
-            await conn.execute(
-                """
-                INSERT INTO customer (id, organization_id, email, name, account_status, tier)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    email = EXCLUDED.email,
-                    account_status = EXCLUDED.account_status,
-                    tier = EXCLUDED.tier
-                """,
-                cust["id"],
-                cust["organization_id"],
-                cust["email"],
-                cust["name"],
-                cust["account_status"],
-                cust["tier"],
-            )
-
-        for prod in BUSINESS_PRODUCTS:
-            await conn.execute(
-                """
-                INSERT INTO product (id, organization_id, sku, name, price, status)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (id) DO UPDATE SET
-                    sku = EXCLUDED.sku,
-                    name = EXCLUDED.name,
-                    price = EXCLUDED.price,
-                    status = EXCLUDED.status
-                """,
-                prod["id"],
-                prod["organization_id"],
-                prod["sku"],
-                prod["name"],
-                prod["price"],
-                prod["status"],
-            )
-
-        for order in BUSINESS_ORDERS:
-            await conn.execute(
-                """
-                INSERT INTO "order" (
-                    id, organization_id, customer_id, order_number, status, total, placed_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, now() - INTERVAL '2 days')
-                ON CONFLICT (id) DO UPDATE SET
-                    order_number = EXCLUDED.order_number,
-                    status = EXCLUDED.status,
-                    total = EXCLUDED.total
-                """,
-                order["id"],
-                order["organization_id"],
-                order["customer_id"],
-                order["order_number"],
-                order["status"],
-                order["total"],
-            )
-
-        for item in BUSINESS_ORDER_ITEMS:
-            await conn.execute(
-                """
-                INSERT INTO order_item (
-                    id, organization_id, order_id, product_id, quantity, unit_price
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (id) DO NOTHING
-                """,
-                item["id"],
-                item["organization_id"],
-                item["order_id"],
-                item["product_id"],
-                item["quantity"],
-                item["unit_price"],
-            )
-
-        for ticket in BUSINESS_TICKETS:
-            await conn.execute(
-                """
-                INSERT INTO ticket (
-                    id, organization_id, customer_id, ticket_number, status,
-                    priority, subject, opened_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, now() - INTERVAL '1 day')
-                ON CONFLICT (id) DO UPDATE SET
-                    ticket_number = EXCLUDED.ticket_number,
-                    status = EXCLUDED.status,
-                    priority = EXCLUDED.priority,
-                    subject = EXCLUDED.subject
-                """,
-                ticket["id"],
-                ticket["organization_id"],
-                ticket["customer_id"],
-                ticket["ticket_number"],
-                ticket["status"],
-                ticket["priority"],
-                ticket["subject"],
-            )
+        await upsert_business_records(
+            conn,
+            customers=BUSINESS_CUSTOMERS,
+            products=BUSINESS_PRODUCTS,
+            orders=BUSINESS_ORDERS,
+            order_items=BUSINESS_ORDER_ITEMS,
+            tickets=BUSINESS_TICKETS,
+        )
 
         # 4. Seed Knowledge Documents, Chunks, and Embeddings
         logger.info("Seeding %d knowledge documents with embeddings...", len(KNOWLEDGE_DOCS))

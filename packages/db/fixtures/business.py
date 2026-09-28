@@ -1,9 +1,12 @@
 """Business CRM and ERP record fixtures (R5.9, R13.1).
 
 Defines realistic relational entities (customers, products, orders, items, tickets)
-matching identifiers cited in fixture emails.
+matching identifiers cited in fixture emails. Orders carry `placed_at` / `shipped_at` and
+tickets `opened_at` (tz-aware UTC), so "most recent first" snapshots are deterministic
+for every customer (design §5.4).
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -24,6 +27,7 @@ PROD_CABLE_ID = UUID("20000000-0000-0000-0000-000000000003")
 # Stable order UUIDs
 ORDER_9901_ID = UUID("30000000-0000-0000-0000-000000000001")
 ORDER_8820_ID = UUID("30000000-0000-0000-0000-000000000002")
+ORDER_82915_ID = UUID("30000000-0000-0000-0000-000000000003")
 
 # Stable ticket UUIDs
 TICKET_4402_ID = UUID("40000000-0000-0000-0000-000000000001")
@@ -99,6 +103,8 @@ BUSINESS_ORDERS: list[dict[str, Any]] = [
         "order_number": "ORD-9901",
         "status": "processing",
         "total": Decimal("1350.00"),
+        "placed_at": datetime(2026, 9, 10, 9, 30, tzinfo=UTC),
+        "shipped_at": None,
     },
     {
         "id": ORDER_8820_ID,
@@ -107,6 +113,19 @@ BUSINESS_ORDERS: list[dict[str, Any]] = [
         "order_number": "ORD-8820",
         "status": "shipped",
         "total": Decimal("450.00"),
+        "placed_at": datetime(2026, 8, 28, 14, 5, tzinfo=UTC),
+        "shipped_at": datetime(2026, 8, 30, 8, 0, tzinfo=UTC),
+    },
+    # The Phase 5 gate order: Alice asks "What is the status of order 82915?" (task 5.1).
+    {
+        "id": ORDER_82915_ID,
+        "organization_id": DEMO_ORG_ID,
+        "customer_id": CUST_ALICE_ID,
+        "order_number": "ORD-82915",
+        "status": "dispatched",
+        "total": Decimal("290.00"),
+        "placed_at": datetime(2026, 9, 22, 10, 15, tzinfo=UTC),
+        "shipped_at": datetime(2026, 9, 24, 16, 40, tzinfo=UTC),
     },
 ]
 
@@ -127,6 +146,22 @@ BUSINESS_ORDER_ITEMS: list[dict[str, Any]] = [
         "quantity": 1,
         "unit_price": Decimal("450.00"),
     },
+    {
+        "id": UUID("35000000-0000-0000-0000-000000000003"),
+        "organization_id": DEMO_ORG_ID,
+        "order_id": ORDER_82915_ID,
+        "product_id": PROD_SENSOR_ID,
+        "quantity": 2,
+        "unit_price": Decimal("95.00"),
+    },
+    {
+        "id": UUID("35000000-0000-0000-0000-000000000004"),
+        "organization_id": DEMO_ORG_ID,
+        "order_id": ORDER_82915_ID,
+        "product_id": PROD_CABLE_ID,
+        "quantity": 4,
+        "unit_price": Decimal("25.00"),
+    },
 ]
 
 BUSINESS_TICKETS: list[dict[str, Any]] = [
@@ -138,6 +173,7 @@ BUSINESS_TICKETS: list[dict[str, Any]] = [
         "subject": "Replacement shipment inquiry for delayed order",
         "status": "open",
         "priority": "high",
+        "opened_at": datetime(2026, 9, 25, 11, 0, tzinfo=UTC),
     },
     {
         "id": TICKET_1011_ID,
@@ -147,5 +183,6 @@ BUSINESS_TICKETS: list[dict[str, Any]] = [
         "subject": "PDF export crash investigation",
         "status": "pending",
         "priority": "critical",
+        "opened_at": datetime(2026, 9, 18, 9, 0, tzinfo=UTC),
     },
 ]

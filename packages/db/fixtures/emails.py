@@ -1,12 +1,13 @@
 """Standard fixture emails covering core operational archetypes (R5.9).
 
-Provides realistic, RFC 822 compliant email test cases across 6 key archetypes:
+Provides realistic, RFC 822 compliant email test cases across 7 key archetypes:
 1. support: Technical bug report requiring assistance and investigation.
 2. billing: Invoice and payment inquiry citing invoice identifier.
 3. newsletter: Marketing email with List-Unsubscribe header (zero reply required).
 4. auto_reply: Out-of-office automated responder (zero reply required).
 5. long_thread: Multi-turn thread structure with In-Reply-To and References.
 6. identifier_bearing: Order and ticket inquiry citing explicit business IDs.
+7. order_status: A customer asking for her own order's status by bare number (R13, task 5.1).
 """
 
 from dataclasses import dataclass, field
@@ -217,6 +218,25 @@ FIXTURE_EMAILS: list[EmailFixture] = [
             "Edward"
         ),
         identifiers=["ORD-9901", "TICK-4402"],
+        reply_required=True,
+        workflow_hint="ai_generate",
+    ),
+    # 7. Order-status question by bare order number (Phase 5 gate email, R13)
+    EmailFixture(
+        key="order_status_inquiry",
+        category="order_status",
+        subject="Order status question",
+        sender_email="alice.smith@clientcorp.com",
+        sender_name="Alice Smith",
+        recipients=["support@acme.com"],
+        body_text=(
+            "Hi,\n\n"
+            "What is the status of order 82915? I placed it last week and have not "
+            "received a tracking update yet.\n\n"
+            "Thanks,\n"
+            "Alice"
+        ),
+        identifiers=["ORD-82915"],
         reply_required=True,
         workflow_hint="ai_generate",
     ),
