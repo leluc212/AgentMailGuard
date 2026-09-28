@@ -302,3 +302,31 @@ async def test_reaper_skips_drafted_jobs_postgres(db_pool: asyncpg.Pool) -> None
     assert reaped == []
     stored = await store.get_job(org_id, created.id)
     assert stored is not None and stored.state == JobState.DRAFTED.value
+
+
+@pytest.mark.asyncio
+async def test_reaper_skips_dispatched_jobs_postgres(db_pool: asyncpg.Pool) -> None:
+    """6.5 on Postgres: an expired lease on a DISPATCHED job is left alone (design.md §5.8)."""
+    org_id = uuid4()
+    await ensure_test_org(db_pool, org_id, "Dispatched Lease Org")
+    store = PostgresJobStore(db_pool)
+    created, _ = await store.create_job(
+        Job(
+            organization_id=org_id,
+            state=JobState.DISPATCHED.value,
+            idempotency_key=f"lease-dispatched-{uuid4()}",
+        )
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE processing_job SET lease_expires_at = now() - interval '10 minutes'"
+            " WHERE id = $1 AND organization_id = $2",
+            created.id,
+            org_id,
+        )
+
+    reaped = await store.reap_expired_jobs(batch_size=10, organization_id=org_id)
+
+    assert reaped == []
+    stored = await store.get_job(org_id, created.id)
+    assert stored is not None and stored.state == JobState.DISPATCHED.value

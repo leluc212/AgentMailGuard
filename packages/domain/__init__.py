@@ -14,6 +14,10 @@ from packages.domain.business import (
     NotLookedUpReason,
     unavailable_context,
 )
+from packages.domain.dispatch import (
+    DispatchMode,
+    ProviderDraftStatus,
+)
 from packages.domain.entities import (
     AttachmentRef,
     Candidate,
@@ -98,6 +102,7 @@ __all__ = [
     "Classification",
     "ContextPackage",
     "DraftRef",
+    "DispatchMode",
     "DocumentElement",
     "DocumentSection",
     "ElementType",
@@ -121,6 +126,7 @@ __all__ = [
     "OutboundReply",
     "ParsedDocument",
     "ProcessingEvent",
+    "ProviderDraftStatus",
     "RawMessage",
     "RawThread",
     "Rule",

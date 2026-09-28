@@ -321,9 +321,17 @@ class SyncResult:
 
 @dataclass
 class OutboundReply:
-    """Outbound reply draft or message submission data (R1.1, R1.4, R17.1)."""
+    """Outbound reply draft or message submission data (R1.1, R1.4, R17.1, R17.2).
 
-    thread_id: UUID | str
+    ``thread_id`` is the PROVIDER thread id (``email_thread.provider_thread_id``: the thread
+    the provider groups the conversation under), never our email_thread UUID.
+    ``message_id``, ``in_reply_to`` and ``references`` are RFC 5322 ids wrapped in ``<...>``,
+    ready for MIME headers; ``message_id`` is set for MIME-built replies only (a provider
+    that builds the reply itself sets its own). ``reply_to_provider_message_id`` is the
+    original email's provider message id, for providers that create a reply from it.
+    """
+
+    thread_id: str
     mailbox_id: UUID | str
     organization_id: UUID | str
     to: list[EmailAddress]
@@ -334,6 +342,8 @@ class OutboundReply:
     in_reply_to: str | None = None
     references: list[str] = field(default_factory=list)
     draft_id: str | None = None
+    message_id: str | None = None
+    reply_to_provider_message_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -369,6 +379,9 @@ class GeneratedDraft:
     cost_estimate: float | None = 0.0  # None: model missing from the price table (R21.6)
     status: str = "draft"  # draft | approved | rejected | dispatched
     provider_ref: str | None = None
+    provider_draft_id: str | None = None  # ADR-0009 dispatch handle (design.md §5.8 step 2)
+    provider_draft_message_id: str | None = None  # the provider draft's own message id
+    dispatch_idempotency_key: str | None = None  # R19.2 key, operation "dispatch" (step 1)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

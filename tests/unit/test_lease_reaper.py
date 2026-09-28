@@ -376,3 +376,25 @@ async def test_reaper_skips_drafted_jobs() -> None:
     assert reaped == []
     stored = await store.get_job(job.organization_id, job.id)
     assert stored is not None and stored.state == JobState.DRAFTED.value
+
+
+@pytest.mark.asyncio
+async def test_reaper_skips_dispatched_jobs() -> None:
+    """6.5 / design.md §5.8: no lease is taken; the broker redelivers DISPATCHED."""
+    store = InMemoryJobStore()
+    past_time = datetime.now(UTC) - timedelta(seconds=600)
+    job, _ = await store.create_job(
+        Job(
+            organization_id=uuid4(),
+            state=JobState.DISPATCHED.value,
+            lease_expires_at=past_time,
+            idempotency_key=str(uuid4()),
+        )
+    )
+    job.lease_expires_at = past_time
+
+    reaped = await store.reap_expired_jobs(batch_size=10)
+
+    assert reaped == []
+    stored = await store.get_job(job.organization_id, job.id)
+    assert stored is not None and stored.state == JobState.DISPATCHED.value

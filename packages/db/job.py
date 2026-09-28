@@ -565,7 +565,8 @@ class PostgresJobStore(JobStore):
                    created_at, updated_at
             FROM processing_job
             -- DRAFTED waits for a human reviewer; no worker holds it (4.13b).
-            WHERE state NOT IN ('COMPLETED', 'DEAD_LETTER', 'DRAFTED')
+            -- DISPATCHED: the broker redelivers it; the dispatch-worker holds no lease (6.5).
+            WHERE state NOT IN ('COMPLETED', 'DEAD_LETTER', 'DRAFTED', 'DISPATCHED')
               AND (
                   (lease_expires_at IS NOT NULL AND lease_expires_at <= $1)
                   OR (
@@ -1084,7 +1085,8 @@ class InMemoryJobStore(JobStore):
                 if target_org_str is not None and str(j.organization_id) != target_org_str:
                     continue
                 # DRAFTED waits for a human reviewer; no worker holds it (4.13b).
-                if j.state in ("COMPLETED", "DEAD_LETTER", "DRAFTED"):
+                # DISPATCHED: the broker redelivers it; the dispatch-worker holds no lease (6.5).
+                if j.state in ("COMPLETED", "DEAD_LETTER", "DRAFTED", "DISPATCHED"):
                     continue
                 if (
                     j.lease_expires_at is not None

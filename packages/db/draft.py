@@ -62,6 +62,9 @@ def _row_to_draft(row: asyncpg.Record) -> GeneratedDraft:
         cost_estimate=(float(row["cost_estimate"]) if row["cost_estimate"] is not None else None),
         status=row["status"],
         provider_ref=row["provider_ref"],
+        provider_draft_id=row["provider_draft_id"],
+        provider_draft_message_id=row["provider_draft_message_id"],
+        dispatch_idempotency_key=row["dispatch_idempotency_key"],
         created_at=row["created_at"],
     )
 
@@ -72,13 +75,15 @@ _INSERT_DRAFT_SQL = """
         action, subject, body, confidence, citations,
         citation_mismatch, model_name, model_tier, escalation_reason,
         prompt_version, input_tokens, output_tokens, cost_estimate,
-        status, provider_ref, created_at
+        status, provider_ref, provider_draft_id, provider_draft_message_id,
+        dispatch_idempotency_key, created_at
     ) VALUES (
         $1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10::jsonb,
         $11, $12, $13, $14,
         $15, $16, $17, $18,
-        $19, $20, $21
+        $19, $20, $21, $22,
+        $23, $24
     )
     RETURNING *;
 """
@@ -109,6 +114,9 @@ async def insert_draft(conn: Any, draft: GeneratedDraft) -> GeneratedDraft:
         draft.cost_estimate,
         draft.status,
         draft.provider_ref,
+        draft.provider_draft_id,
+        draft.provider_draft_message_id,
+        draft.dispatch_idempotency_key,
         draft.created_at or datetime.now(UTC),
     )
     if row is None:
@@ -195,6 +203,9 @@ class InMemoryDraftStore:
             cost_estimate=draft.cost_estimate,
             status=draft.status,
             provider_ref=draft.provider_ref,
+            provider_draft_id=draft.provider_draft_id,
+            provider_draft_message_id=draft.provider_draft_message_id,
+            dispatch_idempotency_key=draft.dispatch_idempotency_key,
             created_at=draft.created_at or datetime.now(UTC),
         )
         self._drafts[draft_id] = persisted

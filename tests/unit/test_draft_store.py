@@ -63,3 +63,28 @@ async def test_in_memory_draft_store_crud() -> None:
     by_thread = await store.list_drafts_for_thread(th_id, org_id)
     assert len(by_thread) == 1
     assert by_thread[0].id == draft_id
+
+
+@pytest.mark.asyncio
+async def test_in_memory_draft_store_keeps_dispatch_handle() -> None:
+    """6.5: the in-memory twin copies the ADR-0009 dispatch columns like Postgres does."""
+    store = InMemoryDraftStore()
+    org_id = uuid4()
+    draft = GeneratedDraft(
+        organization_id=org_id,
+        job_id=uuid4(),
+        message_id=uuid4(),
+        thread_id=uuid4(),
+        body="Hello",
+        provider_draft_id="r-8123",
+        provider_draft_message_id="18c2f0a9d1e4b7ab",
+        dispatch_idempotency_key="a" * 64,
+    )
+    await store.create_draft(draft)
+
+    stored = await store.get_draft(draft.id, org_id)
+
+    assert stored is not None
+    assert stored.provider_draft_id == "r-8123"
+    assert stored.provider_draft_message_id == "18c2f0a9d1e4b7ab"
+    assert stored.dispatch_idempotency_key == "a" * 64

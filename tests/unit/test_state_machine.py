@@ -54,8 +54,9 @@ def test_all_declared_legal_transitions() -> None:
             assert dst == to_state
             total_transitions += 1
 
-    # Exactly 25 declared legal transitions (including CLASSIFIED -> DRAFTED)
-    assert total_transitions == 25
+    # Exactly 26 declared legal transitions (including CLASSIFIED -> DRAFTED and the
+    # RETRY_PENDING -> DISPATCHED replay of a dead-lettered dispatch, ADR-0009)
+    assert total_transitions == 26
 
 
 def test_classified_to_drafted_transition() -> None:
@@ -78,6 +79,7 @@ def test_classified_to_drafted_transition() -> None:
         (JobState.GENERATING, JobState.RECEIVED),
         (JobState.DRAFTED, JobState.RECEIVED),
         (JobState.DISPATCHED, JobState.GENERATING),
+        (JobState.DISPATCHED, JobState.RETRY_PENDING),
         (JobState.COMPLETED, JobState.GENERATING),
         (JobState.COMPLETED, JobState.RECEIVED),
         (JobState.COMPLETED, JobState.FAILED),
@@ -113,6 +115,44 @@ def test_operator_replay_transition() -> None:
     src, dst = validate_transition(JobState.DEAD_LETTER, JobState.RETRY_PENDING)
     assert src == JobState.DEAD_LETTER
     assert dst == JobState.RETRY_PENDING
+
+
+def test_retry_pending_to_dispatched_transition() -> None:
+    """ADR-0009: operator replay of a dead-lettered dispatch resumes at DISPATCHED (R18.7)."""
+    src, dst = validate_transition(JobState.RETRY_PENDING, JobState.DISPATCHED)
+    assert src == JobState.RETRY_PENDING
+    assert dst == JobState.DISPATCHED
+    assert TRANSITIONS[JobState.RETRY_PENDING] == {
+        JobState.GENERATING,
+        JobState.DISPATCHED,
+        JobState.FAILED,
+    }
+
+
+def test_dead_lettered_dispatch_replays_back_to_dispatched() -> None:
+    """design.md §5.8: DISPATCHED -> FAILED -> DEAD_LETTER -> RETRY_PENDING -> DISPATCHED."""
+    job = Job(
+        organization_id=uuid4(),
+        state=JobState.DISPATCHED.value,
+        idempotency_key=str(uuid4()),
+    )
+    steps: list[tuple[str | None, str | None]] = []
+    for target in (
+        JobState.FAILED,
+        JobState.DEAD_LETTER,
+        JobState.RETRY_PENDING,
+        JobState.DISPATCHED,
+    ):
+        job, event = transition_job(job, target, payload={"reason": "replay-path"})
+        steps.append((event.state_from, event.state_to))
+
+    assert steps == [
+        ("DISPATCHED", "FAILED"),
+        ("FAILED", "DEAD_LETTER"),
+        ("DEAD_LETTER", "RETRY_PENDING"),
+        ("RETRY_PENDING", "DISPATCHED"),
+    ]
+    assert job.state == JobState.DISPATCHED.value
 
 
 def test_invalid_state_strings() -> None:

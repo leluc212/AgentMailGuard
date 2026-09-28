@@ -62,7 +62,8 @@ TRANSITIONS: dict[JobState, set[JobState]] = {
     JobState.QUEUED: {JobState.CONTEXT_READY, JobState.FAILED},
     JobState.CONTEXT_READY: {JobState.GENERATING, JobState.FAILED},
     JobState.GENERATING: {JobState.DRAFTED, JobState.RETRY_PENDING, JobState.FAILED},
-    JobState.RETRY_PENDING: {JobState.GENERATING, JobState.FAILED},
+    # DISPATCHED: operator replay of a dead-lettered dispatch resumes the send (ADR-0009)
+    JobState.RETRY_PENDING: {JobState.GENERATING, JobState.DISPATCHED, JobState.FAILED},
     JobState.DRAFTED: {JobState.DISPATCHED, JobState.COMPLETED, JobState.FAILED},
     JobState.DISPATCHED: {JobState.COMPLETED, JobState.FAILED},
     JobState.FAILED: {JobState.DEAD_LETTER, JobState.RETRY_PENDING},
