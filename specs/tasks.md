@@ -606,7 +606,7 @@
 
 > **Design change (2026-09-28, ADR-0008):** the fetch is decided by a code-side plan from typed IDs, the profile's `context_policy` and the intent — not by the intent alone, because the ML triage stage emits no intent. See `specs/design.md` §5.4 "Business data (R13)" and `artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`. Live runs use the Google Gemini API (Gemma 4 and Gemini 3.1 Flash-Lite, chosen as the cheapest working models on 2026-09-28) through the `openai` provider's OpenAI-compatible base URL. Local models are not run on the owner's laptop.
 
-- [~] **5.0 Hosted OpenAI-compatible provider wiring (Gemini) & live smoke check**
+- [x] **5.0 Hosted OpenAI-compatible provider wiring (Gemini) & live smoke check**
   - Discovered missing work (GEMINI.md §7): compose forwards `LLM__PROVIDER` and the API keys, but not `LLM__OPENAI_BASE_URL` or `LLM__FAST_MODEL` / `LLM__STRONG_MODEL` / `LLM__FALLBACK_MODEL`, so containers would send a Gemini key to the default OpenAI URL with OpenAI model names.
   - Forward those four settings and `LLM__PRICE_TABLE` through the shared compose environment. Document them in `.env.example` and `docs/configuration.md` with the Gemini configuration:
     - base URL `https://generativelanguage.googleapis.com/v1beta/openai`;
@@ -617,7 +617,7 @@
   - Pre-check (2026-09-28, throwaway probe through `OpenAILLMProvider` with the real triage schema at 250 tokens and the reply schema at 1000 tokens): `gemma-4-26b-a4b-it`, `gemma-4-31b-it`, `gemini-3.1-flash-lite` and `gemini-3.5-flash-lite` all returned schema-valid triage and draft JSON, and each draft stated the given order status and cited the given chunk. `gemini-2.5-flash-lite` returned 404 "no longer available to new users".
   - _Requirements: R14.7, R20.6, R21.6, R24.5_
   - Audit 2026-09-28: PASS WITH NOTES (`make ci` green, unit 1522, integration 191). The forwarded keys, the Gemini block in `.env.example` and `docs/configuration.md`, the fail-fast check (`tests/unit/test_settings.py`) and `scripts/llm_smoke.py` (`tests/unit/test_llm_smoke.py`: parse/validate, `finish_reason`, tokens, key never printed) are in place. Findings: none.
-  - Left: the owner runs `make llm-smoke` with `LLM__PROVIDER=openai` and the Gemini key in `.env`; it must report both the triage and the draft call as parsed and valid.
+  - Closed 2026-09-28 after the owner's live runs. `make llm-smoke` printed `LLM SMOKE OK`: triage `billing` / `order_status_inquiry` (confidence 0.95) and a `support.v2` draft citing the given chunk, both on `gemma-4-26b-a4b-it` with `finish_reason stop`. After `make up`, the ai-worker container reported `LLM__PROVIDER=openai`, the Gemini base URL and `gemma-4-26b-a4b-it`, so the compose forwarding works in the real stack.
 
 - [x] **5.1 Business schema & seed data**
   - `customer`, `product`, `order`, `order_item`, `ticket` with realistic seed records tied to the fixture emails. The tables already exist (migration 0001) and match design §6.2.
@@ -682,9 +682,17 @@
   - Seeded knowledge is filed under `source_type` categories that no ai-worker lane retrieves (pre-existing, `packages/retrieval/query_builder.py`). The test and the gate file the procedure under the lane category as a workaround; the real fix is task 7.18.
   - _Requirements: R13.3, R13.5, R16.1_
   - Audit 2026-09-28: PASS WITH NOTES (`make ci` green, unit 1522, integration 191). `tests/integration/test_business_data_e2e.py` drives the composed ai-worker with the stub LLM: Alice's email carries `ORD-82915` `FOUND` with its seeded status and the procedure chunk's `[CITATION: …]` line, Edward's carries `ORD-9901` `NOT_FOUND` with no status leak and `TICK-4402` `FOUND` `open`, and `business_lookups_total` moves for each. `scripts/phase5_gate.py` and `make phase5-gate` exist and are unit-tested (`tests/unit/test_phase5_gate.py`); they have not been run live. Findings: none.
-  - Left: the owner sets `LLM__PROVIDER=openai`, the Gemini key and `EMBEDDING__MOCK=true` in `.env`, then runs `make up` and `make phase5-gate` (expected `PHASE 5 GATE OK`), plus `make smoke`, `make retrieval-gate` and `make phase4-gate` for regression. The gate evidence block goes after the Phase 5 gate paragraph once that output exists.
+  - Live gate passed on 2026-09-28 (`PHASE 5 GATE OK`, evidence below).
+  - Left: the regression runs on the Gemini stack, `make smoke`, `make retrieval-gate` and `make phase4-gate`. 5.6 flips to `[x]` once they pass.
 
 > **Phase 5 gate:** an order-status email produces a draft containing the actual order status from the business tables, with a knowledge citation for the procedure — demonstrating the knowledge/transactional distinction. The live draft comes from a real model (Gemini API through the OpenAI-compatible endpoint), because the stub LLM cannot state a status or cite a chunk. The stub-LLM integration test in 5.6 proves the context side in CI.
+>
+> **Gate evidence (2026-09-28, live stack, Gemini API, `make phase5-gate`; the owner ran `make up`, `make seed` and the gate):**
+> - Setup: provider `openai` at `https://generativelanguage.googleapis.com/v1beta/openai`, models `gemma-4-26b-a4b-it` / `gemma-4-31b-it`, mock embedder. All app consumers were ready, and `alice.smith@clientcorp.com` was seeded with `ORD-82915` (`dispatched`). The procedure was active for every lane category (the 7.18 workaround).
+> - Path: Alice's "Order status question" went normalize → triage → ai-worker, and the job reached `DRAFTED`.
+> - Context: `CONTEXT_READY` recorded customer `FOUND`, `ORD-82915` `FOUND`, not degraded, and 1 chunk retrieved.
+> - Draft: generated on `high_capability` (`gemma-4-31b-it`, escalation reason `insufficient_retrieval_evidence`). It reads: "Our records indicate that order ORD-82915, placed on 2026-09-28, has been dispatched. Please note that automated courier tracking numbers are provided once an order is packed at our central warehouse, and tracking links typically become active within 12 hours [060bc50c-…-01]." The status comes from `[BUSINESS DATA]`, and the procedure sentence is cited to the knowledge chunk filed under `billing`. The status is stated positively; the owner read the draft because the check alone would also accept a negation.
+> - Not shown live: the cross-customer case (Edward asking about Dana's `ORD-9901`). It is proven by `tests/integration/test_business_data_e2e.py` with the stub LLM.
 
 ---
 
