@@ -12,6 +12,7 @@ assert importlib.util.find_spec("pytest") is None, "pytest must not be installed
 
 for module in (
     "services.api.main",
+    "services.frontend.main",
     "services.email_worker.main",
     "services.knowledge_worker.main",
     "services.triage_worker.main",

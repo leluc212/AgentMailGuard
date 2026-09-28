@@ -176,7 +176,7 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # local only: the review UI and API have no login (ADR-0009)
     environment:
       <<: *app-env
       SERVICE_NAME: api
@@ -311,20 +311,23 @@ services:
     build: *app-build
     container_name: rag-email-frontend
     restart: unless-stopped
+    command: ["uvicorn", "services.frontend.main:app", "--host", "0.0.0.0", "--port", "3001"]
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"   # local only: the review UI has no login (ADR-0009)
     environment:
       SERVICE_NAME: frontend
       PORT: "3001"
+      FRONTEND__API_BASE_URL: http://api:8000
+      FRONTEND__ORGANIZATION_ID: ${FRONTEND__ORGANIZATION_ID:-}
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/readyz"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
 
 volumes:
   postgres_data:

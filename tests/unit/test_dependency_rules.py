@@ -120,3 +120,15 @@ def test_services_never_reference_provider_literals() -> None:
                 violations.append(msg)
 
     assert not violations, "Provider literals hardcoded in services:\n" + "\n".join(violations)
+
+
+def test_review_ui_reaches_the_system_only_over_http() -> None:
+    """ADR-0009 / R23.6: services/frontend calls /v1 over HTTP; it never imports the API,
+    the database layer or the broker."""
+    forbidden = ("services.api", "packages.db", "packages.broker")
+    violations: list[str] = []
+    for py_file in (SERVICES_DIR / "frontend").rglob("*.py"):
+        for name in get_imports(py_file):
+            if any(name == root or name.startswith(f"{root}.") for root in forbidden):
+                violations.append(f"{py_file.relative_to(REPO_ROOT)} imports {name}")
+    assert not violations, "Review UI must use /v1 only:\n" + "\n".join(violations)

@@ -1,0 +1,53 @@
+<section id="draft-panel" class="panel" aria-labelledby="draft-heading">
+  <h2 id="draft-heading" tabindex="-1">Draft reply</h2>
+  {% if draft.citation_mismatch %}
+  <p class="warning">The model cited knowledge it was not given; those citations were removed.</p>
+  {% endif %}
+  <div class="draft-body">
+    {% for paragraph in annotated.paragraphs %}
+    <p>{% for sentence in paragraph %}<span class="sentence">{% for seg in sentence.segments %}{% if seg.fact_reference %}<mark class="fact" title="Business data: {{ seg.fact_reference }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}{% for c in sentence.citations %}<a class="cite" href="#cite-{{ annotated.numbers[c.citation_id] }}" aria-label="Source {{ annotated.numbers[c.citation_id] }}: {{ c.title or c.citation_id }}">[{{ annotated.numbers[c.citation_id] }}]</a>{% endfor %}</span> {% endfor %}</p>
+    {% endfor %}
+  </div>
+  {% if annotated.sources %}
+  {% set unplaced_ids = annotated.unplaced | map(attribute="citation_id") | list %}
+  <h3>Sources</h3>
+  <ol class="sources">
+    {% for c in annotated.sources %}
+    <li id="cite-{{ annotated.numbers[c.citation_id] }}">
+      <strong>{{ c.title or c.citation_id }}</strong>
+      {% if c.text %}<blockquote>{{ c.text }}</blockquote>{% endif %}
+      {% if c.citation_id in unplaced_ids %}<p class="note">Not matched to a sentence.</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {% if draft.status == "draft" %}
+  <form id="decision-form" method="post" action="/drafts/{{ draft.id }}/approve"
+        hx-post="/drafts/{{ draft.id }}/approve" hx-target="#draft-panel" hx-swap="outerHTML"
+        hx-vals='js:{review_ms: reviewElapsedMs()}'>
+    <input type="hidden" name="original_body" value="{{ draft.body }}">
+    <input type="hidden" name="rendered_at_ms" value="{{ rendered_at_ms }}">
+    <label for="body">Reply text</label>
+    <textarea id="body" name="body" rows="12">
+{{ draft.body }}</textarea>
+    <label for="reviewer">Reviewer (optional)</label>
+    <input id="reviewer" name="reviewer" autocomplete="name">
+    <div class="actions">
+      <button type="submit" formaction="/drafts/{{ draft.id }}/edit" hx-post="/drafts/{{ draft.id }}/edit">Save changes</button>
+      <button type="submit" class="primary">Approve</button>
+    </div>
+  </form>
+  <form class="reject" method="post" action="/drafts/{{ draft.id }}/reject"
+        hx-post="/drafts/{{ draft.id }}/reject" hx-target="#draft-panel" hx-swap="outerHTML"
+        hx-include="#reviewer" hx-vals='js:{review_ms: reviewElapsedMs()}'>
+    <input type="hidden" name="rendered_at_ms" value="{{ rendered_at_ms }}">
+    <label for="comment">Reason for rejecting (optional)</label>
+    <textarea id="comment" name="comment" rows="3"></textarea>
+    <div class="actions"><button type="submit" class="danger">Reject</button></div>
+  </form>
+  {% else %}
+  <p class="decided">This draft was {{ draft.status }}.</p>
+  <div class="email-body">{{ draft.body }}</div>
+  {% endif %}
+</section>
+{% if status_message %}{% include "_status.html" %}{% endif %}

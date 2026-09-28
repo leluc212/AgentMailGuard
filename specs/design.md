@@ -128,7 +128,8 @@ rag-email/
 │   ├── triage_worker/
 │   ├── ai_worker/
 │   ├── knowledge_worker/
-│   └── dispatch_worker/
+│   ├── dispatch_worker/
+│   └── frontend/                      # review UI: FastAPI + Jinja2 + htmx (ADR-0009)
 ├── packages/
 │   ├── core/                          # settings, logging, tracing, errors, ids
 │   ├── domain/                        # entities, value objects, state machine
@@ -139,8 +140,8 @@ rag-email/
 │   ├── retrieval/                     # SearchBackend, rrf, rerank, query builder
 │   ├── knowledge/                     # parsers, chunker, embedder
 │   ├── business/                      # BusinessDataProvider
+│   ├── dispatch/                      # build_outbound_reply, DispatchService (design §5.8)
 │   └── observability/                 # metrics registry, span helpers, cost table
-├── frontend/                          # review UI
 ├── evaluation/
 │   ├── datasets/                      # classification & retrieval benchmarks
 │   ├── experiments/                   # one runner per experiment in R22

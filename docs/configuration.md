@@ -337,3 +337,12 @@ The ai-worker decides in code which business facts to fetch before the one gener
 | `BUSINESS_DATA__SNAPSHOT_ORDERS` | `integer` | `3` | $\ge 0$ | Most recent orders (by `placed_at`) in a customer snapshot (design.md §5.4) |
 | `BUSINESS_DATA__SNAPSHOT_TICKETS` | `integer` | `3` | $\ge 0$ | Newest tickets whose status is not `closed` or `resolved` in a customer snapshot (design.md §5.4) |
 
+### 2.21 Review UI (`FRONTEND__*`)
+*How the review UI (the `frontend` service) reaches the `/v1` API (R23.4–R23.7, design.md §5.8, ADR-0009).*
+
+The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/v1` API; it holds no database or broker connection. Every request carries `FRONTEND__ORGANIZATION_ID` as the `X-Organization-Id` header (R23.6); while it is blank the pages show a setup error and call nothing. The UI has no login (ADR-0009, GEMINI.md §6), so Docker Compose publishes it and the API on `127.0.0.1` only (`http://localhost:3001`, `http://localhost:8000`); do not publish either port on a network interface. Inside Compose the UI reaches the API at `http://api:8000`, fixed in `docker-compose.yml`; `FRONTEND__API_BASE_URL` from `.env` applies when the UI runs on the host (`uv run uvicorn services.frontend.main:app --port 3001`). Compose forwards `FRONTEND__ORGANIZATION_ID` from the host `.env` into the `frontend` container only.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `FRONTEND__API_BASE_URL` | `string` | `http://localhost:8000` | Starts with `http://` or `https://`; a trailing `/` is dropped | Base URL of the API the review UI calls; only `/v1` paths are used |
+| `FRONTEND__ORGANIZATION_ID` | `UUID` | unset | UUID, or blank for unset | Tenant whose drafts are reviewed, sent as `X-Organization-Id` (R23.6). `.env.example` sets the seeded demo tenant `00000000-0000-0000-0000-000000000001` |

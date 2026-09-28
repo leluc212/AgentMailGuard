@@ -24,6 +24,7 @@ TEST_SUPPORT_MODULE = "testing"  # packages/*/testing.py: contract suites, test-
 
 ENTRYPOINTS = (
     "services.api.main",
+    "services.frontend.main",
     "services.dispatch_worker.main",
     "services.email_worker.main",
     "services.knowledge_worker.main",

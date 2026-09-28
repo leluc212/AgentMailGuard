@@ -279,6 +279,7 @@ make test
 Integration tests run in an isolated vhost/database (`rag_email_test`) and never touch the running stack.
 
 ### 5. Access Management & Telemetry Consoles
+- **Review UI (drafts, timelines, knowledge upload)**: [http://localhost:3001](http://localhost:3001) — bound to 127.0.0.1, no login (ADR-0009); set `FRONTEND__ORGANIZATION_ID` in `.env`
 - **API Documentation (OpenAPI / Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **RabbitMQ Management UI**: [http://localhost:15672](http://localhost:15672) (guest / guest)
 - **MinIO Storage Console**: [http://localhost:9011](http://localhost:9011) (minioadmin / minioadmin)

@@ -64,6 +64,8 @@ def _runtime_assets() -> list[str]:
         profiles.prompts_dir,
         profiles.schemas_dir,
         DEFAULT_MIGRATIONS_DIR.relative_to(REPO_ROOT).as_posix(),
+        "services/frontend/templates",
+        "services/frontend/static",
     ]
     profile_cfg = yaml.safe_load((REPO_ROOT / profiles.config_path).read_text(encoding="utf-8"))
     for profile in profile_cfg["profiles"].values():
@@ -190,3 +192,28 @@ def test_dispatch_worker_runs_its_entrypoint_with_readiness() -> None:
     assert service["environment"]["SERVICE_NAME"] == "dispatch_worker"
     assert service["environment"]["DATABASE__HOST"] == "postgres"  # merged *app-env
     assert service["environment"]["GMAIL_ACCESS_TOKEN"] == "${GMAIL_ACCESS_TOKEN:-}"
+
+
+def test_review_ui_and_api_publish_on_loopback_only() -> None:
+    """ADR-0009: the review UI has no login, so its port and the API's bind to 127.0.0.1."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["frontend"]["ports"] == ["127.0.0.1:3001:3001"]
+    assert compose["services"]["api"]["ports"] == ["127.0.0.1:8000:8000"]
+
+
+def test_frontend_runs_the_review_ui_with_its_settings() -> None:
+    """R23.6 / 6.8: the frontend container runs services.frontend with FRONTEND__* set."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    frontend = compose["services"]["frontend"]
+    assert frontend["command"] == [
+        "uvicorn",
+        "services.frontend.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "3001",
+    ]
+    env = frontend["environment"]
+    assert env["FRONTEND__API_BASE_URL"] == "http://api:8000"
+    assert str(env["FRONTEND__ORGANIZATION_ID"]).startswith("${FRONTEND__ORGANIZATION_ID")
+    assert frontend["healthcheck"]["test"][-1] == "http://localhost:3001/readyz"

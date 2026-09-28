@@ -10,6 +10,7 @@ Implements requirements:
 import os
 import re
 from typing import Any
+from uuid import UUID
 
 from pydantic import (
     AliasChoices,
@@ -370,6 +371,37 @@ class BusinessDataSettings(BaseModel):
         ge=0,
         description="Open tickets (not closed or resolved) in a customer snapshot (design.md §5.4)",
     )
+
+
+class FrontendSettings(BaseModel):
+    """Review UI connection to the /v1 API (R23.4-R23.7, design.md §5.8, ADR-0009)."""
+
+    api_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Base URL of the API the review UI calls; only /v1 paths are used (R23.6)",
+    )
+    organization_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Tenant whose drafts the review UI shows, sent as the X-Organization-Id header "
+            "(R23.6); unset renders a setup error instead of calling the API"
+        ),
+    )
+
+    @field_validator("api_base_url")
+    @classmethod
+    def _require_http_url(cls, value: str) -> str:
+        cleaned = value.strip().rstrip("/")
+        if not cleaned.startswith(("http://", "https://")):
+            raise ValueError("api_base_url must start with http:// or https://")
+        return cleaned
+
+    @field_validator("organization_id", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class TriageSettings(BaseModel):
@@ -765,6 +797,7 @@ class AppSettings(BaseSettings):
     lease_reaper: LeaseReaperSettings = Field(default_factory=LeaseReaperSettings)
     agent_profiles: AgentProfileSettings = Field(default_factory=AgentProfileSettings)
     business_data: BusinessDataSettings = Field(default_factory=BusinessDataSettings)
+    frontend: FrontendSettings = Field(default_factory=FrontendSettings)
     complexity_router: ComplexityRouterSettings = Field(
         default_factory=ComplexityRouterSettings,
         validation_alias=AliasChoices("complexity_router", "router"),
@@ -887,3 +920,9 @@ class DispatchWorkerSettings(AppSettings):
     """Settings specialized for the dispatch worker."""
 
     service_name: str = "dispatch_worker"
+
+
+class FrontendServiceSettings(AppSettings):
+    """Settings specialized for the review UI service (design.md §5.8, ADR-0009)."""
+
+    service_name: str = "frontend"

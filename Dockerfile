@@ -49,6 +49,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 EXPOSE 8000
 
-# The frontend and dispatch-worker still run this stub until they are built (Phase 6);
-# every real service overrides the command in docker-compose.yml.
+# Every service sets its own command in docker-compose.yml; this health stub is only the
+# image default.
 CMD ["python", "services/placeholder.py"]

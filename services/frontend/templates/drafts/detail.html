@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ draft.subject or "Draft" }}{% endblock %}
+{% block content %}
+<p><a href="/drafts">Back to pending drafts</a></p>
+<h1>{{ draft.subject or "(no subject)" }}</h1>
+<dl class="meta">
+  <dt>Category</dt><dd>{{ draft.category or "—" }}</dd>
+  <dt>Confidence</dt><dd>{{ "%.2f"|format(draft.confidence) if draft.confidence is not none else "—" }}</dd>
+  <dt>Dispatch mode</dt><dd>{{ draft.dispatch_mode or "—" }}</dd>
+  <dt>Job state</dt><dd>{{ draft.job_state or "—" }}</dd>
+</dl>
+<div class="layout">
+  <div>
+    <section class="panel" aria-labelledby="original-heading">
+      <h2 id="original-heading">Original email</h2>
+      {% set om = draft.original_message %}
+      {% if om %}
+      <dl class="meta">
+        <dt>From</dt><dd>{{ (om.sender_name ~ " <" ~ om.sender_email ~ ">") if om.sender_name else (om.sender_email or "—") }}</dd>
+        <dt>Subject</dt><dd>{{ om.subject or "(no subject)" }}</dd>
+        <dt>Received</dt><dd>{{ om.received_at.strftime("%Y-%m-%d %H:%M") if om.received_at else "—" }}</dd>
+      </dl>
+      <div class="email-body">{{ om.body_text }}</div>
+      {% else %}
+      <p>The original email is not available.</p>
+      {% endif %}
+    </section>
+    <section class="panel" aria-labelledby="summary-heading">
+      <h2 id="summary-heading">Thread summary</h2>
+      <p>{{ draft.thread_summary or "No summary yet: the thread is below the summarization threshold." }}</p>
+    </section>
+    <section class="panel" aria-labelledby="facts-heading">
+      <h2 id="facts-heading">Business data</h2>
+      {% if draft.business_facts %}
+      <ul class="facts">
+        {% for f in draft.business_facts %}
+        <li><mark class="fact">{{ f.entity }}{% if f.reference %} {{ f.reference }}{% endif %}</mark>: {{ f.status }}{% if f.reason %} ({{ f.reason }}){% endif %}</li>
+        {% endfor %}
+      </ul>
+      <p class="note">Highlighted text in the draft names one of these records.</p>
+      {% else %}
+      <p>No business data was looked up for this email.</p>
+      {% endif %}
+    </section>
+  </div>
+  <div>
+    {% include "drafts/_panel.html" %}
+  </div>
+</div>
+{% endblock %}

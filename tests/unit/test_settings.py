@@ -1,6 +1,7 @@
 """Unit tests for configuration and settings management (R20.6, R5.10, R21.6)."""
 
 import json
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -13,6 +14,8 @@ from packages.core.settings import (
     DatabaseSettings,
     DispatchWorkerSettings,
     EmailWorkerSettings,
+    FrontendServiceSettings,
+    FrontendSettings,
     KnowledgeWorkerSettings,
     LLMTiersSettings,
     MailConnectorSettings,
@@ -320,3 +323,33 @@ def test_business_data_settings_reject_out_of_range_values() -> None:
         BusinessDataSettings(snapshot_orders=-1)
     with pytest.raises(ValidationError, match="snapshot_tickets"):
         BusinessDataSettings(snapshot_tickets=-1)
+
+
+def test_frontend_settings_defaults_and_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R23.6 / R20.6: the frontend group reads FRONTEND__*; a blank organization is unset."""
+    defaults = AppSettings(_env_file=None).frontend
+    assert defaults.api_base_url == "http://localhost:8000"
+    assert defaults.organization_id is None
+
+    monkeypatch.setenv("FRONTEND__API_BASE_URL", "http://api:8000/")
+    monkeypatch.setenv("FRONTEND__ORGANIZATION_ID", "00000000-0000-0000-0000-000000000001")
+    overridden = AppSettings(_env_file=None).frontend
+    assert overridden.api_base_url == "http://api:8000"
+    assert overridden.organization_id == UUID("00000000-0000-0000-0000-000000000001")
+
+    monkeypatch.setenv("FRONTEND__ORGANIZATION_ID", "")
+    assert AppSettings(_env_file=None).frontend.organization_id is None
+
+
+def test_frontend_settings_reject_bad_values() -> None:
+    """R20.6: fail fast on a base URL without a scheme or an organization that is not a UUID."""
+    with pytest.raises(ValidationError, match="api_base_url"):
+        FrontendSettings(api_base_url="localhost:8000")
+    with pytest.raises(ValidationError, match="organization_id"):
+        FrontendSettings(organization_id="not-a-uuid")
+
+
+def test_frontend_service_settings_name() -> None:
+    assert FrontendServiceSettings(_env_file=None).service_name == "frontend"
