@@ -705,66 +705,88 @@
 
 > **Design (2026-09-28, ADR-0009):** dispatch sends exactly once through claim → provider draft → send → confirm (`specs/design.md` §5.8, §9). Mode is per category, default `create_draft`. The review UI is server-rendered (FastAPI + Jinja2 + htmx), local only, with no login (accepted scope limit). The live gate uses a Gmail test account with a short-lived token (`docs/demo-runbook.md` §3). Research: `artifacts/superpowers/2026-09-28-phase6-dispatch-review-research.md`.
 
-- [ ] **6.1 Draft management API**
+- [x] **6.1 Draft management API**
   - `GET /v1/drafts` (filter by `status`, `category`, `mailbox`; cursor pagination), `GET /v1/drafts/{id}` (with the original email, thread summary, cited chunks and `[BUSINESS DATA]` facts), `PATCH /v1/drafts/{id}` (edit while `status=draft`), `POST …/approve`, `POST …/reject`. Every query is org-scoped.
   - Approve commits first, then publishes the dispatch job. A repeated approve re-publishes while the job is not `COMPLETED` (dispatch is idempotent), so a lost publish cannot strand an approved draft; it writes no second `feedback` row. Reject moves the job `DRAFTED → COMPLETED` with no send; a repeated reject returns the first result.
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). Every bullet and R16.6, R23.2, R23.6 was traced to code and to a test. The repeated-approve re-publish is the reading the owner approved (D2); design §5.8's Review API line was rewritten to match. `GET /v1/drafts` uses keyset cursors (`{items, next_cursor, limit}`), not `PaginatedResponse`. Two fast approves write one `feedback` row (`tests/integration/test_drafts_api_integration.py::test_two_fast_approves_write_one_feedback_row`). The fix pass before flipping:
+    - none
   - _Requirements: R16.6, R23.2, R23.6_
 
-- [ ] **6.2 Feedback capture**
+- [x] **6.2 Feedback capture**
   - Every decision writes one `feedback` row: `decision` (`accepted` / `edited` / `rejected`), `edited_body`, character-level `edit_distance`, optional `rating`, `reviewer` (free-text label) and `review_ms`. Migration 0005 adds `feedback.review_ms` and `UNIQUE (draft_id)`, plus the dispatch columns of 6.5.
   - Export `draft_decisions_total{decision, category}`; document the acceptance-rate and approved-without-edits PromQL in `docs/observability.md` (SC3).
+  - Closed 2026-09-28 after a completion audit (PASS; `make ci` green, unit 1837, integration 232, e2e 7). Every bullet and R16.7, R21.4 was traced to code and to a test. `draft_decisions_total{decision, category}` is exported (`packages/observability/metrics.py`) and documented with the acceptance-rate and approved-without-edits PromQL in `docs/observability.md`. The fix pass before flipping:
+    - none
   - _Requirements: R16.7, R21.4_
 
-- [ ] **6.3 Outbound reply construction**
+- [x] **6.3 Outbound reply construction**
   - Pure `build_outbound_reply(draft, original, thread)`: `In-Reply-To` = original `Message-ID`; `References` = original References + its `Message-ID`; a new `Message-ID` (Gmail/MIME only; Graph's `createReply` sets its own); exactly one `Re: ` before the original subject; the provider thread id (never our UUID); quoted original below the reply. Unit-tested, including subjects that already start with `Re:`/`RE:` and originals without References.
   - Entity changes: `OutboundReply` gains `message_id`, and its thread field carries the provider thread id as a string. A null `email_thread.provider_thread_id` (allowed since migration 0003) makes the dispatch fail permanently (dead-letter).
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). R17.2 was traced to `packages/dispatch/reply.py` and `tests/unit/test_outbound_reply.py`, including `test_original_without_message_id`. The signature is `build_outbound_reply(*, draft, original, provider_thread_id, message_id_domain)` (the plan's contract). Graph drafts also carry our `Message-ID` as `internetMessageId` (owner decision D3, design §5.8), so the bullet's "Graph's `createReply` sets its own" is superseded. A missing recipient dead-letters too (`MissingRecipientError`). The fix pass before flipping:
+    - none
   - _Requirements: R17.2_
 
-- [ ] **6.3a Adapter fixes & draft operations**
+- [x] **6.3a Adapter fixes & draft operations**
   - Discovered missing work (GEMINI.md §7, Phase 6 research): the Graph adapter posts new messages (`/messages`, `/sendMail`) instead of replies and stores a request id as the message id; the Gmail reply has no `Message-ID`; both map every 403 to an expired token.
   - Graph: `createReply` + `send` with `Prefer: IdType="ImmutableId"`, real message ids. Gmail: set the reply's `Message-ID`. Both: 429, 5xx and rate-limit 403s are retryable with `Retry-After`; 400/404/auth are permanent.
   - Add `send_draft(mailbox, provider_draft_id)` and `get_draft_status(mailbox, provider_draft_id) -> DRAFT | SENT | MISSING` to `MailProviderAdapter`, the fake and both adapters, with the shared contract suite extended (recorded HTTP responses, no live calls).
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). Every bullet and R1.1, R17.1, R17.2, R17.5 was traced to code and to the shared contract suite (recorded HTTP responses, run against the fake, Gmail and Graph). Graph is verified by recorded responses only, as ADR-0009 states; the owner accepted, as known limits, that Graph's `createReply` may add its own quoted original and that Graph ids stored at ingestion are not immutable ids (a moved original 404s and dead-letters). The adapters also gained `find_sent_message` and `find_draft` (orphan-draft lookup, 6.5). The fix pass before flipping:
+    - none
   - _Requirements: R1.1, R17.1, R17.2, R17.5_
 
-- [ ] **6.4 Dispatch modes**
+- [x] **6.4 Dispatch modes**
   - `dispatch_mode: create_draft | send_reply` per category in `config/categories.yaml`, default `create_draft` for every category.
   - `send_reply` requires an explicit approval unless the category's `auto_send_eligible` is true (false for every category); human-in-the-loop is the default posture.
+  - Closed 2026-09-28 after a completion audit (PASS; `make ci` green, unit 1837, integration 232, e2e 7). `dispatch_mode` and `auto_send_eligible` were traced to `config/categories.yaml` (every category `create_draft` and `false`), `packages/domain/taxonomy.py` and their tests; the mode is read when the dispatch runs (`test_dispatch_mode_is_read_when_the_dispatch_runs`). Only approve publishes a dispatch job; the owner confirmed no automatic trigger, so R17.6 holds trivially. The fix pass before flipping:
+    - none
   - _Requirements: R17.1, R17.6, R16.8_
 
-- [ ] **6.5 Idempotent dispatch**
+- [x] **6.5 Idempotent dispatch**
   - The `dispatch-worker` consumes `email.dispatch` and runs design §5.8's five steps on the existing job: claim the R19.2 key `key(org, mailbox, original provider_message_id, "dispatch")` into `generated_draft.dispatch_idempotency_key` (UNIQUE) with `DRAFTED → DISPATCHED`; create or reuse the provider draft (`provider_draft_id`, `provider_draft_message_id`); in `create_draft` mode complete there; in `send_reply` mode send, confirm with `get_draft_status` after an ambiguous failure (MISSING ⇒ look for our sent message in the provider thread, else dead-letter), then finish in one transaction.
   - State machine: add `RETRY_PENDING → DISPATCHED` (operator replay of a dead-lettered dispatch) to `packages/domain/state_machine.py` and design §8. The lease reaper skips `DISPATCHED` jobs.
   - Forced-redelivery tests that crash the worker after each step and assert exactly one provider send and one provider draft.
   - Replace the `dispatch-worker` placeholder in `docker-compose.yml`.
+  - Closed 2026-09-28 after a completion audit (PASS; `make ci` green, unit 1837, integration 232, e2e 7). Every bullet and R17.3, R18.3, R18.7, R19.2, R19.3 was traced to code and to a test. `tests/integration/test_dispatch_worker_integration.py::test_worker_killed_after_each_step_sends_exactly_once` kills the worker around the claim, the provider draft and the send in both modes and asserts one provider draft and at most one send; the finish and confirm steps are covered by `test_worker_killed_before_finish_resumes_without_a_second_draft` and `test_republished_dispatch_after_completion_sends_nothing`. The claim (`test_claim_sets_key_queue_and_dispatched_in_one_transaction`), the `RETRY_PENDING → DISPATCHED` edge (`tests/unit/test_state_machine.py`), the reaper skip (`test_reaper_skips_dispatched_jobs` and `_postgres`, which fails with `DISPATCHED` removed from the reaper query) and the no-lease rule (`tests/unit/test_dispatch_worker.py`) are each pinned. The fix pass before flipping:
+    - none
   - _Requirements: R17.3, R18.3, R18.7, R19.2, R19.3_
 
-- [ ] **6.6 Dispatch completion & failure**
+- [x] **6.6 Dispatch completion & failure**
   - Success ⇒ persist the provider ref, draft `dispatched`, `DISPATCHED → COMPLETED`.
   - Transient failure (429, 5xx, Gmail rate-limit 403) ⇒ the job stays `DISPATCHED` and the broker retry ladder redelivers; a `Retry-After` picks the first ladder tier ≥ its value, capped at the last tier. Permanent (400, 404 on send, auth, null provider thread id) ⇒ `DISPATCHED → FAILED → DEAD_LETTER` with the provider error retained on the job.
+  - Closed 2026-09-28 after a completion audit (PASS; `make ci` green, unit 1837, integration 232, e2e 7). R17.4, R17.5 were traced to `services/dispatch_worker/failure_policy.py` and `packages/broker/backoff.py`: a `Retry-After` picks the first ladder tier at least as long, capped at 30 m (`tests/unit/test_retry_after_tier.py`), and 400, 404 on send, auth and a null provider thread id dead-letter with the provider error kept on the job (`test_failure_policy`, `test_permanent_failure_dead_letters_with_the_provider_error`). The fix pass before flipping:
+    - none
   - _Requirements: R17.4, R17.5_
 
-- [ ] **6.7 Outbound message write-back**
+- [x] **6.7 Outbound message write-back**
   - In `send_reply` mode, record the sent reply into `email_message` as `direction='outbound'` in step 5's transaction and update the thread, so subsequent inbound messages see the full conversation.
   - In `create_draft` mode nothing is recorded at dispatch (the customer has received nothing). Check whether mailbox sync ingests the mailbox's own sent mail and does not re-triage it; if it does not, add the gap to this task's notes rather than recording unsent drafts.
   - Check result (2026-09-28, by code reading and recorded-response tests): Gmail sync did ingest the mailbox's own mail. `history.list` and the initial `messages.list` had no label filter (`packages/adapters/gmail.py`), the normalizer marks everything `inbound`, and triage does not look at `direction`. So in `create_draft` mode our own provider draft came back as a new inbound email, and after a `send_reply` dispatch the draft deleted by `drafts.send` made the next sync fail on a 404. Fixed in 6.7: sync reads `labelId=INBOX` only, and a message deleted between listing and fetch is skipped (`tests/unit/test_gmail_adapter.py::test_incremental_sync_asks_only_for_inbox_messages`, `::test_sync_skips_a_message_deleted_after_history_listed_it`). A sent copy is also deduplicated by `provider_message_id` because step 5 records it. Left as a gap: an email the account sends to itself carries `INBOX` and would still be triaged; the Graph adapter's delta sync was not checked (verified by recorded responses only, ADR-0009).
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). R17.7 was traced to `PostgresDispatchStore.finish`, which inserts the outbound `email_message` and touches the thread in step 5's transaction (`test_finish_send_reply_writes_one_outbound_row_and_updates_the_thread`, `test_finish_create_draft_writes_no_outbound_row`). The owner approved E1 (INBOX-only Gmail sync, skip a message deleted before fetch); the check result above matches the code. The two gaps it names stay open. The fix pass before flipping:
+    - none
   - _Requirements: R17.7_
 
-- [ ] **6.8 Review UI**
+- [x] **6.8 Review UI**
   - Server-rendered pages in the `frontend` service (FastAPI + Jinja2 + htmx) calling only `/v1`:
     - pending-draft queue: original email, thread summary, citations next to the sentences they support, `[BUSINESS DATA]` facts highlighted, edit / approve / reject;
     - job timeline and current state per message (from `processing_event`);
     - knowledge upload with per-document ingestion status.
   - Local only, no login (ADR-0009): bind the `frontend` and `api` ports to `127.0.0.1` in `docker-compose.yml`. New settings `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID` (sent as the `X-Organization-Id` header, R23.6) in `.env.example` and `docs/configuration.md`. WCAG 2.2 AA basics: visible focus, 24 px targets, live-region status messages. Playwright tests for the approve and edit flows.
+  - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). R23.4, R23.5, R23.7 were traced to `services/frontend/` (it calls only `/v1` and imports no DB or broker code), `docker-compose.yml` (`frontend` and `api` on `127.0.0.1`), `FRONTEND__*` in `.env.example` and `docs/configuration.md`, and `tests/e2e` (approve, edit and accessibility flows on Chromium). The UI lives in `services/frontend/` (owner decision D1, design tree updated). Business facts show statuses, not values (owner accepted). The fix pass before flipping:
+    - none
   - _Requirements: R23.4, R23.5, R23.7_
 
-- [ ] **6.9 Full end-to-end smoke test**
+- [x] **6.9 Full end-to-end smoke test**
   - Fixture email → ingest → normalize → triage → context → RAG → generate → approve → dispatch, asserted in CI against fakes, ending with exactly one fake-provider draft (or send) and an outbound `email_message`.
+  - Closed 2026-09-28 after a completion audit (PASS; `make ci` green, unit 1837, integration 232, e2e 7). R24.7 was traced to `tests/integration/test_phase6_pipeline_e2e.py`, which runs every hop through the production builders (sync orchestrator, email, triage, ai and dispatch workers, and the API's approve) with no hand-inserted job: `test_create_draft_mode_ends_with_one_provider_draft_and_no_outbound_message` and `test_send_reply_mode_ends_with_one_send_and_one_outbound_message`. The fix pass before flipping:
+    - none
   - _Requirements: R24.7_
 
-- [ ] **6.10 Connect a real Gmail mailbox & live gate**
+- [~] **6.10 Connect a real Gmail mailbox & live gate**
   - `make connect-gmail ADDRESS=…` registers the test account as a watched mailbox with `credentials_ref=env:GMAIL_ACCESS_TOKEN`; compose forwards `GMAIL_ACCESS_TOKEN` to the services that call Gmail; a blank `GMAIL_ACCESS_TOKEN=` and the `dispatch_mode` key go into `.env.example` / `docs/configuration.md`.
   - `make phase6-gate`, run live by the owner: a real email to the test inbox becomes a reviewable draft; approving it (with that category set to `send_reply` for the gate) delivers a correctly threaded reply in Gmail; the reply appears in our thread; replaying the dispatch job sends nothing.
   - Complete the **[after Phase 6]** sections of `docs/demo-runbook.md` (§3.4, §5.3, §6).
+  - Completion audit 2026-09-28 (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7): `make connect-gmail`, `make phase6-gate`, the compose token forwarding, the `.env.example` / `docs/configuration.md` keys and runbook §3.4, §5.3 and §6 are in place; no test needs `GMAIL_ACCESS_TOKEN`, and `tests/conftest.py` strips it. Nothing has run live yet.
+  - Left: the owner runs the live gate against the Gmail test account (runbook §3 and §5.3): put a fresh `GMAIL_ACCESS_TOKEN` in `.env`; set `billing` to `dispatch_mode: send_reply`; `make up` (its bootstrap applies migration 0005, still pending on the host database), `make seed`, `make connect-gmail ADDRESS=<test account>`; `make phase6-gate`, sending the email it asks for from another address, until it prints `PHASE 6 GATE OK`; set `billing` back to `create_draft` and `make up`; then `make smoke` and `make phase5-gate`. The Phase 6 gate evidence block is written from that output afterwards.
   - _Requirements: R17.1–R17.7_
 
 > **Phase 6 gate:** a real email sent to a connected mailbox produces a reviewable draft; approving it delivers a correctly threaded reply to the provider; the reply is visible in the thread; replaying the dispatch job sends nothing further.
