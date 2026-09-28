@@ -1,7 +1,7 @@
 # ADR-0010: AgentMailGuard is integrated as the separate prompt-injection subsystem; rag-email adds no defence logic
 
 - **Status:** Accepted
-- **Date:** 2026-09-29
+- **Date:** 2026-09-28
 - **Decided by:** project owner
 - **Relates to:** `GEMINI.md` §6, `specs/requirements.md` §0.5, `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`
 

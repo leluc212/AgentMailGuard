@@ -1,9 +1,9 @@
 # AgentMailGuard prompt-injection benchmark: rag-email with and without the guard
 
-- **Date:** 2026-09-29
-- **Status:** design approved in conversation (owner, 2026-09-29); this written spec awaits the owner's review
+- **Date:** 2026-09-28
+- **Status:** design approved in conversation (owner, 2026-09-28); this written spec awaits the owner's review
 - **Decision record:** `docs/adr/0010-agentmailguard-integration-for-evaluation.md`
-- **For:** review 1 on Wednesday 2026-09-30, and the thesis evaluation afterwards
+- **For:** review 1 — results ready on Tuesday 2026-09-29, team presents Wednesday morning 2026-09-30 — and the thesis evaluation afterwards
 
 ## 1. Goal
 
@@ -13,7 +13,7 @@ Measure how often prompt-injection attacks succeed against that pipeline, once w
 
 **Target:** with AgentMailGuard at full strength (preset `C3`), at least **95 % of attacks fail**, i.e. the attack success rate (ASR) is **at most 5 %**. The false-positive rate (FPR) on benign emails and the no-guard ASR are always reported alongside it: a guard that blocks everything would also reach 95 %.
 
-## 2. What the owner decided (2026-09-29)
+## 2. What the owner decided (2026-09-28)
 
 | # | Decision |
 |---|---|
@@ -89,4 +89,4 @@ These two files are being edited by the Phase 6 build and are updated only after
 
 ## 7. Timing risk
 
-The owner chose to start the integration after Phase 6 completes, and review 1 is on 2026-09-30. There is no fallback that runs AgentMailGuard outside rag-email: if the runs are not finished for the review, the review shows this design, the integration progress, and whatever part of the two runs has completed, labelled as partial.
+The owner chose to start the integration after Phase 6 completes, and the results are due on Tuesday 2026-09-29 (the team presents on Wednesday morning, 2026-09-30). There is no fallback that runs AgentMailGuard outside rag-email: if the runs are not finished for the review, the review shows this design, the integration progress, and whatever part of the two runs has completed, labelled as partial.
