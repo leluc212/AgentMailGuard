@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import pytest
+import yaml
 
 from packages.broker.envelope import JobEnvelope
 from packages.broker.routing import (
@@ -24,6 +25,7 @@ from packages.broker.routing import (
     resolve_priority_lane,
 )
 from packages.core.settings import CategoryRoutingSettings, WorkerConcurrencySettings
+from packages.domain.dispatch import DispatchMode
 from packages.domain.entities import Classification
 from packages.domain.taxonomy import TaxonomyRegistry
 
@@ -259,6 +261,46 @@ categories:
         registry = TaxonomyRegistry()
         loaded = load_categories_from_yaml("non_existent_categories.yaml", registry=registry)
         assert loaded == []
+
+    def test_default_yaml_states_create_draft_and_no_auto_send(self) -> None:
+        """6.4: every shipped category says create_draft and auto_send_eligible: false."""
+        config_path = Path("config/categories.yaml")
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        entries = raw["categories"]
+        assert len(entries) == 9
+        for entry in entries:
+            assert entry["dispatch_mode"] == "create_draft", entry["category"]
+            assert entry["auto_send_eligible"] is False, entry["category"]
+
+        registry = TaxonomyRegistry()
+        for defn in load_categories_from_yaml(config_path, registry=registry):
+            assert defn.dispatch_mode is DispatchMode.CREATE_DRAFT
+            assert registry.dispatch_mode_for(defn.category) is DispatchMode.CREATE_DRAFT
+
+    def test_yaml_can_switch_a_category_to_send_reply(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            yaml_path = Path(tmpdir) / "categories.yaml"
+            yaml_path.write_text(
+                "categories:\n"
+                "  - category: billing\n"
+                "    dispatch_mode: send_reply\n"
+                "    aliases: [invoice]\n",
+                encoding="utf-8",
+            )
+            registry = TaxonomyRegistry()
+            load_categories_from_yaml(yaml_path, registry=registry)
+            assert registry.dispatch_mode_for("billing") is DispatchMode.SEND_REPLY
+            assert registry.dispatch_mode_for("support") is DispatchMode.CREATE_DRAFT
+
+    def test_yaml_with_an_unknown_dispatch_mode_fails_the_load(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            yaml_path = Path(tmpdir) / "categories.yaml"
+            yaml_path.write_text(
+                "categories:\n  - category: billing\n    dispatch_mode: auto_send\n",
+                encoding="utf-8",
+            )
+            with pytest.raises(ValueError, match="Unknown dispatch_mode"):
+                load_categories_from_yaml(yaml_path, registry=TaxonomyRegistry())
 
 
 class TestConsumerScalingConfiguration:

@@ -13,6 +13,7 @@ from enum import StrEnum
 
 import pytest
 
+from packages.domain.dispatch import DispatchMode, parse_dispatch_mode
 from packages.domain.taxonomy import (
     CANONICAL_CATEGORIES,
     CANONICAL_DEFINITIONS,
@@ -23,6 +24,7 @@ from packages.domain.taxonomy import (
     TaxonomyRegistry,
     get_category_definition,
     get_default_registry,
+    get_dispatch_mode,
     is_valid_category,
     normalize_category,
     validate_category,
@@ -267,3 +269,65 @@ class TestArchitecturalIsolation:
                     or module_name.startswith("packages.domain")
                     or module_name.startswith("packages.core")
                 ), f"Prohibited import in taxonomy: {module_name} ({attr})"
+
+
+class TestDispatchMode:
+    """6.4: dispatch_mode per category, default create_draft (R17.1, R17.6, R16.8)."""
+
+    def test_every_canonical_category_defaults_to_create_draft(self) -> None:
+        for defn in CANONICAL_DEFINITIONS.values():
+            assert defn.dispatch_mode is DispatchMode.CREATE_DRAFT
+            assert defn.auto_send_eligible is False
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("send_reply", DispatchMode.SEND_REPLY),
+            (" SEND_REPLY ", DispatchMode.SEND_REPLY),
+            ("create_draft", DispatchMode.CREATE_DRAFT),
+            (None, DispatchMode.CREATE_DRAFT),
+            ("", DispatchMode.CREATE_DRAFT),
+            ("   ", DispatchMode.CREATE_DRAFT),
+        ],
+    )
+    def test_parse_dispatch_mode(self, raw: str | None, expected: DispatchMode) -> None:
+        assert parse_dispatch_mode(raw) is expected
+
+    @pytest.mark.parametrize("raw", ["auto_send", "send", "draft", 1])
+    def test_unknown_dispatch_mode_is_rejected(self, raw: object) -> None:
+        with pytest.raises(ValueError, match="Unknown dispatch_mode"):
+            parse_dispatch_mode(raw)
+
+    def test_register_from_dict_reads_dispatch_mode(self) -> None:
+        registry = TaxonomyRegistry()
+        defn = registry.register_from_dict({"category": "refunds", "dispatch_mode": "send_reply"})
+        assert defn.dispatch_mode is DispatchMode.SEND_REPLY
+        assert registry.dispatch_mode_for("refunds") is DispatchMode.SEND_REPLY
+
+    def test_register_from_dict_without_dispatch_mode_defaults(self) -> None:
+        registry = TaxonomyRegistry()
+        defn = registry.register_from_dict({"category": "refunds"})
+        assert defn.dispatch_mode is DispatchMode.CREATE_DRAFT
+
+    def test_register_from_dict_names_the_category_on_a_bad_mode(self) -> None:
+        registry = TaxonomyRegistry()
+        with pytest.raises(ValueError, match="Category 'refunds': Unknown dispatch_mode"):
+            registry.register_from_dict({"category": "refunds", "dispatch_mode": "auto_send"})
+        assert not registry.is_valid("refunds")
+
+    def test_to_dict_includes_dispatch_mode(self) -> None:
+        assert CANONICAL_DEFINITIONS["billing"].to_dict()["dispatch_mode"] == "create_draft"
+
+    def test_dispatch_mode_for_resolves_aliases_and_defaults_unknown(self) -> None:
+        registry = TaxonomyRegistry()
+        registry.register_from_dict(
+            {"category": "billing", "aliases": ["invoice"], "dispatch_mode": "send_reply"}
+        )
+        assert registry.dispatch_mode_for("billing") is DispatchMode.SEND_REPLY
+        assert registry.dispatch_mode_for("Invoice") is DispatchMode.SEND_REPLY
+        assert registry.dispatch_mode_for("partnerships") is DispatchMode.CREATE_DRAFT
+
+    def test_module_level_lookup_uses_the_default_registry(self) -> None:
+        assert get_dispatch_mode(Category.SUPPORT) is get_default_registry().dispatch_mode_for(
+            "support"
+        )

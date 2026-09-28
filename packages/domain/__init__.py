@@ -15,8 +15,10 @@ from packages.domain.business import (
     unavailable_context,
 )
 from packages.domain.dispatch import (
+    DEFAULT_DISPATCH_MODE,
     DispatchMode,
     ProviderDraftStatus,
+    parse_dispatch_mode,
 )
 from packages.domain.entities import (
     AttachmentRef,
@@ -73,6 +75,7 @@ from packages.domain.taxonomy import (
     TaxonomyRegistry,
     get_category_definition,
     get_default_registry,
+    get_dispatch_mode,
     is_valid_category,
     normalize_category,
     validate_category,
@@ -88,6 +91,7 @@ from packages.domain.templates import (
 __all__ = [
     "CANONICAL_CATEGORIES",
     "CANONICAL_DEFINITIONS",
+    "DEFAULT_DISPATCH_MODE",
     "NO_REPLY_CATEGORIES",
     "RETRIEVAL_CATEGORIES",
     "TRANSITIONS",
@@ -144,8 +148,10 @@ __all__ = [
     "build_template_context",
     "get_category_definition",
     "get_default_registry",
+    "get_dispatch_mode",
     "is_valid_category",
     "normalize_category",
+    "parse_dispatch_mode",
     "substitute_variables",
     "transition_job",
     "unavailable_context",

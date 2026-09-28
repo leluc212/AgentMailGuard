@@ -274,6 +274,16 @@ LLM__PRICE_TABLE={"gemma-4-26b-a4b-it":{"input_per_m":0,"output_per_m":0},"gemma
 | `ROUTING__PRIORITY_LANES` | `list[string]` | `["normal", "priority"]` | Non-empty | Set of priority lanes declared for each category (R7.2) |
 | `ROUTING__CONFIGURED_CONSUMERS` | `list[string]` | `["email.support.*", ...]` | Valid patterns | Glob patterns defining queues with active consumers. Unconsumed queues trigger warning (R7.6) |
 
+#### Per-category dispatch mode (`config/categories.yaml`)
+*How an approved draft leaves the system (R17.1, R17.6, R16.8, design.md §5.8, ADR-0009). These are YAML keys on each category entry, not environment variables.*
+
+| Key | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `dispatch_mode` | `string` | `create_draft` | `create_draft` or `send_reply` (case-insensitive); any other value stops the service at startup | `create_draft`: the approved reply becomes a draft in the provider mailbox and a person sends it. `send_reply`: the approved reply is sent. Every shipped category uses `create_draft`. |
+| `auto_send_eligible` | `boolean` | `false` | Boolean | Sending without an approval (R17.6). `false` for every category; dispatch starts only from an approval (`POST /v1/drafts/{id}/approve`). |
+
+A category the classifier returns that is not registered dispatches as `create_draft`. Workers read the file at startup when they declare the broker topology (`ROUTING__CATEGORIES_CONFIG_PATH`), so a change needs a restart of the dispatch-worker.
+
 ### 2.17 Lease Reaper Configuration (`LEASE_REAPER__*`)
 *Configuration for detecting and reclaiming stuck jobs past lease expiration (R19.8, design.md §9).*
 

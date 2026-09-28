@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from packages.domain.dispatch import DEFAULT_DISPATCH_MODE, DispatchMode, parse_dispatch_mode
+
 
 class Category(StrEnum):
     """The 9 mandatory canonical triage categories defined by R6.4."""
@@ -42,6 +44,7 @@ class CategoryDefinition:
     intents: tuple[str, ...] = field(default_factory=tuple)
     auto_send_eligible: bool = False
     aliases: tuple[str, ...] = field(default_factory=tuple)
+    dispatch_mode: DispatchMode = DispatchMode.CREATE_DRAFT  # R17.1, R16.8 (6.4)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert definition to dictionary."""
@@ -55,6 +58,7 @@ class CategoryDefinition:
             "intents": list(self.intents),
             "auto_send_eligible": self.auto_send_eligible,
             "aliases": list(self.aliases),
+            "dispatch_mode": self.dispatch_mode.value,
         }
 
 
@@ -258,6 +262,10 @@ class TaxonomyRegistry:
         if "category" not in data or not str(data["category"]).strip():
             raise ValueError("Category dictionary must contain non-empty 'category' key")
         category = str(data["category"]).strip().lower()
+        try:
+            dispatch_mode = parse_dispatch_mode(data.get("dispatch_mode"))
+        except ValueError as err:
+            raise ValueError(f"Category '{category}': {err}") from err
         defn = CategoryDefinition(
             category=category,
             description=str(data.get("description", "")),
@@ -268,6 +276,7 @@ class TaxonomyRegistry:
             intents=tuple(data.get("intents", ())),
             auto_send_eligible=bool(data.get("auto_send_eligible", False)),
             aliases=tuple(data.get("aliases", ())),
+            dispatch_mode=dispatch_mode,
         )
         self.register_category(defn)
         return defn
@@ -321,6 +330,11 @@ class TaxonomyRegistry:
         """List all registered category names."""
         return sorted(self._definitions.keys())
 
+    def dispatch_mode_for(self, category: str | Category) -> DispatchMode:
+        """Dispatch mode for a category or alias; unregistered ones get create_draft (R16.8)."""
+        defn = self.get(category)
+        return defn.dispatch_mode if defn is not None else DEFAULT_DISPATCH_MODE
+
 
 # Singleton default registry instance
 _DEFAULT_REGISTRY = TaxonomyRegistry()
@@ -349,3 +363,8 @@ def validate_category(category: str | Category) -> str:
 def get_category_definition(category: str | Category) -> CategoryDefinition | None:
     """Retrieve category definition from default registry."""
     return _DEFAULT_REGISTRY.get(category)
+
+
+def get_dispatch_mode(category: str | Category) -> DispatchMode:
+    """Dispatch mode for a category from the default registry (R17.1, R16.8)."""
+    return _DEFAULT_REGISTRY.dispatch_mode_for(category)

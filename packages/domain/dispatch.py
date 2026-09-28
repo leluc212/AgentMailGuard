@@ -29,3 +29,24 @@ class ProviderDraftStatus(StrEnum):
     DRAFT = "DRAFT"
     SENT = "SENT"
     MISSING = "MISSING"
+
+
+DEFAULT_DISPATCH_MODE: DispatchMode = DispatchMode.CREATE_DRAFT
+
+
+def parse_dispatch_mode(value: object) -> DispatchMode:
+    """Parse a configured dispatch mode (R17.1, R16.8).
+
+    None or blank means the default ``create_draft``; matching ignores case and surrounding
+    space. Anything else raises ``ValueError`` so a typo never changes the posture silently.
+    """
+    if value is None:
+        return DEFAULT_DISPATCH_MODE
+    text = str(value).strip().lower()
+    if not text:
+        return DEFAULT_DISPATCH_MODE
+    try:
+        return DispatchMode(text)
+    except ValueError as err:
+        allowed = ", ".join(mode.value for mode in DispatchMode)
+        raise ValueError(f"Unknown dispatch_mode {value!r}; expected one of: {allowed}") from err
