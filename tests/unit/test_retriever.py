@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from packages.knowledge.embedder import EmbeddingError, FakeEmbedder
 from packages.observability.metrics import create_pipeline_metrics, generate_metrics_payload
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.models import Candidate, RetrievalQuery
@@ -342,3 +343,137 @@ class TestHybridRetrieverObservabilityAndParams:
 
         with pytest.raises(ValueError, match="default_top_n must be > 0"):
             HybridRetriever(backend, default_top_n=-1)
+
+
+class _RecordingVectorBackend(SlowMockBackend):
+    """Records the query the vector branch receives."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.vector_queries: list[RetrievalQuery] = []
+
+    async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[Candidate]:
+        self.vector_queries.append(q)
+        return await super().vector(q, top_n)
+
+
+class _FixedVectorEmbedder(FakeEmbedder):
+    """Returns a fixed vector, to model a misbehaving provider."""
+
+    def __init__(self, vector: list[float], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._vector = vector
+
+    async def embed_query(self, query: str) -> list[float]:
+        self.recorded_calls.append({"texts": [query]})
+        return list(self._vector)
+
+
+def _unembedded_query(text: str = "how do I reset my enterprise password") -> RetrievalQuery:
+    return RetrievalQuery(
+        semantic_text=text,
+        lexical_terms=["reset", "password"],
+        filters={"organization_id": "00000000-0000-0000-0000-000000000001"},
+    )
+
+
+class TestQueryEmbedding:
+    """3.16: the vector branch embeds the query (R10.1) under the timeout (R10.9)."""
+
+    async def test_vector_branch_embeds_the_semantic_text(self) -> None:
+        backend = _RecordingVectorBackend(vector_candidates=[_make_candidate("c_vec")])
+        embedder = FakeEmbedder()
+        query = _unembedded_query()
+
+        result = await HybridRetriever(backend, embedder=embedder).retrieve(query)
+
+        assert embedder.recorded_calls[0]["texts"] == [query.semantic_text]
+        searched = backend.vector_queries[0].query_vector
+        assert searched == await embedder.embed_query(query.semantic_text)
+        assert result.query_vector_dimension == embedder.dimension
+        assert not result.retrieval_degraded
+        assert [c.chunk_id for c in result.vector_candidates] == ["c_vec"]
+
+    async def test_embedding_does_not_mutate_the_callers_query(self) -> None:
+        query = _unembedded_query()
+        await HybridRetriever(_RecordingVectorBackend(), embedder=FakeEmbedder()).retrieve(query)
+        assert query.query_vector is None
+
+    async def test_supplied_vector_is_not_re_embedded(self, query: RetrievalQuery) -> None:
+        backend = _RecordingVectorBackend()
+        embedder = FakeEmbedder()
+
+        result = await HybridRetriever(backend, embedder=embedder).retrieve(query)
+
+        assert embedder.recorded_calls == []
+        assert backend.vector_queries[0].query_vector == query.query_vector
+        assert result.query_vector_dimension == len(query.query_vector or [])
+
+    async def test_slow_embedder_degrades_to_lexical_within_the_timeout(self) -> None:
+        metrics = create_pipeline_metrics()
+        backend = _RecordingVectorBackend(lexical_candidates=[_make_candidate("c_lex")])
+        retriever = HybridRetriever(
+            backend,
+            embedder=FakeEmbedder(simulate_latency_ms=2000),
+            timeout_seconds=0.05,
+            metrics=metrics,
+        )
+
+        t0 = time.perf_counter()
+        result = await retriever.retrieve(_unembedded_query())
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 0.5, f"retrieval blocked for {elapsed:.2f}s behind the embedder"
+        assert result.retrieval_degraded and result.surviving_branch == "lexical"
+        assert [c.chunk_id for c in result.candidates] == ["c_lex"]
+        assert result.vector_error is not None and "Timeout" in result.vector_error
+        assert result.query_vector_dimension is None
+        assert backend.vector_queries == []
+        payload, _ = generate_metrics_payload(metrics.registry)
+        assert 'failed_branch="vector"' in payload.decode()
+
+    async def test_embedder_error_degrades_to_lexical(self) -> None:
+        backend = _RecordingVectorBackend(lexical_candidates=[_make_candidate("c_lex")])
+        embedder = FakeEmbedder(error_to_raise=EmbeddingError("provider unavailable"))
+
+        result = await HybridRetriever(backend, embedder=embedder).retrieve(_unembedded_query())
+
+        assert result.retrieval_degraded and result.surviving_branch == "lexical"
+        assert result.vector_error == "provider unavailable"
+        assert backend.vector_queries == []
+
+    @pytest.mark.parametrize("vector", [[0.0] * 1536, [0.1] * 8], ids=["zeros", "short"])
+    async def test_unusable_query_vector_is_a_vector_branch_failure(
+        self, vector: list[float]
+    ) -> None:
+        backend = _RecordingVectorBackend(lexical_candidates=[_make_candidate("c_lex")])
+        embedder = _FixedVectorEmbedder(vector)
+
+        result = await HybridRetriever(backend, embedder=embedder).retrieve(_unembedded_query())
+
+        assert result.retrieval_degraded and result.surviving_branch == "lexical"
+        assert result.vector_error is not None and "unusable query vector" in result.vector_error
+        assert backend.vector_queries == []
+
+    async def test_empty_semantic_text_skips_embedding_without_degrading(self) -> None:
+        backend = _RecordingVectorBackend(lexical_candidates=[_make_candidate("c_lex")])
+        embedder = FakeEmbedder()
+
+        result = await HybridRetriever(backend, embedder=embedder).retrieve(
+            _unembedded_query("   ")
+        )
+
+        assert embedder.recorded_calls == []
+        assert not result.retrieval_degraded
+        assert result.query_vector_dimension is None
+
+    async def test_query_embedding_tokens_are_counted(self) -> None:
+        metrics = create_pipeline_metrics()
+        embedder = FakeEmbedder(model_name="embed-test", metrics=metrics)
+
+        await HybridRetriever(_RecordingVectorBackend(), embedder=embedder).retrieve(
+            _unembedded_query()
+        )
+
+        counted = metrics.embedding_tokens_total.labels(model="embed-test")._value.get()
+        assert counted > 0

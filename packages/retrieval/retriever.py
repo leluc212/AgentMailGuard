@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import time
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from packages.retrieval.protocol import SearchBackend
 from packages.retrieval.rrf import DEFAULT_RRF_K, fuse_lexical_and_vector
 
 if TYPE_CHECKING:
+    from packages.knowledge.embedder import Embedder
     from packages.observability.metrics import PipelineMetrics
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 class RetrievalError(Exception):
     """Raised when retrieval fails completely and cannot degrade to any branch."""
+
+
+class UnusableQueryVectorError(ValueError):
+    """The embedder returned a vector the ANN search cannot use (wrong length or all zeros)."""
 
 
 @dataclass
@@ -52,6 +58,7 @@ class RetrievalResult:
     lexical_latency_ms: float = 0.0
     vector_latency_ms: float = 0.0
     total_latency_ms: float = 0.0
+    query_vector_dimension: int | None = None  # length of the vector searched, None if none
 
 
 class HybridRetriever:
@@ -71,6 +78,7 @@ class HybridRetriever:
         rrf_k: int = DEFAULT_RRF_K,
         raise_on_both_failed: bool = False,
         metrics: PipelineMetrics | None = None,
+        embedder: Embedder | None = None,
     ) -> None:
         """Initialize the hybrid retriever.
 
@@ -83,6 +91,8 @@ class HybridRetriever:
             rrf_k: Smoothing constant for RRF fusion, default 60 (R10.3).
             raise_on_both_failed: If True, raise RetrievalError when both branches fail.
             metrics: Optional PipelineMetrics instance for Prometheus observability (R21.4).
+            embedder: Optional Embedder used to embed semantic_text when a query arrives
+                without a query_vector (R10.1). Must be the corpus model and dimension (R5.10).
         """
         if timeout_seconds <= 0:
             raise ValueError(f"timeout_seconds must be > 0, got {timeout_seconds}")
@@ -101,6 +111,7 @@ class HybridRetriever:
         self.rrf_k = rrf_k
         self.raise_on_both_failed = raise_on_both_failed
         self.metrics = metrics
+        self.embedder = embedder
 
     async def retrieve(
         self,
@@ -158,10 +169,29 @@ class HybridRetriever:
                 )
                 return [], str(err), dt
 
+        vector_dimension: int | None = None
+
+        async def _embed_then_search() -> list[Candidate]:
+            nonlocal vector_dimension
+            vector_query = query
+            if not query.query_vector and self.embedder is not None and query.semantic_text.strip():
+                vector = await self.embedder.embed_query(query.semantic_text)
+                if len(vector) != self.embedder.dimension or not any(vector):
+                    raise UnusableQueryVectorError(
+                        f"unusable query vector (length {len(vector)}, "
+                        f"expected {self.embedder.dimension} with a non-zero value)"
+                    )
+                vector_query = dataclasses.replace(query, query_vector=vector)
+            if vector_query.query_vector:
+                vector_dimension = len(vector_query.query_vector)
+            return await self.backend.vector(vector_query, n)
+
         async def _run_vector() -> tuple[list[Candidate], str | None, float]:
             t0 = time.perf_counter()
             try:
-                res = await asyncio.wait_for(self.backend.vector(query, n), timeout=vec_to)
+                # Query embedding and ANN search share one budget (R10.9): a slow embedder
+                # fails this branch and retrieval degrades to lexical (R10.6).
+                res = await asyncio.wait_for(_embed_then_search(), timeout=vec_to)
                 dt = (time.perf_counter() - t0) * 1000.0
                 return res, None, dt
             except TimeoutError:
@@ -312,4 +342,5 @@ class HybridRetriever:
             lexical_latency_ms=lex_latency,
             vector_latency_ms=vec_latency,
             total_latency_ms=total_latency,
+            query_vector_dimension=vector_dimension,
         )
