@@ -16,8 +16,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from packages.adapters.webhooks import webhook_router
+from packages.broker.routing import load_categories_from_yaml
 from packages.core.settings import APISettings
 from packages.db.connection import create_pool_from_settings
+from packages.domain.taxonomy import TaxonomyRegistry
 from packages.observability.context import bind_log_context, get_correlation_context
 from packages.observability.health import HealthRegistry, create_health_router
 from packages.observability.logging import setup_logging
@@ -165,6 +167,14 @@ def create_app(
         lifespan=app_lifespan,
     )
     app.state.settings = active_settings
+
+    # dispatch_mode per category (tasks 6.4, 6.8): the same config/categories.yaml the
+    # dispatch-worker loads, in the API's own registry, so GET /v1/drafts/{id} tells the
+    # reviewer what approve will really do. A bad dispatch_mode fails startup, as it does
+    # in the worker; the process-default registry is left untouched.
+    taxonomy = TaxonomyRegistry()
+    load_categories_from_yaml(active_settings.routing.categories_config_path, registry=taxonomy)
+    app.state.taxonomy = taxonomy
 
     # Middleware registration
     app.add_middleware(TraceContextMiddleware)

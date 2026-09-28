@@ -51,6 +51,16 @@ def _from_json_val(val: Any) -> Any:
     return val
 
 
+JOB_SELECT_COLUMNS = """
+    id, organization_id, message_id, thread_id, job_type, state,
+    attempt, max_attempts, idempotency_key, result_ref, queue_name,
+    priority, lease_expires_at, last_error, next_retry_at, trace_id,
+    created_at, updated_at
+"""
+"""Column list that ``PostgresJobStore._row_to_job`` reads; shared by the review and
+dispatch units of work that lock ``processing_job`` rows themselves (tasks 6.1, 6.5)."""
+
+
 @runtime_checkable
 class JobStore(Protocol):
     """Protocol for asynchronous job and telemetry event operations."""

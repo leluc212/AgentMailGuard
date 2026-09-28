@@ -180,6 +180,21 @@ def get_knowledge_store(request: Request) -> Any:
     return InMemoryKnowledgeStore()
 
 
+def get_review_store(request: Request) -> Any:
+    """Retrieve the draft ReviewStore from app.state or create it from db_pool (task 6.1)."""
+    store = getattr(request.app.state, "review_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.review import PostgresReviewStore
+
+        return PostgresReviewStore(db_pool)
+    from packages.db.review import InMemoryReviewStore
+
+    return InMemoryReviewStore()
+
+
 MailboxStoreDep = Annotated[Any, Depends(get_mailbox_store)]
 ThreadStoreDep = Annotated[Any, Depends(get_thread_store)]
 MessageStoreDep = Annotated[Any, Depends(get_message_store)]
@@ -187,6 +202,7 @@ KnowledgeStoreDep = Annotated[Any, Depends(get_knowledge_store)]
 JobStoreDep = Annotated[Any, Depends(get_job_store)]
 StorageClientDep = Annotated[Any, Depends(get_storage_client)]
 PublisherDep = Annotated[Any, Depends(get_job_publisher)]
+ReviewStoreDep = Annotated[Any, Depends(get_review_store)]
 
 
 def get_search_backend(request: Request) -> Any:

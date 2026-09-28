@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from packages.core.pagination import PaginatedResponse, paginate
 from services.api.dependencies import get_organization_id
 from services.api.pagination import PaginationParamsDep
+from services.api.routers.drafts import drafts_router
 from services.api.routers.jobs import jobs_router
 from services.api.routers.knowledge import knowledge_router
 from services.api.routers.mailboxes import mailbox_router
@@ -31,6 +32,7 @@ v1_router.include_router(message_router)
 v1_router.include_router(jobs_router)
 v1_router.include_router(knowledge_router)
 v1_router.include_router(search_router)
+v1_router.include_router(drafts_router)
 
 
 class PingResponse(BaseModel):

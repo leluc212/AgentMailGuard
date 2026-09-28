@@ -103,6 +103,7 @@ ratio is the share of drafts containing at least one ungrounded citation.
 | `generated_draft_cost_total` | Counter | `category`, `model_tier` | Estimated USD cost of persisted AI drafts; unpriced models add nothing (R21.6). |
 | `business_lookups_total` | Counter | `entity`, `status` | One increment per business fact the business step produced: `entity` is `order`, `ticket` or `invoice`; `status` is `FOUND`, `NOT_FOUND`, `NOT_LOOKED_UP` or `UNAVAILABLE`. Customer resolution is not counted here (R13.6, R13.7). |
 | `business_lookup_latency_ms` | Histogram | — | Duration of one bounded business-data provider call, timeouts included (R13.7). |
+| `draft_decisions_total` | Counter | `decision`, `category` | One increment per draft's first reviewer decision: `accepted` (approved unchanged), `edited` (approved after edits) or `rejected`. A repeated approve or reject does not count again; `category` is the email's latest triage category, `unknown` if none (R16.7, R21.4, SC3). |
 
 #### Generation cost, context size and latency (R11.7, R21.4–R21.6, NFR8)
 
@@ -151,6 +152,39 @@ sum(rate(business_lookups_total{status="UNAVAILABLE"}[5m])) / sum(rate(business_
 
 # p95 lookup latency against the 500 ms default deadline
 histogram_quantile(0.95, sum by (le) (rate(business_lookup_latency_ms_bucket[5m])))
+```
+
+#### Review decisions (R16.7, R21.4, SC3)
+
+`POST /v1/drafts/{id}/approve` and `/reject` write the draft's single `feedback` row
+(`UNIQUE (draft_id)`) with `decision`, `edited_body`, the character-level `edit_distance`
+from the generated body (kept on the first `draft_edited` event), `rating`, the free-text
+`reviewer` label and the client-measured `review_ms`, then increment
+`draft_decisions_total{decision, category}` once. The acceptance rate and the
+approved-without-edits rate are reported separately, because an unchanged approval can also
+mean an unread draft (design.md §5.8).
+
+```promql
+# Acceptance rate (SC3 target >= 80%): approved drafts, edited or not, over all decisions
+sum by (category) (increase(draft_decisions_total{decision=~"accepted|edited"}[7d]))
+/
+sum by (category) (increase(draft_decisions_total[7d]))
+
+# Approved-without-edits rate: unchanged approvals over all decisions
+sum by (category) (increase(draft_decisions_total{decision="accepted"}[7d]))
+/
+sum by (category) (increase(draft_decisions_total[7d]))
+```
+
+Edit size and review time come from the table, not from Prometheus:
+
+```sql
+SELECT decision,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY edit_distance) AS median_edit_distance,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY review_ms) AS median_review_ms
+FROM feedback
+WHERE organization_id = $1 AND created_at > now() - interval '7 days'
+GROUP BY decision;
 ```
 
 ---
