@@ -137,6 +137,9 @@ def test_image_bakes_the_bpe_encoding() -> None:
         "ROUTER_CONFIDENCE_THRESHOLD",
         "LLM__OPENAI_API_KEY",
         "LLM__ANTHROPIC_API_KEY",
+        "EMBEDDING__MODEL_NAME",
+        "EMBEDDING__BASE_URL",
+        "EMBEDDING__API_KEY",
     ],
 )
 def test_compose_forwards_the_switch_into_app_containers(variable: str) -> None:

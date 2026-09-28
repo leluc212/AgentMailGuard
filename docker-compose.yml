@@ -20,6 +20,10 @@ x-app-env: &app-env
   ROUTER_FORCE_SINGLE_TIER: ${ROUTER_FORCE_SINGLE_TIER:-false}
   ROUTER_CONFIDENCE_THRESHOLD: ${ROUTER_CONFIDENCE_THRESHOLD:-0.75}
   EMBEDDING__MOCK: ${EMBEDDING__MOCK:-true}
+  # Same embedding model in every service: the corpus and the queries must match (R5.10).
+  EMBEDDING__MODEL_NAME: ${EMBEDDING__MODEL_NAME:-text-embedding-3-small}
+  EMBEDDING__BASE_URL: ${EMBEDDING__BASE_URL:-https://api.openai.com/v1}
+  EMBEDDING__API_KEY: ${EMBEDDING__API_KEY:-}
 
 x-app-build: &app-build
   context: .

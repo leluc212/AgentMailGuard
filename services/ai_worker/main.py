@@ -21,8 +21,10 @@ from packages.core.settings import AIWorkerSettings, AppSettings
 from packages.db.draft_persistence import PostgresDraftPersistence
 from packages.db.job import PostgresJobStore
 from packages.db.message import PostgresMessageStore
+from packages.db.migrator import verify_database_vector_dimension
 from packages.db.thread_state import PostgresThreadStateStore
 from packages.domain.taxonomy import get_default_registry
+from packages.knowledge.embedder import Embedder, get_embedder
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm import AgentProfileRegistry, InstrumentedLLMProvider, SinglePassGenerator
 from packages.llm.budget import CallKind
@@ -71,9 +73,12 @@ def build_consumers(
     *,
     llm_provider: LLMProvider | None = None,
     token_counter: TokenCounter | None = None,
+    embedder: Embedder | None = None,
 ) -> list[AIWorkerConsumer]:
     """Compose one shared generation pipeline and one consumer per lane."""
     settings = res.settings
+    # The corpus model embeds every query (R5.10); tokens are counted (R9.11).
+    query_embedder = embedder or get_embedder(settings.embedding, metrics=res.metrics)
     counter = token_counter or TokenCounter()
     provider = llm_provider or create_llm_provider(settings.llm)
     jobs = PostgresJobStore(res.db_pool)
@@ -101,9 +106,11 @@ def build_consumers(
         ),
         retriever=HybridRetriever(
             PostgresSearchBackend(pool=res.db_pool, metrics=res.metrics),
+            timeout_seconds=settings.retrieval.retrieval_timeout_ms / 1000,
             default_top_n=settings.retrieval.top_n,
             rrf_k=settings.retrieval.rrf_k,
             metrics=res.metrics,
+            embedder=query_embedder,
         ),
         job_store=jobs,
         top_k=settings.retrieval.top_k,
@@ -151,14 +158,20 @@ def build_consumers(
 
 async def build_components(res: WorkerResources) -> list[StartFn]:
     """Warm the tokenizers off the event loop, then compose and start every lane consumer."""
+    settings = res.settings
+    # R5.10: refuse to start when EMBEDDING__DIMENSION disagrees with VECTOR(n).
+    await verify_database_vector_dimension(
+        settings.database.asyncpg_dsn, configured_dimension=settings.embedding.dimension
+    )
+    embedder = get_embedder(settings.embedding, metrics=res.metrics)
     start_token_counter_warmup()
     counter = await asyncio.to_thread(TokenCounter)
-    consumers = build_consumers(res, token_counter=counter)
+    consumers = build_consumers(res, token_counter=counter, embedder=embedder)
     provider = consumers[0].drafting.generator.llm_provider if consumers else None
-    aclose = getattr(provider, "aclose", None)
-    if aclose is not None:
-        # After every consumer's close(): the HTTP client closes once all lanes have drained.
-        res.shutdown.register_cleanup_callback(aclose)
+    # After every consumer's close(): the HTTP clients close once all lanes have drained.
+    for aclose in (getattr(provider, "aclose", None), getattr(embedder, "aclose", None)):
+        if aclose is not None:
+            res.shutdown.register_cleanup_callback(aclose)
     return [consumer.start for consumer in consumers]
 
 

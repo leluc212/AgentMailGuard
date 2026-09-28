@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from packages.core.settings import AIWorkerSettings, AppSettings, CategoryRoutingSettings
@@ -84,6 +86,11 @@ async def test_build_components_warms_the_counter_and_starts_every_consumer(
 
     started: list[bool] = []
     monkeypatch.setattr(ai_main, "start_token_counter_warmup", lambda: started.append(True))
+
+    async def _no_db_check(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(ai_main, "verify_database_vector_dimension", _no_db_check)
     settings = AIWorkerSettings()
 
     start_fns = await build_components(fake_worker_resources(settings))
@@ -107,3 +114,50 @@ def test_router_follows_the_configured_cascade_settings() -> None:
     assert router.settings.force_single_tier is True
     assert router.settings.confidence_threshold == 0.99
     assert router.tiers_settings is settings.llm
+
+
+async def test_retriever_embeds_with_the_configured_model_and_timeout() -> None:
+    """3.16: the corpus model embeds queries (R5.10), counted (R9.11), under R10.9's timeout."""
+    from packages.core.settings import EmbeddingSettings, RetrievalSettings
+
+    settings = AIWorkerSettings(
+        embedding=EmbeddingSettings(model_name="embed-test"),
+        retrieval=RetrievalSettings(retrieval_timeout_ms=750),
+    )
+    res = fake_worker_resources(settings)
+    retriever = build_consumers(res, token_counter=TokenCounter())[0].context_builder.retriever
+
+    assert isinstance(retriever, HybridRetriever) and retriever.embedder is not None
+    assert retriever.embedder.model_name == "embed-test"
+    assert retriever.embedder.dimension == settings.embedding.dimension
+    assert retriever.lexical_timeout_seconds == retriever.vector_timeout_seconds == 0.75
+    await retriever.embedder.embed_query("password reset")
+    assert res.metrics.embedding_tokens_total.labels(model="embed-test")._value.get() > 0
+
+
+async def test_build_components_checks_the_vector_dimension_and_closes_the_embedder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R5.10 at startup; the real (HTTP) embedder shared by every lane is closed on shutdown."""
+    import services.ai_worker.main as ai_main
+    from packages.core.settings import EmbeddingSettings
+
+    checked: list[int | None] = []
+
+    async def _check(_dsn: object, configured_dimension: int | None = None) -> None:
+        checked.append(configured_dimension)
+
+    monkeypatch.setattr(ai_main, "start_token_counter_warmup", lambda: None)
+    monkeypatch.setattr(ai_main, "verify_database_vector_dimension", _check)
+    settings = AIWorkerSettings(embedding=EmbeddingSettings(mock=False))
+    res = fake_worker_resources(settings)
+
+    start_fns: list[Any] = list(await build_components(res))  # bound AIWorkerConsumer.start
+
+    assert checked == [settings.embedding.dimension]
+    embedders = {id(fn.__self__.context_builder.retriever.embedder) for fn in start_fns}
+    assert len(embedders) == 1
+    embedder = start_fns[0].__self__.context_builder.retriever.embedder
+    callbacks = res.shutdown._cleanup_callbacks
+    last_consumer_close = max(i for i, cb in enumerate(callbacks) if cb.__name__ == "close")
+    assert callbacks.index(embedder.aclose) > last_consumer_close  # closes after lanes drain

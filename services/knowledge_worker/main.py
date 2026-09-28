@@ -38,13 +38,14 @@ async def assert_vector_dimension(settings: AppSettings) -> None:
 def build_consumer(res: WorkerResources) -> KnowledgeIngestConsumer:
     """Compose the production ingestion consumer from shared resources."""
     settings = res.settings
+    embedder = get_embedder(settings.embedding, metrics=res.metrics)  # R9.11
     pipeline = KnowledgeIngestionPipeline(
         store=PostgresKnowledgeStore(res.db_pool),
-        embedder=get_embedder(settings.embedding),
+        embedder=embedder,
         storage=get_storage_client(settings.object_storage),
         bucket_name=settings.object_storage.bucket_knowledge,
     )
-    return KnowledgeIngestConsumer(
+    consumer = KnowledgeIngestConsumer(
         pipeline=pipeline,
         broker_settings=settings.broker,
         retry_settings=settings.retry,
@@ -54,6 +55,11 @@ def build_consumer(res: WorkerResources) -> KnowledgeIngestConsumer:
         job_store=PostgresJobStore(res.db_pool),
         metrics=res.metrics,
     )
+    embedder_close = getattr(embedder, "aclose", None)
+    if embedder_close is not None:
+        # After the consumer's close(): the HTTP client closes once ingestion has drained.
+        res.shutdown.register_cleanup_callback(embedder_close)
+    return consumer
 
 
 async def build_components(res: WorkerResources) -> list[StartFn]:
