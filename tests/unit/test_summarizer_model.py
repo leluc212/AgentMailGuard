@@ -1,14 +1,14 @@
 """SUMMARIZATION__SUMMARIZER_MODEL picks the model that writes thread summaries (R8.3).
 
-Unset (the default), the summarizer stays on the FAST tier. Only a value the operator set is
-honoured: the field's default names an example model, which must never be sent to whatever
-endpoint the FAST tier points at.
+Unset (the default: None), the summarizer stays on the FAST tier. A blank value is unset too,
+so no example model name can ever be sent to whatever endpoint the FAST tier points at.
 """
 
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -22,7 +22,7 @@ from packages.domain.entities import EmailAddress, NormalizedMessage
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm.client import HttpLLMProvider
 from packages.llm.fake import FakeLLMProvider
-from packages.llm.protocol import LLMProvider, ModelTier
+from packages.llm.protocol import ChatMessage, LLMProvider, LLMResult, ModelTier
 from services.ai_worker.main import build_consumers
 from tests.stubs.worker_resources import fake_worker_resources
 
@@ -93,7 +93,7 @@ async def test_unset_model_leaves_the_fast_tier_in_charge() -> None:
 
     result = await _summarize(SummarizationSettings(), provider)
 
-    assert SummarizationSettings().summarizer_model == "gpt-4o-mini"  # an example, not a choice
+    assert SummarizationSettings().summarizer_model is None
     assert provider.recorded_calls[0]["params"] == {}
     assert result.model == "fake-fast-model"
 
@@ -105,7 +105,49 @@ async def test_blank_model_means_unset(blank: str) -> None:
 
     await _summarize(SummarizationSettings(summarizer_model=blank), provider)
 
+    assert SummarizationSettings(summarizer_model=blank).summarizer_model is None
     assert provider.recorded_calls[0]["params"] == {}
+
+
+async def test_settings_rebuilt_from_a_dump_leave_the_fast_tier_in_charge() -> None:
+    """Round-tripping the defaults must not turn an unset model into an explicit choice."""
+    provider = FakeLLMProvider(default_response=SUMMARY)
+    rebuilt = SummarizationSettings(**SummarizationSettings().model_dump())
+
+    await _summarize(rebuilt, provider)
+
+    assert provider.recorded_calls[0]["params"] == {}
+
+
+async def test_the_summary_names_the_model_the_provider_reports() -> None:
+    """A provider that ignores the override is not credited with the summary."""
+
+    class IgnoresOverride(FakeLLMProvider):
+        async def generate(
+            self,
+            *,
+            messages: list[ChatMessage],
+            schema: dict[str, Any] | None = None,
+            tier: ModelTier = ModelTier.FAST,
+            max_tokens: int = 1000,
+            temperature: float = 0.0,
+            **params: Any,
+        ) -> LLMResult:
+            params.pop("model", None)
+            return await super().generate(
+                messages=messages,
+                schema=schema,
+                tier=tier,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                **params,
+            )
+
+    provider = IgnoresOverride(default_response=SUMMARY)
+
+    result = await _summarize(SummarizationSettings(summarizer_model=CONFIGURED), provider)
+
+    assert result.summarized and result.model == "fake-fast-model"
 
 
 async def test_no_model_is_reported_when_nothing_was_summarized() -> None:
@@ -168,3 +210,54 @@ def test_other_summarization_variables_do_not_select_a_model(
 
     summarizer = consumers[0].summarizer
     assert summarizer is not None and summarizer.model is None
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_a_blank_environment_variable_leaves_the_fast_tier_in_charge(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    monkeypatch.setenv("SUMMARIZATION__SUMMARIZER_MODEL", blank)
+    settings = AIWorkerSettings(_env_file=None)
+
+    consumers = build_consumers(fake_worker_resources(settings), token_counter=TokenCounter())
+
+    summarizer = consumers[0].summarizer
+    assert settings.summarization.summarizer_model is None
+    assert summarizer is not None and summarizer.model is None
+
+
+def _env_file(tmp_path: Path, *lines: str) -> str:
+    path = tmp_path / ".env"
+    path.write_text("\n".join(lines) + "\n")
+    return str(path)
+
+
+def test_an_env_file_without_the_key_or_with_a_blank_one_leaves_the_fast_tier_in_charge(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A `.env` copied from the example, with the summarizer line commented out or blank."""
+    monkeypatch.delenv("SUMMARIZATION__SUMMARIZER_MODEL", raising=False)
+    for lines in (
+        ("SUMMARIZATION__MIN_MESSAGES_THRESHOLD=4", "# SUMMARIZATION__SUMMARIZER_MODEL="),
+        ("SUMMARIZATION__SUMMARIZER_MODEL=",),
+    ):
+        settings = AIWorkerSettings(_env_file=_env_file(tmp_path, *lines))
+
+        consumers = build_consumers(fake_worker_resources(settings), token_counter=TokenCounter())
+
+        summarizer = consumers[0].summarizer
+        assert summarizer is not None and summarizer.model is None
+
+
+def test_a_model_named_in_an_env_file_is_honoured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("SUMMARIZATION__SUMMARIZER_MODEL", raising=False)
+    settings = AIWorkerSettings(
+        _env_file=_env_file(tmp_path, f"SUMMARIZATION__SUMMARIZER_MODEL={CONFIGURED}")
+    )
+
+    consumers = build_consumers(fake_worker_resources(settings), token_counter=TokenCounter())
+
+    summarizer = consumers[0].summarizer
+    assert summarizer is not None and summarizer.model == CONFIGURED

@@ -464,9 +464,21 @@ class SummarizationSettings(BaseModel):
             "summarized_through_message_id (R8.4, design.md §5.4 LAG)"
         ),
     )
-    summarizer_model: str = Field(
-        default="gpt-4o-mini", description="Model used for generating conversation summaries"
+    summarizer_model: str | None = Field(
+        default=None,
+        description=(
+            "Model that writes conversation summaries (R8.3); unset means the FAST tier model, "
+            "so a model is only ever sent to the endpoint when the operator names one"
+        ),
     )
+
+    @field_validator("summarizer_model", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        """Treat a blank value as unset: Docker Compose forwards an unset variable as ""."""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class ThreadAssociationSettings(BaseModel):

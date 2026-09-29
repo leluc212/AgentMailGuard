@@ -34,23 +34,12 @@ def _to_uuid(val: UUID | str) -> UUID:
     return val if isinstance(val, UUID) else UUID(str(val))
 
 
-def configured_summarizer_model(settings: SummarizationSettings) -> str | None:
-    """The summarizer model the operator chose, or None to stay on the FAST tier (R8.3).
-
-    ``summarizer_model`` defaults to an example model name. Honouring that default would send it
-    to whatever endpoint the FAST tier points at, so only a value set through the environment or
-    the constructor counts, and a blank one (Compose forwards unset variables as "") is unset.
-    """
-    if "summarizer_model" not in settings.model_fields_set:
-        return None
-    return settings.summarizer_model.strip() or None
-
-
 @dataclass(frozen=True)
 class SummarizationResult:
     """Outcome of thread summarization execution.
 
-    ``model`` names the model that wrote the summary; it is None when nothing was summarized.
+    ``model`` names the model the provider reports it used; it is None when nothing was
+    summarized.
     """
 
     summarized: bool
@@ -74,7 +63,8 @@ class ThreadSummarizer:
         self.llm = llm
         self.store = store
         self.settings = settings
-        self.model = configured_summarizer_model(settings)
+        # None (unset or blank in the environment) leaves the FAST tier model in charge (R8.3)
+        self.model = settings.summarizer_model
         self.token_counter = token_counter or TokenCounter()
         self.policy = policy or SummarizationPolicy(settings, self.token_counter)
 
@@ -197,5 +187,5 @@ class ThreadSummarizer:
             thread_state=saved_state,
             verbatim_messages=messages,
             decision=decision,
-            model=self.model or llm_result.model,
+            model=llm_result.model,
         )
