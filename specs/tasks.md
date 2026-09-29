@@ -887,6 +887,18 @@
   - Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`. Code is unit-tested on the fake provider; live runs are owner-run (`make mailguard-bench`, runbook §9) and never in `make ci`.
   - _Requirements: R22.12, R21.5, R21.6, R24.5, SC4, SC5, SC9_
 
+- [~] **7.20 AgentMailGuard live pipeline benchmark, v2 (every service live)**
+  - Spec: `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`; decision: ADR-0011 (builds on ADR-0010). v1 (7.19) stays as it is: the reply path in-process on a mock embedder. v2 sends each case through rag-email's own services (MinIO, email-worker, triage, the lane queues, then the ai-worker or the guard-worker, with Gemini embeddings and the cross-encoder reranker), one benchmarked model per run in every LLM role. v2 runs use new `RUN` names (`2026-09-29-<model>-live`) and a `transport: services-v2` fingerprint key, so they never mix with v1. rag-email adds no defence logic (CLAUDE.md §6, ADR-0010): the guard runs in an evaluation guard-worker outside rag-email, through one generic hook. Nothing is ever approved or sent.
+  - A. rag-email fixes and hooks: triage stage-3 schema meets OpenAI Structured Outputs (R6.1, R6.3); `SUMMARIZATION__SUMMARIZER_MODEL` honoured (R8.3); retrieval budget 500 → 3000 ms (R10.9); `html` bucket, and bucket names from settings (R4.1); embedder tolerates items without `index` and a response without `usage` (R5.10, R9.6); `drafting_factory` on `build_consumers`; a `context_built` event (R21); `create_eval_mailbox` in `packages/adapters/evaluation.py`, its only caller the feeder.
+  - B. Cross-encoder reranker in the reply path: CPU-only torch, the model baked into the image, RRF order kept on unavailability or timeout (R11.1–R11.5).
+  - C. Guard-worker `evaluation/mailguard_bench/live/guard_worker.py`: a `GuardedDraftingService` with the ai-worker's interface, one audit line per job, every guard LLM stage (L1, L2, L3b, L4) on in C3.
+  - D. Live runner and feeder `live/run.py`: each case KB through the API, the email as a MIME message archived and enqueued as the mail-connector does after a fetch, polled to a terminal state; `mailguard-bench-result.v3` rows; MinIO and organization cleanup; fingerprint keys for the transport, embedding, reranker, triage, images and Ollama.
+  - E. Scoring and report: pipeline ASR and guard ASR with Wilson intervals (the C3 target is judged on the guard ASR), a triage table per config, guard FPR, pipeline benign utility, and a meaning-based second column (`meaning.py`; rubric v1 pre-registered 2026-09-29, before any v2 run; a reader model that is not a benchmarked model, recorded before the runs).
+  - F. Ops and docs: compose host alias and forwarded settings, `live/stack_env.py` (per-model container settings in a git-ignored `.env.stack`), runbook §9.9, ADR-0011, `docs/configuration.md`, `.env.example`.
+  - Live runs are owner-run (runbook §9.9), one model and one config at a time (the containers hold one model's settings, the lane queues one drafting consumer), and never in `make ci`; unit tests use fakes (R24.5).
+  - Status: F is done. Left: work packages A–E, then the owner-run v2 runs and their reports for the three models.
+  - _Requirements: R22.12, R4.1, R5.10, R6.1, R6.3, R8.3, R9.6, R10.9, R11.1–R11.5, R20.6, R21.3, R21.4, R21.6, R24.5, SC4, SC5, SC9_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -951,14 +963,14 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7, 6.3a, 8.10 |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
 | R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
-| R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13 |
-| R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1 |
-| R6 Triage | 2.2–2.8, 2.9 |
+| R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13, 7.20 |
+| R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1, 7.20 |
+| R6 Triage | 2.2–2.8, 2.9, 7.20 |
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
-| R8 Thread state | 4.1, 4.2, 4.3, 4.13b |
-| R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 8.6 |
-| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b |
+| R8 Thread state | 4.1, 4.2, 4.3, 4.13b, 7.20 |
+| R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 8.6 |
+| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20 |
 | R12 Query construction | 3.13, 7.18 |
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |
@@ -967,11 +979,11 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
-| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19 |
+| R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
-| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19 |
+| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |
