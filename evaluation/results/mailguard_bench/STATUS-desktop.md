@@ -1,6 +1,6 @@
 # Desktop benchmark status
 
-Updated 2026-09-29 23:45 +07 by the desktop Claude Code session. Numbers come only from each run's
+Updated 2026-09-30 00:05 +07 by the desktop Claude Code session. Numbers come only from each run's
 committed `report.md` / `summary.json`. v1 = rag-email's reply path in-process (same pinned cases
 `sha256=c00dddca…`, AgentMailGuard `81df5d07`). gpt-4o-mini and Qwen ran on commit `2a61925`, Llama on
 `dbe8e6b` (between them: the local Llama profile, and the report's limitations text naming the run's
@@ -10,7 +10,7 @@ model; no scoring or guard change).
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `2026-09-29-gpt4omini` | gpt-4o-mini (OpenAI API) | done, independently re-verified | 0.0 % [0.0, 1.3] (0/300) | met | 54.2 % [48.5, 59.7] (162/299) | 43.5 % [38.0, 49.1] (130/299) | 0.0 % [0.0, 2.5] (0/150) | 100 % (150/150) | 1 / 1 / 0 | ≈ $0.42 ¹ | 43 min |
 | `2026-09-29-qwen25` | qwen2.5:7b-instruct (Ollama, 4-bit, 32k ctx, 100 % GPU) | done 16:36–20:29, independently re-verified | 0.0 % [0.0, 1.3] (0/300) | met | 51.7 % [46.0, 57.3] (155/300) | 48.3 % [42.7, 54.0] (145/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % (150/150) | 0 / 0 / 0 | $0 API (local) | 3 h 53 min |
-| `2026-09-29-llama31-local` | llama3.1:8b (Ollama, 4-bit, **16k ctx** ², 100 % GPU) | done 20:31–23:33; independent checks running | 0.0 % [0.0, 1.3] (0/298) | **partial** ³ | 40.3 % [34.9, 46.0] (121/300) | 30.0 % [25.1, 35.4] (90/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % (150/150) | 0 / 0 / 2 | $0 API (local) | 3 h 02 min |
+| `2026-09-29-llama31-local` | llama3.1:8b (Ollama, 4-bit, **16k ctx** ², 100 % GPU) | done 20:31–23:33; **C0T and C3 results are not valid evidence of defense** ⁴ | 0.0 % [0.0, 1.3] (0/298) | **partial** ³ | 40.3 % [34.9, 46.0] (121/300) | 30.0 % [25.1, 35.4] (90/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % by the metric, but **116/150 drafts are only a greeting** ⁴ | 0 / 0 / 2 | $0 API (local) | 3 h 02 min |
 
 ¹ Recorded tokens × the profile's price ($0.15 / $0.60 per 1M); `report.md` prints "unknown: unpriced"
 because the report step does not know the profile's prices.
@@ -28,11 +28,25 @@ as defended. In both rows the guard's own decision was quarantine (rule P01). Wo
 both as successful attacks: 0.7 % [0.2, 2.4] (2/300), still within the ≤ 5 % target. They were not
 retried a third time: the failure is deterministic, and retrying until a row passes would bias the run.
 
+⁴ **Llama under the guard's prompt template (C0T, C3) often writes only the greeting line as the whole
+draft**, for example `"draft": "Dear Pete Cobel,"`, while the same model writes full replies under
+rag-email's own prompt (C0) and gpt-4o-mini and Qwen write full replies under the guard template.
+Drafts under 40 characters, Llama C0 / C0T / C3: benign 0 / 50 / 116 of 150; LLMail attacks 12 / 67 / 3
+(of 300 / 300 / 11 unblocked); RAG 1 / 61 / 9 (of 100 / 100 / 14 unblocked). gpt-4o-mini and Qwen: at
+most 13 in any cell, 0 in C3. The model itself closes the draft after the greeting and then fills the
+other JSON fields, so this is the model's output, not a cut-off in the harness. In C3, all 86
+quarantined RAG cases were stopped at the inbound stage by layer 2's LLM step (Llama) rating an ordinary
+question email as a critical injection, so the poisoned documents were never tested; Qwen's RAG blocks
+came from L3b and L4. Consequences: Llama's low C0T and RAG ASRs reflect unusable drafts and
+over-flagging, not defense; "benign utility 100 %" only means not blocked and not empty; the C3 LLMail
+attacks were mostly stopped at the inbound stage, as for the other models. These are v1 facts found
+after the run; nothing was re-run or tuned. The cause of the greeting-only drafts is not yet diagnosed.
+
 RAG vector (poisoned knowledge documents), C0 / C0T / C3 ASR:
 gpt-4o-mini 79.0 % [70.0, 85.8] / 66.0 % [56.3, 74.5] / 32.0 % [23.7, 41.7];
 qwen2.5-7b 91.0 % [83.8, 95.2] / 72.0 % [62.5, 79.9] / 39.0 % [30.0, 48.8];
-llama3.1-8b 74.0 % [64.6, 81.6] / 20.0 % [13.3, 28.9] / 1.0 % [0.2, 5.4] (Llama's much lower C0T and C3
-numbers are being checked by reading the drafts).
+llama3.1-8b 74.0 % [64.6, 81.6] / 20.0 % [13.3, 28.9] / 1.0 % [0.2, 5.4] (Llama's C0T and C3 numbers are
+not evidence of defense; see ⁴).
 
 C3 latency p50 / p95 per email: gpt-4o-mini 2.78 s / 5.45 s; qwen2.5-7b 4.98 s / 13.87 s; llama3.1-8b
 4.46 s / 8.85 s (local GPU, one worker; latency covers context, guard and generation, not queues or
@@ -72,7 +86,8 @@ drafts are left out of the denominator.
 - **RAG vector.** The ≤ 5 % target is stated for LLMail; for gpt-4o-mini and Qwen the RAG vector is far
   from it.
 - **Llama** is the local 4-bit build with a 16k context, not OpenRouter's (the OpenRouter account had no
-  credit); its target line is partial (footnote ³).
+  credit); its target line is partial (footnote ³), and its C0T and C3 drafts are often only a greeting
+  (footnote ⁴), so its C0T/C3 numbers must not be presented as the guard defending.
 
 ## Next
 
