@@ -344,6 +344,36 @@ class RetrievalSettings(BaseModel):
         default=5, ge=1, le=50, description="Final context chunks provided to generation"
     )
     rerank_enabled: bool = Field(default=True, description="Enable cross-encoder reranking")
+    rerank_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="Cross-encoder model that reranks the fused candidates (R11.1)",
+    )
+    rerank_model_dir: str = Field(
+        default="",
+        description=(
+            "Directory holding the reranker model in the Hugging Face cache layout; the model "
+            "is then loaded from it with no network. Empty uses the default Hugging Face cache "
+            "(R11.1)"
+        ),
+    )
+    rerank_timeout_ms: int = Field(
+        default=1000,
+        ge=10,
+        description="Rerank budget in milliseconds; a slower rerank keeps RRF order (R11.5)",
+    )
+
+    @field_validator("rerank_model", mode="before")
+    @classmethod
+    def _blank_rerank_model_means_default(cls, value: Any) -> Any:
+        """Treat a blank reranker model as unset (R20.6).
+
+        Docker Compose forwards an unset host variable as an empty string, and an empty model
+        name would only fail at the first rerank.
+        """
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields["rerank_model"].get_default()
+        return value
+
     relevance_floor: float = Field(
         default=0.70, ge=0.0, le=1.0, description="Minimum rerank relevance score"
     )
