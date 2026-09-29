@@ -70,6 +70,13 @@ data/
 minio_data/
 postgres_data/
 
+# AgentMailGuard benchmark per-case rows, audit logs, case copies and scored rows (attack text,
+# drafts). Only manifest.json, metrics.csv, summary.json, report.md, analyses.md, analysis/ and
+# case_manifest.json of a run are committed (task 7.19).
+evaluation/results/mailguard_bench/*/raw/
+evaluation/results/mailguard_bench/*/cases.jsonl
+evaluation/results/mailguard_bench/*/ragemail__*.jsonl
+
 # OS specific
 .DS_Store
 Thumbs.db

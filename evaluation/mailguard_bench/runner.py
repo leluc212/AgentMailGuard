@@ -1,12 +1,20 @@
 """AgentMailGuard benchmark runner hosted by rag-email (task 7.19; spec §4, §4b, §5; ADR-0010).
 
-    make mailguard-bench RUN=<id> CONFIG=C0|C3|C1|C2 [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [LIMIT=n]
 
 Owner-run live evaluation (real Gemini calls). It is never part of ``make ci`` (R24.5).
-For each case it opens a throwaway organization, ingests the case KB, builds the real
-ContextPackage, and runs AgentMailGuard's MailGuardPipeline around ONE
-SinglePassGenerator call. Rows are appended per case, recorded case ids are skipped on
-resume, HTTP 429 backs off, and a failure is an ``error`` row, never a defence.
+For each case it opens a throwaway organization, ingests the case KB and builds the real
+ContextPackage. Then (owner decision 2026-09-29, plan BINDING section):
+
+- ``C0`` (required): rag-email as it runs, ``SinglePassGenerator.generate_draft`` with its
+  own profile template; no AgentMailGuard code runs.
+- ``C3`` (required): AgentMailGuard's MailGuardPipeline with every layer, around ONE
+  ``generate_from_messages`` call.
+- ``C0T`` (the guard template, ``preset("C0")``), ``C1``, ``C2``: the same guarded path with
+  fewer layers; C1/C2 run the ablation subset.
+
+Rows are appended per case, recorded case ids are skipped on resume, HTTP 429 backs off,
+and a failure is an ``error`` row, never a defence.
 
 Run it from the repo root as a module (``python -m``) so rag-email's ``services`` and
 ``evaluation`` packages win over AgentMailGuard's same-named ones on sys.path.
@@ -16,15 +24,59 @@ LLM__FAST_MODEL, DATABASE__*, EMBEDDING__*, RETRIEVAL__*.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+import json
+import os
+import sys
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Protocol
 
-from evaluation.mailguard_bench.case_adapter import EvalCase
+from evaluation.mailguard_bench.case_adapter import (
+    EvalCase,
+    EvalHost,
+    PreparedCase,
+    eval_organization,
+    purge_stale_eval_orgs,
+)
+from evaluation.mailguard_bench.cases import (
+    DEFAULT_CASE_DIR,
+    CaseManifestError,
+    LoadedCaseSet,
+    canonical_line,
+    load_case_set,
+)
+from evaluation.mailguard_bench.guard_build import (
+    BENCH_PRESETS,
+    NATIVE_CONFIG,
+    GuardBuild,
+    build_guard,
+    git_head,
+)
+from evaluation.mailguard_bench.guard_env import (
+    DEFAULT_GUARD_MODEL,
+    REPO_ROOT,
+    GuardEnvError,
+    GuardPaths,
+    guard_paths_from_env,
+    guard_provider_env,
+    require_module_origins,
+    require_pinned_worktree,
+    sha256_file,
+)
+from evaluation.mailguard_bench.guarded_reply import CaseExecution, GuardedCaseExecutor
+from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
+from packages.core.settings import AppSettings
+from packages.db.connection import create_pool_from_settings
+from packages.knowledge.embedder import get_embedder
+from packages.llm.factory import create_llm_provider
+from packages.llm.generator import SinglePassGenerator
+from packages.llm.profile import AgentProfileRegistry
 
 CaseExecutor = Callable[[EvalCase], Awaitable[dict[str, Any]]]
 Sleep = Callable[[float], Awaitable[None]]
@@ -197,3 +249,398 @@ def filter_cases(
             raise ValueError(f"{len(missing)} case ids not in the case file, first {missing[0]}")
         selected = [by_id[case_id] for case_id in case_ids]
     return selected[:limit] if limit is not None else selected
+
+
+RESULTS_ROOT = REPO_ROOT / "evaluation" / "results" / "mailguard_bench"
+# C0 = native rag-email; C0T/C1/C2/C3 = AgentMailGuard (guard_build.GUARDED_CONFIGS)
+BENCH_CONFIGS = (NATIVE_CONFIG, *BENCH_PRESETS)
+FULL_RUN_SETS = ("llmail_attack", "llmail_benign", "rag_attack")
+ABLATION_SETS = ("ablation_attack", "llmail_benign")  # spec §4b D2: C1/C2 subset + same benign
+RUN_CASES_SCHEMA = "mailguard-bench-run-cases/v1"
+
+
+class PreparedCaseExecutor(Protocol):
+    """One prepared case to one result: NativeCaseExecutor (C0) or GuardedCaseExecutor."""
+
+    async def execute(self, prepared: PreparedCase) -> CaseExecution: ...
+
+
+def prepared_case_executor(
+    config_name: str, *, generator: SinglePassGenerator, guard: Any | None
+) -> PreparedCaseExecutor:
+    """C0 gets rag-email's native path; every other config its AgentMailGuard pipeline.
+
+    Raises:
+        ValueError: If C0 is given a guard, or a guarded config none.
+    """
+    if config_name == NATIVE_CONFIG:
+        if guard is not None:
+            raise ValueError("C0 is rag-email's native path and runs no guard")
+        return NativeCaseExecutor(generator=generator)
+    if guard is None:
+        raise ValueError(f"{config_name} needs a guard (build_guard)")
+    return GuardedCaseExecutor(
+        pipeline=guard.pipeline, generator=generator, guard_llm=guard.guard_llm
+    )
+
+
+def native_guard_facts(paths: GuardPaths) -> dict[str, Any]:
+    """The ``guard`` meta of a C0 run: no layer, but the same pinned environment facts.
+
+    C0 imports no AgentMailGuard code. It still records the worktree commit and the L1
+    artifact hash the guarded configs record, because the report requires every compared
+    config to share them (one RUN = one environment).
+    """
+    l1_path = paths.l1_model
+    return {
+        "config": NATIVE_CONFIG,
+        "preset": None,
+        "active_layers": [],
+        "guard_model": None,
+        "live_stages": {},
+        "missing_live_stages": [],
+        "live_layers": None,
+        "l1_model_path": str(l1_path),
+        "l1_model_sha256": sha256_file(l1_path) if l1_path.exists() else None,
+        "mailguard_root": str(paths.root),
+        "mailguard_commit": git_head(paths.root),
+        "audit_log_path": None,
+    }
+
+
+class HostCaseExecutor:
+    """Throwaway org → KB ingestion → real ContextPackage → native or guarded generation."""
+
+    def __init__(self, *, host: EvalHost, executor: PreparedCaseExecutor, label: str) -> None:
+        self.host = host
+        self.executor = executor
+        self.label = label
+
+    async def __call__(self, case: EvalCase) -> dict[str, Any]:
+        async with eval_organization(self.host.pool, label=f"{self.label} {case.case_id}") as org:
+            prepared = await self.host.prepare(case, organization_id=org)
+            execution = await self.executor.execute(prepared)
+        return {
+            "host": prepared.diagnostics(),
+            **execution.record,
+            "guard_errors": list(execution.guard_errors),
+        }
+
+
+def config_case_ids(manifest: Mapping[str, Any], config_name: str) -> list[str]:
+    """Case ids one config runs: C0/C0T/C3 every pinned case, C1/C2 the ablation subset."""
+    sets: Mapping[str, list[str]] = manifest["sets"]
+    names = ABLATION_SETS if config_name in ("C1", "C2") else FULL_RUN_SETS
+    seen: set[str] = set()
+    ids: list[str] = []
+    for name in names:
+        for case_id in sets[name]:
+            if case_id not in seen:
+                seen.add(case_id)
+                ids.append(case_id)
+    return ids
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+
+
+def snapshot_case_set(loaded: LoadedCaseSet, run_dir: Path) -> Path:
+    """Pin a run folder to one case set (for the report and for McNemar pairing).
+
+    The first run into ``run_dir`` writes ``cases.jsonl`` and ``case_manifest.json`` with the
+    keys Task 5 reads. Every later run into the same folder must bring the same case set.
+
+    Raises:
+        CaseManifestError: If ``run_dir`` was started on a different case set.
+    """
+    sets = loaded.manifest["sets"]
+    wanted = {
+        "schema": RUN_CASES_SCHEMA,
+        "seed": loaded.manifest["seed"],
+        "cases_sha256": loaded.manifest["cases_sha256"],
+        "llmail_attack_ids": list(sets["llmail_attack"]),
+        "benign_ids": list(sets["llmail_benign"]),
+        "rag_attack_ids": list(sets["rag_attack"]),
+        "ablation_attack_ids": list(sets["ablation_attack"]),
+    }
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "case_manifest.json"
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing != wanted:
+            raise CaseManifestError(
+                f"{run_dir} was started on another case set (cases_sha256 "
+                f"{existing.get('cases_sha256')} != {wanted['cases_sha256']}); use a new RUN "
+                "so that C0 and C3 are paired on the same cases"
+            )
+    else:
+        _write_json(path, wanted)
+    body = "".join(canonical_line(loaded.cases[cid]) + "\n" for cid in sorted(loaded.cases))
+    (run_dir / "cases.jsonl").write_text(body, encoding="utf-8")
+    return path
+
+
+def result_path(run_dir: Path, config_name: str) -> Path:
+    """raw/<CONFIG>.jsonl, the per-case rows Task 5 scores."""
+    return run_dir / "raw" / f"{config_name}.jsonl"
+
+
+def meta_path(run_dir: Path, config_name: str) -> Path:
+    """raw/<CONFIG>.meta.json, the run facts Task 5 checks and copies into manifest.json."""
+    return run_dir / "raw" / f"{config_name}.meta.json"
+
+
+RUN_META_SCHEMA = "mailguard-bench-run.v2"
+# What must not change between the invocations that fill one raw/<CONFIG>.jsonl (a resume),
+# and what Task 5 compares across C0/C3/C1/C2 (spec Q6: "same model, same settings").
+FINGERPRINT_KEYS = (
+    "preset",
+    "cases_sha256",
+    "rag_email_commit",
+    "mailguard_commit",
+    "generation_model",
+    "generation",
+    "guard_models",
+    "live_layers",
+    "l1_model_sha256",
+    "embedding",
+    "retrieval",
+    "database",
+    "degraded_allowed",
+)
+
+
+class RunSettingsMismatchError(ValueError):
+    """A resume would mix rows produced under different settings into one config."""
+
+
+def settings_fingerprint(meta: Mapping[str, Any]) -> dict[str, Any]:
+    """The settings of one invocation that every row of a config must share."""
+    return {key: meta.get(key) for key in FINGERPRINT_KEYS}
+
+
+def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Earlier invocations of this RUN/CONFIG, after checking they used the same settings.
+
+    Raises:
+        RunSettingsMismatchError: If ``meta_file`` records other settings (a re-pin, a new
+            rag-email commit, another model, timeout, tier mapping or guard model).
+    """
+    if not meta_file.exists():
+        return []
+    existing = json.loads(meta_file.read_text(encoding="utf-8"))
+    old = existing.get("fingerprint")
+    if not isinstance(old, Mapping):
+        raise RunSettingsMismatchError(
+            f"{meta_file} has no settings fingerprint (written by an older runner); use a new RUN"
+        )
+    changed = sorted(
+        key for key in set(old) | set(fingerprint) if old.get(key) != fingerprint.get(key)
+    )
+    if changed:
+        raise RunSettingsMismatchError(
+            f"{meta_file.name} was started with other settings ({', '.join(changed)} changed); "
+            "resuming would mix rows from both settings. Restore the settings, or use a new RUN "
+            "and run every config again"
+        )
+    return list(existing.get("invocations") or [])
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    parser.add_argument("--config", required=True, choices=BENCH_CONFIGS)
+    parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
+    parser.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIR)
+    parser.add_argument("--limit", type=int, default=None, help="first N selected cases (smoke)")
+    parser.add_argument("--retry-errors", action="store_true")
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--max-attempts", type=int, default=6)
+    parser.add_argument("--llm-timeout-s", type=float, default=None)
+    parser.add_argument("--guard-model", default=DEFAULT_GUARD_MODEL)
+    parser.add_argument(
+        "--allow-degraded",
+        action="store_true",
+        help="run even when a guard stage the preset needs is not live (the report refuses it)",
+    )
+    return parser.parse_args(argv)
+
+
+async def run(args: argparse.Namespace) -> int:
+    paths = guard_paths_from_env(os.environ)
+    require_pinned_worktree(paths.root, paths.commit)
+    require_module_origins(REPO_ROOT, paths.root)
+    settings = AppSettings()
+    llm = (
+        settings.llm
+        if args.llm_timeout_s is None
+        else settings.llm.model_copy(update={"timeout_s": args.llm_timeout_s})
+    )
+    os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
+    loaded = load_case_set(args.case_dir)
+    cases = filter_cases(
+        [EvalCase.from_dict(case) for case in loaded.cases.values()],
+        case_ids=config_case_ids(loaded.manifest, args.config),
+        limit=args.limit,
+    )
+    run_dir = RESULTS_ROOT / args.run
+    guard: GuardBuild | None = None
+    missing: list[str] = []
+    if args.config == NATIVE_CONFIG:
+        guard_facts = native_guard_facts(paths)
+    else:
+        guard = build_guard(
+            args.config,
+            model_name=args.guard_model,
+            audit_log_path=run_dir / "raw" / f"audit__{args.config}.jsonl",
+            l1_model_path=paths.l1_model,
+        )
+        missing = guard.missing_live_stages()
+        guard_facts = guard.describe()
+    if missing and not args.allow_degraded:
+        print(
+            f"FAIL {args.config}: guard stages not live: {', '.join(missing)} "
+            "(run `make mailguard-prep` / check evaluation/mailguard_bench/guard_models.yaml)",
+            file=sys.stderr,
+        )
+        return 1
+
+    model_map = (
+        dict.fromkeys(("fast", "routine", "strong", "fallback"), llm.strong_model)
+        if llm.force_single_tier
+        else {
+            "fast": llm.fast_model,
+            "routine": llm.fast_model,
+            "strong": llm.strong_model,
+            "fallback": llm.fallback_model,
+        }
+    )
+    meta: dict[str, Any] = {
+        "schema": RUN_META_SCHEMA,
+        "run_id": args.run,
+        "config": args.config,
+        "preset": args.config,
+        "guard_preset": guard_facts["preset"],  # AgentMailGuard preset; None for native C0
+        "case_dir": str(args.case_dir),
+        "cases_sha256": loaded.manifest["cases_sha256"],
+        "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
+        "rag_email_commit": git_head(REPO_ROOT),
+        "mailguard_commit": guard_facts["mailguard_commit"],
+        # packages/llm/factory.py maps every tier to strong_model under force_single_tier;
+        # the routine/fast tier is what the reply profile uses. Task 5 cross-checks this
+        # against the model each row's generation call actually recorded.
+        "generation_model": model_map["routine"],
+        "generation": {
+            "provider": llm.provider,
+            "base_url": llm.openai_base_url,
+            "model": model_map["routine"],
+            "model_map": model_map,
+            "force_single_tier": llm.force_single_tier,
+            "timeout_s": llm.timeout_s,
+        },
+        "guard_models": None if guard is None else args.guard_model,
+        "live_layers": guard_facts["live_layers"],
+        "l1_model_sha256": guard_facts["l1_model_sha256"],
+        "embedding_mock": settings.embedding.mock,
+        "embedding": {"mock": settings.embedding.mock, "model": settings.embedding.model_name},
+        "retrieval": {
+            "top_k": settings.retrieval.top_k,
+            "top_n": settings.retrieval.top_n,
+            "timeout_ms": settings.retrieval.retrieval_timeout_ms,
+        },
+        "database": settings.database.name,
+        "guard": guard_facts,
+        "degraded_allowed": bool(missing),
+    }
+    meta["fingerprint"] = settings_fingerprint(meta)
+    meta_file = meta_path(run_dir, args.config)
+    invocations = check_resume(meta_file, meta["fingerprint"])  # before any write or call
+
+    snapshot_case_set(loaded, run_dir)
+    result_path(run_dir, args.config).parent.mkdir(parents=True, exist_ok=True)
+    store = ResultStore(result_path(run_dir, args.config))
+    pool = await create_pool_from_settings(settings.database)
+    lock_key = f"mailguard-bench {args.run}/{args.config}"
+    # One runner per RUN/CONFIG: a second terminal on the same config would share its orgs
+    # and rows. The session lock lives on a connection held for the whole run (an idle pool
+    # connection could be recycled, silently dropping it); asyncpg's release resets the
+    # connection with pg_advisory_unlock_all(). Another config's runner holds another key.
+    lock_conn = await pool.acquire()
+    try:
+        if not await lock_conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", lock_key):
+            print(f"FAIL {lock_key} is already running in another process", file=sys.stderr)
+            return 1
+        purged = await purge_stale_eval_orgs(pool, scope=f"{args.run}/{args.config}")
+        registry = AgentProfileRegistry.from_yaml(settings.agent_profiles.config_path)
+        generator = SinglePassGenerator(
+            llm_provider=create_llm_provider(llm),
+            profile_registry=registry,
+            price_table=llm.price_table,
+        )
+        host = EvalHost.create(
+            settings,
+            pool=pool,
+            embedder=get_embedder(settings.embedding),
+            profile_registry=registry,
+        )
+        executor = HostCaseExecutor(
+            host=host,
+            executor=prepared_case_executor(args.config, generator=generator, guard=guard),
+            label=f"{args.run}/{args.config}",
+        )
+        invocation: dict[str, Any] = {
+            "started_at": datetime.now(UTC).isoformat(),
+            "n_cases_selected": len(cases),
+            "limit": args.limit,
+            "retry_errors": args.retry_errors,
+            "concurrency": args.concurrency,
+            "purged_stale_orgs": purged,
+        }
+        invocations.append(invocation)
+        meta["invocations"] = invocations  # history: every resume is kept, never overwritten
+        _write_json(meta_file, meta)
+
+        def progress(record: dict[str, Any]) -> None:
+            print(f"{record['status']:5} {record['case_id']} (attempts={record['attempts']})")
+
+        summary = await run_cases(
+            cases,
+            executor,
+            store,
+            config_name=args.config,
+            run_id=args.run,
+            policy=BackoffPolicy(max_attempts=args.max_attempts),
+            retry_errors=args.retry_errors,
+            concurrency=args.concurrency,
+            secrets=[llm.openai_api_key],
+            on_record=progress,
+        )
+        invocation["finished_at"] = datetime.now(UTC).isoformat()
+        invocation["summary"] = {
+            "selected": summary.selected,
+            "skipped_already_recorded": summary.skipped,
+            "ok": summary.ok,
+            "error": summary.error,
+            "torn_lines_skipped": store.skipped_lines,
+        }
+        _write_json(meta_file, meta)
+    finally:
+        await pool.release(lock_conn)
+        await pool.close()
+    print(
+        f"ok {args.config}: {summary.ok} ok, {summary.error} error, "
+        f"{summary.skipped} already recorded -> {store.path}"
+    )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return asyncio.run(run(parse_args(argv)))
+    except (ValueError, KeyError, FileNotFoundError, GuardEnvError) as exc:
+        print(f"FAIL {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

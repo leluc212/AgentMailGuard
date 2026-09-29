@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test
 
 UV ?= uv
 
@@ -28,6 +28,8 @@ help:
 	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
 	@echo "  mailguard-test - Guard-side unit tests under the AgentMailGuard overlay (fake models, no network)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
+	@echo "  mailguard-bench RUN=... CONFIG=C0|C3|C0T|C1|C2 - Benchmark on the real rag-email path: C0 native rag-email, C3 all guard layers (required); C0T/C1/C2 optional. Owner-run, live Gemini (task 7.19; not CI)"
+	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -155,3 +157,19 @@ mailguard-test:
 
 mailguard-cases:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.build_cases
+
+RUN ?=
+MAILGUARD_LLM_TIMEOUT_S ?= 60
+
+mailguard-bench:
+	@case "$(CONFIG)" in C0|C3|C0T|C1|C2) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [LIMIT=n]"; exit 2;; esac
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
+		--config $(CONFIG) --run $(RUN) --retry-errors \
+		--llm-timeout-s $(MAILGUARD_LLM_TIMEOUT_S) \
+		$(if $(LIMIT),--limit $(LIMIT))
+
+mailguard-bench-test:
+	$(MAILGUARD_UV) python -m pytest \
+		tests/unit/test_mailguard_bench_guarded_reply.py \
+		tests/integration/test_mailguard_bench_guarded_run.py -v

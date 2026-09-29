@@ -323,3 +323,122 @@ def test_filter_cases_keeps_id_order_and_rejects_unknown_ids() -> None:
     assert [c.case_id for c in filter_cases(cases, case_ids=None, limit=2)] == ["a", "b"]
     with pytest.raises(ValueError, match="not in the case file"):
         filter_cases(cases, case_ids=["zz"], limit=None)
+
+
+def _case_set(sha: str) -> Any:
+    from evaluation.mailguard_bench.cases import LoadedCaseSet
+
+    sets = {
+        "llmail_attack": ["a1", "a2"],
+        "llmail_benign": ["b1"],
+        "rag_attack": ["r1"],
+        "ablation_attack": ["a2"],
+    }
+    cases = {cid: {"case_id": cid} for cid in ("a1", "a2", "b1", "r1")}
+    return LoadedCaseSet(
+        manifest={"seed": 20260930, "cases_sha256": sha, "sets": sets}, cases=cases
+    )
+
+
+def test_config_case_ids_full_run_and_ablation() -> None:
+    from evaluation.mailguard_bench.runner import config_case_ids
+
+    manifest = _case_set("s" * 64).manifest
+    assert config_case_ids(manifest, "C0") == ["a1", "a2", "b1", "r1"]
+    assert config_case_ids(manifest, "C3") == config_case_ids(manifest, "C0")
+    assert config_case_ids(manifest, "C0T") == config_case_ids(manifest, "C0")
+    assert config_case_ids(manifest, "C1") == ["a2", "b1"]
+    assert config_case_ids(manifest, "C2") == ["a2", "b1"]
+
+
+def test_run_folder_is_pinned_to_one_case_set(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.cases import CaseManifestError
+    from evaluation.mailguard_bench.runner import snapshot_case_set
+
+    run = tmp_path / "run1"
+    snapshot_case_set(_case_set("a" * 64), run)
+    snapshot_case_set(_case_set("a" * 64), run)  # C3 after C0 on the same cases: accepted
+    written = json.loads((run / "case_manifest.json").read_text(encoding="utf-8"))
+    assert written["llmail_attack_ids"] == ["a1", "a2"]
+    assert written["benign_ids"] == ["b1"]
+    assert written["ablation_attack_ids"] == ["a2"]
+    assert len((run / "cases.jsonl").read_text(encoding="utf-8").splitlines()) == 4
+    with pytest.raises(CaseManifestError, match="another case set"):
+        snapshot_case_set(_case_set("b" * 64), run)
+
+
+def test_resume_refuses_other_settings_and_keeps_the_history(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.runner import (
+        RunSettingsMismatchError,
+        check_resume,
+        settings_fingerprint,
+    )
+
+    meta = {
+        "preset": "C3",
+        "rag_email_commit": "a" * 40,
+        "generation_model": "gemma-4-26b-a4b-it",
+        "generation": {"provider": "openai", "timeout_s": 60.0},
+        "guard_models": "gemma-4-26b-a4b-it",
+    }
+    first = settings_fingerprint(meta)
+    meta_file = tmp_path / "C3.meta.json"
+    assert check_resume(meta_file, first) == []  # a fresh config starts with no history
+    history = [{"started_at": "t1", "summary": {"ok": 5}}]
+    meta_file.write_text(json.dumps({"fingerprint": first, "invocations": history}), "utf-8")
+
+    assert check_resume(meta_file, first) == history  # same settings: resume, history kept
+
+    for changed in (
+        {"rag_email_commit": "b" * 40},
+        {"generation_model": "gemma-3-27b-it"},
+        {"generation": {"provider": "openai", "timeout_s": 30.0}},
+        {"guard_models": "fake"},
+    ):
+        with pytest.raises(RunSettingsMismatchError, match=next(iter(changed))):
+            check_resume(meta_file, settings_fingerprint({**meta, **changed}))
+    meta_file.write_text(json.dumps({"invocations": history}), "utf-8")  # pre-v2 meta
+    with pytest.raises(RunSettingsMismatchError, match="no settings fingerprint"):
+        check_resume(meta_file, first)
+
+
+def test_c0_runs_the_native_executor_and_the_other_configs_need_a_guard() -> None:
+    """Owner decision 2026-09-29: C0 = rag-email's generate_draft, C0T/C1/C2/C3 = the guard."""
+    from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
+    from evaluation.mailguard_bench.runner import BENCH_CONFIGS, prepared_case_executor
+    from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator
+
+    assert BENCH_CONFIGS == ("C0", "C0T", "C1", "C2", "C3")
+    generator = SinglePassGenerator(
+        llm_provider=FakeLLMProvider(default_response={}),
+        profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
+    )
+    native = prepared_case_executor("C0", generator=generator, guard=None)
+    assert isinstance(native, NativeCaseExecutor)
+    assert native.generator is generator
+    for config in ("C0T", "C1", "C2", "C3"):
+        with pytest.raises(ValueError, match="needs a guard"):
+            prepared_case_executor(config, generator=generator, guard=None)
+    with pytest.raises(ValueError, match="no guard"):
+        prepared_case_executor("C0", generator=generator, guard=object())
+
+
+def test_native_guard_facts_record_the_same_environment_as_a_guarded_run(
+    tmp_path: Path,
+) -> None:
+    """C0 meta carries the pinned commit and L1 hash so Task 5 can pair it with C3."""
+    from evaluation.mailguard_bench.guard_env import GuardPaths, sha256_file
+    from evaluation.mailguard_bench.runner import native_guard_facts
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    paths = GuardPaths(root=tmp_path / "not-git", commit="c" * 40, artifacts=artifacts)
+    paths.root.mkdir()
+    facts = native_guard_facts(paths)
+    assert facts["preset"] is None and facts["config"] == "C0"
+    assert facts["active_layers"] == [] and facts["missing_live_stages"] == []
+    assert facts["l1_model_sha256"] is None
+    assert facts["mailguard_commit"] is None  # outside git: never a guessed SHA
+
+    paths.l1_model.write_bytes(b"classifier")
+    assert native_guard_facts(paths)["l1_model_sha256"] == sha256_file(paths.l1_model)
