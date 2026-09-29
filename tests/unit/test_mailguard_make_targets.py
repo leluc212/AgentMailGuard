@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -62,3 +63,29 @@ def test_every_benchmark_command_in_the_runbook_is_a_make_target() -> None:
     named = set(re.findall(r"make (mailguard-[a-z0-9-]+)", RUNBOOK))
     assert {"mailguard-bench", "mailguard-report", "mailguard-analyses"} <= named
     assert named <= targets(), f"runbook names unknown targets: {sorted(named - targets())}"
+
+
+def _make(*args: str) -> str:
+    return subprocess.run(
+        ["make", "--no-print-directory", *args],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def test_the_worker_count_reaches_the_runner_as_an_argument_only() -> None:
+    # demo-runbook §9.8 passes CONCURRENCY=2 on the make command line. Make exports such a
+    # variable to every recipe, and AppSettings reads CONCURRENCY as its `concurrency` group,
+    # so every run stopped at "1 validation error for AppSettings" before its first case.
+    leaked = _make(
+        "-s",
+        "--eval",
+        'print-env: ; @env | grep "^CONCURRENCY=" || true',
+        "print-env",
+        "CONCURRENCY=2",
+    )
+    assert leaked == ""
+    dry_run = _make("-n", "mailguard-bench", "RUN=r", "CONFIG=C0", "CONCURRENCY=2")
+    assert "--concurrency 2" in dry_run

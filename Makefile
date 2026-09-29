@@ -162,6 +162,9 @@ mailguard-cases:
 
 RUN ?=
 MAILGUARD_LLM_TIMEOUT_S ?= 60
+# CONCURRENCY reaches the runner as --concurrency only. Make exports a command-line variable
+# to every recipe, and AppSettings would read CONCURRENCY as its `concurrency` settings group.
+unexport CONCURRENCY
 
 mailguard-bench:
 	@case "$(CONFIG)" in C0|C3|C0T|C1|C2) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [MODEL=gpt-4o-mini|llama-3.1-8b|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]"; exit 2;; esac
