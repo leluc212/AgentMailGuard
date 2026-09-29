@@ -166,6 +166,7 @@ class ObjectStorageSettings(BaseModel):
     bucket_attachments: str = Field(
         default="attachments", description="Bucket for email attachments"
     )
+    bucket_html: str = Field(default="html", description="Bucket for parsed HTML email bodies")
     bucket_knowledge: str = Field(
         default="knowledge-docs", description="Bucket for uploaded knowledge documents"
     )

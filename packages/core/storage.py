@@ -25,6 +25,20 @@ from packages.core.settings import AppSettings, ObjectStorageSettings
 logger = logging.getLogger(__name__)
 
 
+def application_buckets(settings: ObjectStorageSettings) -> list[str]:
+    """Every bucket the application writes to, in bootstrap order (R4.1, R5.8).
+
+    The real client, the fake and the CLI share this list, so a bucket cannot be added to one
+    and missed in another: a missing bucket only fails at its first write (NoSuchBucket).
+    """
+    return [
+        settings.bucket_raw_mime,
+        settings.bucket_attachments,
+        settings.bucket_knowledge,
+        settings.bucket_html,
+    ]
+
+
 class StorageError(Exception):
     """Base exception for object storage operations."""
 
@@ -177,11 +191,7 @@ class MinioObjectStorageClient:
     @property
     def configured_buckets(self) -> list[str]:
         """Return the list of core application buckets defined in settings."""
-        return [
-            self.settings.bucket_raw_mime,
-            self.settings.bucket_attachments,
-            self.settings.bucket_knowledge,
-        ]
+        return application_buckets(self.settings)
 
     async def bootstrap_buckets(self) -> list[str]:
         """Ensure all configured buckets exist, creating any that are missing."""
@@ -337,19 +347,13 @@ class FakeObjectStorageClient:
     def __init__(self, settings: ObjectStorageSettings | None = None) -> None:
         self.settings = settings or AppSettings().object_storage
         self.buckets: dict[str, dict[str, tuple[bytes, str, dict[str, str]]]] = {
-            self.settings.bucket_raw_mime: {},
-            self.settings.bucket_attachments: {},
-            self.settings.bucket_knowledge: {},
+            bucket: {} for bucket in application_buckets(self.settings)
         }
 
     async def bootstrap_buckets(self) -> list[str]:
         """Bootstrap configured buckets in-memory."""
         created: list[str] = []
-        for b in [
-            self.settings.bucket_raw_mime,
-            self.settings.bucket_attachments,
-            self.settings.bucket_knowledge,
-        ]:
+        for b in application_buckets(self.settings):
             if b not in self.buckets:
                 self.buckets[b] = {}
                 created.append(b)

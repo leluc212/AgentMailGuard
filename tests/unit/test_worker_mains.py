@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from packages.core.settings import EmailWorkerSettings, KnowledgeWorkerSettings
+from packages.core.settings import (
+    EmailWorkerSettings,
+    KnowledgeWorkerSettings,
+    ObjectStorageSettings,
+)
 from services.email_worker import main as email_main
 from services.knowledge_worker import main as knowledge_main
 from tests.stubs.worker_resources import fake_worker_resources
@@ -18,6 +22,16 @@ def test_email_worker_consumer_uses_shared_resources() -> None:
     assert consumer._connection is res.connection
     assert consumer.prefetch_count == settings.concurrency.email_worker_concurrency
     assert consumer.shutdown_coordinator is res.shutdown
+
+
+def test_email_worker_takes_its_bucket_names_from_settings() -> None:
+    """R4.1, R5.8: attachments and HTML bodies go to the configured buckets."""
+    storage = ObjectStorageSettings(bucket_attachments="att-test", bucket_html="html-test")
+    settings = EmailWorkerSettings(_env_file=None, object_storage=storage)
+
+    consumer = email_main.build_consumer(fake_worker_resources(settings))
+
+    assert (consumer.attachments_bucket, consumer.html_bucket) == ("att-test", "html-test")
 
 
 def test_knowledge_worker_consumer_uses_shared_resources() -> None:

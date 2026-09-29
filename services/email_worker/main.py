@@ -34,6 +34,7 @@ def build_consumer(res: WorkerResources) -> EmailNormalizationConsumer:
             thread_store=PostgresThreadStore(res.db_pool),
         ),
         storage_client=get_storage_client(settings.object_storage),
+        object_storage_settings=settings.object_storage,
         broker_settings=settings.broker,
         retry_settings=settings.retry,
         prefetch_count=settings.concurrency.email_worker_concurrency,
