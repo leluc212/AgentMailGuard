@@ -531,3 +531,38 @@ async def test_one_advisory_lock_key_names_a_run_and_config_for_both_runners() -
     assert await try_acquire_run_lock(free, "r", "C0") is True
     assert await try_acquire_run_lock(held, "r", "C0") is False
     assert free.calls == [("SELECT pg_try_advisory_lock(hashtext($1))", "mailguard-bench r/C0")]
+
+
+def test_generation_meta_maps_every_tier_the_way_the_llm_factory_does() -> None:
+    """The v1 and the live runner record the same ``generation`` blocks (one implementation)."""
+    from evaluation.mailguard_bench.runner import generation_meta
+    from packages.core.settings import LLMTiersSettings
+
+    tiers = LLMTiersSettings(
+        provider="openai",
+        openai_base_url="http://localhost:11434/v1",
+        fast_model="fast-m",
+        strong_model="strong-m",
+        fallback_model="fallback-m",
+        timeout_s=45.0,
+    )
+    assert generation_meta(tiers) == {
+        "generation_model": "fast-m",  # the routine tier is what the reply profile uses
+        "generation": {
+            "provider": "openai",
+            "base_url": "http://localhost:11434/v1",
+            "model": "fast-m",
+            "model_map": {
+                "fast": "fast-m",
+                "routine": "fast-m",
+                "strong": "strong-m",
+                "fallback": "fallback-m",
+            },
+            "force_single_tier": False,
+            "timeout_s": 45.0,
+        },
+    }
+
+    single = generation_meta(tiers.model_copy(update={"force_single_tier": True}))
+    assert single["generation_model"] == "strong-m"  # every tier is the strong model
+    assert set(single["generation"]["model_map"].values()) == {"strong-m"}

@@ -72,7 +72,7 @@ from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile,
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
-from packages.core.settings import AppSettings
+from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.db.connection import create_pool_from_settings
 from packages.knowledge.embedder import get_embedder
 from packages.llm.factory import create_llm_provider
@@ -491,6 +491,36 @@ def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[s
     return list(existing.get("invocations") or [])
 
 
+def generation_meta(llm: LLMTiersSettings) -> dict[str, Any]:
+    """The ``generation_model`` and ``generation`` blocks of the run meta.
+
+    packages/llm/factory.py maps every tier to ``strong_model`` under ``force_single_tier``;
+    the routine/fast tier is what the reply profile uses. Task 5 cross-checks the model
+    against the one each row's generation call actually recorded.
+    """
+    model_map = (
+        dict.fromkeys(("fast", "routine", "strong", "fallback"), llm.strong_model)
+        if llm.force_single_tier
+        else {
+            "fast": llm.fast_model,
+            "routine": llm.fast_model,
+            "strong": llm.strong_model,
+            "fallback": llm.fallback_model,
+        }
+    )
+    return {
+        "generation_model": model_map["routine"],
+        "generation": {
+            "provider": llm.provider,
+            "base_url": llm.openai_base_url,
+            "model": model_map["routine"],
+            "model_map": model_map,
+            "force_single_tier": llm.force_single_tier,
+            "timeout_s": llm.timeout_s,
+        },
+    }
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--config", required=True, choices=BENCH_CONFIGS)
@@ -562,16 +592,6 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    model_map = (
-        dict.fromkeys(("fast", "routine", "strong", "fallback"), llm.strong_model)
-        if llm.force_single_tier
-        else {
-            "fast": llm.fast_model,
-            "routine": llm.fast_model,
-            "strong": llm.strong_model,
-            "fallback": llm.fallback_model,
-        }
-    )
     meta: dict[str, Any] = {
         "schema": RUN_META_SCHEMA,
         "run_id": args.run,
@@ -583,18 +603,7 @@ async def run(args: argparse.Namespace) -> int:
         "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
         "rag_email_commit": git_head(REPO_ROOT),
         "mailguard_commit": guard_facts["mailguard_commit"],
-        # packages/llm/factory.py maps every tier to strong_model under force_single_tier;
-        # the routine/fast tier is what the reply profile uses. Task 5 cross-checks this
-        # against the model each row's generation call actually recorded.
-        "generation_model": model_map["routine"],
-        "generation": {
-            "provider": llm.provider,
-            "base_url": llm.openai_base_url,
-            "model": model_map["routine"],
-            "model_map": model_map,
-            "force_single_tier": llm.force_single_tier,
-            "timeout_s": llm.timeout_s,
-        },
+        **generation_meta(llm),
         "guard_models": None if guard is None else args.guard_model,
         "live_layers": guard_facts["live_layers"],
         "l1_model_sha256": guard_facts["l1_model_sha256"],
