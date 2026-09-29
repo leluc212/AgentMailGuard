@@ -111,11 +111,19 @@ def build_guard(
     audit_log_path: Path,
     l1_model_path: Path,
     models_path: Path = GUARD_MODELS_YAML,
+    l3b_llm: bool = False,
+    l4_llm: bool = False,
 ) -> GuardBuild:
-    """MailGuardPipeline for C0T|C1|C2|C3 with every guard LLM stage on ``model_name``.
+    """MailGuardPipeline for C0T|C1|C2|C3 with the guard's LLM stages on ``model_name``.
+
+    The L1 judge and the L2 extractor always run on the model. L3b's document check and L4's
+    output check are off unless asked for: v1 runs (task 7.19) keep them off, and the live v2
+    benchmark (task 7.20, ADR-0011) turns both on for C3.
 
     Args:
         preset: The benchmark config; ``C0T`` builds ``GuardConfig.preset("C0")``.
+        l3b_llm: Also run L3b's LLM poisoned-document check on ``model_name``.
+        l4_llm: Also run L4's LLM output check on ``model_name``.
 
     Raises:
         ValueError: If ``preset`` is ``C0`` (rag-email's native path has no guard) or not
@@ -136,7 +144,13 @@ def build_guard(
 
     from evaluation.mailguard_bench.guard_factory import guard_settings
 
-    settings = guard_settings(model_name, l1_model_path=l1_model_path, models_path=models_path)
+    settings = guard_settings(
+        model_name,
+        l1_model_path=l1_model_path,
+        models_path=models_path,
+        l3b_llm=l3b_llm,
+        l4_llm=l4_llm,
+    )
     settings.l5.audit_log_path = str(audit_log_path.resolve())
     registry = ModelRegistry(settings)
     guard_llm = CountingProvider(registry.get(model_name))

@@ -17,6 +17,8 @@ Checks, stopping at the first failure:
      "fake" guard model reaches an L1 verdict and an L5 inbound decision.
   5. The Gemini guard model is registered: C3 built on it has the classifier loaded and an
      OpenAIProvider for that model on the L1 judge and the L2 extractor (no call is made).
+     With --l3b-llm / --l4-llm (the C3 of the live v2 benchmark, task 7.20) the same holds for
+     L3b's and L4's LLM stages, and without them those stages must be off.
   6. --live-probe only: one judge call with a system message and a JSON schema returns the
      requested JSON (verifies system role + json_mode on the Gemini endpoint).
 """
@@ -45,6 +47,7 @@ from evaluation.mailguard_bench.guard_env import (
     require_pinned_worktree,
 )
 from evaluation.mailguard_bench.guard_factory import (
+    LiveLayers,
     build_guard_pipeline,
     guard_settings,
     live_layers,
@@ -80,6 +83,27 @@ async def offline_checks(paths: GuardPaths) -> None:
     print(f"ok offline C0 (no verdicts) / C3 (inbound action={r3.inbound_decision.action})")
 
 
+def check_registered(
+    paths: GuardPaths, model_name: str, *, l3b_llm: bool = False, l4_llm: bool = False
+) -> LiveLayers:
+    """Check 5: the guard model is registered on every LLM stage the run expects live.
+
+    Builds C3 on ``model_name`` and fails unless the classifier is loaded, the L1 judge and the
+    L2 extractor run the model, and L3b's and L4's LLM stages are on exactly when asked for.
+    No model call is made.
+
+    Raises:
+        GuardEnvError: If a stage is not what ``require_live`` expects.
+    """
+    pipeline = build_guard_pipeline(
+        "C3",
+        guard_settings(model_name, l1_model_path=paths.l1_model, l3b_llm=l3b_llm, l4_llm=l4_llm),
+    )
+    layers = live_layers(pipeline)
+    require_live(layers, model_name=model_name, l3b_llm=l3b_llm, l4_llm=l4_llm)
+    return layers
+
+
 async def live_probe(paths: GuardPaths, model_name: str) -> None:
     """Check 6: one real judge call on the Gemini endpoint."""
     pipeline = build_guard_pipeline("C3", guard_settings(model_name, l1_model_path=paths.l1_model))
@@ -108,6 +132,10 @@ def run(argv: Sequence[str] | None = None) -> None:
     ap.add_argument("--model", default=DEFAULT_GUARD_MODEL)
     ap.add_argument("--live-probe", action="store_true", help="make ONE real guard-judge call")
     ap.add_argument("--model-profile", choices=sorted(PROFILES), default=None)
+    ap.add_argument(
+        "--l3b-llm", action="store_true", help="expect L3b's LLM check live (live v2 C3)"
+    )
+    ap.add_argument("--l4-llm", action="store_true", help="expect L4's LLM check live (live v2 C3)")
     args = ap.parse_args(argv)
     updates, args.model = resolve_profile(args.model_profile, with_dot_env(os.environ), args.model)
     os.environ.update(updates)  # before AppSettings reads the env
@@ -123,10 +151,11 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     llm = AppSettings().llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
-    pipeline = build_guard_pipeline("C3", guard_settings(args.model, l1_model_path=paths.l1_model))
-    layers = live_layers(pipeline)
-    require_live(layers, model_name=args.model)
-    print(f"ok guard model registered: l1_judge={layers.l1_judge} l2_llm={layers.l2_llm}")
+    layers = check_registered(paths, args.model, l3b_llm=args.l3b_llm, l4_llm=args.l4_llm)
+    stages = (
+        f" l3b_llm={layers.l3b_llm} l4_llm={layers.l4_llm}" if args.l3b_llm or args.l4_llm else ""
+    )
+    print(f"ok guard model registered: l1_judge={layers.l1_judge} l2_llm={layers.l2_llm}{stages}")
     if args.live_probe:
         asyncio.run(live_probe(paths, args.model))
 
