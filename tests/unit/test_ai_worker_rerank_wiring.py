@@ -2,7 +2,9 @@
 
 The ai-worker hands one RerankService to the Context Builder its lanes share. Composing the
 worker loads no model: the cross-encoder loads on the first rerank, so these tests run with no
-torch import, no weights and no network.
+torch import, no weights and no network. A test that composes the real worker over a database
+injects its reranker the way it injects an embedder and an LLM provider (CLAUDE.md section 8):
+the default one would load the cross-encoder, and download it when the cache is empty.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from packages.core.settings import AIWorkerSettings, RetrievalSettings
 from packages.knowledge.token_counter import TokenCounter
-from packages.retrieval.rerank import CrossEncoderReranker, RerankService
+from packages.retrieval.rerank import CrossEncoderReranker, RerankService, StubReranker
 from services.ai_worker.main import build_consumers
 from tests.stubs.worker_resources import fake_worker_resources
 
@@ -75,3 +77,29 @@ def test_composing_the_worker_loads_no_model() -> None:
         build_consumers(fake_worker_resources(settings), token_counter=TokenCounter())
 
     module.CrossEncoder.assert_not_called()
+
+
+def test_an_injected_rerank_service_is_the_one_the_builder_gets() -> None:
+    """RETRIEVAL__RERANK_ENABLED defaults to true: without a way in, a test would load torch."""
+    injected = RerankService(StubReranker())
+    settings = AIWorkerSettings(retrieval=RetrievalSettings(rerank_enabled=True))
+
+    with patch("services.ai_worker.main.build_rerank_service") as build:
+        consumers = build_consumers(
+            fake_worker_resources(settings), token_counter=TokenCounter(), rerank_service=injected
+        )
+
+    assert all(consumer.context_builder.rerank_service is injected for consumer in consumers)
+    build.assert_not_called()
+
+
+def test_the_injected_rerank_service_is_used_when_the_setting_disables_the_default() -> None:
+    """An explicit argument wins, as an injected embedder wins over EMBEDDING__MOCK."""
+    injected = RerankService(StubReranker())
+    settings = AIWorkerSettings(retrieval=RetrievalSettings(rerank_enabled=False))
+
+    builder = build_consumers(
+        fake_worker_resources(settings), token_counter=TokenCounter(), rerank_service=injected
+    )[0].context_builder
+
+    assert builder.rerank_service is injected

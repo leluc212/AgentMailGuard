@@ -1,8 +1,8 @@
 """Phase 6 end to end on fakes: fixture email to one provider draft or one send (6.9, R24.7).
 
 The chain is fixture email -> SyncOrchestrator (fake provider) -> email-worker -> triage-worker
-(rules put the email in billing) -> ai-worker (fake LLM, mock embedder; context and RAG over one
-billing chunk) -> POST /v1/drafts/{id}/approve -> dispatch-worker (fake provider).
+(rules put the email in billing) -> ai-worker (fake LLM, mock embedder, stub reranker; context and
+RAG over one billing chunk) -> POST /v1/drafts/{id}/approve -> dispatch-worker (fake provider).
 
 Each service is built by its own production builder on a scratch vhost and the isolated
 rag_email_test database. The fake provider records every create_draft and send call, so
@@ -60,6 +60,7 @@ from packages.llm import FakeLLMProvider
 from packages.observability.health import HealthRegistry
 from packages.observability.metrics import create_pipeline_metrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
+from packages.retrieval.rerank import RerankService, StubReranker
 from services.ai_worker.main import build_consumers as build_ai_consumers
 from services.api.main import create_app
 from services.dispatch_worker.main import build_consumer as build_dispatch_consumer
@@ -312,7 +313,13 @@ async def _run_to_approved(
         metrics=res.metrics,
     )
     ai_consumers = build_ai_consumers(
-        res, llm_provider=FakeLLMProvider(), token_counter=TokenCounter(), embedder=FakeEmbedder()
+        res,
+        llm_provider=FakeLLMProvider(),
+        token_counter=TokenCounter(),
+        embedder=FakeEmbedder(),
+        # The default reranker loads the cross-encoder in this job and downloads it when the
+        # cache is empty: no network in tests (CLAUDE.md section 8).
+        rerank_service=RerankService(StubReranker()),
     )
 
     def resolve(_mailbox: Mailbox) -> MailProviderAdapter:

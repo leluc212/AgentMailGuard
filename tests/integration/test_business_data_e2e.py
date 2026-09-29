@@ -60,6 +60,7 @@ from packages.llm import FakeLLMProvider
 from packages.observability.health import HealthRegistry
 from packages.observability.metrics import PipelineMetrics, create_pipeline_metrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
+from packages.retrieval.rerank import RerankService, StubReranker
 from services.ai_worker.main import build_consumers
 from tests.integration.isolation import scratch_vhost
 
@@ -302,7 +303,13 @@ async def _draft_through_worker(
     res = await _resources(broker, pool, metrics)
     lane = f"email.{category}.normal"
     consumers = build_consumers(
-        res, llm_provider=fake, token_counter=TokenCounter(), embedder=FakeEmbedder()
+        res,
+        llm_provider=fake,
+        token_counter=TokenCounter(),
+        embedder=FakeEmbedder(),
+        # The default reranker loads the cross-encoder in this job and downloads it when the
+        # cache is empty: no network in tests (CLAUDE.md section 8).
+        rerank_service=RerankService(StubReranker()),
     )
     consumer = next(c for c in consumers if c.queue_name == lane)
     await consumer.start()

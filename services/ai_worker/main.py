@@ -34,7 +34,7 @@ from packages.llm.inference_metrics import start_token_counter_warmup
 from packages.llm.protocol import LLMProvider
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.postgres import PostgresSearchBackend
-from packages.retrieval.rerank import build_rerank_service
+from packages.retrieval.rerank import RerankService, build_rerank_service
 from packages.retrieval.retriever import HybridRetriever
 from services.ai_worker.consumer import AIWorkerConsumer
 from services.ai_worker.drafting import DraftingService
@@ -76,11 +76,19 @@ def build_consumers(
     llm_provider: LLMProvider | None = None,
     token_counter: TokenCounter | None = None,
     embedder: Embedder | None = None,
+    rerank_service: RerankService | None = None,
 ) -> list[AIWorkerConsumer]:
-    """Compose one shared generation pipeline and one consumer per lane."""
+    """Compose one shared generation pipeline and one consumer per lane.
+
+    ``llm_provider``, ``embedder`` and ``rerank_service`` replace what the settings would build,
+    so a test that composes the real worker can keep every model call and download out of it.
+    """
     settings = res.settings
     # The corpus model embeds every query (R5.10); tokens are counted (R9.11).
     query_embedder = embedder or get_embedder(settings.embedding, metrics=res.metrics)
+    # An injected service wins. Otherwise RETRIEVAL__RERANK_ENABLED=false builds none, and the
+    # cross-encoder of the default one loads on the first rerank (R11.1, R11.5).
+    reranking = rerank_service or build_rerank_service(settings.retrieval, metrics=res.metrics)
     counter = token_counter or TokenCounter()
     provider = llm_provider or create_llm_provider(settings.llm)
     jobs = PostgresJobStore(res.db_pool)
@@ -128,8 +136,7 @@ def build_consumers(
         profile_registry=profile_registry,
         business_timeout_ms=business.timeout_ms,
         metrics=res.metrics,
-        # None when RETRIEVAL__RERANK_ENABLED=false; the cross-encoder loads on the first rerank.
-        rerank_service=build_rerank_service(settings.retrieval, metrics=res.metrics),
+        rerank_service=reranking,
     )
     drafting = DraftingService(
         # The plain provider: SinglePassGenerator wraps it per job with its own budget and
