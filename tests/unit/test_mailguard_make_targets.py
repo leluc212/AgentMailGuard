@@ -53,3 +53,12 @@ def test_analyses_target_scores_then_analyses_then_reports() -> None:
         "evaluation.mailguard_bench.analyses",
         "evaluation.mailguard_bench.report",
     ]
+
+
+RUNBOOK = (REPO / "docs" / "demo-runbook.md").read_text(encoding="utf-8")
+
+
+def test_every_benchmark_command_in_the_runbook_is_a_make_target() -> None:
+    named = set(re.findall(r"make (mailguard-[a-z0-9-]+)", RUNBOOK))
+    assert {"mailguard-bench", "mailguard-report", "mailguard-analyses"} <= named
+    assert named <= targets(), f"runbook names unknown targets: {sorted(named - targets())}"
