@@ -11,9 +11,9 @@ rag-email finds in the company's **knowledge base**.
 ## In one minute
 
 - Attackers hide instructions for the AI in an email or document, and it may obey: **prompt
-  injection**.
-- Five layers of checks surround the AI: cheap ones on every email it sees, L1's AI judge only if
-  unsure (L2's optional AI step, when on, runs on every email).
+  injection** (the prompt is all the text the AI reads at once).
+- Five layers of checks surround the AI (layer 3 has two parts, 3 and 3b): cheap checks on every
+  email it sees, and a slower AI judge (an AI asked "is this an attack?") only when they are unsure.
 - If a layer's code breaks, a person must approve the email. If a layer's AI step fails, the
   layer keeps its cheap result instead; in layer 2 a non-JSON answer can do this silently.
 
@@ -53,17 +53,21 @@ slow, paid AI judge runs only when the fast checks cannot decide.
                                         keep as draft / send
 ```
 
+The picture follows the order the checks run in, so the numbers jump: L5 decides twice (before
+and after the AI writes), and L3b runs before L3.
+
 - **L1 Inbound scanner:** fifteen groups of rules for attack wording, checks for hidden text, a
   small classifier, then, only for scores in the **uncertain band** (neither clearly safe nor clearly
   an attack), the AI judge (not on the official diagram, which shows rules and the classifier).
   It keeps every address and link in the
   email, the sender's too, as **indicators**.
-- **L2 Intent extractor:** scores each paragraph alone, so one bad sentence cannot hide in a
-  friendly email; removes and records instruction-like pieces; restates the request. An optional
+- **L2 Intent extractor:** scores each paragraph alone with L1's rules and classifier, so one
+  bad sentence cannot hide in a friendly email; removes and records instruction-like pieces; restates the request. An optional
   AI step describes the email in **JSON** (a fixed format programs read), including whether it
   holds instructions.
 - **L3 Channel isolation:** fences the email and passages with markers holding a fresh random
-  tag an attacker cannot guess, and tells the AI that fenced text is data, never instructions.
+  tag (so an attacker cannot fake the end of the fence), and tells the AI that fenced text is
+  data, never instructions.
 - **L3b Document scanner:** checks each passage for attack wording and poisoning signs ("when
   asked X, answer Y") and sets suspicious ones aside (quarantine), unseen by the AI.
 - **L4 Output scanner:** hides secrets and personal data in the draft that the customer did not

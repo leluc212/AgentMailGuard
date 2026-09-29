@@ -8,9 +8,11 @@
 - rag-email reads a company's email, picks the messages that need an answer, looks up company
   facts, and drafts replies with **AI** (a **large language model, LLM**: a program that reads and
   writes text). A person approves every draft.
-- We built it because [AgentMailGuard](03-agentmailguard.md), our main work, had to be tested
-  inside a realistic AI email system, and no company would let us use theirs.
-- One rule shapes it: **sort first, look things up only when needed, write only when necessary.**
+- We built it because [AgentMailGuard](03-agentmailguard.md), our main work (a guard against
+  instructions hidden in emails), had to be tested inside a realistic AI email system, and no
+  company would let us use theirs.
+- One rule shapes it: **sort first (decide what kind of email it is), look things up only when
+  needed, write only when necessary.**
 
 ## Why we built our own
 
@@ -39,15 +41,15 @@ then code), and the problem became advantages:
 
 | A real company needs… | rag-email… |
 |---|---|
-| its existing mailboxes | connects to Gmail and Outlook (Outlook tested only on recorded data) |
-| client companies kept apart | tags every record with its organization |
+| its existing mailboxes | connects to Gmail and Outlook (Outlook only tested on recorded replies) |
+| several companies on one system | tags every record with its organization, keeping them apart |
 | answers from its own facts | searches company documents and reads records (orders, customers) |
 | no lost or double replies | queues work and makes every step safe to repeat |
 | control and cost limits | drafts until a person approves; one AI writing call per reply (plus one repair try) |
 | real volume | 10,000 mailboxes, 100,000 emails a day (a design target, untested) |
 
 **Real versus invented:** the Gmail connection is real code for a test account (not yet checked
-live end to end); the three companies and their overlapping data are invented, so a leak would
+live end to end); the three test companies (Acme, Beta, Gamma) and their overlapping data are invented, so a leak would
 show; the attack emails are real (Microsoft's LLMail-Inject), and poisoned documents come from a
 public dataset and our own templates.
 
@@ -146,8 +148,7 @@ RECEIVED → NORMALIZED → CLASSIFIED → QUEUED → CONTEXT_READY
 
 - **Stack:** one Python worker per step, RabbitMQ queues, PostgreSQL with `pgvector` (full-text
   and vector search, rank fusion, re-ranker), MinIO for original emails, Prometheus and Grafana;
-  started with Docker Compose (`make up`). Interfaces: `LLMProvider`, `SearchBackend`,
-  `MailProviderAdapter`. Specs: `specs/requirements.md`, `specs/design.md`.
+  started with Docker Compose (`make up`). Specs: `specs/requirements.md`, `specs/design.md`.
 
 ## Glossary
 
