@@ -14,13 +14,18 @@ In the ai-worker's reply path (task 7.20) ``build_rerank_service`` composes the 
 from the RETRIEVAL__RERANK_* settings. The model is read from RETRIEVAL__RERANK_MODEL_DIR with no
 network, loaded once and off the event loop, and that one-time load is kept out of the per-rerank
 budget, so the first job of a fresh worker is reranked like every other.
+
+``rerank_score`` is a relevance probability between 0 and 1, the scale of
+RETRIEVAL__RELEVANCE_FLOOR and of the complexity router's ROUTER_MIN_RELEVANCE_SCORE.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
+import math
 import os
 import threading
 import time
@@ -62,7 +67,8 @@ class Reranker(Protocol):
             top_k: Optional maximum number of chunks to return.
 
         Returns:
-            Reranked list of Candidate objects with rerank_score populated.
+            Reranked list of Candidate objects with rerank_score populated, a relevance
+            probability between 0 and 1.
         """
         ...
 
@@ -130,15 +136,35 @@ class RerankResult:
     latency_ms: float = 0.0
 
 
+def _raw_logits(scores: Any) -> Any:
+    """``activation_fn`` for ``CrossEncoder.predict``: hand the model's logits back unchanged.
+
+    predict() applies the model's own default activation unless it is given another: identity for
+    the ms-marco cross-encoders, a sigmoid for most others. Asking for the logits makes the one
+    ``_sigmoid`` below the only squash, whichever model RETRIEVAL__RERANK_MODEL names.
+    """
+    return scores
+
+
+def _sigmoid(logit: float) -> float:
+    """The logistic function, stable for any logit (a plain ``exp(-x)`` overflows below -709)."""
+    if logit >= 0:
+        return 1.0 / (1.0 + math.exp(-logit))
+    z = math.exp(logit)
+    return z / (1.0 + z)
+
+
 class CrossEncoderReranker:
     """Production CrossEncoder wrapper.
 
     Fulfills R11.1. Lazily loads SentenceTransformers CrossEncoder if available,
     raising RerankerUnavailableError if dependencies are missing or model load fails.
 
-    ``rerank_score`` is the model's own output. For the default ms-marco cross-encoders that is
-    an unbounded raw logit (the sentence-transformers docs show 8.6 for a match and -4.3 for a
-    miss), not a probability between 0 and 1.
+    ``rerank_score`` is the probability the model's logit stands for, ``sigmoid(logit)``, so it
+    lies between 0 and 1 and can be compared with RETRIEVAL__RELEVANCE_FLOOR and the router's
+    ROUTER_MIN_RELEVANCE_SCORE. The ms-marco cross-encoders return an unbounded raw logit
+    (the sentence-transformers docs show 8.6 for a match and -4.3 for a miss); the logit is what
+    the model produces and the sigmoid is what a relevance bar can be set against.
     """
 
     def __init__(
@@ -229,11 +255,13 @@ class CrossEncoderReranker:
         pairs = [(query, c.content) for c in candidates]
 
         # Run CPU/GPU bound prediction in threadpool to avoid blocking asyncio loop
-        scores = await loop.run_in_executor(None, model.predict, pairs)
+        logits = await loop.run_in_executor(
+            None, functools.partial(model.predict, pairs, activation_fn=_raw_logits)
+        )
 
         scored: list[Candidate] = []
-        for cand, score in zip(candidates, scores, strict=True):
-            scored.append(replace(cand, rerank_score=float(score)))
+        for cand, logit in zip(candidates, logits, strict=True):
+            scored.append(replace(cand, rerank_score=_sigmoid(float(logit))))
 
         # Sort descending by rerank_score, tie-breaking by fused_score then chunk_id
         scored.sort(

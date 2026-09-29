@@ -3,13 +3,14 @@
 The builder hands every fused candidate to the RerankService, keeps the top-K of the reranked
 order, and reports on the ContextPackage whether the cross-encoder ordered them
 (``rerank_applied``) with each chunk's ``rerank_score``. When the reranker is off, unavailable or
-too slow the RRF order stays, the fallback is recorded, and the job carries on.
+too slow the RRF order stays, the fallback is recorded, and the job carries on. The last section
+follows the package into the complexity router, which reads those scores (R15.3).
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -27,10 +28,17 @@ from packages.domain.entities import (
     NormalizedMessage,
 )
 from packages.domain.state_machine import JobState
+from packages.llm import ComplexityRouter, EscalationReason, RoutingDecision
+from packages.llm.protocol import ModelTier
 from packages.observability.metrics import create_pipeline_metrics, generate_metrics_payload
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.models import Candidate, RetrievalQuery
-from packages.retrieval.rerank import RerankPolicy, RerankService, StubReranker
+from packages.retrieval.rerank import (
+    CrossEncoderReranker,
+    RerankPolicy,
+    RerankService,
+    StubReranker,
+)
 from packages.retrieval.retriever import HybridRetriever, RetrievalResult
 
 
@@ -385,3 +393,101 @@ def test_rerank_applied_defaults_to_unknown_and_is_not_prompt_text() -> None:
 
     assert base.rerank_applied is None
     assert replace(base, rerank_applied=True).get_ordered_sections() == base.get_ordered_sections()
+
+
+# --- What the complexity router makes of the scores (R11.1, R11.5, R15.3) ---
+
+
+class _RawLogits:
+    """A cross-encoder that answers with each chunk's raw ms-marco logit (identity activation)."""
+
+    def __init__(self, logits: Sequence[float]) -> None:
+        self.logits = {f"knowledge chunk {i}": logit for i, logit in enumerate(logits)}
+
+    def predict(
+        self, pairs: list[tuple[str, str]], activation_fn: Callable[[object], object] | None = None
+    ) -> list[float]:
+        return [self.logits[passage] for _, passage in pairs]
+
+
+def _cross_encoder_service(logits: Sequence[float]) -> RerankService:
+    """The production reranker and service, with a fake model: nothing loads torch."""
+    reranker = CrossEncoderReranker("org/model")
+    reranker._model = _RawLogits(logits)
+    return RerankService(reranker)
+
+
+def _routed(builder: ContextBuilder) -> tuple[ContextPackage, RoutingDecision]:
+    """Build the context as the ai-worker does, then route it with the default cascade."""
+    pkg, _ = _build(builder, uuid4())
+    classification = Classification(category="billing", intent="refund", retrieval_required=True)
+    return pkg, ComplexityRouter().route(pkg, classification=classification)
+
+
+def _reranking_builder(logits: Sequence[float], *, top_k: int = 3) -> ContextBuilder:
+    return ContextBuilder(
+        thread_assembler=ThreadContextAssembler(),
+        retriever=_FusedRetriever(_fused(len(logits))),  # type: ignore[arg-type]
+        top_k=top_k,
+        rerank_service=_cross_encoder_service(logits),
+    )
+
+
+def test_reranked_chunks_reach_the_router_on_the_probability_scale() -> None:
+    """The router's bar is 0..1, so the score it is compared with has to be on that scale."""
+    pkg, decision = _routed(_reranking_builder([1.2, 8.6, 5.5, -4.3]))
+
+    assert pkg.rerank_applied is True
+    assert _ids(pkg) == ["c1", "c2", "c0"]
+    scores = [c.rerank_score for c in pkg.retrieved_chunks]
+    assert all(score is not None and 0.0 <= score <= 1.0 for score in scores)
+    assert decision.tier is ModelTier.ROUTINE
+    assert decision.escalation_reason is EscalationReason.NONE
+
+
+def test_a_logit_between_zero_and_the_bar_is_relevant_as_a_probability() -> None:
+    """Logits 0.3 and 0.2 are 57 % and 55 % likely relevant: over the 0.50 bar as probabilities."""
+    pkg, decision = _routed(_reranking_builder([0.3, 0.2], top_k=2))
+
+    assert pkg.rerank_applied is True
+    assert decision.tier is ModelTier.ROUTINE
+    assert decision.escalation_reason is EscalationReason.NONE
+
+
+def test_reranked_chunks_the_model_finds_irrelevant_still_escalate() -> None:
+    pkg, decision = _routed(_reranking_builder([-4.3, -6.0, -7.7]))
+
+    assert pkg.rerank_applied is True
+    assert decision.tier is ModelTier.HIGH_CAPABILITY
+    assert decision.escalation_reason is EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
+    assert decision.details["qualifying_chunks"] == 0
+
+
+def test_after_a_fallback_the_router_compares_rrf_scores_with_the_relevance_bar() -> None:
+    """Known gap, owner decision open (task 7.21): a fallback escalates the same job.
+
+    The chunks of a fallback carry only RRF scores, at most 2/61 (about 0.03), and trigger 3 of
+    the router compares the best score a chunk has with ROUTER_MIN_RELEVANCE_SCORE (0.50). So
+    the pool that stays on the routine tier when the cross-encoder answers in time goes to
+    high_capability when it does not. This pins today's behaviour so the gap is visible; when
+    7.21 decides what a fallback should do, change this test with it.
+    """
+    logits = [8.6, 5.5, 1.2]
+    reranked, reranked_decision = _routed(_reranking_builder(logits))
+    fallback_builder = ContextBuilder(
+        thread_assembler=ThreadContextAssembler(),
+        retriever=_FusedRetriever(_fused(len(logits))),  # type: ignore[arg-type]
+        top_k=3,
+        rerank_service=RerankService(StubReranker(is_available=False)),
+    )
+
+    fallback, fallback_decision = _routed(fallback_builder)
+
+    assert reranked.rerank_applied is True and fallback.rerank_applied is False
+    assert _ids(fallback) == ["c0", "c1", "c2"], "the same pool, in RRF order"
+    assert all(c.rerank_score is None for c in fallback.retrieved_chunks)
+    assert all(0 < (c.fused_score or 0) < 0.05 for c in fallback.retrieved_chunks)
+    assert reranked_decision.tier is ModelTier.ROUTINE
+    assert fallback_decision.tier is ModelTier.HIGH_CAPABILITY
+    assert fallback_decision.escalation_reason is EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
+    assert fallback_decision.details["qualifying_chunks"] == 0

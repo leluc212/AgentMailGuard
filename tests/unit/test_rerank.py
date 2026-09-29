@@ -11,6 +11,7 @@ Requirements:
 
 from __future__ import annotations
 
+import math
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -250,29 +251,34 @@ class TestCrossEncoderReranker:
             await reranker.rerank("query", [_make_candidate("c1")])
 
     async def test_mocked_model_scoring(self) -> None:
-        """Verify model prediction and candidate update with mocked CrossEncoder."""
+        """Verify model prediction and candidate update with mocked CrossEncoder.
+
+        predict() is asked for the model's raw logits and each becomes a probability: the score
+        the relevance settings and the complexity router compare against is between 0 and 1.
+        """
         c1 = _make_candidate("c1", content="payment method")
         c2 = _make_candidate("c2", content="invoice date")
 
         reranker = CrossEncoderReranker()
         mock_model = MagicMock()
-        mock_model.predict.return_value = [0.35, 0.92]
+        mock_model.predict.return_value = [-0.62, 2.4]
         reranker._model = mock_model
 
         reranked = await reranker.rerank("invoice query", [c1, c2])
 
         assert len(reranked) == 2
         assert reranked[0].chunk_id == "c2"
-        assert reranked[0].rerank_score == 0.92
+        assert reranked[0].rerank_score == pytest.approx(1 / (1 + math.exp(-2.4)))
         assert reranked[1].chunk_id == "c1"
-        assert reranked[1].rerank_score == 0.35
+        assert reranked[1].rerank_score == pytest.approx(1 / (1 + math.exp(0.62)))
 
-        mock_model.predict.assert_called_once_with(
-            [
-                ("invoice query", "payment method"),
-                ("invoice query", "invoice date"),
-            ]
-        )
+        (pairs,), kwargs = mock_model.predict.call_args
+        assert pairs == [
+            ("invoice query", "payment method"),
+            ("invoice query", "invoice date"),
+        ]
+        assert list(kwargs) == ["activation_fn"]
+        assert kwargs["activation_fn"]("logits") == "logits", "the model's logits, unchanged"
 
     async def test_empty_candidates_returns_empty(self) -> None:
         reranker = CrossEncoderReranker()

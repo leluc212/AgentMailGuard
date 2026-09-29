@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import sys
 import threading
 import time
 import types
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -55,7 +56,9 @@ def _fake_sentence_transformers(
             time.sleep(load_seconds)
             loads.append({"model": model_name, "kwargs": kwargs, "thread": threading.get_ident()})
 
-        def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+        def predict(
+            self, pairs: list[tuple[str, str]], activation_fn: Callable[[Any], Any] | None = None
+        ) -> list[float]:
             return [float(len(passage)) for _, passage in pairs]
 
     module = types.ModuleType("sentence_transformers")
@@ -164,6 +167,80 @@ class TestCrossEncoderLoad:
                 reranker.warm_up()
 
         assert loads == []
+
+
+def _sigmoid(logit: float) -> float:
+    return 1 / (1 + math.exp(-logit))
+
+
+class _LogitModel:
+    """A CrossEncoder as sentence-transformers builds it: predict() ends in an activation.
+
+    The real predict applies ``activation_fn`` when it is given and the model's own default
+    otherwise. The ms-marco cross-encoders default to identity, so predict() returns raw logits;
+    most other cross-encoders default to a sigmoid and return probabilities.
+    """
+
+    def __init__(
+        self,
+        logits: dict[str, float],
+        *,
+        default_activation: Callable[[float], float] = lambda logit: logit,
+    ) -> None:
+        self.logits = logits
+        self.default_activation = default_activation
+
+    def predict(
+        self, pairs: list[tuple[str, str]], activation_fn: Callable[[Any], Any] | None = None
+    ) -> list[float]:
+        activation = activation_fn or self.default_activation
+        return [activation(self.logits[passage]) for _, passage in pairs]
+
+
+class TestCrossEncoderScores:
+    """R11.1: rerank_score is a relevance probability, the scale the relevance settings use.
+
+    RETRIEVAL__RELEVANCE_FLOOR and ROUTER_MIN_RELEVANCE_SCORE are 0..1 settings, and the
+    complexity router compares rerank_score with the second one.
+    """
+
+    @staticmethod
+    def _reranker(model: _LogitModel) -> CrossEncoderReranker:
+        reranker = CrossEncoderReranker("org/model")
+        reranker._model = model
+        return reranker
+
+    async def test_the_score_is_the_probability_the_models_logit_stands_for(self) -> None:
+        # The ms-marco logits the sentence-transformers docs show: 8.6 for a match, -4.3 for a miss.
+        model = _LogitModel({"match": 8.6, "near": 0.3, "miss": -4.3})
+        pool = [_candidate(name, name) for name in ("miss", "near", "match")]
+
+        ranked = await self._reranker(model).rerank("q", pool)
+
+        assert [c.chunk_id for c in ranked] == ["match", "near", "miss"]
+        assert [c.rerank_score for c in ranked] == pytest.approx(
+            [_sigmoid(8.6), _sigmoid(0.3), _sigmoid(-4.3)]
+        )
+        assert all(c.rerank_score is not None and 0.0 <= c.rerank_score <= 1.0 for c in ranked)
+
+    async def test_a_model_that_already_ends_in_a_sigmoid_is_not_squashed_twice(self) -> None:
+        """RETRIEVAL__RERANK_MODEL may name a reranker whose predict() returns probabilities."""
+        model = _LogitModel({"match": 8.6, "miss": -4.3}, default_activation=_sigmoid)
+
+        ranked = await self._reranker(model).rerank(
+            "q", [_candidate("miss", "miss"), _candidate("match", "match")]
+        )
+
+        assert [c.rerank_score for c in ranked] == pytest.approx([_sigmoid(8.6), _sigmoid(-4.3)])
+
+    async def test_extreme_logits_saturate_instead_of_overflowing(self) -> None:
+        model = _LogitModel({"hi": 1000.0, "lo": -1000.0})
+
+        ranked = await self._reranker(model).rerank(
+            "q", [_candidate("lo", "lo"), _candidate("hi", "hi")]
+        )
+
+        assert [(c.chunk_id, c.rerank_score) for c in ranked] == [("hi", 1.0), ("lo", 0.0)]
 
 
 class _WarmableReranker:
