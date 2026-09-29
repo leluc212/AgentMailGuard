@@ -25,7 +25,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import os
+import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -154,6 +157,9 @@ that are not the drafting consumer. The drafting consumer differs by config."""
 COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 COMMAND_TIMEOUT_S = 30.0
 OLLAMA_TIMEOUT_S = 5.0
+KEEP_ALIVE_VARIABLE = "OLLAMA_KEEP_ALIVE"
+SYSTEMD_OLLAMA_ENVIRONMENT = ("systemctl", "show", "ollama", "-p", "Environment")
+"""The command demo-runbook 9.8 already uses to record the server's state."""
 
 LIVE_ONLY_KEYS = (
     "transport",
@@ -438,23 +444,104 @@ def service_images(run: CommandRunner, *, config: str) -> dict[str, str]:
     return {service: next(iter(found[service])) for service in sorted(found)}
 
 
+def systemd_environment(output: str) -> dict[str, str]:
+    """The ``NAME=value`` pairs in the output of ``systemctl show -p Environment``; {} if none.
+
+    The property is one line, ``Environment=A=1 "B=two words"``, in which systemd quotes what
+    needs it; ``--value`` output has no ``Environment=`` prefix. A word that is not an
+    assignment is skipped, and a line that does not parse holds no environment.
+    """
+    try:
+        words = shlex.split(output.strip().removeprefix("Environment="))
+    except ValueError:  # an unbalanced quote
+        return {}
+    environment: dict[str, str] = {}
+    for word in words:
+        name, equals, value = word.partition("=")
+        if equals and name:
+            environment[name] = value
+    return environment
+
+
+def is_local_host(host: str | None) -> bool:
+    """Whether ``host`` is this machine: ``localhost`` or an address of one of its interfaces.
+
+    A name is not looked up: a check that decides where a fact is read from must not hang on
+    DNS, so a machine's own hostname counts as another machine. An address is local when a
+    socket can bind it (which needs no privilege and sends nothing).
+    """
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_DGRAM) as probe:
+            probe.bind((str(address), 0))
+    except OSError:
+        return False
+    return True
+
+
+def ollama_keep_alive(*, base_url: str, environ: Mapping[str, str], run: CommandRunner) -> str:
+    """The keep-alive the Ollama server at ``base_url`` runs with.
+
+    Ollama has no endpoint for it, so it is read where it is configured. When the server is on
+    this machine that is its systemd service, where demo-runbook 9.8 sets it in the unit's
+    override: ``systemctl show ollama -p Environment`` gives what the server was started with,
+    so the service wins over any declaration. A server that cannot be read that way (another
+    machine, the Windows app, one started by hand, a service that keeps it in an
+    ``EnvironmentFile``, which that property does not show) has only the operator's word for it:
+    ``OLLAMA_KEEP_ALIVE`` in the environment or ``.env``. Nothing is guessed, not even Ollama's
+    default, because a fingerprint that records None for it compares equal to nothing.
+
+    Raises:
+        LiveRunError: If neither the service nor a declaration states it.
+    """
+    if is_local_host(urlsplit(base_url).hostname):
+        try:
+            served = systemd_environment(run(SYSTEMD_OLLAMA_ENVIRONMENT)).get(KEEP_ALIVE_VARIABLE)
+        except LiveRunError:
+            served = None  # no systemd, or no such unit, on this machine
+        if served and served.strip():
+            return served.strip()
+    declared = (environ.get(KEEP_ALIVE_VARIABLE) or "").strip()
+    if declared:
+        return declared
+    raise LiveRunError(
+        f"cannot tell the keep-alive of the Ollama server at {base_url}: this machine's `ollama` "
+        f"systemd service does not set {KEEP_ALIVE_VARIABLE} (`systemctl show ollama -p "
+        f"Environment`), and it is not declared in the environment or .env either. Declare what "
+        f"the server runs with, for example {KEEP_ALIVE_VARIABLE}=30m in .env "
+        "(docs/demo-runbook.md 9.8 step 2); the fingerprint records it for every local model"
+    )
+
+
 def ollama_facts(
     profile: ModelProfile,
     *,
     base_url: str,
     environ: Mapping[str, str],
     get_json: JsonGetter,
+    run: CommandRunner,
 ) -> dict[str, Any]:
     """Version, context length and keep-alive of the Ollama serving ``profile``; None for an API.
 
     The version and the context length come from the server (``/api/version`` and, for the
-    model that is loaded, ``/api/ps``). Ollama has no endpoint for its keep-alive setting, so
-    that field is only what the operator declared in ``OLLAMA_KEEP_ALIVE``, and None if unset:
-    it is never guessed.
+    model that is loaded, ``/api/ps``): the context length is the one the loaded model really
+    runs with, which is what the run needs, not the service's default for a load to come. The
+    keep-alive is not exposed by the server, so ``ollama_keep_alive`` finds where it is set.
 
     Raises:
-        LiveRunError: If the server cannot be reached, or the model is not loaded (a context
-            length exists only for a loaded model, and a fingerprint must not record None).
+        LiveRunError: If the server cannot be reached, the model is not loaded (a context
+            length exists only for a loaded model, and a fingerprint must not record None), or
+            the keep-alive cannot be found.
     """
     if profile.fixed_api_key is None:
         return {"version": None, "context_length": None, "keep_alive": None}
@@ -469,13 +556,12 @@ def ollama_facts(
         raise LiveRunError(
             f"{profile.model} is not loaded on the Ollama at {root}: load it first, for "
             f'example `ollama run {profile.model} "Reply with OK"`, and keep it loaded '
-            "(OLLAMA_KEEP_ALIVE); its context length is only known for a loaded model"
+            f"({KEEP_ALIVE_VARIABLE}); its context length is only known for a loaded model"
         )
-    keep_alive = (environ.get("OLLAMA_KEEP_ALIVE") or "").strip() or None
     return {
         "version": version,
         "context_length": loaded.get("context_length"),
-        "keep_alive": keep_alive,
+        "keep_alive": ollama_keep_alive(base_url=base_url, environ=environ, run=run),
     }
 
 
@@ -793,6 +879,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
             base_url=llm.openai_base_url,
             environ=environ,
             get_json=live.get_json,
+            run=live.run_command,
         ),
     )
     meta_file = meta_path(run_dir, args.config)

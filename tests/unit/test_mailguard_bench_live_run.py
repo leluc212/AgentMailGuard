@@ -26,6 +26,7 @@ from evaluation.mailguard_bench.live.collect import PipelineStores
 from evaluation.mailguard_bench.live.run import (
     DEFAULT_CASE_TIMEOUT_S,
     GuardWorker,
+    LiveRunError,
     drafting_consumer_problems,
     is_guard_worker_process,
     live_guard_workers,
@@ -479,6 +480,38 @@ def test_a_command_returns_its_output_and_a_failure_says_what_failed() -> None:
         run_command(["definitely-not-a-program-7f3a"])
 
 
+# what the systemd override of demo-runbook 9.8 and 9.9 gives the ollama service
+SERVICE_ENVIRONMENT = (
+    "OLLAMA_HOST=127.0.0.1:11434 OLLAMA_KEEP_ALIVE=30m OLLAMA_CONTEXT_LENGTH=32768"
+)
+
+
+class FakeCommands:
+    """``docker`` and ``systemctl show ollama`` over scripted output; any other program is missing.
+
+    ``environment`` is what the ollama service is configured with; None is a machine without
+    systemd (or without that unit), where ``systemctl`` fails.
+    """
+
+    def __init__(self, docker: FakeDocker, environment: str | None = SERVICE_ENVIRONMENT) -> None:
+        self.docker, self.environment = docker, environment
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: Sequence[str]) -> str:
+        from evaluation.mailguard_bench.live.run import LiveRunError
+
+        self.calls.append(list(args))
+        if args[0] == "docker":
+            return self.docker(args)
+        if args[0] == "systemctl" and self.environment is not None:
+            return f"Environment={self.environment}\n"
+        raise LiveRunError(f"{args[0]} not found")
+
+
+def _no_commands(args: Sequence[str]) -> str:
+    raise AssertionError(f"no command may run, got {list(args)}")
+
+
 class FakeOllama:
     """``GET /api/version`` and ``GET /api/ps`` of an Ollama server."""
 
@@ -503,13 +536,27 @@ def _profile(name: str) -> Any:
     return get_profile(name)
 
 
-def test_an_api_model_has_no_ollama_facts_and_asks_nothing() -> None:
+def _ollama_facts(profile: str = "qwen2.5-7b", **overrides: Any) -> dict[str, Any]:
+    """``ollama_facts`` over a loaded Qwen on localhost and the documented systemd override."""
     from evaluation.mailguard_bench.live.run import ollama_facts
 
+    parts: dict[str, Any] = {
+        "base_url": "http://localhost:11434/v1",
+        "environ": {},
+        "get_json": FakeOllama([QWEN]),
+        "run": FakeCommands(FakeDocker({})),
+    }
+    return ollama_facts(_profile(profile), **{**parts, **overrides})
+
+
+def test_an_api_model_has_no_ollama_facts_and_asks_nothing() -> None:
     server = FakeOllama()
 
-    facts = ollama_facts(
-        _profile("gpt-4o-mini"), base_url="https://api.openai.com/v1", environ={}, get_json=server
+    facts = _ollama_facts(
+        "gpt-4o-mini",
+        base_url="https://api.openai.com/v1",
+        get_json=server,
+        run=_no_commands,
     )
 
     assert facts == {"version": None, "context_length": None, "keep_alive": None}
@@ -517,76 +564,134 @@ def test_an_api_model_has_no_ollama_facts_and_asks_nothing() -> None:
 
 
 def test_a_local_model_records_the_servers_version_and_the_loaded_context_length() -> None:
-    from evaluation.mailguard_bench.live.run import ollama_facts
-
     server = FakeOllama([{"name": "llama3.1:8b", "model": "llama3.1:8b"}, QWEN])
 
-    facts = ollama_facts(
-        _profile("qwen2.5-7b"),
-        base_url="http://desktop:11434/v1",
-        environ={"OLLAMA_KEEP_ALIVE": "30m"},
-        get_json=server,
+    facts = _ollama_facts(
+        base_url="http://desktop:11434/v1", environ={"OLLAMA_KEEP_ALIVE": "30m"}, get_json=server
     )
 
     assert facts == {"version": "0.13.5", "context_length": 32768, "keep_alive": "30m"}
     assert server.urls == ["http://desktop:11434/api/version", "http://desktop:11434/api/ps"]
 
 
-def test_the_keep_alive_is_only_what_the_operator_declared() -> None:
-    """Ollama's API does not report its keep-alive setting, so it is never guessed."""
-    from evaluation.mailguard_bench.live.run import ollama_facts
+def test_the_keep_alive_is_read_from_the_ollama_service_the_runbook_configures() -> None:
+    """The documented setup (demo-runbook 9.8, 9.9) sets it only in the systemd override: nothing
+    is exported in the shell or written to ``.env``, so the declaration must not be needed."""
+    commands = FakeCommands(FakeDocker({}))
 
-    facts = ollama_facts(
-        _profile("qwen2.5-7b"),
-        base_url="http://localhost:11434/v1",
-        environ={},
-        get_json=FakeOllama([QWEN]),
+    facts = _ollama_facts(environ={}, run=commands)
+
+    assert facts["keep_alive"] == "30m"
+    assert commands.calls == [["systemctl", "show", "ollama", "-p", "Environment"]]
+
+
+def test_the_service_is_what_the_server_runs_with_so_it_wins_over_a_declaration() -> None:
+    facts = _ollama_facts(environ={"OLLAMA_KEEP_ALIVE": "5m"})
+
+    assert facts["keep_alive"] == "30m"
+
+
+def test_a_service_that_does_not_set_it_falls_back_to_the_operators_declaration() -> None:
+    """``Environment`` does not show an ``EnvironmentFile``, so its silence proves nothing."""
+    bare = FakeCommands(FakeDocker({}), environment="OLLAMA_HOST=127.0.0.1:11434")
+
+    assert _ollama_facts(environ={"OLLAMA_KEEP_ALIVE": "24h"}, run=bare)["keep_alive"] == "24h"
+    with pytest.raises(LiveRunError, match="OLLAMA_KEEP_ALIVE"):
+        _ollama_facts(environ={}, run=bare)
+
+
+def test_a_machine_without_the_service_uses_the_declaration_the_windows_app_needs() -> None:
+    """Windows or another host has no ``ollama`` unit here; the operator declares the setting."""
+    no_systemd = FakeCommands(FakeDocker({}), environment=None)
+
+    facts = _ollama_facts(environ={"OLLAMA_KEEP_ALIVE": " 30m "}, run=no_systemd)
+
+    assert facts["keep_alive"] == "30m"
+
+
+def test_a_keep_alive_nobody_states_stops_the_run_instead_of_recording_none() -> None:
+    """The fingerprint lists it for a local model; recording None would compare equal to nothing."""
+    no_systemd = FakeCommands(FakeDocker({}), environment=None)
+
+    with pytest.raises(LiveRunError, match=r"OLLAMA_KEEP_ALIVE.*\.env"):
+        _ollama_facts(environ={}, run=no_systemd)
+    with pytest.raises(LiveRunError, match="OLLAMA_KEEP_ALIVE"):
+        _ollama_facts(environ={"OLLAMA_KEEP_ALIVE": "  "}, run=no_systemd)
+
+
+def test_a_server_on_another_machine_is_not_read_from_this_machines_service() -> None:
+    """A unit of the same name here is not that server; only the declaration can speak for it."""
+    commands = FakeCommands(FakeDocker({}))
+
+    remote = _ollama_facts(
+        base_url="http://203.0.113.9:11434/v1", environ={"OLLAMA_KEEP_ALIVE": "1h"}, run=commands
     )
 
-    assert facts["keep_alive"] is None
+    assert remote["keep_alive"] == "1h" and commands.calls == []
+    with pytest.raises(LiveRunError, match="OLLAMA_KEEP_ALIVE"):
+        _ollama_facts(base_url="http://203.0.113.9:11434/v1", environ={}, run=commands)
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ("Environment=OLLAMA_KEEP_ALIVE=30m OLLAMA_HOST=0.0.0.0:11434\n", ["30m", "0.0.0.0:11434"]),
+        (
+            'Environment="OLLAMA_KEEP_ALIVE=30m" "OLLAMA_HOST=0.0.0.0:11434"',
+            ["30m", "0.0.0.0:11434"],
+        ),
+        ("OLLAMA_KEEP_ALIVE=30m OLLAMA_HOST=0.0.0.0:11434", ["30m", "0.0.0.0:11434"]),  # --value
+        ('Environment=OLLAMA_KEEP_ALIVE="a b" OLLAMA_HOST=h', ["a b", "h"]),
+    ],
+)
+def test_the_environment_of_a_systemd_service_is_read_whatever_its_quoting(
+    output: str, expected: list[str]
+) -> None:
+    from evaluation.mailguard_bench.live.run import systemd_environment
+
+    env = systemd_environment(output)
+
+    assert [env["OLLAMA_KEEP_ALIVE"], env["OLLAMA_HOST"]] == expected
+
+
+def test_an_empty_or_unbalanced_environment_is_no_environment() -> None:
+    from evaluation.mailguard_bench.live.run import systemd_environment
+
+    assert systemd_environment("") == systemd_environment("Environment=\n") == {}
+    assert systemd_environment('Environment=A="unclosed') == {}
+    assert systemd_environment("Environment=NOT_AN_ASSIGNMENT B=1") == {"B": "1"}
+
+
+def test_only_this_machines_own_addresses_are_local() -> None:
+    from evaluation.mailguard_bench.live.run import is_local_host
+
+    assert is_local_host("localhost") and is_local_host("127.0.0.1") and is_local_host("::1")
+    assert not is_local_host("203.0.113.9")  # TEST-NET-3: never an address of this machine
+    assert not is_local_host("desktop")  # a name: no lookup, so it is not taken for local
+    assert not is_local_host("") and not is_local_host(None)
 
 
 def test_an_older_ollama_without_a_context_length_records_none() -> None:
-    from evaluation.mailguard_bench.live.run import ollama_facts
-
     old = {"name": "qwen2.5:7b-instruct", "model": "qwen2.5:7b-instruct"}
-    facts = ollama_facts(
-        _profile("qwen2.5-7b"),
-        base_url="http://localhost:11434/v1",
-        environ={},
-        get_json=FakeOllama([old], version="0.5.1"),
-    )
+
+    facts = _ollama_facts(get_json=FakeOllama([old], version="0.5.1"))
 
     assert (facts["version"], facts["context_length"]) == ("0.5.1", None)
 
 
 def test_a_model_that_is_not_loaded_stops_the_run_with_the_way_to_load_it() -> None:
-    from evaluation.mailguard_bench.live.run import LiveRunError, ollama_facts
-
     with pytest.raises(LiveRunError, match=r"qwen2\.5:7b-instruct.*not loaded.*ollama run"):
-        ollama_facts(
-            _profile("qwen2.5-7b"),
-            base_url="http://localhost:11434/v1",
-            environ={},
-            get_json=FakeOllama([]),
-        )
+        _ollama_facts(get_json=FakeOllama([]))
 
 
 def test_an_ollama_that_cannot_be_reached_stops_the_run() -> None:
     import httpx
 
-    from evaluation.mailguard_bench.live.run import LiveRunError, ollama_facts
-
     def down(url: str) -> dict[str, Any]:
         raise httpx.ConnectError("connection refused")
 
     with pytest.raises(LiveRunError, match=r"cannot reach Ollama at http://desktop:11434"):
-        ollama_facts(
-            _profile("qwen2.5-7b"),
-            base_url="http://desktop:11434/v1",
-            environ={},
-            get_json=down,
-        )
+        _ollama_facts(base_url="http://desktop:11434/v1", get_json=down)
 
 
 # --- the run meta and its fingerprint ----------------------------------------------------
@@ -1262,6 +1367,7 @@ def _live_deps(
     docker: Any = None,
     missing_stages: list[str] | None = None,
     backoff: Any = None,
+    commands: Any = None,
 ) -> Any:
     from evaluation.mailguard_bench.live.feeder import OrchestratorHandOff
     from evaluation.mailguard_bench.live.run import (
@@ -1328,7 +1434,7 @@ def _live_deps(
         resolve_lanes=lambda settings: WHOLE_RUN_LANES,
         describe_guard=describe,
         require_environment=lambda paths: None,
-        run_command=docker or FakeDocker(APP_IMAGES),
+        run_command=commands or FakeCommands(docker or FakeDocker(APP_IMAGES)),
         get_json=FakeOllama([QWEN]),
         results_root=tmp_path / "results",
         repo_root=tmp_path / "repo",
@@ -1351,9 +1457,9 @@ def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             "MAILGUARD_DIR": str(worktree),
             "MAILGUARD_COMMIT": "c" * 40,
             "MAILGUARD_ARTIFACTS": str(artifacts),
-            "OLLAMA_KEEP_ALIVE": "30m",  # what the operator declared for the Ollama server
         }
     )
+    os.environ.pop("OLLAMA_KEEP_ALIVE", None)  # the documented setup exports nothing of the kind
     (tmp_path / "repo" / "artifacts" / "models").mkdir(parents=True)
     (tmp_path / "repo" / "config").mkdir()
     (tmp_path / "repo" / "artifacts" / "models" / "triage_ml_v1.joblib").write_bytes(b"model")
@@ -1694,6 +1800,20 @@ async def test_c0_refuses_to_start_beside_a_live_guard_worker(
     err = capsys.readouterr().err
     assert "guard-worker C3 of run some-run" in err and str(pid) in err
     assert pool.opened is False
+
+
+async def test_the_run_refuses_to_start_when_nothing_states_the_ollama_keep_alive(
+    live_env: Path,
+) -> None:
+    """A local model's fingerprint lists the keep-alive: no service to read and no declaration
+    stops the run before anything is written, rather than recording None."""
+    world, pool, deps = _new_run(live_env, commands=FakeCommands(FakeDocker(APP_IMAGES), None))
+
+    with pytest.raises(LiveRunError, match="OLLAMA_KEEP_ALIVE"):
+        await run(_run_args(live_env), deps)
+
+    assert not (live_env / "results").exists() and pool.opened is False
+    assert world.received == {}
 
 
 async def test_a_guarded_run_refuses_to_start_without_its_guard_worker(
