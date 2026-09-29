@@ -160,7 +160,17 @@ class ContextPackage:
     thread_summary: str | None = None
     recent_messages: list[NormalizedMessage] = field(default_factory=list)
     retrieved_chunks: list[Candidate] = field(default_factory=list)
+    # Diagnostics, never prompt text; None when no retrieval ran (R6.6, R10.6, R10.10).
+    # retrieval_degraded: a search branch failed or timed out and the other one answered.
+    # retrieval_underfilled: the filtered ANN query came back short although the tenant holds
+    # more (it was widened); also None when the backend cannot tell.
+    retrieval_degraded: bool | None = None
+    retrieval_underfilled: bool | None = None
     business_data: BusinessContext | None = None
+    # Diagnostics, never prompt text: True when the cross-encoder ordered retrieved_chunks (each
+    # carries its rerank_score), False when they kept RRF order (rerank off, unavailable, too
+    # slow, or nothing retrieved), None when no retrieval ran (R6.6, R11.1, R11.5).
+    rerank_applied: bool | None = None
 
     def get_ordered_sections(self) -> list[tuple[str, str]]:
         """Return assembled prompt sections in strictly fixed assembly order (R14.8).

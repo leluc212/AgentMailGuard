@@ -1,8 +1,9 @@
 """The ai-worker records one ``context_built`` event per context build (R21, task 7.20).
 
 The live benchmark's feeder reads the event to learn which chunks reached the model and whether
-retrieval degraded, a reranker ran or a summary was written. Values the ContextPackage does not
-expose are recorded as null (unknown), never guessed.
+retrieval degraded, a reranker ran or a summary was written. The retrieval diagnostics are the
+ContextPackage's typed fields; a value nothing could tell is recorded as null (unknown), never
+guessed.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ from packages.domain.state_machine import JobState
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.fake import FakeSearchBackend
+from packages.retrieval.models import BranchCandidates, RetrievalQuery
+from packages.retrieval.models import Candidate as RetrievalCandidate
 from packages.retrieval.retriever import HybridRetriever
 from services.ai_worker.consumer import AIWorkerConsumer, context_built_payload
 from services.ai_worker.drafting import DraftingService
@@ -46,18 +49,11 @@ from services.ai_worker.drafting import DraftingService
 CHUNK = {"chunk_id": "CHUNK-INV-1", "document_id": "DOC-BILLING"}
 
 
-class DiagnosingBuilder(ContextBuilder):
-    """A builder whose package carries diagnostics, as a later builder revision will."""
+class UnderfilledBackend(FakeSearchBackend):
+    """A backend whose vector branch reports a filtered ANN query that came back short."""
 
-    annotations: dict[str, Any] = {}
-    chunk_rerank_score: float | None = None
-
-    async def build_context(self, *args: Any, **kwargs: Any) -> ContextPackage:
-        package = await super().build_context(*args, **kwargs)
-        vars(package).update(self.annotations)
-        for chunk in package.retrieved_chunks:
-            chunk.rerank_score = self.chunk_rerank_score
-        return package
+    async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[RetrievalCandidate]:
+        return BranchCandidates(await super().vector(q, top_n), underfilled=True)
 
 
 class BrokenEventStore(InMemoryJobStore):
@@ -83,7 +79,7 @@ async def _run(
     summarizer: bool = True,
     summarizer_model: str | None = None,
     jobs: InMemoryJobStore | None = None,
-    builder: type[ContextBuilder] = ContextBuilder,
+    backend: FakeSearchBackend | None = None,
 ) -> Run:
     jobs = jobs or InMemoryJobStore()
     message_store = InMemoryMessageStore()
@@ -116,7 +112,7 @@ async def _run(
             idempotency_key=f"k-{uuid4()}",
         )
     )
-    backend = FakeSearchBackend()
+    backend = backend or FakeSearchBackend()
     backend.add_chunk(
         chunk_id=CHUNK["chunk_id"],
         document_id=CHUNK["document_id"],
@@ -133,7 +129,7 @@ async def _run(
         "email.billing.normal",
         job_store=jobs,
         message_store=message_store,
-        context_builder=builder(
+        context_builder=ContextBuilder(
             thread_assembler=ThreadContextAssembler(
                 settings=summarization,
                 thread_state_store=thread_states,
@@ -181,14 +177,19 @@ async def test_one_event_records_the_retrieved_chunks_and_a_skipped_summary() ->
 
     (built,) = run.built
     assert built.state_from == built.state_to == JobState.CONTEXT_READY.value
-    assert built.payload == {
-        "retrieved": [{**CHUNK, "rank": 1, "rerank_score": None}],
-        "retrieval_degraded": None,
-        "retrieval_underfilled": None,
-        "rerank_applied": None,
-        "summary_triggered": False,
-        "summary_model": None,
+    assert set(built.payload) == {
+        "retrieved",
+        "retrieval_degraded",
+        "retrieval_underfilled",
+        "rerank_applied",
+        "summary_triggered",
+        "summary_model",
     }
+    assert built.payload["retrieved"] == [{**CHUNK, "rank": 1, "rerank_score": None}]
+    assert built.payload["retrieval_degraded"] is False  # retrieval ran, neither branch failed
+    assert built.payload["retrieval_underfilled"] is None  # the fake backend cannot tell
+    assert built.payload["summary_triggered"] is False
+    assert built.payload["summary_model"] is None
     json.dumps(built.payload)  # what the Postgres store writes as jsonb
 
 
@@ -225,6 +226,9 @@ async def test_no_retrieval_means_no_retrieved_chunks() -> None:
 
     (built,) = run.built
     assert built.payload["retrieved"] == []
+    assert built.payload["retrieval_degraded"] is None
+    assert built.payload["retrieval_underfilled"] is None
+    assert built.payload["rerank_applied"] is None
 
 
 async def test_without_a_summarizer_the_summary_fields_are_unknown() -> None:
@@ -235,22 +239,57 @@ async def test_without_a_summarizer_the_summary_fields_are_unknown() -> None:
     assert built.payload["summary_model"] is None
 
 
-async def test_diagnostics_the_package_carries_are_recorded() -> None:
-    class Diagnosed(DiagnosingBuilder):
-        annotations = {
-            "retrieval_degraded": False,
-            "retrieval_underfilled": True,
-            "rerank_applied": True,
-        }
-        chunk_rerank_score = 0.91
+async def test_a_failed_vector_branch_is_recorded_as_degraded() -> None:
+    """The silent fallback to lexical retrieval shows up in the event (R10.6)."""
+    backend = FakeSearchBackend()
+    backend.simulate_vector_error = RuntimeError("embedder timed out")
 
-    run = await _run(builder=Diagnosed)
+    run = await _run(backend=backend)
 
     (built,) = run.built
-    assert built.payload["retrieved"] == [{**CHUNK, "rank": 1, "rerank_score": 0.91}]
-    assert built.payload["retrieval_degraded"] is False
+    assert built.payload["retrieval_degraded"] is True
+    assert built.payload["retrieval_underfilled"] is None  # the failed branch cannot say
+    assert [chunk["chunk_id"] for chunk in built.payload["retrieved"]] == [CHUNK["chunk_id"]]
+
+
+async def test_an_underfilled_vector_branch_is_recorded() -> None:
+    run = await _run(backend=UnderfilledBackend())
+
+    (built,) = run.built
     assert built.payload["retrieval_underfilled"] is True
-    assert built.payload["rerank_applied"] is True
+    assert built.payload["retrieval_degraded"] is False
+
+
+def test_the_payload_records_the_diagnostics_the_package_carries() -> None:
+    message = NormalizedMessage(
+        message_id=uuid4(),
+        thread_id=uuid4(),
+        mailbox_id=uuid4(),
+        organization_id=uuid4(),
+        provider="mock",
+        provider_message_id="p",
+        sender=EmailAddress(email="a@example.com"),
+        received_at=datetime.now(UTC),
+    )
+    carried = ContextPackage(
+        agent_instructions="a",
+        category_instructions="b",
+        current_message=message,
+        retrieval_degraded=True,
+        retrieval_underfilled=False,
+        rerank_applied=True,
+    )
+    unknown = ContextPackage(
+        agent_instructions="a", category_instructions="b", current_message=message
+    )
+
+    for context, expected in ((carried, (True, False, True)), (unknown, (None, None, None))):
+        payload = context_built_payload(context, None)
+        assert (
+            payload["retrieval_degraded"],
+            payload["retrieval_underfilled"],
+            payload["rerank_applied"],
+        ) == expected
 
 
 async def test_a_failed_event_write_does_not_fail_the_job(

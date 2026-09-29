@@ -55,10 +55,10 @@ def context_built_payload(
 ) -> dict[str, Any]:
     """Diagnostics of one context build: the payload of a ``context_built`` event (R21).
 
-    ``rank`` is a chunk's 1-based position in the context handed to the model. A value the
-    context does not expose is None (unknown), never guessed: ``retrieval_degraded``,
-    ``retrieval_underfilled`` and ``rerank_applied`` are read from the ContextPackage when the
-    builder sets them, and the ``summary_*`` values are None without a summarizer.
+    ``rank`` is a chunk's 1-based position in the context handed to the model. A value nothing
+    could tell is None (unknown), never guessed: ``retrieval_degraded``, ``retrieval_underfilled``
+    and ``rerank_applied`` are the ContextPackage's own fields, None when no retrieval ran, and
+    the ``summary_*`` values are None without a summarizer.
     """
     return {
         "retrieved": [
@@ -70,9 +70,9 @@ def context_built_payload(
             }
             for rank, chunk in enumerate(context.retrieved_chunks, start=1)
         ],
-        "retrieval_degraded": getattr(context, "retrieval_degraded", None),
-        "retrieval_underfilled": getattr(context, "retrieval_underfilled", None),
-        "rerank_applied": getattr(context, "rerank_applied", None),
+        "retrieval_degraded": context.retrieval_degraded,
+        "retrieval_underfilled": context.retrieval_underfilled,
+        "rerank_applied": context.rerank_applied,
         "summary_triggered": None if summary is None else summary.summarized,
         "summary_model": None if summary is None else summary.model,
     }

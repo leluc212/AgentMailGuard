@@ -160,6 +160,8 @@ class ContextBuilder:
             classification.retrieval_required if classification is not None else True
         )
 
+        retrieval_degraded: bool | None = None  # unknown until retrieval runs
+        retrieval_underfilled: bool | None = None
         retrieved_chunks: list[DomainCandidate] = []
         if retrieval_required and self.retriever is not None:
             query = self.query_builder.build(
@@ -188,6 +190,9 @@ class ContextBuilder:
                         rerank_score=c.rerank_score,
                     )
                 )
+            # What the retrieval saw, kept on the package as diagnostics (R10.6, R10.10)
+            retrieval_degraded = retrieval_result.retrieval_degraded
+            retrieval_underfilled = retrieval_result.retrieval_underfilled
 
         # 4. Transactional business data: code-side plan, one bounded fetch (R13, ADR-0008)
         plan, business_data = await self._business_data(job, org_id, message, classification)
@@ -200,6 +205,8 @@ class ContextBuilder:
             thread_summary=thread_ctx.summary,
             recent_messages=thread_ctx.recent_messages,
             retrieved_chunks=retrieved_chunks,
+            retrieval_degraded=retrieval_degraded,
+            retrieval_underfilled=retrieval_underfilled,
             business_data=business_data,
         )
 
