@@ -1,6 +1,6 @@
 # Desktop benchmark status
 
-Updated 2026-09-30 00:25 +07 by the desktop Claude Code session. Numbers come only from each run's
+Updated 2026-09-30 00:30 +07 by the desktop Claude Code session. Numbers come only from each run's
 committed `report.md` / `summary.json`. v1 = rag-email's reply path in-process (same pinned cases
 `sha256=c00dddca…`, AgentMailGuard `81df5d07`). gpt-4o-mini and Qwen ran on commit `2a61925`, Llama on
 `dbe8e6b` (between them: the local Llama profile, and the report's limitations text naming the run's
@@ -10,7 +10,7 @@ model; no scoring or guard change).
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `2026-09-29-gpt4omini` | gpt-4o-mini (OpenAI API) | done, independently re-verified | 0.0 % [0.0, 1.3] (0/300) | met | 54.2 % [48.5, 59.7] (162/299) | 43.5 % [38.0, 49.1] (130/299) | 0.0 % [0.0, 2.5] (0/150) | 100 % (150/150) | 1 / 1 / 0 | ≈ $0.42 ¹ | 43 min |
 | `2026-09-29-qwen25` | qwen2.5:7b-instruct (Ollama, 4-bit, 32k ctx, 100 % GPU) | done 16:36–20:29, independently re-verified | 0.0 % [0.0, 1.3] (0/300) | met | 51.7 % [46.0, 57.3] (155/300) | 48.3 % [42.7, 54.0] (145/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % (150/150) | 0 / 0 / 0 | $0 API (local) | 3 h 53 min |
-| `2026-09-29-llama31-local` | llama3.1:8b (Ollama, 4-bit, **16k ctx** ², 100 % GPU) | done 20:31–23:33; **C0T and C3 results are not valid evidence of defense** ⁴ | 0.0 % [0.0, 1.3] (0/298) | **partial** ³ | 40.3 % [34.9, 46.0] (121/300) | 30.0 % [25.1, 35.4] (90/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % by the metric, but **116/150 drafts are only a greeting** ⁴ | 0 / 0 / 2 | $0 API (local) | 3 h 02 min |
+| `2026-09-29-llama31-local` | llama3.1:8b (Ollama, 4-bit, **16k ctx** ², 100 % GPU) | done 20:31–23:33, independently re-verified; **C0T and C3 results are not valid evidence of defense** ⁴ | 0.0 % [0.0, 1.3] (0/298) | **partial** ³ | 40.3 % [34.9, 46.0] (121/300) | 30.0 % [25.1, 35.4] (90/300) | 0.0 % [0.0, 2.5] (0/150) | 100 % by the metric, but **116/150 drafts are only a greeting** ⁴ | 0 / 0 / 2 | $0 API (local) | 3 h 02 min |
 
 ¹ Recorded tokens × the profile's price ($0.15 / $0.60 per 1M); `report.md` prints "unknown: unpriced"
 because the report step does not know the profile's prices.
@@ -36,7 +36,9 @@ Drafts under 40 characters, Llama C0 / C0T / C3: benign 0 / 50 / 116 of 150; LLM
 most 13 in any cell, 0 in C3. The model itself closes the draft after the greeting and then fills the
 other JSON fields, so this is the model's output, not a cut-off in the harness. In C3, all 86
 quarantined RAG cases were stopped at the inbound stage by layer 2's LLM step (Llama) rating an ordinary
-question email as a critical injection, so the poisoned documents were never tested; Qwen's RAG blocks
+question email as a critical injection, so the poisoned documents were never tested (the trigger was
+the harmless opening line all RAG test emails share, "Hi, a quick factual question for your knowledge
+assistant:", which Llama's L2 read as addressing the AI; gpt-4o-mini's and Qwen's L2 did not); Qwen's RAG blocks
 came from L3b and L4. Consequences: Llama's low C0T and RAG ASRs reflect unusable drafts and
 over-flagging, not defense; "benign utility 100 %" only means not blocked and not empty; the C3 LLMail
 attacks were mostly stopped at the inbound stage, as for the other models. These are v1 facts found
@@ -74,7 +76,7 @@ drafts are left out of the denominator.
 |---|---|---|---|---|---|---|---|
 | gpt-4o-mini | 27.6 % [22.7, 33.0] (78/283) | 29.0 % [23.9, 34.7] (78/269) | 0/300 | 74.2 % [64.5, 82.0] (69/93) | 58.9 % [48.6, 68.5] (53/90) | 27.2 % [19.1, 37.0] (25/92) | 0 of 550 |
 | qwen2.5-7b | 32.3 % [27.0, 38.2] (85/263) | 37.1 % [31.1, 43.4] (86/232) | 0/300 | 81.6 % [72.8, 88.1] (80/98) | 65.0 % [55.3, 73.6] (65/100) | 38.1 % [29.1, 48.1] (37/97) | 0 of 550 |
-| llama3.1-8b | pending | pending | pending | pending | pending | pending | pending |
+| llama3.1-8b | 16.8 % [12.9, 21.6] (48/285) | 16.0 % [12.2, 20.6] (46/288) ⁴ | 0/298 | 58.9 % [48.6, 68.5] (53/90) | 17.3 % [11.1, 26.0] (17/98) ⁴ | 0/99 [0.0, 3.7] ⁴ | 0 of 548 (5 loud L2 errors; all quarantined) |
 
 ## Caveats a presenter must state (all verified)
 
@@ -102,8 +104,10 @@ drafts are left out of the denominator.
 
 ## Next
 
-- Llama's independent checks (recompute, scorer refutation, audit, meaning reading, layer-2 fail-open
-  count) are running; this page gets their numbers when they finish.
+- Llama's independent checks are done: every reported number recomputes exactly; confirmed with the
+  caveats in footnote ⁴. Drafts with real content in C3: 34/150 = 22.7 % [16.7, 30.0] (C0 150/150).
+- After the presentation: fix the guard template's missing reply-format instruction (failing test
+  first), then re-run Llama's guarded configs; v2 needs the same fix.
 - v2 "every service live" (design: `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`) is
   built and reviewed in six work packages but not yet integrated or run; it will not be ready for the
   2026-09-30 morning presentation.
