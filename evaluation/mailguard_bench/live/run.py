@@ -374,7 +374,7 @@ def triage_facts(triage: TriageSettings, repo_root: Path) -> dict[str, Any]:
     """
     hashes: dict[str, str] = {}
     for key, relative in (
-        ("ml_model_sha256", triage.ml_model_path),
+        ("ml_sha256", triage.ml_model_path),
         ("rules_sha256", triage.rules_path),
     ):
         path = repo_root / relative
@@ -395,7 +395,7 @@ def embedding_facts(embedding: EmbeddingSettings) -> dict[str, Any]:
 
 
 def reranker_facts(retrieval: RetrievalSettings) -> dict[str, Any]:
-    """Whether the cross-encoder reranks and which model (None until the settings name one)."""
+    """Whether the cross-encoder reranks and which model (None on a tree without the setting)."""
     return {
         "enabled": retrieval.rerank_enabled,
         "model": getattr(retrieval, "rerank_model", None),

@@ -329,7 +329,7 @@ def test_the_triage_fingerprint_is_the_hash_of_the_model_and_the_rules(tmp_path:
 
     assert triage_facts(TriageSettings(), tmp_path) == {
         "mode": "live",
-        "ml_model_sha256": sha256_file(model),
+        "ml_sha256": sha256_file(model),
         "rules_sha256": sha256_file(rules),
     }
 
@@ -367,22 +367,21 @@ def test_the_embedding_fingerprint_names_the_model_dimension_and_host_never_the_
     assert "AIza-SECRET" not in repr(facts)
 
 
-def test_the_reranker_fingerprint_follows_the_settings_when_they_name_a_model() -> None:
+def test_the_reranker_fingerprint_follows_the_settings() -> None:
     from evaluation.mailguard_bench.live.run import reranker_facts
     from packages.core.settings import RetrievalSettings
 
-    assert reranker_facts(RetrievalSettings(rerank_enabled=False)) == {
+    plain = RetrievalSettings(rerank_enabled=False)
+    assert reranker_facts(plain) == {
         "enabled": False,
-        "model": None,  # settings.py gains RETRIEVAL__RERANK_MODEL with package B
+        # RETRIEVAL__RERANK_MODEL, or None on a tree from before it existed
+        "model": getattr(plain, "rerank_model", None),
     }
 
     class WithModel(RetrievalSettings):
-        rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        rerank_model: str = "cross-encoder/another-model"
 
-    assert reranker_facts(WithModel()) == {
-        "enabled": True,
-        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    }
+    assert reranker_facts(WithModel()) == {"enabled": True, "model": "cross-encoder/another-model"}
 
 
 class FakeDocker:
@@ -593,7 +592,7 @@ def test_an_ollama_that_cannot_be_reached_stops_the_run() -> None:
 # --- the run meta and its fingerprint ----------------------------------------------------
 
 LIVE_KEYS = ("transport", "reranker", "triage", "guard_llm_stages", "service_images", "ollama")
-TRIAGE = {"mode": "live", "ml_model_sha256": "m" * 64, "rules_sha256": "r" * 64}
+TRIAGE = {"mode": "live", "ml_sha256": "m" * 64, "rules_sha256": "r" * 64}
 OLLAMA = {"version": "0.13.5", "context_length": 32768, "keep_alive": "30m"}
 IMAGES = {"ai-worker": "sha256:eee", "api": "sha256:aaa"}
 C3_FACTS: dict[str, Any] = {
@@ -1668,3 +1667,71 @@ def test_main_prints_fail_and_exits_one_when_the_environment_is_not_set_up(
 
     assert code == 1
     assert "FAIL MAILGUARD_DIR" in capsys.readouterr().err
+
+
+# --- the rows are read by the scorer's own reader (package E) ------------------------------
+
+
+async def test_the_rows_of_a_c0_run_are_read_by_the_scorers_reader(live_env: Path) -> None:
+    """Real writer to real reader: what ``read_raw`` makes of each outcome of a live run."""
+    from evaluation.mailguard_bench.scoring import final_draft_fields, read_raw, triage_bucket
+
+    world, _, deps = _new_run(live_env)
+    world.scenarios = dict(SCENARIOS)
+    assert await run(_run_args(live_env), deps) == 0
+
+    records = {r.case_id: r for r in read_raw(live_env / "results" / "r1" / "raw" / "C0.jsonl")}
+
+    assert {cid: triage_bucket(r) for cid, r in records.items()} == {
+        "attack-a1": "drafted",
+        "attack-a2": "early_exit",
+        "benign-b1": "template",
+        "attack-r1": "drafted",
+    }
+    assert all(r.ok for r in records.values())
+    assert {cid: r.pipeline.reached_drafting for cid, r in records.items() if r.pipeline} == {
+        "attack-a1": True,
+        "attack-a2": False,
+        "benign-b1": False,
+        "attack-r1": True,
+    }
+    assert records["attack-a1"].pipeline is not None
+    assert records["attack-a1"].pipeline.job_state == "DRAFTED"
+    assert records["attack-a1"].pipeline.triage.gate_outcome == "proceed_no_rag"
+    assert records["attack-r1"].poison_retrieved is True
+    assert records["attack-a1"].poison_retrieved is None  # no knowledge documents in that case
+    assert final_draft_fields(records["attack-a2"]) is None  # triage stopped it: no draft
+    assert final_draft_fields(records["benign-b1"]) == {
+        "body": "Thanks, we will reply soon.",
+        "action": "reply",
+        "recipients": [],
+    }
+    assert final_draft_fields(records["attack-a1"]) == {
+        "body": "drafted reply to attack-a1",
+        "action": "reply",
+        "recipients": [],
+    }
+    assert (records["attack-a1"].generation.model, records["attack-a1"].generation.calls) == (
+        "qwen2.5:7b-instruct",
+        1,
+    )
+
+
+async def test_the_rows_of_a_guarded_run_are_read_by_the_scorers_reader(
+    live_env: Path, child: Any
+) -> None:
+    from evaluation.mailguard_bench.scoring import read_raw, triage_bucket
+
+    world, _, deps = _guarded(live_env, child)
+
+    assert await run(_run_args(live_env, "C3"), deps) == 0
+
+    records = {r.case_id: r for r in read_raw(live_env / "results" / "r1" / "raw" / "C3.jsonl")}
+    a1 = records["attack-a1"]
+    assert triage_bucket(a1) == "drafted" and a1.guard_llm.calls == 3
+    assert a1.guard_llm.model == "qwen2.5:7b-instruct" and a1.report == {
+        "decision": {"action": "allow"}
+    }
+    assert a1.generation.input_tokens == 1100  # the guard-worker's own count, from its audit line
+    assert triage_bucket(records["attack-a2"]) == "early_exit"
+    assert records["attack-a2"].guard_llm.calls == 0  # no guard ran on a triage-stopped email
