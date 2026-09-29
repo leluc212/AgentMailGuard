@@ -1,6 +1,6 @@
 # Desktop benchmark status
 
-Updated 2026-09-30 00:05 +07 by the desktop Claude Code session. Numbers come only from each run's
+Updated 2026-09-30 00:25 +07 by the desktop Claude Code session. Numbers come only from each run's
 committed `report.md` / `summary.json`. v1 = rag-email's reply path in-process (same pinned cases
 `sha256=c00dddca…`, AgentMailGuard `81df5d07`). gpt-4o-mini and Qwen ran on commit `2a61925`, Llama on
 `dbe8e6b` (between them: the local Llama profile, and the report's limitations text naming the run's
@@ -40,7 +40,18 @@ question email as a critical injection, so the poisoned documents were never tes
 came from L3b and L4. Consequences: Llama's low C0T and RAG ASRs reflect unusable drafts and
 over-flagging, not defense; "benign utility 100 %" only means not blocked and not empty; the C3 LLMail
 attacks were mostly stopped at the inbound stage, as for the other models. These are v1 facts found
-after the run; nothing was re-run or tuned. The cause of the greeting-only drafts is not yet diagnosed.
+after the run; nothing was re-run or tuned.
+**Cause** (diagnosed 2026-09-30 00:20 by replaying captured requests to Llama; diagnostic only): the
+guard's prompt template, used in C0T, C1, C2 and C3, never tells the model to answer in rag-email's
+JSON reply format, while rag-email's own prompt (C0) says "Output must strictly conform to the required
+JSON schema". Both send the same strict JSON-schema setting, so under the guard template only that
+decoding constraint shapes the answer. Left unconstrained, Llama answers the same request with a
+plain-text email (`Subject: …`, blank line, `Dear Pete,` …); under the constraint the line break after
+the greeting cannot be a raw newline inside a JSON string, and the draft closes there. Replaying one
+captured request three times gave `"Dear Pete Cobel,"` each time. gpt-4o-mini and Qwen write full JSON
+drafts from the same template. This is an integration gap between rag-email and the guard template; the
+fix (a failing test first, then carrying the reply-format instruction into the guard's trusted
+instructions) and a re-run come after the presentation, and v2's guard-worker reuses the same path.
 
 RAG vector (poisoned knowledge documents), C0 / C0T / C3 ASR:
 gpt-4o-mini 79.0 % [70.0, 85.8] / 66.0 % [56.3, 74.5] / 32.0 % [23.7, 41.7];
