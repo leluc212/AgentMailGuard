@@ -45,13 +45,11 @@
 
 ## Owner decisions after the plan was written (2026-09-29) — BINDING, overrides the task text below
 
-- **B1 = a AND b (owner, 2026-09-29): two baselines, both REQUIRED.**
-  - **C0 = rag-email exactly as it runs.** The run calls rag-email's existing `SinglePassGenerator.generate_draft` on the `ContextPackage` from the real `ContextBuilder`, so the prompt is rendered by rag-email's own profile template (`prompts/*.v2.j2`, with `[BUSINESS DATA]` and the precedence rule). **No AgentMailGuard code runs in C0.**
-  - **C0T = AgentMailGuard's template, no layer active.** `MailGuardPipeline.run` with `GuardConfig.preset("C0")` and `generate_from_messages`. It separates the template effect from the layer effect.
-  - **C1, C2, C3** go through `MailGuardPipeline.run` + `generate_from_messages` as planned.
-  - The runner, scoring, report, Make targets and runbook treat `C0` and `C0T` as two distinct, required configs, both over the full case set (300 LLMail attacks + 150 benign + ~100 RAG-vector). C1/C2 stay on the 100-attack ablation subset.
-  - **Report comparisons, both shown:** C0 vs C3 = "AgentMailGuard protecting rag-email as shipped" (headline, McNemar); C0T vs C3 = "effect of the guard's layers alone" (McNemar). The report states plainly what each baseline is.
-- **Open questions 1–14 below: all answered with the recommended answer.** Question 2's wording is superseded by B1 (C0 is native rag-email; C0T is the guard's template with no layers; both required).
+- **THE BENCHMARK (owner, 2026-09-29, final): rag-email WITHOUT the AgentMailGuard layers (C0) vs rag-email WITH the layers (C3).** Two required runs over the full case set (300 LLMail attacks + 150 benign + ~100 RAG-vector). The report's headline and its McNemar test are C0 vs C3.
+  - **C0 = rag-email exactly as it runs.** The run calls rag-email's existing `SinglePassGenerator.generate_draft` on the `ContextPackage` from the real `ContextBuilder`, so the prompt is rendered by rag-email's own profile template (`prompts/*.v2.j2`). **No AgentMailGuard code runs in C0.**
+  - **C3 = rag-email with all AgentMailGuard layers.** `MailGuardPipeline.run` with `GuardConfig.preset("C3")` wraps one `generate_from_messages` call; the guard renders the prompt with channel isolation as part of its defence.
+  - **Optional configs, supported but never required:** `C0T` (`MailGuardPipeline.run` with `preset("C0")`: the guard template with no layer active) and the `C1`/`C2` ablation on the 100-attack subset. The runner, scoring and report accept them and show extra columns only when their results exist; the report must never refuse or fail because they are missing. The runbook lists C0 and C3 as the required runs and the others as optional extras.
+- **Open questions 1–14 below: all answered with the recommended answer.** Question 2's wording is superseded: C0 is native rag-email; C0T (guard template, no layers) is optional.
 - **Phase 6 is complete** (commit 2a0dbc8; only the owner-run live Gmail gate 6.10 remains), so Task 8's spec sync may run.
 - **Live runs are not part of the build.** The downloads in open question 6 (`make mailguard-prep`, `make mailguard-cases`, no API key) are allowed. Anything that calls Gemini (`mailguard-probe`, `mailguard-bench`) is the owner's step, run after the build.
 
