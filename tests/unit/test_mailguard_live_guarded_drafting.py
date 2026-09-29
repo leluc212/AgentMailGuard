@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -59,6 +60,9 @@ from packages.llm.drafts import UnpersistableDraftError  # noqa: E402
 from packages.llm.protocol import ModelTier  # noqa: E402
 from packages.llm.router import ComplexityRouter  # noqa: E402
 from packages.observability.metrics import PipelineMetrics, create_pipeline_metrics  # noqa: E402
+from packages.retrieval.models import Candidate as RetrievedCandidate  # noqa: E402
+from packages.retrieval.models import RetrievalQuery  # noqa: E402
+from packages.retrieval.retriever import RetrievalResult  # noqa: E402
 from services.ai_worker.consumer import AIWorkerConsumer  # noqa: E402
 from services.ai_worker.drafting import DraftingOutcome, DraftingService  # noqa: E402
 from tests.unit.test_mailguard_bench_guarded_reply import (  # noqa: E402
@@ -141,6 +145,24 @@ class Rig:
         return [(e.state_from, e.state_to) for e in events]
 
 
+# What the triage gate records on a job's QUEUED transition (services/triage_worker/gate.py).
+GATE_PAYLOAD: dict[str, Any] = {
+    "category": "support",
+    "intent": "password_reset",
+    "priority": "normal",
+    "retrieval_required": True,
+    "workflow_hint": "ai",
+    "confidence": 0.9,
+    "decided_by": "llm",
+}
+# The states a job passes on its way from the gate's QUEUED to the one a test wants.
+AFTER_QUEUED = {
+    JobState.QUEUED: [],
+    JobState.CONTEXT_READY: [JobState.CONTEXT_READY],
+    JobState.GENERATING: [JobState.CONTEXT_READY, JobState.GENERATING],
+}
+
+
 async def _rig(
     tmp_path: Path,
     *,
@@ -149,6 +171,7 @@ async def _rig(
     state: JobState = JobState.CONTEXT_READY,
     metrics: PipelineMetrics | None = None,
     message: NormalizedMessage | None = None,
+    queued_payload: dict[str, Any] | None = None,
 ) -> Rig:
     full = preset == "C3"  # the live v2 C3 runs every guard LLM stage
     guard = build_guard(
@@ -162,15 +185,19 @@ async def _rig(
     guard.guard_llm.inner = guard_fake()  # the stages hold the CountingProvider, not inner
     fake = FakeLLMProvider(default_response=reply)
     jobs, drafts = InMemoryJobStore(), InMemoryDraftStore()
+    routed = queued_payload is not None  # the job went through the gate: its history has a QUEUED
     job, _ = await jobs.create_job(
         Job(
             organization_id=message.organization_id if message else uuid4(),
             message_id=message.message_id if message else None,
             thread_id=message.thread_id if message else None,
-            state=state.value,
+            state=(JobState.QUEUED if routed else state).value,
             idempotency_key=f"k-{uuid4()}",
-        )
+        ),
+        initial_event_payload=queued_payload,
     )
+    for target in AFTER_QUEUED[state] if routed else []:
+        job, _ = await jobs.transition_job_state(job.organization_id, job.id, target)
     audit_path = tmp_path / "raw" / f"audit__{preset}.jsonl"
     service = GuardedDraftingService(
         generator=SinglePassGenerator(
@@ -204,6 +231,19 @@ def _reason(line: dict[str, Any]) -> str:
     """The escalation_reason a guard decision must leave on the draft (the L5 decision's words)."""
     decision = _decision(line)
     return f"agentmailguard:{decision['action']}:{decision['matched_rule_id']}"
+
+
+def _spy_on_pipeline_run(rig: Rig) -> dict[str, Any]:
+    """The keyword arguments the guard's pipeline is called with (filled when the job runs)."""
+    seen: dict[str, Any] = {}
+    run = rig.guard.pipeline.run
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return await run(*args, **kwargs)
+
+    rig.guard.pipeline.run = spy  # the pipeline is typed Any: no ignore needed
+    return seen
 
 
 async def _stored_draft(rig: Rig) -> Any:
@@ -456,14 +496,7 @@ async def test_the_jobs_budget_tracker_counts_the_one_generation(tmp_path: Path)
 
 async def test_l3b_gets_the_retrieval_query_the_context_builder_builds(tmp_path: Path) -> None:
     rig = await _rig(tmp_path)
-    seen: dict[str, Any] = {}
-    run = rig.guard.pipeline.run
-
-    async def spy(*args: Any, **kwargs: Any) -> Any:
-        seen.update(kwargs)
-        return await run(*args, **kwargs)
-
-    rig.guard.pipeline.run = spy  # the pipeline is typed Any: no ignore needed
+    seen = _spy_on_pipeline_run(rig)
 
     await rig.service.draft(
         rig.job,
@@ -476,6 +509,56 @@ async def test_l3b_gets_the_retrieval_query_the_context_builder_builds(tmp_path:
     )
     assert seen["category"] == "support"
     assert seen["system_instructions"] == "You are an enterprise AI assistant."
+
+
+async def test_l3b_gets_the_intent_triage_recorded_in_its_query(tmp_path: Path) -> None:
+    # R12.1: the query is built from the email, the thread summary AND the classification
+    # intent. draft() is not told the intent, so it reads what the gate recorded on the job.
+    rig = await _rig(tmp_path, queued_payload=GATE_PAYLOAD)
+    seen = _spy_on_pipeline_run(rig)
+
+    await rig.service.draft(
+        rig.job, rig.context(thread_summary="Customer asked about a reset"), category="support"
+    )
+
+    assert seen["query"] == (
+        "Intent: password_reset. Thread summary: Customer asked about a reset. "
+        f"Subject: Password reset. Body: {BENIGN}"
+    )
+
+
+async def test_a_job_triage_gave_no_intent_gets_a_query_without_one(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, queued_payload={**GATE_PAYLOAD, "intent": None})
+    seen = _spy_on_pipeline_run(rig)
+
+    await rig.service.draft(rig.job, rig.context(), category="support")
+
+    assert seen["query"] == f"Subject: Password reset. Body: {BENIGN}"
+
+
+async def test_the_audit_line_records_the_query_l3b_was_given(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path, queued_payload=GATE_PAYLOAD)
+    seen = _spy_on_pipeline_run(rig)
+
+    await rig.service.draft(rig.job, rig.context(), category="support")
+
+    (line,) = rig.audit_lines()
+    assert line["retrieval_query"] == seen["query"]
+    assert line["retrieval_query"].startswith("Intent: password_reset. ")
+
+
+async def test_a_job_the_gate_never_queued_is_drafted_and_the_gap_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = await _rig(tmp_path)  # created in CONTEXT_READY: no QUEUED transition in its history
+    seen = _spy_on_pipeline_run(rig)
+
+    with caplog.at_level(logging.WARNING):
+        outcome = await rig.service.draft(rig.job, rig.context(), category="support")
+
+    assert outcome.job.state == JobState.DRAFTED.value
+    assert seen["query"] == f"Subject: Password reset. Body: {BENIGN}"  # nothing to recover
+    assert any("no triage intent" in record.getMessage() for record in caplog.records)
 
 
 async def test_a_job_without_a_category_uses_the_default_profile(tmp_path: Path) -> None:
@@ -688,3 +771,66 @@ async def test_the_ai_worker_consumer_runs_a_queued_job_through_the_guard(
     (line,) = rig.audit_lines()
     assert line["config"] == "C3" and line["job_id"] == str(rig.job.id)
     assert (line["final_action"], line["message_id"]) == (action, str(message.message_id))
+
+
+async def test_l3b_gets_exactly_the_query_retrieval_ran_with(tmp_path: Path) -> None:
+    """Through the consumer, with the intent set and retrieval required: one query, two readers.
+
+    The ContextBuilder builds the retrieval query from the full triage classification; the
+    guard's L3b compares the retrieved chunks with a query of its own. They must be the same
+    text, or the echo check judges chunks against a question nobody asked.
+    """
+    message = _context(uuid4()).current_message
+    rig = await _rig(tmp_path, state=JobState.QUEUED, message=message, queued_payload=GATE_PAYLOAD)
+    messages = InMemoryMessageStore()
+    await messages.insert_message(message)
+    asked: list[RetrievalQuery] = []
+
+    class RecordingRetriever:
+        async def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
+            asked.append(query)
+            return RetrievalResult(
+                candidates=[
+                    RetrievedCandidate(
+                        chunk_id="chunk-1",
+                        document_id="doc-1",
+                        content="Open Settings and choose Reset Password.",
+                        metadata={"external_id": "DOC-125-08"},
+                    )
+                ]
+            )
+
+    consumer = AIWorkerConsumer(
+        "email.support.normal",
+        job_store=rig.jobs,
+        message_store=messages,
+        context_builder=ContextBuilder(
+            thread_assembler=ThreadContextAssembler(
+                settings=SummarizationSettings(),
+                thread_state_store=InMemoryThreadStateStore(),
+                message_store=messages,
+            ),
+            retriever=RecordingRetriever(),  # type: ignore[arg-type]
+            job_store=rig.jobs,
+        ),
+        router=ComplexityRouter(),
+        drafting=rig.service,
+    )
+    seen = _spy_on_pipeline_run(rig)
+    envelope = JobEnvelope(
+        job_id=str(rig.job.id),
+        idempotency_key=f"gen-{rig.job.id}",
+        job_type="generate_reply",
+        organization_id=str(message.organization_id),
+        message_id=message.provider_message_id,
+        classification=dict(GATE_PAYLOAD),
+    )
+
+    await consumer.process_job(envelope, MagicMock())
+
+    (query,) = asked  # retrieval ran once, and with the intent
+    assert query.semantic_text.startswith("Intent: password_reset. Subject: Password reset.")
+    assert seen["query"] == query.semantic_text
+    (line,) = rig.audit_lines()
+    assert line["retrieval_query"] == query.semantic_text
+    assert [chunk["chunk_id"] for chunk in line["retrieved"]] == ["chunk-1"]

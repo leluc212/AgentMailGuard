@@ -24,8 +24,9 @@ Audit line, one JSON object per job, flat: ``message_id``, ``organization_id``, 
 ``timings_ms``, ``draft``, ``system_instructions``, ...), ``final_body`` and ``final_action`` (the
 persisted draft's body and action, as the scorer's flat record names them), ``decision_action``
 (the L5 decision's action, which v1 called ``final_action``), ``escalation_reason``,
-``retrieved`` (the context's chunks, as the ``context_built`` event lists them) and
-``guard_errors``. A job that is retried appends a line per attempt; the last line of a message wins.
+``retrieval_query`` (the query L3b's echo check compared the chunks with), ``retrieved`` (the
+context's chunks, as the ``context_built`` event lists them) and ``guard_errors``. A job that is
+retried appends a line per attempt; the last line of a message wins.
 """
 
 from __future__ import annotations
@@ -268,7 +269,9 @@ class GuardedDraftingService(DraftingService):
             guard_llm=self.guard.guard_llm,
             max_tokens=self.max_tokens,
         )
-        execution = await executor.execute(self._prepared_case(current, context, category))
+        intent = await self._routed_intent(current)
+        prepared = self._prepared_case(current, context, category, intent)
+        execution = await executor.execute(prepared)
 
         outcome_kind, reason = guard_outcome(execution.record)
         if outcome_kind is GuardOutcome.ESCALATED:
@@ -277,7 +280,9 @@ class GuardedDraftingService(DraftingService):
             draft = self._generated_draft(current, context, generator, execution, reason)
         # The line goes down first: a crash before the commit leaves a line for a retry to
         # supersede, never a DRAFTED job without its guard facts.
-        self._audit.append(self._audit_line(current, context, draft, execution))
+        self._audit.append(
+            self._audit_line(current, context, draft, execution, prepared.retrieval_query)
+        )
 
         outcome = await self.persistence.persist_drafted(draft)
         if outcome.created:
@@ -304,20 +309,45 @@ class GuardedDraftingService(DraftingService):
             )
         return DraftingOutcome(draft=outcome.draft, job=outcome.job, created=outcome.created)
 
+    async def _routed_intent(self, job: Job) -> str | None:
+        """The intent triage gave the job, read from the QUEUED transition the gate recorded.
+
+        The ContextBuilder built the retrieval query from the classification in the job's
+        envelope, intent included, but ``draft`` is only told the category. The gate records the
+        same classification on the transition that queued the job (services/triage_worker/
+        gate.py), and events are read by organization and job, so nothing crosses a tenant.
+
+        Returns:
+            The latest recorded intent; None when triage found none. None as well, with a
+            warning, when no QUEUED transition records one (a job the gate did not route): the
+            query then lacks the intent the envelope may have carried.
+        """
+        events = await self.job_store.list_events_for_job(job.organization_id, job.id)
+        for event in reversed(events):
+            payload = event.payload or {}
+            if event.state_to == JobState.QUEUED.value and "intent" in payload:
+                intent = payload["intent"]
+                return intent if isinstance(intent, str) else None
+        logger.warning(
+            "Job %s has no triage intent on a QUEUED transition; L3b's query is built without one",
+            job.id,
+        )
+        return None
+
     def _prepared_case(
-        self, job: Job, context: ContextPackage, category: str | None
+        self, job: Job, context: ContextPackage, category: str | None, intent: str | None
     ) -> PreparedCase:
         """The job as the PreparedCase GuardedCaseExecutor reads.
 
         The executor reads the context, ``classification.category`` and ``retrieval_query``,
         nothing else. A live job has no benchmark case, ingested documents or retrieval map, so
-        those are empty. The query is rebuilt with the ContextBuilder's own builder from what
-        ``draft`` receives (the intent is not passed in, and v1 cases had none); it is what L3b's
-        query-echo check compares the retrieved chunks with. An empty category resolves the
-        default profile, as ``None`` does.
+        those are empty. The query is rebuilt with the ContextBuilder's own builder from the
+        message, the thread summary and the category and intent triage gave (R12.1), so it is the
+        text retrieval ran; it is what L3b's query-echo check compares the retrieved chunks with.
+        An empty category resolves the default profile, as ``None`` does.
         """
         message = context.current_message
-        classification = Classification(category=category or "")
+        classification = Classification(category=category or "", intent=intent)
         query = self.query_builder.build(
             message=message,
             classification=classification,
@@ -403,7 +433,12 @@ class GuardedDraftingService(DraftingService):
         )
 
     def _audit_line(
-        self, job: Job, context: ContextPackage, draft: GeneratedDraft, execution: CaseExecution
+        self,
+        job: Job,
+        context: ContextPackage,
+        draft: GeneratedDraft,
+        execution: CaseExecution,
+        retrieval_query: str,
     ) -> dict[str, Any]:
         message = context.current_message
         record = dict(execution.record)
@@ -421,6 +456,7 @@ class GuardedDraftingService(DraftingService):
             "final_body": draft.body,
             "final_action": draft.action,
             "escalation_reason": draft.escalation_reason,
+            "retrieval_query": retrieval_query,
             "retrieved": [
                 {
                     "chunk_id": str(chunk.chunk_id),
