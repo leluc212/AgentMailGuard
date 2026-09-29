@@ -1,0 +1,959 @@
+{
+  "experiment": "mailguard_bench",
+  "task": "7.19",
+  "run_id": "2026-09-29-qwen25",
+  "timestamp": "2026-09-29T13:32:25.871525+00:00",
+  "git": {
+    "rag_email": {
+      "sha": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "runs": {
+        "C0": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "C0T": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "C1": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "C2": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "C3": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0"
+      },
+      "at_report_time": {
+        "sha": "dbe8e6ba7ff83dceac8cc308f774c4dddb72bbc8",
+        "dirty": false
+      }
+    },
+    "agentmailguard": {
+      "sha": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "runs": {
+        "C0": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C0T": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C1": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C2": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
+      },
+      "at_report_time": {
+        "sha": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "dirty": false
+      }
+    }
+  },
+  "config_hash": "2e725cb83420affb4fc0089bca1c22dec41dabf62b64f77d2bd436d36d216062",
+  "case_manifest_sha256": "e148185ac4c7e93a924e9d35d59aadffac68d56e52e6624e52556992ca1242fc",
+  "models": {
+    "C0": {
+      "generation": "qwen2.5:7b-instruct",
+      "guard": null,
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": null
+    },
+    "C0T": {
+      "generation": "qwen2.5:7b-instruct",
+      "guard": "qwen2.5:7b-instruct",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C0",
+        "active_layers": [],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C1": {
+      "generation": "qwen2.5:7b-instruct",
+      "guard": "qwen2.5:7b-instruct",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "l1",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C2": {
+      "generation": "qwen2.5:7b-instruct",
+      "guard": "qwen2.5:7b-instruct",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3": {
+      "generation": "qwen2.5:7b-instruct",
+      "guard": "qwen2.5:7b-instruct",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    }
+  },
+  "runs": {
+    "C0": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-29-qwen25",
+      "config": "C0",
+      "preset": "C0",
+      "guard_preset": null,
+      "case_dir": "/home/laz/Documents/kltn/dazzling-bose/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "qwen2.5:7b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "qwen2.5:7b-instruct",
+        "model_map": {
+          "fast": "qwen2.5:7b-instruct",
+          "routine": "qwen2.5:7b-instruct",
+          "strong": "qwen2.5:7b-instruct",
+          "fallback": "qwen2.5:7b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": null,
+      "live_layers": null,
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0",
+        "preset": null,
+        "active_layers": [],
+        "guard_model": null,
+        "live_stages": {},
+        "missing_live_stages": [],
+        "live_layers": null,
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": null
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C0",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "qwen2.5:7b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "http://localhost:11434/v1",
+          "model": "qwen2.5:7b-instruct",
+          "model_map": {
+            "fast": "qwen2.5:7b-instruct",
+            "routine": "qwen2.5:7b-instruct",
+            "strong": "qwen2.5:7b-instruct",
+            "fallback": "qwen2.5:7b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": null,
+        "live_layers": null,
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-29T09:36:22.025067+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T10:47:15.887542+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-29T13:28:48.971829+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:49.007130+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C0T": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-29-qwen25",
+      "config": "C0T",
+      "preset": "C0T",
+      "guard_preset": "C0",
+      "case_dir": "/home/laz/Documents/kltn/dazzling-bose/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "qwen2.5:7b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "qwen2.5:7b-instruct",
+        "model_map": {
+          "fast": "qwen2.5:7b-instruct",
+          "routine": "qwen2.5:7b-instruct",
+          "strong": "qwen2.5:7b-instruct",
+          "fallback": "qwen2.5:7b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "qwen2.5:7b-instruct",
+      "live_layers": {
+        "preset": "C0",
+        "active_layers": [],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0T",
+        "preset": "C0",
+        "active_layers": [],
+        "guard_model": "qwen2.5:7b-instruct",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C0",
+          "active_layers": [],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/dazzling-bose/evaluation/results/mailguard_bench/2026-09-29-qwen25/raw/audit__C0T.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C0T",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "qwen2.5:7b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "http://localhost:11434/v1",
+          "model": "qwen2.5:7b-instruct",
+          "model_map": {
+            "fast": "qwen2.5:7b-instruct",
+            "routine": "qwen2.5:7b-instruct",
+            "strong": "qwen2.5:7b-instruct",
+            "fallback": "qwen2.5:7b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "qwen2.5:7b-instruct",
+        "live_layers": {
+          "preset": "C0",
+          "active_layers": [],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-29T11:44:41.658096+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T12:45:06.924400+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-29T13:28:53.846750+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:53.858419+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-29-qwen25",
+      "config": "C1",
+      "preset": "C1",
+      "guard_preset": "C1",
+      "case_dir": "/home/laz/Documents/kltn/dazzling-bose/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "ablation_attack",
+        "llmail_benign"
+      ],
+      "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "qwen2.5:7b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "qwen2.5:7b-instruct",
+        "model_map": {
+          "fast": "qwen2.5:7b-instruct",
+          "routine": "qwen2.5:7b-instruct",
+          "strong": "qwen2.5:7b-instruct",
+          "fallback": "qwen2.5:7b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "qwen2.5:7b-instruct",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "l1",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C1",
+        "preset": "C1",
+        "active_layers": [
+          "l1",
+          "l5"
+        ],
+        "guard_model": "qwen2.5:7b-instruct",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "l1",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/dazzling-bose/evaluation/results/mailguard_bench/2026-09-29-qwen25/raw/audit__C1.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C1",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "qwen2.5:7b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "http://localhost:11434/v1",
+          "model": "qwen2.5:7b-instruct",
+          "model_map": {
+            "fast": "qwen2.5:7b-instruct",
+            "routine": "qwen2.5:7b-instruct",
+            "strong": "qwen2.5:7b-instruct",
+            "fallback": "qwen2.5:7b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "qwen2.5:7b-instruct",
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "l1",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-29T12:45:09.406703+00:00",
+          "n_cases_selected": 250,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:04:22.512943+00:00",
+          "summary": {
+            "selected": 250,
+            "skipped_already_recorded": 0,
+            "ok": 250,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-29T13:28:56.283451+00:00",
+          "n_cases_selected": 250,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:56.290983+00:00",
+          "summary": {
+            "selected": 250,
+            "skipped_already_recorded": 250,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-29-qwen25",
+      "config": "C2",
+      "preset": "C2",
+      "guard_preset": "C2",
+      "case_dir": "/home/laz/Documents/kltn/dazzling-bose/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "ablation_attack",
+        "llmail_benign"
+      ],
+      "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "qwen2.5:7b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "qwen2.5:7b-instruct",
+        "model_map": {
+          "fast": "qwen2.5:7b-instruct",
+          "routine": "qwen2.5:7b-instruct",
+          "strong": "qwen2.5:7b-instruct",
+          "fallback": "qwen2.5:7b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "qwen2.5:7b-instruct",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C2",
+        "preset": "C2",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l5"
+        ],
+        "guard_model": "qwen2.5:7b-instruct",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/dazzling-bose/evaluation/results/mailguard_bench/2026-09-29-qwen25/raw/audit__C2.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C2",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "qwen2.5:7b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "http://localhost:11434/v1",
+          "model": "qwen2.5:7b-instruct",
+          "model_map": {
+            "fast": "qwen2.5:7b-instruct",
+            "routine": "qwen2.5:7b-instruct",
+            "strong": "qwen2.5:7b-instruct",
+            "fallback": "qwen2.5:7b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "qwen2.5:7b-instruct",
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-29T13:04:25.002770+00:00",
+          "n_cases_selected": 250,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:47.838480+00:00",
+          "summary": {
+            "selected": 250,
+            "skipped_already_recorded": 0,
+            "ok": 250,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-29T13:28:58.785473+00:00",
+          "n_cases_selected": 250,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:58.796231+00:00",
+          "summary": {
+            "selected": 250,
+            "skipped_already_recorded": 250,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-29-qwen25",
+      "config": "C3",
+      "preset": "C3",
+      "guard_preset": "C3",
+      "case_dir": "/home/laz/Documents/kltn/dazzling-bose/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "qwen2.5:7b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "qwen2.5:7b-instruct",
+        "model_map": {
+          "fast": "qwen2.5:7b-instruct",
+          "routine": "qwen2.5:7b-instruct",
+          "strong": "qwen2.5:7b-instruct",
+          "fallback": "qwen2.5:7b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "qwen2.5:7b-instruct",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+        "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3",
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "qwen2.5:7b-instruct",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/dazzling-bose/evaluation/results/mailguard_bench/2026-09-29-qwen25/raw/audit__C3.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "2a6192522ce7549ca160dd9a2ea16a4dd08db2d0",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "qwen2.5:7b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "http://localhost:11434/v1",
+          "model": "qwen2.5:7b-instruct",
+          "model_map": {
+            "fast": "qwen2.5:7b-instruct",
+            "routine": "qwen2.5:7b-instruct",
+            "strong": "qwen2.5:7b-instruct",
+            "fallback": "qwen2.5:7b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "qwen2.5:7b-instruct",
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:qwen2.5:7b-instruct",
+          "l2_llm": "CountingProvider:qwen2.5:7b-instruct",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-29T10:47:18.520263+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T11:44:38.941404+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-29T13:28:51.355891+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 1,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-29T13:28:51.433729+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    }
+  },
+  "counts": {
+    "C0": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C0T": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C1": {
+      "records": 250,
+      "scored": 250,
+      "errors": 0
+    },
+    "C2": {
+      "records": 250,
+      "scored": 250,
+      "errors": 0
+    },
+    "C3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    }
+  }
+}

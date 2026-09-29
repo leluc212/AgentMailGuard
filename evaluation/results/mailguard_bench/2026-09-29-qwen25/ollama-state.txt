@@ -1,0 +1,10 @@
+# Reconstructed from the operator's checks, not recorded by the run itself
+# (the per-RUN ollama-state.txt step was added to the runbook after this RUN started at 16:36 +07).
+## verified 2026-09-29 16:30 +07, before the run started
+ollama version 0.21.0 (systemd service /usr/local/bin/ollama)
+service environment: OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_VRAM=12288 OLLAMA_CONTEXT_LENGTH=32768
+model: qwen2.5:7b-instruct  ID 845dbda0ea48  Q4_K_M  (no num_ctx parameter; server default 32768 applies)
+ollama ps after a call: SIZE 8.2 GB  PROCESSOR 100% GPU  CONTEXT 32768
+GPU: NVIDIA GeForce RTX 3060 12288 MiB
+## during the run
+Ollama log: 0 "truncating input prompt" lines; largest input per call: 5831 tokens (generation), 1558 (guard)
