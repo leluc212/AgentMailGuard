@@ -157,6 +157,27 @@ async def test_exhausted_429_is_an_error_row_and_never_defended(tmp_path: Path) 
     assert (summary.ok, summary.error) == (0, 1)
 
 
+async def test_a_caller_decides_which_errors_are_worth_a_rerun(tmp_path: Path) -> None:
+    """The live runner narrows the v1 rule: a 429 named in a job's last error is the pipeline's."""
+    store = ResultStore(tmp_path / "r.jsonl")
+    sleeps, scripted = Sleeps(), Scripted({"a": [_429(), OK]})
+
+    await run_cases(
+        [_case("a")],
+        scripted,
+        store,
+        config_name="C0",
+        run_id="r",
+        sleep=sleeps,
+        rate_limited=lambda exc: False,
+    )
+
+    (row,) = _rows(store.path)
+    assert (row["status"], row["attempts"]) == ("error", 1)
+    assert row["error"]["kind"] == "LLMResponseError"  # not "rate_limited": the caller said no
+    assert sleeps.delays == [] and scripted.calls == ["a"]
+
+
 async def test_other_failures_are_error_rows_with_the_secret_redacted(tmp_path: Path) -> None:
     store = ResultStore(tmp_path / "r.jsonl")
     sleeps = Sleeps()

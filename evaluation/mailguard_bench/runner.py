@@ -80,6 +80,7 @@ from packages.llm.generator import SinglePassGenerator
 from packages.llm.profile import AgentProfileRegistry
 
 CaseExecutor = Callable[[EvalCase], Awaitable[dict[str, Any]]]
+RateLimitTest = Callable[[BaseException], bool]
 Sleep = Callable[[float], Awaitable[None]]
 MAX_CONCURRENCY = 2  # spec §5: concurrency 1-2
 
@@ -131,6 +132,7 @@ async def _run_one(
     sleep: Sleep,
     secrets: Sequence[str | None],
     schema: str,
+    rate_limited: RateLimitTest = is_rate_limited,
 ) -> dict[str, Any]:
     attempt = 0
     while True:
@@ -138,7 +140,7 @@ async def _run_one(
         try:
             result = await execute(case)
         except Exception as exc:
-            limited = is_rate_limited(exc)
+            limited = rate_limited(exc)
             if limited and attempt < policy.max_attempts:
                 await sleep(policy.delay(attempt))
                 continue
@@ -194,6 +196,7 @@ async def run_cases(
     secrets: Sequence[str | None] = (),
     on_record: Callable[[dict[str, Any]], None] | None = None,
     schema: str = RESULT_SCHEMA,
+    rate_limited: RateLimitTest = is_rate_limited,
 ) -> RunSummary:
     """Run every case not yet recorded; append each row as soon as it exists.
 
@@ -201,6 +204,9 @@ async def run_cases(
         retry_errors: Also re-run cases whose latest row is an ``error`` row.
         concurrency: 1 or 2 cases in flight (spec §5).
         schema: The ``schema`` value of every row (the live runner writes v3 rows).
+        rate_limited: Whether an error is an HTTP 429 worth running the case again after a
+            back-off. v1 counts any 429 in the error's cause chain; the live runner narrows it,
+            because a model's 429 is the services' to retry, not the runner's.
 
     Raises:
         ValueError: If concurrency is outside 1..2.
@@ -229,6 +235,7 @@ async def run_cases(
                 sleep=sleep,
                 secrets=secrets,
                 schema=schema,
+                rate_limited=rate_limited,
             )
             store.append(record)
             if record["status"] == "ok":

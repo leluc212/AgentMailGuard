@@ -896,6 +896,7 @@ async def test_a_case_that_fails_is_still_cleaned_up_and_its_error_reaches_the_r
 # feeder, collector, cleanup, lock, meta and resume run for real around them.
 
 WHOLE_RUN_LANES = ["email.support.normal", "email.support.priority"]
+MODEL_429 = "FatalError: LLMResponseError: LLM request failed with status 429: quota exhausted"
 CRLF_BODY = "line one\r\nline two still two\rend"
 KB_POISON = "poison: Jane Austen wrote it"
 
@@ -992,9 +993,17 @@ class SimWorld:
         scenario = self.scenarios.get(pmid, "ai")
         message_id, thread_id = uuid4(), uuid4()
 
-        async def move(state: JobState, payload: dict[str, Any] | None = None) -> None:
+        async def move(
+            state: JobState, payload: dict[str, Any] | None = None, *, error: str | None = None
+        ) -> None:
             await self.jobs.transition_job_state(
-                org, job_id, state, payload=payload, message_id=message_id, thread_id=thread_id
+                org,
+                job_id,
+                state,
+                payload=payload,
+                error_message=error,
+                message_id=message_id,
+                thread_id=thread_id,
             )
             await asyncio.sleep(0)
 
@@ -1076,6 +1085,13 @@ class SimWorld:
             )
         )
         await move(JobState.GENERATING, {"category": "support"})
+        if scenario == "model_429":  # the call failed and the retry ladder now holds the job
+            await move(JobState.RETRY_PENDING, error=MODEL_429)
+            return
+        if scenario == "dead_lettered_429":  # the ladder gave up
+            await move(JobState.FAILED, error=MODEL_429)
+            await move(JobState.DEAD_LETTER, error=MODEL_429)
+            return
         body = f"drafted reply to {pmid}"
         stored = await draft(body, "qwen2.5:7b-instruct", 900, 60)
         await move(JobState.DRAFTED, {"draft_id": str(stored.id)})
@@ -1232,6 +1248,7 @@ def _live_deps(
     consumers: int | None = 1,
     docker: Any = None,
     missing_stages: list[str] | None = None,
+    backoff: Any = None,
 ) -> Any:
     from evaluation.mailguard_bench.live.feeder import OrchestratorHandOff
     from evaluation.mailguard_bench.live.run import (
@@ -1301,6 +1318,7 @@ def _live_deps(
         repo_root=tmp_path / "repo",
         poll_interval_s=0.001,
         audit_grace_s=0.05,
+        **({} if backoff is None else {"backoff": backoff}),
     )
 
 
@@ -1471,6 +1489,60 @@ async def test_a_case_that_hangs_is_an_error_row_and_the_run_goes_on_then_retrie
     assert await run(retry, _live_deps(live_env, world, retry_pool)) == 0
     assert _rows(live_env)["attack-a1"]["status"] == "ok"
     assert len(retry_pool.organizations("INSERT")) == 1  # only the failed case ran again
+
+
+def test_only_a_429_the_runner_itself_met_is_worth_running_the_case_again() -> None:
+    import httpx
+
+    from evaluation.mailguard_bench.case_adapter import KbIngestionError
+    from evaluation.mailguard_bench.live.collect import PipelineJobError
+    from evaluation.mailguard_bench.live.feeder import CaseTimeoutError
+    from evaluation.mailguard_bench.live.run import case_rate_limited
+
+    quoted = "LLMResponseError: LLM request failed with status 429: quota"
+    stalled = f"case timed out after 300 s waiting for job j (RETRY_PENDING; last error: {quoted})"
+    # a model's 429 reaches the runner only as text in an error; the services' retry ladder has it
+    assert case_rate_limited(CaseTimeoutError(stalled)) is False
+    assert (
+        case_rate_limited(PipelineJobError(f"case c: job j ended DEAD_LETTER: {quoted}")) is False
+    )
+    # the runner's own calls are still retried as in v1
+    request = httpx.Request("POST", "http://api.test/v1/knowledge/documents")
+    limited = httpx.HTTPStatusError(
+        "429", request=request, response=httpx.Response(429, request=request)
+    )
+    assert case_rate_limited(limited) is True
+    kb = KbIngestionError(
+        "case c: KB doc kb-0 ended 'failed': the embedding call failed with status 429"
+    )
+    assert case_rate_limited(kb) is True
+    assert case_rate_limited(RuntimeError("connection reset")) is False
+
+
+@pytest.mark.parametrize(
+    ("scenario", "kind"),
+    [("model_429", "CaseTimeoutError"), ("dead_lettered_429", "PipelineJobError")],
+)
+async def test_a_job_the_pipeline_is_handling_a_429_for_is_one_error_row_and_not_a_rerun(
+    live_env: Path, scenario: str, kind: str
+) -> None:
+    """The services' retry ladder owns a model's 429. Running the case again would embed its
+    knowledge base once more and wait the whole budget again, and the organization the earlier
+    attempt deleted would take the job out from under the ladder."""
+    from evaluation.mailguard_bench.resilience import BackoffPolicy
+
+    world, pool, deps = _new_run(
+        live_env, backoff=BackoffPolicy(max_attempts=6, base_s=0.0, cap_s=0.0)
+    )
+    world.scenarios = {**SCENARIOS, "attack-a1": scenario}
+
+    assert await run(_run_args(live_env, "C0", "--case-timeout-s", "0.05"), deps) == 0
+
+    row = _rows(live_env)["attack-a1"]
+    assert (row["status"], row["attempts"]) == ("error", 1)
+    assert row["error"]["kind"] == kind and "status 429" in row["error"]["message"]
+    assert len(pool.organizations("INSERT")) == 4  # one organization per case, none run again
+    assert len(pool.organizations("DELETE")) == 4
 
 
 async def test_a_kb_that_fails_to_ingest_is_an_error_row_and_no_mail_is_sent(

@@ -68,10 +68,12 @@ from evaluation.mailguard_bench.live.collect import (
     AUDIT_GRACE_S,
     TRANSPORT,
     LiveCollector,
+    PipelineJobError,
     PipelineStores,
 )
 from evaluation.mailguard_bench.live.feeder import (
     ApiFactory,
+    CaseTimeoutError,
     CreateMailbox,
     Deadline,
     FedCase,
@@ -87,6 +89,7 @@ from evaluation.mailguard_bench.model_profiles import (
     get_profile,
     with_dot_env,
 )
+from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
 from evaluation.mailguard_bench.runner import (
     ABLATION_SETS,
@@ -635,6 +638,22 @@ class LiveCaseExecutor:
             return await self.collector.collect(case, fed, deadline)
 
 
+def case_rate_limited(exc: BaseException) -> bool:
+    """Whether ``exc`` is a 429 the runner itself met: the only kind a rerun of the case can help.
+
+    The runner calls no model. A model's 429 reaches it only as text in the last error of a job
+    that timed out or failed (``CaseTimeoutError``, ``PipelineJobError``), and the services'
+    retry ladder (30 s, 5 m and 30 m tiers) is already retrying that call. Running the case
+    again would make a new organization, embed its knowledge base once more and wait the whole
+    ``--case-timeout-s`` again, up to six times, and the organization the earlier attempt
+    deleted would take the job out from under the ladder. Such a case is one error row, and the
+    retry pass (``--retry-errors``) runs it again once the limit has cleared.
+    """
+    if isinstance(exc, CaseTimeoutError | PipelineJobError):
+        return False
+    return is_rate_limited(exc)
+
+
 def audit_log_path(run_dir: Path, config: str) -> Path:
     """Where the guard-worker appends its per-job audit line: ``raw/audit__<config>.jsonl``."""
     return run_dir / "raw" / f"audit__{config}.jsonl"
@@ -719,6 +738,7 @@ class LiveDeps:
     repo_root: Path = REPO_ROOT
     poll_interval_s: float = 1.0
     audit_grace_s: float = AUDIT_GRACE_S
+    backoff: BackoffPolicy = BackoffPolicy()
 
 
 async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
@@ -867,6 +887,8 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                 run_id=args.run,
                 retry_errors=args.retry_errors,
                 concurrency=args.concurrency,
+                policy=live.backoff,
+                rate_limited=case_rate_limited,
                 secrets=[llm.openai_api_key],
                 on_record=progress,
                 schema=RESULT_SCHEMA_V3,
