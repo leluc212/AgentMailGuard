@@ -1,4 +1,4 @@
-"""Static scoping proof for PostgresBusinessDataProvider's fixed queries (R13.4, GEMINI.md §4)."""
+"""Static scoping proof for PostgresBusinessDataProvider's fixed queries (R13.4, CLAUDE.md §4)."""
 
 from __future__ import annotations
 

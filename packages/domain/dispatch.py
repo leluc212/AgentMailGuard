@@ -4,7 +4,7 @@ Requirements:
 - R17.1: two dispatch modes, create a provider draft or send the reply.
 - R16.8, R17.6: create_draft is the default posture; send_reply needs an explicit approval.
 - design.md §5.8 step 4, ADR-0009: the provider draft's status after an ambiguous send.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations

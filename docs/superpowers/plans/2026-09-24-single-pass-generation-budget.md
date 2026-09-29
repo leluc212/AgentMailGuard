@@ -41,7 +41,7 @@ graph TD
 - Tier escalation **replaces** the generation call; it never adds one (`R15.5`, `design.md §5.7`).
 - All calls pass through `BudgetedLLMProvider` or `CallBudgetTracker` enforcement.
 - Export Prometheus counter `llm_calls_total{kind, model}` and histogram `llm_calls_per_job{kind}` (`R14.10`).
-- No live network calls in tests; all tests use `FakeLLMProvider` or `StubLLMProvider` (`GEMINI.md §8`).
+- No live network calls in tests; all tests use `FakeLLMProvider` or `StubLLMProvider` (`CLAUDE.md §8`).
 - All code formatted with `ruff format`, linted with `ruff check`, and strictly typed with `mypy`.
 
 ---

@@ -9,7 +9,7 @@ Requirements:
 - R10.8: Return Candidate objects with both ranks, both scores, fused score, and source metadata.
 - R10.10: Filtered-ANN under-fill detection, metric recording, and search widening.
 - R10.11: Multi-tenant integration test on >=3 tenants asserting full top-N for target tenant.
-- GEMINI.md §8: Multi-tenant fixture seeding >=3 tenants with overlapping content.
+- CLAUDE.md §8: Multi-tenant fixture seeding >=3 tenants with overlapping content.
 """
 
 from __future__ import annotations
@@ -243,7 +243,7 @@ async def test_multi_tenant_filtered_vector_and_underfill_mitigation(
 ) -> None:
     """Verify filtered vector search across >=3 tenants returns full top-N without leakage.
 
-    Fulfills R10.10, R10.11, and GEMINI.md §8.
+    Fulfills R10.10, R10.11, and CLAUDE.md §8.
 
     Seeds 3 distinct tenants with overlapping content and similar vectors.
     Target tenant requests top-N=20 chunks. Verifies:

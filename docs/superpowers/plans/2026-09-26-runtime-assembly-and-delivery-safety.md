@@ -19,7 +19,7 @@ Every task cites the requirement IDs it closes.
 
 ## Global Constraints
 
-- **Binding rules.** `GEMINI.md` is binding. `services/*` may import `packages/*`, never the reverse. `packages/domain` imports stdlib only. Provider literals `gmail`, `graph` and `imap` must not appear as string literals in `services/**`; `tests/unit/test_dependency_rules.py` enforces this.
+- **Binding rules.** `CLAUDE.md` is binding. `services/*` may import `packages/*`, never the reverse. `packages/domain` imports stdlib only. Provider literals `gmail`, `graph` and `imap` must not appear as string literals in `services/**`; `tests/unit/test_dependency_rules.py` enforces this.
 - **Commit messages.** Use `type(scope): summary [task RA.n] [R<id>, ...]`, one commit per task step group. End every commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **pytest.** `--strict-markers` is on and no custom markers are registered. Do not add markers. Plain `async def` tests run in auto mode; `@pytest.mark.asyncio` is allowed because the plugin registers it.
 - **Types and style.** mypy is `strict = true` and covers `tests/`, so annotate every test function and fake. Ruff line length is 100.
@@ -111,7 +111,7 @@ specs/tasks.md, specs/design.md, docs/configuration.md, README.md   M  tracking 
 
 ### Task 1: Record the inserted work block in the task queue
 
-`GEMINI.md` §7 says: "When you discover missing work: add a task to `specs/tasks.md` with requirement IDs." The block goes **before** `# Phase 4 — Context & Generation`, so "next unchecked task in order" picks it up before 4.11.
+`CLAUDE.md` §7 says: "When you discover missing work: add a task to `specs/tasks.md` with requirement IDs." The block goes **before** `# Phase 4 — Context & Generation`, so "next unchecked task in order" picks it up before 4.11.
 
 **Files:**
 - Modify: `specs/tasks.md` (insert between the `---` on line 372 and `# Phase 4 — Context & Generation` on line 374)
@@ -126,7 +126,7 @@ Insert this text immediately before the line `# Phase 4 — Context & Generation
 ```markdown
 # Runtime Assembly & Delivery Safety (inserted 2026-09-26, before resuming Phase 4)
 
-*Discovered missing work (GEMINI.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
+*Discovered missing work (CLAUDE.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
 
 - [ ] **RA.1 Production import path free of dev-only modules**
   - No production module imports pytest, `tests`, or `evaluation`; a subprocess import walk proves it.
@@ -6779,7 +6779,7 @@ SMOKE OK
 
 The billing lane may print as `.normal` or `.priority`, depending on the rule's priority.
 
-**If a check fails**, the message includes the job's `processing_event` trail. That is a real runtime defect, so fix its cause through the normal workflow; do not edit the smoke expectations to pass. For example, email-worker logs showing `NORMALIZED` but no triage event would mean the triage publish or consumer wiring is broken. Record any defect that is out of scope as a new task in `specs/tasks.md` (GEMINI.md §7) and report it.
+**If a check fails**, the message includes the job's `processing_event` trail. That is a real runtime defect, so fix its cause through the normal workflow; do not edit the smoke expectations to pass. For example, email-worker logs showing `NORMALIZED` but no triage event would mean the triage publish or consumer wiring is broken. Record any defect that is out of scope as a new task in `specs/tasks.md` (CLAUDE.md §7) and report it.
 
 - [ ] **Step 3: Documentation**
 

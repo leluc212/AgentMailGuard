@@ -2,7 +2,7 @@
 
 Provides Claude Messages API invocation with tool-use structured JSON output,
 system prompt separation, tier-based model resolution, latency tracking, and error handling.
-Direct vendor SDK imports outside packages/llm are strictly prohibited per GEMINI.md §4.
+Direct vendor SDK imports outside packages/llm are strictly prohibited per CLAUDE.md §4.
 """
 
 from __future__ import annotations

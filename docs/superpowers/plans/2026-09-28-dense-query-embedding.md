@@ -22,7 +22,7 @@
 - R5.10: the configured embedding dimension must equal the `VECTOR(n)` column width, or the service refuses to start. The query must be embedded with the same model and dimension as the corpus (`EMBEDDING__MODEL_NAME`, `EMBEDDING__DIMENSION`).
 - NFR5: hybrid retrieval 50–250 ms.
 - `RetrievalQueryBuilder` stays synchronous and makes no calls (R12: "Executes synchronously in sub-millisecond time").
-- Never log prompt text, email text, query text, or draft text (GEMINI.md, requirements §0.5).
+- Never log prompt text, email text, query text, or draft text (CLAUDE.md, requirements §0.5).
 - CI runs offline: `EMBEDDING__MOCK=true` selects `FakeEmbedder` (R24.5).
 - Do not run `tests/integration` against the live stack. Integration tests use the isolated `rag_email_test` database and vhost (RA.2).
 - Commands to check: `make ci` (ruff format --check, ruff check, strict mypy, unit and integration tests).

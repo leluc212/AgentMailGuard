@@ -76,7 +76,7 @@ TENANT_SCOPED_QUERIES: tuple[str, ...] = (
     RECENT_ORDERS_SQL,
     OPEN_TICKETS_SQL,
 )
-"""Every business query; a unit test asserts each is scoped (R13.4, GEMINI.md §4)."""
+"""Every business query; a unit test asserts each is scoped (R13.4, CLAUDE.md §4)."""
 
 
 class _ConnectionLookups:

@@ -18,7 +18,7 @@ Measure how often prompt-injection attacks succeed against that pipeline, once w
 
 | # | Decision |
 |---|---|
-| Q1 | AgentMailGuard is the separate prompt-injection subsystem that `GEMINI.md` §6 anticipates. rag-email calls it through its integration adapters and adds no defence logic of its own (ADR-0010). |
+| Q1 | AgentMailGuard is the separate prompt-injection subsystem that `CLAUDE.md` §6 anticipates. rag-email calls it through its integration adapters and adds no defence logic of its own (ADR-0010). |
 | Q2 | Headline metric: 1 − ASR at `C3`. FPR and ASR at `C0` reported with it. |
 | Q3 | Show real numbers on a sample at the review; nothing is tuned on the evaluation emails. |
 | Q4 | Attack success uses AgentMailGuard's own rule (`evaluation/harness.py` `goal_achieved`), applied to rag-email's reply fields. |

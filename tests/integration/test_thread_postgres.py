@@ -4,7 +4,7 @@ Requirements:
 - R4.5: Normalize subjects by stripping reply/forward prefixes for thread matching.
 - R4.6: Associate each message with a thread using provider thread id, In-Reply-To/References,
         or normalized subject + overlapping participant set within time window.
-- Multi-tenant verification across >= 3 tenants (GEMINI.md §8).
+- Multi-tenant verification across >= 3 tenants (CLAUDE.md §8).
 - Atomic counter increment and array overlap operations.
 """
 

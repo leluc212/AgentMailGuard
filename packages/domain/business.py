@@ -7,7 +7,7 @@ Requirements:
 - R13.6: A missing entity is an explicit `NOT_FOUND` fact, never an omission.
 - R13.7: `unavailable_context` marks every planned fact `UNAVAILABLE` and sets `degraded`.
 - specs/design.md §5.4 "Business data (R13)"; docs/adr/0008-business-data-fetch-plan.md.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations

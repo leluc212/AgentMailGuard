@@ -261,7 +261,7 @@ async def upsert_business_records(
 
 
 async def seed_business_tenant_fixtures(pool: asyncpg.Pool[Any]) -> None:
-    """Load the 3-tenant business test fixtures (GEMINI.md §8, R13.4). Idempotent.
+    """Load the 3-tenant business test fixtures (CLAUDE.md §8, R13.4). Idempotent.
 
     Test-only: `make seed` does not call this, so the demo seed and its counts stay as they are.
     """

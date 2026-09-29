@@ -68,7 +68,7 @@ To ensure clear architectural boundaries and enterprise-grade reliability, this 
 | **Triage & Routing** | Threat categorization, quarantine, and security policy checks | Business categorization, urgency assignment, and early-exit routing |
 | **Knowledge & RAG** | Out of scope | Multi-tenant hybrid search (PostgreSQL FTS + `pgvector` HNSW + RRF) |
 | **Outbound Controls**| DLP scanning, PII redaction verification, compliance sign-off | Context-grounded response generation with strict citation verification |
-| **Boundary Rule** | Cross-cutting security subsystem (`GEMINI.md §6`) | Core business workflow and AI execution engine |
+| **Boundary Rule** | Cross-cutting security subsystem (`CLAUDE.md §6`) | Core business workflow and AI execution engine |
 
 ---
 

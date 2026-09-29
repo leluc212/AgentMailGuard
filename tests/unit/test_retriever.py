@@ -484,7 +484,7 @@ class TestQueryEmbedding:
     async def test_provider_error_echoing_the_query_is_not_logged(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """GEMINI.md: email-derived query text must not reach logs through a provider error."""
+        """CLAUDE.md: email-derived query text must not reach logs through a provider error."""
         text = "Customer Jane Roe asks about the card ending 4242"
 
         def handler(request: httpx.Request) -> httpx.Response:

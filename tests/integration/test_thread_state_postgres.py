@@ -2,7 +2,7 @@
 
 Verifies:
 - CRUD operations with all schema attributes (topic, intent, summary, q[], res[])
-- Strict multi-tenant isolation across >= 3 tenants (GEMINI.md §8)
+- Strict multi-tenant isolation across >= 3 tenants (CLAUDE.md §8)
 - Optimistic concurrency control detecting version collisions (R8.6)
 - High-concurrency worker updates with zero lost updates
 """
@@ -160,7 +160,7 @@ async def test_postgres_thread_state_crud(db_pool: asyncpg.Pool) -> None:
 
 @pytest.mark.asyncio
 async def test_postgres_thread_state_multi_tenant_isolation(db_pool: asyncpg.Pool) -> None:
-    """Verify strict multi-tenant isolation across >= 3 tenants (GEMINI.md §8)."""
+    """Verify strict multi-tenant isolation across >= 3 tenants (CLAUDE.md §8)."""
     store = PostgresThreadStateStore(db_pool)
 
     # Setup 3 distinct organizations

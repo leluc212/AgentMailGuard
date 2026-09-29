@@ -2,7 +2,7 @@
 
 All model interactions across the system MUST go through the LLMProvider protocol.
 Direct third-party SDK imports (e.g. openai, anthropic) are prohibited outside
-packages/llm per GEMINI.md §4.
+packages/llm per CLAUDE.md §4.
 """
 
 from __future__ import annotations

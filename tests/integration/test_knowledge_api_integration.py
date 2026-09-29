@@ -5,7 +5,7 @@ Requirements:
 - R23.2: Knowledge document endpoints.
 - R5.8: MinIO/S3 object storage persistence.
 - R5.3, R23.6: Strict multi-tenant isolation across >=3 tenants.
-- GEMINI.md §8: Ephemeral PostgreSQL (port 5433) and MinIO (port 9010).
+- CLAUDE.md §8: Ephemeral PostgreSQL (port 5433) and MinIO (port 9010).
 """
 
 from __future__ import annotations
@@ -204,7 +204,7 @@ async def test_live_knowledge_multi_tenant_isolation_three_tenants(
     db_pool: asyncpg.Pool[Any],
     storage_client: MinioObjectStorageClient,
 ) -> None:
-    """GEMINI.md §8: Multi-tenant fixture seeds >=3 tenants and verifies strict isolation."""
+    """CLAUDE.md §8: Multi-tenant fixture seeds >=3 tenants and verifies strict isolation."""
     await storage_client.bootstrap_buckets()
     org_ids = [uuid4() for _ in range(3)]
     for oid in org_ids:

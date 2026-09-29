@@ -1,4 +1,4 @@
-"""Deterministic, fixture-driven FakeLLMProvider for offline CI and testing (GEMINI.md §8).
+"""Deterministic, fixture-driven FakeLLMProvider for offline CI and testing (CLAUDE.md §8).
 
 Provides configurable stub responses, dynamic schema-driven generation, failure
 injection, latency simulation, and call recording without live external network calls.

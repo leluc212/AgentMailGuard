@@ -5,7 +5,7 @@ Requirements:
   CRM/ERP adapter) must pass.
 - R13.4: Sender → customer resolution and customer/tenant scoping.
 - R13.6: Missing entities are explicit NOT_FOUND / NOT_LOOKED_UP facts.
-- GEMINI.md §8: The scoping cases run over ≥3 tenants with overlapping emails and numbers.
+- CLAUDE.md §8: The scoping cases run over ≥3 tenants with overlapping emails and numbers.
 - specs/design.md §5.4 "Business data (R13)".
 """
 
@@ -158,7 +158,7 @@ SHARED_ORDER = "ORD-50001"
 
 @dataclass(frozen=True)
 class MultiTenantBusinessData:
-    """Three tenants with overlapping customer emails and order numbers (GEMINI.md §8)."""
+    """Three tenants with overlapping customer emails and order numbers (CLAUDE.md §8)."""
 
     dataset: BusinessDataset
     org_a: UUID

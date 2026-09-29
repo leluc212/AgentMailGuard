@@ -5,7 +5,7 @@ Requirements:
 - R5.6: Maintain GIN index over chunk content_tsv column.
 - R5.7: Maintain HNSW index over embedding_record.embedding using vector_cosine_ops.
 - R5.3: Mandatory organization_id predicate and multi-tenant isolation (>=3 tenants).
-- GEMINI.md §8: Ephemeral PostgreSQL container on port 5433 with pgvector.
+- CLAUDE.md §8: Ephemeral PostgreSQL container on port 5433 with pgvector.
 """
 
 from __future__ import annotations

@@ -32,7 +32,7 @@ The intent is one input among several. R13.3 still holds: whenever the intent re
 
 ## Identity assumption
 
-The sender's From address is treated as the customer's identity, as R13.4 requires ("resolve the sender to a customer record where possible"). No source consulted treats an email From address as verified identity. Sender verification is an authentication concern, which is deliberately out of scope (GEMINI.md §6). This ADR records the assumption; it does not add a control. Matching is case-insensitive on the whole address within one organization. Two matching customers give `customer_status=AMBIGUOUS_CUSTOMER`, and every planned fact is `NOT_LOOKED_UP` (`ambiguous_customer`).
+The sender's From address is treated as the customer's identity, as R13.4 requires ("resolve the sender to a customer record where possible"). No source consulted treats an email From address as verified identity. Sender verification is an authentication concern, which is deliberately out of scope (CLAUDE.md §6). This ADR records the assumption; it does not add a control. Matching is case-insensitive on the whole address within one organization. Two matching customers give `customer_status=AMBIGUOUS_CUSTOMER`, and every planned fact is `NOT_LOOKED_UP` (`ambiguous_customer`).
 
 ## Consequences
 

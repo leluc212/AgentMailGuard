@@ -28,7 +28,7 @@ def resolve_provider_credentials(
 ) -> dict[str, Any]:
     """Resolve provider credentials reference into adapter initialization kwargs.
 
-    Per GEMINI.md §6, credentials are stored as references (never plaintext secrets).
+    Per CLAUDE.md §6, credentials are stored as references (never plaintext secrets).
     Supports:
     - 'env:<VAR_NAME>': Reads access token from environment variable.
     - 'file:<PATH>': Reads access token from JSON (keys 'access_token' or 'token') or text file.

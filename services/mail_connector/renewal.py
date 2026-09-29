@@ -106,7 +106,7 @@ class SubscriptionRenewalJob:
                 skipped += 1
                 continue
 
-            # 2. Resolve provider adapter via neutral resolver (GEMINI.md §4)
+            # 2. Resolve provider adapter via neutral resolver (CLAUDE.md §4)
             adapter = self.adapter_resolver(mailbox)
 
             # 3. Attempt subscription renewal

@@ -6,7 +6,7 @@ Verifies end-to-end:
 - R6.6: Conditional RAG gating (zero search calls when retrieval_required=False).
 - R14.8: Strict fixed assembly order in ContextPackage.
 - R18.1: Durable Job state transition from QUEUED to CONTEXT_READY with ProcessingEvent.
-- Strict multi-tenant isolation across multiple organizations (GEMINI.md §8).
+- Strict multi-tenant isolation across multiple organizations (CLAUDE.md §8).
 """
 
 from __future__ import annotations
@@ -443,7 +443,7 @@ async def test_context_builder_postgres_skips_rag_when_retrieval_not_required(
 async def test_context_builder_postgres_tenant_isolation(
     db_pool: asyncpg.Pool[Any],
 ) -> None:
-    """GEMINI.md §8: Multi-tenant isolation asserting Org A never retrieves Org B chunks."""
+    """CLAUDE.md §8: Multi-tenant isolation asserting Org A never retrieves Org B chunks."""
     org_a = uuid4()
     org_b = uuid4()
     mbx_a = uuid4()
@@ -555,7 +555,7 @@ async def test_context_builder_postgres_fetches_the_senders_typed_order(
     await _seed_customer_with_order(
         db_pool, org_id, email="alice@customer.com", order_number="ORD-82915", status="shipped"
     )
-    # Same address and order number in another tenant must not leak (GEMINI.md §8).
+    # Same address and order number in another tenant must not leak (CLAUDE.md §8).
     await _seed_customer_with_order(
         db_pool, other_org, email="alice@customer.com", order_number="ORD-82915", status="cancelled"
     )

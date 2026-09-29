@@ -1,7 +1,7 @@
 """Multi-tenant business fixtures for the business-data provider tests (R13.1, R13.4).
 
 Three dedicated tenants, separate from the demo seed so `make seed` and its counts stay
-unchanged, with deliberately overlapping content (GEMINI.md §8):
+unchanged, with deliberately overlapping content (CLAUDE.md §8):
 
 - the same customer email in all three tenants (letter case differs in Summit);
 - the same order number ORD-82915 and ticket TICK-4402 in all three tenants, each owned by

@@ -513,7 +513,7 @@ git commit -m "feat(db): implement PostgresThreadStateStore with atomic version 
 
 **Interfaces:**
 - Consumes: `PostgresThreadStateStore`, live PostgreSQL test container pool `db_pool`, `asyncio.gather`.
-- Tests: Multi-tenant isolation (>=3 tenants per GEMINI.md §8), optimistic lock collision detection, and high-concurrency worker updates with zero lost updates.
+- Tests: Multi-tenant isolation (>=3 tenants per CLAUDE.md §8), optimistic lock collision detection, and high-concurrency worker updates with zero lost updates.
 
 - [ ] **Step 1: Write integration tests in `tests/integration/test_thread_state_postgres.py`**
 

@@ -5,7 +5,7 @@ Requirements:
 - R5.4: Uniqueness enforcement per mailbox and organization.
 - R5.6: Write-time search_tsv generation with weights 'A' (subject) and 'B' (clean body).
 - R4.7, R5.8: Attachment metadata persistence linked to email_message.
-- GEMINI.md §8: Multi-tenant verification across >= 3 tenants with overlapping content.
+- CLAUDE.md §8: Multi-tenant verification across >= 3 tenants with overlapping content.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ async def test_postgres_message_store_multi_tenant_isolation(db_pool: asyncpg.Po
     """Validate that >= 3 tenants can store identical provider message IDs in isolation."""
     store = PostgresMessageStore(db_pool)
 
-    # Setup 3 distinct tenants (GEMINI.md §8 mandate)
+    # Setup 3 distinct tenants (CLAUDE.md §8 mandate)
     tenants = [
         (uuid.uuid4(), uuid.uuid4(), uuid.uuid4()),  # (org, mbx, thd)
         (uuid.uuid4(), uuid.uuid4(), uuid.uuid4()),

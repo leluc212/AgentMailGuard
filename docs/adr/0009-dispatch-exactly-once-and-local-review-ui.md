@@ -24,7 +24,7 @@ Phase 6 sends AI-drafted replies through Gmail (and Microsoft Graph). Messages a
 
 ## Accepted scope limits
 
-- **No login on the review UI.** It can approve and send email from the connected mailbox. Authentication and authorization are out of scope (GEMINI.md §6), so the UI runs on a developer machine only, for demos. It must not be exposed on a network: compose binds the `frontend` and `api` ports to `127.0.0.1`, which carries out this accepted limit and adds no authentication.
+- **No login on the review UI.** It can approve and send email from the connected mailbox. Authentication and authorization are out of scope (CLAUDE.md §6), so the UI runs on a developer machine only, for demos. It must not be exposed on a network: compose binds the `frontend` and `api` ports to `127.0.0.1`, which carries out this accepted limit and adds no authentication.
 - **Short-lived Gmail access tokens** are minted by hand before each demo (`docs/demo-runbook.md` §3). The adapter does not refresh tokens.
 - **Graph is verified by recorded-response tests only**; the live gate uses Gmail.
 

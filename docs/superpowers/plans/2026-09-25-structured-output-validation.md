@@ -45,9 +45,9 @@ graph TD
 ## Global Constraints
 - Provider names (`gmail`, `graph`, `imap`) appear only inside `packages/adapters/`.
 - All model calls go through `LLMProvider`. No direct SDK imports outside `packages/llm/`.
-- Exactly one generation call per job; ≤1 schema repair retry (`R14.9`, `R16.3`, `GEMINI.md §4`).
-- Never persist an LLM response that failed schema validation (`R16.3`, `GEMINI.md §4`).
-- Multi-tenant and zero-network testing discipline: all tests must be 100% deterministic and offline (`GEMINI.md §8`).
+- Exactly one generation call per job; ≤1 schema repair retry (`R14.9`, `R16.3`, `CLAUDE.md §4`).
+- Never persist an LLM response that failed schema validation (`R16.3`, `CLAUDE.md §4`).
+- Multi-tenant and zero-network testing discipline: all tests must be 100% deterministic and offline (`CLAUDE.md §8`).
 
 ---
 

@@ -6,7 +6,7 @@ Requirements:
 - R18.3: Permit only declared transitions; illegal transitions raise.
 - R18.4, R18.5: Atomically generate ProcessingEvent on transition.
 - R18.7: Support operator replay from DEAD_LETTER to RETRY_PENDING.
-- GEMINI.md §4: State transitions go through state machine; never hand-write state strings.
+- CLAUDE.md §4: State transitions go through state machine; never hand-write state strings.
 """
 
 from __future__ import annotations

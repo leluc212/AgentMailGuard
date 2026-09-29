@@ -1105,7 +1105,7 @@
     - Gmail / Google Cloud Pub/Sub endpoints (`GET/POST /v1/webhooks/gmail` and `/v1/webhooks/gmail/{mailbox_id}`): completes verification handshake probes when challenge/token parameters are present (returns 200 `text/plain`, R2.1); handles push notification envelopes, parsing signals with `parse_pubsub_notification()`, enqueuing `sync_mailbox` jobs to `mail.sync`, and acknowledging with 200 OK within 5s with zero provider fetches (R2.2, R2.3).
   - Exported `webhook_router` from `packages/adapters/__init__.py` and mounted in `services/api/main.py`.
   - Initialized `app.state.publisher` in `app_lifespan` in `services/api/main.py`.
-  - Confined all provider string literals and parser imports strictly within `packages/adapters/` (GEMINI.md §4, R1.3).
+  - Confined all provider string literals and parser imports strictly within `packages/adapters/` (CLAUDE.md §4, R1.3).
 - **Verification Command:**
   - `uv run pytest tests/unit/test_dependency_rules.py`
 - **Result:** PASS (4 passed in 0.29s)
@@ -1246,7 +1246,7 @@
   - `tests/unit/test_subscription_renewal.py`
 - **What Changed:**
   - Implemented `SubscriptionRenewalJob` driving scheduled renewal cycles (`run_once`, `run_loop`).
-  - Enforced provider name isolation: `services/mail_connector` interacts strictly with `MailProviderAdapter` protocol and neutral adapter resolver (GEMINI.md §4).
+  - Enforced provider name isolation: `services/mail_connector` interacts strictly with `MailProviderAdapter` protocol and neutral adapter resolver (CLAUDE.md §4).
   - Evaluated expiring subscriptions (`expires_at <= now() + renewal_threshold_hours`).
   - Handled `AuthExpired`: marked mailbox operational status as `'needs_reauth'` via `MailboxStore.update_status()`, recorded outcome with error message, incremented telemetry counter, and halted without spinning (R1.5, R2.10).
   - Handled `RateLimited` (preserving `retry_after`), `Transient`, and `Permanent` errors per common taxonomy.
@@ -1577,7 +1577,7 @@
   - `uv run ruff check tests/unit/test_thread_association.py && uv run mypy tests/unit/test_thread_association.py && uv run pytest tests/unit/test_thread_association.py -v`
 - **Result:** PASS (26/26 passed in 0.16s, 0 lint/mypy issues)
 
-## Step 5: PostgreSQL Integration Tests with Multi-Tenant Fixtures (R4.5, R4.6, GEMINI.md §8)
+## Step 5: PostgreSQL Integration Tests with Multi-Tenant Fixtures (R4.5, R4.6, CLAUDE.md §8)
 - **Files Changed:**
   - `migrations/0003_email_thread_nullable_provider_thread_id.up.sql` [NEW]
   - `migrations/0003_email_thread_nullable_provider_thread_id.down.sql` [NEW]
@@ -1663,7 +1663,7 @@
   - `tests/integration/test_message_postgres.py`
 - **What Changed:**
   - Added live PostgreSQL integration test suite:
-    - `test_postgres_message_store_multi_tenant_isolation`: Validates 3 distinct tenants storing identical provider message IDs and subjects in total isolation per GEMINI.md §8 mandate.
+    - `test_postgres_message_store_multi_tenant_isolation`: Validates 3 distinct tenants storing identical provider message IDs and subjects in total isolation per CLAUDE.md §8 mandate.
     - `test_postgres_message_store_deduplication_on_conflict`: Validates `ON CONFLICT (organization_id, mailbox_id, provider_message_id) DO NOTHING` suppressing replayed deliveries with `inserted=False, is_duplicate=True`.
     - `test_postgres_message_store_attachments_persistence`: Validates atomic transactional persistence of attachments in the `attachment` table with FK linking to `email_message.id`.
     - `test_postgres_message_store_search_tsv_gin`: Validates write-time full-text search vector generation with 'A' (subject) and 'B' (clean body) weights and tenant-isolated GIN queries.
@@ -1807,7 +1807,7 @@
 - **Files Changed:**
   - `tests/integration/test_mail_read_api_integration.py`
 - **What Changed:**
-  - Implemented multi-tenant integration test suite against live PostgreSQL container conforming to GEMINI.md §8:
+  - Implemented multi-tenant integration test suite against live PostgreSQL container conforming to CLAUDE.md §8:
     - `test_mail_read_api_multi_tenant_isolation`: seeds 3 distinct tenants (`org1`, `org2`, `org3`) with overlapping provider IDs and normalized subjects, verifying strict cross-tenant 404 rejection on threads and messages, and tenant isolation on mailbox/thread listings.
     - `test_mail_read_api_pagination_and_filters`: tests database pagination (`limit`, `offset`), filtering by `provider`, `status`, and `mailbox_id`, recency ordering (`last_message_at DESC NULLS LAST`), and chronological message ordering (`received_at ASC`).
 - **Verification Command:**
@@ -2112,7 +2112,7 @@
   - `packages/llm/fake.py` (new)
   - `packages/llm/__init__.py`
 - **What Changed:**
-  - Implemented `FakeLLMProvider` complying with `LLMProvider` protocol (GEMINI.md §8).
+  - Implemented `FakeLLMProvider` complying with `LLMProvider` protocol (CLAUDE.md §8).
   - Supports configurable default responses, FIFO queued canned responses, dynamic responder callbacks, failure injection, latency simulation, and call inspection (`recorded_calls`).
 - **Verification Command:**
   - `uv run ruff check packages/llm/ && uv run mypy packages/llm/`
@@ -2173,7 +2173,7 @@
   - Defined `ClassificationResultRow` dataclass matching table `classification_result` with conversions to/from pure domain `Classification` entities.
   - Defined runtime-checkable `ClassificationStore` Protocol (`save_classification`, `get_classification`, `get_latest_classification_by_message`, `list_classifications_by_message`).
   - Implemented `PostgresClassificationStore` using parameterized queries with strict multi-tenant `organization_id` scoping per R5.3 and R6.7.
-  - Implemented `InMemoryClassificationStore` for hermetic offline testing per GEMINI.md §8.
+  - Implemented `InMemoryClassificationStore` for hermetic offline testing per CLAUDE.md §8.
   - Exported all symbols from `packages.db`.
 - **Verification Command:**
   - `uv run ruff check packages/db/ && uv run mypy packages/db/ && uv run pytest tests/unit/test_dependency_rules.py`
@@ -2946,7 +2946,7 @@
   - Defined `EmbeddingResult` data model and `Embedder` protocol.
   - Defined custom exceptions: `EmbeddingError`, `EmbeddingTimeoutError`, `EmbeddingRateLimitError`, `EmbeddingDimensionMismatchError`.
   - Implemented `HttpEmbedder` supporting OpenAI-compatible `/embeddings` API, automatic micro-batching, exponential backoff with jitter on 429/5xx, dimension validation against 1536, and Prometheus `embedding_tokens_total` metric accounting (R9.6, R9.11, R21.4, R5.10).
-  - Implemented `FakeEmbedder` generating deterministic unit-normalized 1536-dimensional vectors for offline CI and hermetic testing (GEMINI.md §8, R24.5).
+  - Implemented `FakeEmbedder` generating deterministic unit-normalized 1536-dimensional vectors for offline CI and hermetic testing (CLAUDE.md §8, R24.5).
   - Implemented `get_embedder()` factory function switching between `FakeEmbedder` and `HttpEmbedder` based on settings.
 - **Verification Command:**
   - `uv run ruff check packages/knowledge/embedder.py && uv run mypy packages/knowledge/embedder.py`
@@ -3048,7 +3048,7 @@
     3. Atomic transaction rollback leaving 0 chunks or embeddings on failure (`test_atomic_transaction_rollback_on_failure`, R9.7).
     4. Write-time `content_tsv` GIN full-text search with section weight 'A' ranking higher than body 'B' (`test_fts_gin_lexical_search_ranking`, R5.6).
     5. HNSW cosine similarity search via `<=>` operator (`test_hnsw_vector_similarity_search`, R5.7).
-    6. Strict multi-tenant isolation across >=3 tenants with overlapping external IDs (`test_multi_tenant_isolation_three_tenants`, R5.3, GEMINI.md §8).
+    6. Strict multi-tenant isolation across >=3 tenants with overlapping external IDs (`test_multi_tenant_isolation_three_tenants`, R5.3, CLAUDE.md §8).
     7. Database foreign key cascading deletion (`test_cascading_deletion`).
   - Added `_parse_embedding()` helper converting `pgvector.Vector` objects to Python `list[float]`.
   - Marked Task 3.4 complete in `specs/tasks.md`.
@@ -3125,7 +3125,7 @@
 - **What Changed:**
   - Implemented 2 live integration tests:
     1. `test_live_minio_and_postgres_ingestion_lifecycle`: live MinIO document upload, PostgreSQL pending document insertion, async pipeline execution, TSVector verification, version N+1 re-ingestion with section-level checksum deduplication carrying forward vectors, atomic status flip to `active`, and pruning of old version chunks.
-    2. `test_multi_tenant_isolation_three_tenants`: multi-tenant fixture seeding 3 distinct tenants with identical document content, proving zero cross-tenant leakage for document queries, chunk queries, and lexical FTS queries (R5.3, GEMINI.md §8).
+    2. `test_multi_tenant_isolation_three_tenants`: multi-tenant fixture seeding 3 distinct tenants with identical document content, proving zero cross-tenant leakage for document queries, chunk queries, and lexical FTS queries (R5.3, CLAUDE.md §8).
   - Marked Task 3.5 complete in `specs/tasks.md`.
   - Ran full test suite: 716 tests passed, 0 failures, 0 regressions.
 - **Verification Command:**
@@ -3274,7 +3274,7 @@
 - **What Changed:**
   - Implemented `test_postgres_hybrid_search_cte` verifying the single SQL CTE joining lexical and vector branches with RRF fusion, confirming `fused_score` computation, and preserving both ranks/scores.
   - Implemented `test_multi_tenant_filtered_vector_and_underfill_mitigation`:
-    - Seeded 3 distinct tenants (`target_tenant`, `competitor_1`, `competitor_2`) with overlapping document topics and similar embeddings (GEMINI.md §8, R10.11).
+    - Seeded 3 distinct tenants (`target_tenant`, `competitor_1`, `competitor_2`) with overlapping document topics and similar embeddings (CLAUDE.md §8, R10.11).
     - Queried target tenant requesting full top-N=20.
     - Verified that target tenant receives all 20 chunks (`len(results) == 20`).
     - Verified zero data leakage from competitor tenants (R5.3).

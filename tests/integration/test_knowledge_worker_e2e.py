@@ -6,7 +6,7 @@ Requirements:
 - R9.9: Content checksum deduplication skips re-embedding across versions.
 - R9.10: Per-document status tracking with failure reason.
 - R5.3: Strict multi-tenant isolation across >=3 tenants.
-- GEMINI.md §8: Ephemeral PostgreSQL (port 5433) and MinIO (port 9010).
+- CLAUDE.md §8: Ephemeral PostgreSQL (port 5433) and MinIO (port 9010).
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ async def test_live_minio_and_postgres_ingestion_lifecycle(
 async def test_multi_tenant_isolation_three_tenants(
     db_pool: asyncpg.Pool[Any],
 ) -> None:
-    """GEMINI.md §8: Multi-tenant fixture seeds >=3 tenants with overlapping content."""
+    """CLAUDE.md §8: Multi-tenant fixture seeds >=3 tenants with overlapping content."""
     store = PostgresKnowledgeStore(db_pool)
     embedder = FakeEmbedder(dimension=1536)
     chunker = StructuralChunker(ChunkerConfig(min_tokens=20, max_tokens=100))

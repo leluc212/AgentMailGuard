@@ -1,7 +1,7 @@
 """Multi-tenant integration tests for mail data read API against live PostgreSQL.
 
 Requirements: R23.2, R23.6, R5.3.
-- Multi-tenant fixtures seed >= 3 tenants with overlapping content (GEMINI.md §8).
+- Multi-tenant fixtures seed >= 3 tenants with overlapping content (CLAUDE.md §8).
 - Organization scoping strictly enforced: cross-tenant access returns 404.
 - Pagination limits and offsets hold against PostgreSQL tables.
 - Chronological ordering of messages in threads verified.
@@ -84,7 +84,7 @@ async def test_mail_read_api_multi_tenant_isolation(
     api_app: FastAPI, db_pool: asyncpg.Pool
 ) -> None:
     """Verify >= 3 tenants query their mailboxes, threads, and messages in total isolation."""
-    # 1. Setup 3 distinct tenants with overlapping provider IDs and names (GEMINI.md §8)
+    # 1. Setup 3 distinct tenants with overlapping provider IDs and names (CLAUDE.md §8)
     org1, mbx1 = uuid.uuid4(), uuid.uuid4()
     org2, mbx2 = uuid.uuid4(), uuid.uuid4()
     org3, mbx3 = uuid.uuid4(), uuid.uuid4()

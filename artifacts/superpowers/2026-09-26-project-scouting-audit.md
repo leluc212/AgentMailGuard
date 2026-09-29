@@ -9,7 +9,7 @@
 
 `rag-email` is a final-year project that builds the core engine of an enterprise email assistant. It receives mail from Gmail and Microsoft Graph, classifies each message, retrieves organizational knowledge only when a reply needs it, and drafts a grounded reply for human review. Its governing rule is *"classify first, retrieve only when required, generate only when necessary."*
 
-The repository is spec-driven. `specs/requirements.md` holds 208 numbered criteria, `specs/design.md` is the blueprint, and `specs/tasks.md` is a 110-task queue across Phases 0–8. `GEMINI.md` is the binding constitution for every coding agent.
+The repository is spec-driven. `specs/requirements.md` holds 208 numbered criteria, `specs/design.md` is the blueprint, and `specs/tasks.md` is a 110-task queue across Phases 0–8. `CLAUDE.md` is the binding constitution for every coding agent.
 
 It sits inside a larger system called AgentMailGuard. Security controls such as prompt-injection defence, DLP and phishing filtering are deliberately out of scope here. They live in a sibling project on the remote branch `origin/feature/mailguard-defense-stack`, which shares no git history with this branch.
 
@@ -109,7 +109,7 @@ The auditors produced 386 raw findings, and the completeness critic added a hand
 - Graceful shutdown closes the channel before in-flight jobs can acknowledge.
 
 **Transactions and idempotency**
-- No store exposes a connection or transaction seam, so a state transition cannot commit together with its side effect. This violates a `GEMINI.md` §4 correctness rule and R18.5. The email worker commits `NORMALIZED` in a separate transaction and swallows failures.
+- No store exposes a connection or transaction seam, so a state transition cannot commit together with its side effect. This violates a `CLAUDE.md` §4 correctness rule and R18.5. The email worker commits `NORMALIZED` in a separate transaction and swallows failures.
 - A redelivered email-worker message is treated as a duplicate and never re-dispatches triage, so the job stalls silently.
 - The triage consumer commits state before publishing. On redelivery it raises an illegal-transition error into the dead-letter queue. The `execute_once` helper from task 0.8 is built but unused.
 
@@ -143,10 +143,10 @@ The auditors produced 386 raw findings, and the completeness critic added a hand
 - `ContextBuilder` never calls the summarizer.
 - The summarizer's LLM call is untagged, so the call budget would count it as the job's one generation call and block the real draft (`packages/context/summarizer.py:132`). The triage LLM bypasses the budget entirely.
 - The complexity router is wired to the generator only inside tests.
-- The first-summary save can silently overwrite a concurrent worker's summary (`packages/db/thread_state.py:350-360`). `GEMINI.md` §9 names this exact trap. Summary output is persisted without schema validation.
+- The first-summary save can silently overwrite a concurrent worker's summary (`packages/db/thread_state.py:350-360`). `CLAUDE.md` §9 names this exact trap. Summary output is persisted without schema validation.
 
 **Tenancy**
-- Mailbox routes, `PostgresMailboxStore.get` and `update_status`, and every checkpoint query run without an `organization_id` predicate. `GEMINI.md` §4 says every tenant-scoped query carries one.
+- Mailbox routes, `PostgresMailboxStore.get` and `update_status`, and every checkpoint query run without an `organization_id` predicate. `CLAUDE.md` §4 says every tenant-scoped query carries one.
 
 **Observability**
 - The cost counter is registered, but nothing in production increments it, so SC9 cannot be measured.
@@ -158,7 +158,7 @@ The auditors produced 386 raw findings, and the completeness critic added a hand
 
 - **CI has never run on this branch.** `.github/workflows/ci.yml` triggers only on `master` and `main`, and `main` is a one-commit orphan. At HEAD it would fail on the 14 mypy errors and 40 format failures.
 - **The CI integration job would also fail.** It maps Postgres to 5432 while a test hard-codes 5433. It exports `STORAGE__*` variables that no setting reads.
-- **Integration tests share the live dev stack.** They depend on an untracked `.env`. One test drops every table of the dev database on each run. The deployed email worker consumed test messages. One test makes an opportunistic live Gmail call, which `GEMINI.md` §8 forbids.
+- **Integration tests share the live dev stack.** They depend on an untracked `.env`. One test drops every table of the dev database on each run. The deployed email worker consumed test messages. One test makes an opportunistic live Gmail call, which `CLAUDE.md` §8 forbids.
 
 ### 4.4 Evidence validity
 
@@ -173,9 +173,9 @@ The auditors produced 386 raw findings, and the completeness critic added a hand
 ### 4.6 Process and tracking
 
 - **72 commits exist only on this laptop.** That is all of Phases 3 and 4. The remote branch stops at task 2.15 and is 2 README-only commits ahead.
-- **Missing work was never added to the queue.** Worker entrypoints, compose commands and the topology call are missing work. They were never added to `specs/tasks.md` as `GEMINI.md` §7 requires. `design.md` was not updated where the implementation diverged, and `docs/adr/` is empty.
+- **Missing work was never added to the queue.** Worker entrypoints, compose commands and the topology call are missing work. They were never added to `specs/tasks.md` as `CLAUDE.md` §7 requires. `design.md` was not updated where the implementation diverged, and `docs/adr/` is empty.
 - **The README is stale.** It claims 395 tests and zero lint errors.
-- **Claude Code does not load the constitution automatically.** The repo has no `CLAUDE.md` or `AGENTS.md`, so `GEMINI.md` auto-loads only for Gemini.
+- **Claude Code does not load the constitution automatically.** The repo has no `CLAUDE.md` or `AGENTS.md`, so `CLAUDE.md` auto-loads only for Gemini.
 - **Hygiene.** The credential registry accepts plaintext `ya29.` tokens in `credentials_ref`. Compose hard-codes Grafana `admin/admin`. `docs/artifacts/` is an untracked byte-identical copy of `artifacts/`, and `files.zip` and `docs/architecture.zip` are stale snapshots.
 
 ---
@@ -235,4 +235,4 @@ W1 goes further than the "Option B" in the earlier assessment: an image built fr
 
 > **Problem:** the code is well built piece by piece, but the system cannot run. Six of eight services are health-check stubs. An image built from today's code would crash on start because production modules import pytest. Once the pipeline does run, the retry path would silently drop messages. On top of that, 72 commits of work exist only on this laptop.
 >
-> **Need you to:** first, push or approve pushing the branch, so Phases 3–4 are not one disk failure from gone. Second, pick the order. My recommendation is to make the system runnable and stop the message loss (W1–W2) before task 4.11. The alternative is to continue the queue as written. W1 is not in `specs/tasks.md`, so adding it is your call under `GEMINI.md` §7.
+> **Need you to:** first, push or approve pushing the branch, so Phases 3–4 are not one disk failure from gone. Second, pick the order. My recommendation is to make the system runnable and stop the message loss (W1–W2) before task 4.11. The alternative is to continue the queue as written. W1 is not in `specs/tasks.md`, so adding it is your call under `CLAUDE.md` §7.

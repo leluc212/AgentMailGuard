@@ -1067,7 +1067,7 @@ In `specs/tasks.md`, replace the whole block from `- [ ] **4.13 AI-worker consum
 
 ```markdown
 - [~] **4.13a AI-worker consumer core & generation failure routing**
-  - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosted no consumer, so no actionable job moved past `QUEUED`, and 4.9's retry/DLQ hop could not be observed.
+  - Discovered missing work (CLAUDE.md §7): `services/ai_worker/` hosted no consumer, so no actionable job moved past `QUEUED`, and 4.9's retry/DLQ hop could not be observed.
   - `AIWorkerConsumer` (`services/ai_worker/consumer.py`) consumes one lane queue `email.<category>.<priority>`. Per job, in process (`design.md` §3.2): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). The classification comes from the envelope snapshot, never a re-classification (`design.md` §7.3).
   - Failure policy (`services/ai_worker/failure_policy.py`, decided 2026-09-27, option 1):
     - `UnvalidatedDraftError`, `DraftSchemaContractError` and `UnpersistableDraftError` → DLQ at once, with the reason. A `max_tokens` truncation is named.

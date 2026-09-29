@@ -50,7 +50,7 @@ POST /v1/search/debug (Header: X-Organization-ID)
 1. `services/api` is the authoritative FastAPI REST API service mounted with `/v1` prefix.
 2. All `/v1` endpoints enforce tenant organization UUID via `services.api.dependencies.get_organization_id` (R23.6).
 3. The debug endpoint operates on either structured email context (`subject`, `body_text`, `intent`, `thread_summary`) or direct search queries (`query`), synthesizing the exact `RetrievalQuery` using `RetrievalQueryBuilder`.
-4. Dependencies (`SearchBackend`, `Embedder`, `RerankService`, `RetrievalQueryBuilder`) resolve from `request.app.state` or default to hermetic implementations (`PostgresSearchBackend` or `FakeSearchBackend`, `FakeEmbedder`, `StubReranker`) so no live credentials or external systems are required in CI (GEMINI.md §8, R24.5).
+4. Dependencies (`SearchBackend`, `Embedder`, `RerankService`, `RetrievalQueryBuilder`) resolve from `request.app.state` or default to hermetic implementations (`PostgresSearchBackend` or `FakeSearchBackend`, `FakeEmbedder`, `StubReranker`) so no live credentials or external systems are required in CI (CLAUDE.md §8, R24.5).
 5. Architecture boundaries are preserved: `services/api` imports from `packages/*`, and `packages/*` never imports `services/*`.
 
 ---

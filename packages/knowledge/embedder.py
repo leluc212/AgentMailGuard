@@ -7,7 +7,7 @@ Requirements:
 - R21.4: Prometheus metrics exposure for embedding_tokens_total.
 - R5.10: Validate embedding vector dimension matches configured width (1536).
 - specs/design.md §5.6 & §6.1: Knowledge embedding data model and contracts.
-- GEMINI.md §8: External systems faked in CI via FakeEmbedder.
+- CLAUDE.md §8: External systems faked in CI via FakeEmbedder.
 """
 
 from __future__ import annotations
@@ -304,7 +304,7 @@ class HttpEmbedder(Embedder):
 
 
 class FakeEmbedder(Embedder):
-    """Deterministic, mockable Embedder for offline CI and hermetic testing (GEMINI.md §8)."""
+    """Deterministic, mockable Embedder for offline CI and hermetic testing (CLAUDE.md §8)."""
 
     def __init__(
         self,

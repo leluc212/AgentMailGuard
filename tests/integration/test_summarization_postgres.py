@@ -5,7 +5,7 @@ Verifies:
 - Thread exceeding threshold invokes LLM and persists state to PostgreSQL (R8.3).
 - Re-checking without new messages skips LLM call via summarized_through_message_id (R8.4).
 - Adding new messages triggers incremental re-summarization with version increment (R8.6).
-- Strict multi-tenant isolation across distinct organizations (GEMINI.md §8).
+- Strict multi-tenant isolation across distinct organizations (CLAUDE.md §8).
 """
 
 from __future__ import annotations

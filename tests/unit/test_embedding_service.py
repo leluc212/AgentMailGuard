@@ -7,7 +7,7 @@ Requirements:
 - R21.4: Prometheus metrics exposure for embedding_tokens_total.
 - R5.10: Validate embedding vector dimension matches configured width (1536).
 - specs/design.md §5.6 & §6.1: Knowledge embedding data model and contracts.
-- GEMINI.md §8: External systems faked in CI via FakeEmbedder.
+- CLAUDE.md §8: External systems faked in CI via FakeEmbedder.
 """
 
 from __future__ import annotations
@@ -231,7 +231,7 @@ class TestHttpEmbedder:
     async def test_provider_error_body_never_reaches_the_error_message(
         self, status_code: int
     ) -> None:
-        """GEMINI.md: a provider echoing its input must not carry email text into errors."""
+        """CLAUDE.md: a provider echoing its input must not carry email text into errors."""
         text = "Customer Jane Roe asks about the card ending 4242"
 
         def handler(request: httpx.Request) -> httpx.Response:

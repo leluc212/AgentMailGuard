@@ -5,7 +5,7 @@ Requirements:
 - R9.2: Multi-format document structure representation (headings, sections, lists, tables).
 - R9.5: Chunk metadata structure (doc_id, chunk_id, title, heading_path, section, category).
 - specs/design.md §5.6 & §6.1: Knowledge document and chunk data models.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations

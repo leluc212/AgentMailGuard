@@ -1,4 +1,4 @@
-# AGENTS.md — Project Constitution
+# CLAUDE.md — Project Constitution
 
 **Project:** Enterprise RAG-Based Intelligent Email Management and Response System (`rag-email`)
 **Applies to:** every AI coding agent working in this repository — Claude Code, Cursor, Copilot, Windsurf, Aider, or any other.

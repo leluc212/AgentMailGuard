@@ -1,6 +1,6 @@
 """Architectural boundary and dependency enforcement tests.
 
-Enforces rules defined in specs/design.md §4 and GEMINI.md:
+Enforces rules defined in specs/design.md §4 and CLAUDE.md:
 1. services/* may import packages/*, but packages/* must NEVER import services/*.
 2. packages/domain imports NOTHING but standard library and packages/core.
 3. Provider names ('gmail', 'graph', 'imap') appear ONLY inside packages/adapters/.

@@ -4,7 +4,7 @@
 
 **Goal:** Implement the model-agnostic `LLMProvider` abstraction, supporting at least two provider implementations (hosted API: OpenAI and Anthropic; local endpoint: OpenAI-compatible/Ollama/vLLM) plus a deterministic offline stub (`FakeLLMProvider` for CI), configurable model tiers, and a shared contract test suite (`LLMProviderContractSuite`).
 
-**Architecture:** All model access throughout the enterprise email processing pipeline goes strictly through the runtime-checkable `LLMProvider` protocol without third-party vendor SDK dependencies outside `packages/llm` (per GEMINI.md §4). Providers implement async `generate(messages, schema, tier, **params) -> LLMResult`, tracking latency, input/output tokens, and schema conformance. A provider factory instantiates the configured provider from validated Pydantic settings. A reusable `LLMProviderContractSuite` enforces identical behavioral contracts across hosted, local, and stub implementations.
+**Architecture:** All model access throughout the enterprise email processing pipeline goes strictly through the runtime-checkable `LLMProvider` protocol without third-party vendor SDK dependencies outside `packages/llm` (per CLAUDE.md §4). Providers implement async `generate(messages, schema, tier, **params) -> LLMResult`, tracking latency, input/output tokens, and schema conformance. A provider factory instantiates the configured provider from validated Pydantic settings. A reusable `LLMProviderContractSuite` enforces identical behavioral contracts across hosted, local, and stub implementations.
 
 **Architecture Diagram:**
 
@@ -62,10 +62,10 @@ graph TD
 
 ## Global Constraints
 
-- Provider names and vendor SDKs appear ONLY inside `packages/llm/` (GEMINI.md §4).
-- No test requires live credentials or external network access. All CI external calls must be stubbed or use `httpx.MockTransport` (GEMINI.md §8, R24.5).
+- Provider names and vendor SDKs appear ONLY inside `packages/llm/` (CLAUDE.md §4).
+- No test requires live credentials or external network access. All CI external calls must be stubbed or use `httpx.MockTransport` (CLAUDE.md §8, R24.5).
 - Exactly one `LLMResult` returned per generation with mandatory fields: `content` (dict), `model` (str), `tier` (ModelTier), `input_tokens` (int), `output_tokens` (int), `latency_ms` (int), `raw_finish_reason` (str) (R14.5, design.md §5.7).
-- Configuration keys must be documented in `.env.example` and `docs/configuration.md` (GEMINI.md §3).
+- Configuration keys must be documented in `.env.example` and `docs/configuration.md` (CLAUDE.md §3).
 
 ---
 

@@ -5,7 +5,7 @@ Requirements:
 - R16.7: every decision is one ``feedback`` row with decision, edited body and edit distance.
 - R21.4 / SC3: ``draft_decisions_total{decision, category}`` counts these decisions.
 
-Pure: standard library only (GEMINI.md; tests/unit/test_dependency_rules.py).
+Pure: standard library only (CLAUDE.md; tests/unit/test_dependency_rules.py).
 """
 
 from __future__ import annotations

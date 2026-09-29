@@ -1,6 +1,6 @@
 # System Configuration & Settings Reference
 
-**Spec Alignment:** `specs/requirements.md §R20.6, §R5.10, §R21.6` · `specs/design.md §13.3` · `GEMINI.md`
+**Spec Alignment:** `specs/requirements.md §R20.6, §R5.10, §R21.6` · `specs/design.md §13.3` · `CLAUDE.md`
 
 All configuration in `rag-email` is read from environment variables (or local `.env` file) via `pydantic-settings`. The system enforces fail-fast validation: any missing required parameter, out-of-range value, or architectural constraint violation causes the application to terminate immediately on startup.
 
@@ -345,7 +345,7 @@ The ai-worker decides in code which business facts to fetch before the one gener
 ### 2.21 Review UI (`FRONTEND__*`)
 *How the review UI (the `frontend` service) reaches the `/v1` API (R23.4–R23.7, design.md §5.8, ADR-0009).*
 
-The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/v1` API; it holds no database or broker connection. Every request carries `FRONTEND__ORGANIZATION_ID` as the `X-Organization-Id` header (R23.6); while it is blank the pages show a setup error and call nothing. The UI has no login (ADR-0009, GEMINI.md §6), so Docker Compose publishes it and the API on `127.0.0.1` only (`http://localhost:3001`, `http://localhost:8000`); do not publish either port on a network interface. Inside Compose the UI reaches the API at `http://api:8000`, fixed in `docker-compose.yml`; `FRONTEND__API_BASE_URL` from `.env` applies when the UI runs on the host (`uv run uvicorn services.frontend.main:app --port 3001`). Compose forwards `FRONTEND__ORGANIZATION_ID` from the host `.env` into the `frontend` container only.
+The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/v1` API; it holds no database or broker connection. Every request carries `FRONTEND__ORGANIZATION_ID` as the `X-Organization-Id` header (R23.6); while it is blank the pages show a setup error and call nothing. The UI has no login (ADR-0009, CLAUDE.md §6), so Docker Compose publishes it and the API on `127.0.0.1` only (`http://localhost:3001`, `http://localhost:8000`); do not publish either port on a network interface. Inside Compose the UI reaches the API at `http://api:8000`, fixed in `docker-compose.yml`; `FRONTEND__API_BASE_URL` from `.env` applies when the UI runs on the host (`uv run uvicorn services.frontend.main:app --port 3001`). Compose forwards `FRONTEND__ORGANIZATION_ID` from the host `.env` into the `frontend` container only.
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|

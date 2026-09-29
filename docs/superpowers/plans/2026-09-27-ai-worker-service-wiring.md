@@ -1194,7 +1194,7 @@ In `specs/tasks.md`:
 2. After the last Phase 3 task (`3.15`), add:
 
 ```markdown
-- [ ] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
+- [ ] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, CLAUDE.md §7)*
   - Nothing in the production path fills `RetrievalQuery.query_vector`, so the pgvector branch returns no candidates (`packages/retrieval/postgres.py:192`) and hybrid retrieval runs lexical-only. Evidence: `grep -rn "query_vector" packages services` finds no producer.
   - Embed the query's semantic text with the configured embedder (`packages/knowledge/embedder.py`, the same model and dimension as the corpus, R5.10) in `RetrievalQueryBuilder` or the `ContextBuilder`, guarded by a timeout so a slow embedder degrades to lexical-only (R10.9). Count embedding tokens (`embedding_tokens_total`).
   - _Requirements: R10.1, R10.9, R9.11_

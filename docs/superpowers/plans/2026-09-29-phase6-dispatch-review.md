@@ -40,7 +40,7 @@
 - `specs/requirements.md`: R1.1, R16.6–R16.8, R17.1–R17.7, R18.3, R18.7, R19.2, R19.3, R21.4, R23.4–R23.7, R24.5, R24.7
 - Research: `artifacts/superpowers/2026-09-28-phase6-dispatch-review-research.md`
 - Demo runbook: `docs/demo-runbook.md` (§3, §3.4, §5.3, §6)
-- Constitution: `GEMINI.md` (§2 working loop, §3 Definition of Done, §4 rules, §6 hard stop, §7 divergence, §8 testing)
+- Constitution: `CLAUDE.md` (§2 working loop, §3 Definition of Done, §4 rules, §6 hard stop, §7 divergence, §8 testing)
 
 ---
 
@@ -62,7 +62,7 @@
 - Tests never use live credentials or network (R24.5). `GMAIL_ACCESS_TOKEN` and `GRAPH_ACCESS_TOKEN` are stripped by `tests/conftest.py`. Integration tests run against the `rag_email_test` database and scratch RabbitMQ vhosts.
 - Review UI: FastAPI + Jinja2 + htmx `2.0.11` (vendored, no CDN). It calls only `/v1`. Settings are `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID`, sent as the `X-Organization-Id` header. There is no login (ADR-0009). Compose publishes `frontend` (3001) and `api` (8000) on `127.0.0.1` only.
 - Accessibility: WCAG 2.2 AA basics. Focus is visible, targets are ≥ 24 px, and status messages use live regions.
-- New config keys go into `.env.example` **and** `docs/configuration.md` (GEMINI.md §3.4). `FRONTEND__*` is section 21 / §2.21. `GMAIL_ACCESS_TOKEN` is section 22 and the §2.4 table.
+- New config keys go into `.env.example` **and** `docs/configuration.md` (CLAUDE.md §3.4). `FRONTEND__*` is section 21 / §2.21. `GMAIL_ACCESS_TOKEN` is section 22 and the §2.4 table.
 - Verification per task: `make fmt-check`, `make lint` (`ruff check .` + `mypy packages services tests evaluation`), and the task's pytest commands. Task 13 runs the full `make ci` (`fmt-check lint test-unit test-integration`, plus `test-e2e` once Task 10 adds it).
 
 ## Review Focus
@@ -756,7 +756,7 @@ Requirements:
 - R17.1: two dispatch modes, create a provider draft or send the reply.
 - R16.8, R17.6: create_draft is the default posture; send_reply needs an explicit approval.
 - design.md §5.8 step 4, ADR-0009: the provider draft's status after an ambiguous send.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations
@@ -4506,7 +4506,7 @@ Skills applied while writing this part: `fullstack-dev-skills:python-pro`, `full
 - Modify: `services/api/routers/v1.py` (import at line 16–21 block; `v1_router.include_router(drafts_router)` after line 32)
 - Modify: `services/api/main.py` (`create_app`, after `app.state.settings = active_settings`: load `config/categories.yaml` into `app.state.taxonomy`; imports lines 18–20)
 - Modify: `docs/observability.md` (§2.2 table row after the `business_lookup_latency_ms` row; new `#### Review decisions` subsection before the `---` at line 156)
-- Modify: `specs/design.md` line 686 (§5.8 Review API: the repeated-approve sentence; **needs open question D2 approved first**, GEMINI.md §7)
+- Modify: `specs/design.md` line 686 (§5.8 Review API: the repeated-approve sentence; **needs open question D2 approved first**, CLAUDE.md §7)
 - Test: `tests/unit/test_review_domain.py` (new), `tests/unit/test_cursor_pagination.py` (new), `tests/unit/test_observability_metrics.py` (append one test after line 188), `tests/unit/test_drafts_api.py` (new), `tests/integration/test_drafts_api_integration.py` (new)
 
 **Interfaces:**
@@ -4681,7 +4681,7 @@ Requirements:
 - R16.7: every decision is one ``feedback`` row with decision, edited body and edit distance.
 - R21.4 / SC3: ``draft_decisions_total{decision, category}`` counts these decisions.
 
-Pure: standard library only (GEMINI.md; tests/unit/test_dependency_rules.py).
+Pure: standard library only (CLAUDE.md; tests/unit/test_dependency_rules.py).
 """
 
 from __future__ import annotations
@@ -7400,7 +7400,7 @@ GROUP BY decision;
 
 - [ ] **Step 12a (needs Open Question D2): Make design §5.8 agree with itself on a repeated approve**
 
-`specs/design.md:686` (Review API) says "Approve and reject are idempotent: a repeated call returns the first result and publishes nothing new." `specs/design.md:721` and tasks.md 6.1 say a repeated approve re-publishes the dispatch job while the job is not `COMPLETED`, which is what this task implements and what `test_two_fast_approves_write_one_feedback_row` and the repeated-approve tests assert. After the owner approves D2 (GEMINI.md §7), replace that sentence on line 686 with:
+`specs/design.md:686` (Review API) says "Approve and reject are idempotent: a repeated call returns the first result and publishes nothing new." `specs/design.md:721` and tasks.md 6.1 say a repeated approve re-publishes the dispatch job while the job is not `COMPLETED`, which is what this task implements and what `test_two_fast_approves_write_one_feedback_row` and the repeated-approve tests assert. After the owner approves D2 (CLAUDE.md §7), replace that sentence on line 686 with:
 
 ```
 Approve and reject are idempotent: a repeated approve returns the first result and re-publishes the dispatch job while the job is not `COMPLETED` (dispatch is idempotent, so a lost publish cannot strand an approved draft); a repeated reject returns the first result.
@@ -11180,7 +11180,7 @@ Verified against current upstream while writing: htmx **2.0.11** is the npm `lat
 - No CDN: htmx is vendored at a pinned version and hash; the UI must work on a machine with no internet.
 - Every page works without JavaScript (plain form posts, 303 back to the page); htmx only enhances.
 - Tests need no credentials and no live stack: unit tests use recorded `/v1` responses (`httpx.MockTransport`) or the real API app with in-memory stores (`httpx.ASGITransport`); the Playwright tests run the real frontend and the real API against the isolated `rag_email_test` database (R24.5).
-- The UI has no login and must stay on loopback (ADR-0009, GEMINI.md §6): no authentication, CSRF or session code is added.
+- The UI has no login and must stay on loopback (ADR-0009, CLAUDE.md §6): no authentication, CSRF or session code is added.
 
 **File structure (part D):**
 
@@ -12989,7 +12989,7 @@ Append to `docs/configuration.md`:
 ### 2.21 Review UI (`FRONTEND__*`)
 *How the review UI (the `frontend` service) reaches the `/v1` API (R23.4–R23.7, design.md §5.8, ADR-0009).*
 
-The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/v1` API; it holds no database or broker connection. Every request carries `FRONTEND__ORGANIZATION_ID` as the `X-Organization-Id` header (R23.6); while it is blank the pages show a setup error and call nothing. The UI has no login (ADR-0009, GEMINI.md §6), so Docker Compose publishes it and the API on `127.0.0.1` only (`http://localhost:3001`, `http://localhost:8000`); do not publish either port on a network interface. Inside Compose the UI reaches the API at `http://api:8000`, fixed in `docker-compose.yml`; `FRONTEND__API_BASE_URL` from `.env` applies when the UI runs on the host (`uv run uvicorn services.frontend.main:app --port 3001`). Compose forwards `FRONTEND__ORGANIZATION_ID` from the host `.env` into the `frontend` container only.
+The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/v1` API; it holds no database or broker connection. Every request carries `FRONTEND__ORGANIZATION_ID` as the `X-Organization-Id` header (R23.6); while it is blank the pages show a setup error and call nothing. The UI has no login (ADR-0009, CLAUDE.md §6), so Docker Compose publishes it and the API on `127.0.0.1` only (`http://localhost:3001`, `http://localhost:8000`); do not publish either port on a network interface. Inside Compose the UI reaches the API at `http://api:8000`, fixed in `docker-compose.yml`; `FRONTEND__API_BASE_URL` from `.env` applies when the UI runs on the host (`uv run uvicorn services.frontend.main:app --port 3001`). Compose forwards `FRONTEND__ORGANIZATION_ID` from the host `.env` into the `frontend` container only.
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
@@ -15034,7 +15034,7 @@ Expected with 6.1–6.7 merged: both tests PASS. If a test fails, the assertion 
 - `job … ended DRAFTED, expected COMPLETED` means the approve publish or the dispatch consumer failed;
 - `expected one pipeline job` means sync created more than one job.
 
-Fix the owning 6.x task's code with a RED→GREEN test there, and do not loosen this test (GEMINI.md, "Implementation Integrity").
+Fix the owning 6.x task's code with a RED→GREEN test there, and do not loosen this test (CLAUDE.md, "Implementation Integrity").
 
 - [ ] **Step 3: Lint and type-check the new file**
 
@@ -16718,7 +16718,7 @@ Expected: PASS, so 0005 down fully undoes 0005. `make migrate` then reports ever
 
 Dispatch a reviewer (`superpowers:requesting-code-review`) over `git diff bb00bfc..HEAD`. The brief for each task:
 - Trace every bullet in its `specs/tasks.md` entry and every cited requirement ID to code, and to a test that fails without that code.
-- GEMINI.md §3 DoD items 1–6:
+- CLAUDE.md §3 DoD items 1–6:
   - new keys are in both `.env.example` and `docs/configuration.md`: `FRONTEND__API_BASE_URL`, `FRONTEND__ORGANIZATION_ID` (6.8), `GMAIL_ACCESS_TOKEN` (6.10), and the `dispatch_mode` note (6.4);
   - `draft_decisions_total{decision, category}` is exported and documented with its PromQL in `docs/observability.md` (6.2).
 - Specific checks:
@@ -16738,7 +16738,7 @@ Record the verdict per task as PASS, PASS WITH NOTES or FAIL. For each finding, 
 
 - [ ] **Step 4: Flip the checkboxes the audit allows**
 
-In `specs/tasks.md`, flip a task to `[x]` only if three things hold: its audit passed, it has no owner-run leg outstanding, and no owner decision on its written bullets is outstanding (GEMINI.md §3, §7).
+In `specs/tasks.md`, flip a task to `[x]` only if three things hold: its audit passed, it has no owner-run leg outstanding, and no owner decision on its written bullets is outstanding (CLAUDE.md §3, §7).
 
 Mark these tasks `[~]` until their condition clears:
 - 6.10, until the owner has run `make phase6-gate`. Sub-bullet: `Left: the owner runs make phase6-gate against the Gmail test account (see the Phase 6 gate evidence below).`
@@ -16863,7 +16863,7 @@ Each question carries a recommended answer. Questions marked **(blocks a step)**
   - delete the empty `frontend/.gitkeep`;
   - drop the `.dockerignore` line;
   - add the `packages/dispatch/` package, new in Task 2, to the same tree.
-- **Recommendation: approve.** GEMINI.md §7 requires your approval before the design is edited.
+- **Recommendation: approve.** CLAUDE.md §7 requires your approval before the design is edited.
 
 **E5: the `GMAIL_ACCESS_TOKEN` env fallback in `packages/adapters/registry.py:58–61`.**
 - The adapter registry gives the token to every `gmail` mailbox without a `credentials_ref`, including the seeded `support@acme.com`.
@@ -16895,7 +16895,7 @@ Each question carries a recommended answer. Questions marked **(blocks a step)**
 **D2 (blocks Task 6 Step 12a; Task 13 keeps 6.1 at `[~]` until answered): design §5.8 contradicts itself on a repeated approve.**
 - `specs/design.md:686` (Review API) says a repeated approve "returns the first result and publishes nothing new". The §5.8 dispatch text and tasks.md 6.1 say it re-publishes the dispatch job while the job is not `COMPLETED`.
 - This plan implements the re-publish reading (it lets a reviewer recover a lost dispatch message), and Task 6's tests assert it. The per-job dispatch lock (Task 7) makes the extra envelopes harmless.
-- **Recommendation: approve** the Step 12a rewrite of line 686. GEMINI.md §7 requires your approval before the design is edited.
+- **Recommendation: approve** the Step 12a rewrite of line 686. CLAUDE.md §7 requires your approval before the design is edited.
 
 **D3 (blocks Task 5 Step 5: the `internetMessageId` line of Graph `create_draft` and Graph `find_draft`): Graph drafts carry our `Message-ID`.**
 - Design §5.8 says Graph's `createReply` sets `internetMessageId` itself. Then the orphan-draft lookup (tasks.md 6.5 "exactly one provider draft") has nothing to match on Graph.

@@ -4,7 +4,7 @@ Requirements:
 - R6.4: THE SYSTEM SHALL support at minimum the categories:
   support, sales, billing, administration, scheduling, general_inquiry,
   automated_notification, acknowledgement, no_response.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 - design.md §5.3: Category set, default routing behaviors, and intent mappings.
 """
 

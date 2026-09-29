@@ -367,7 +367,7 @@
   - `POST /v1/search/debug` returning the constructed query, both branch result lists with ranks, fused scores, rerank scores, and the final selection.
   - _Requirements: R23.3_
 
-- [x] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, GEMINI.md §7)*
+- [x] **3.16 Dense query embedding in the production retrieval path** *(discovered 2026-09-27, CLAUDE.md §7)*
   - Nothing in the production path fills `RetrievalQuery.query_vector`, so the pgvector branch returns no candidates (`packages/retrieval/postgres.py:192`) and hybrid retrieval runs lexical-only. Evidence: `grep -rn "query_vector" packages services` finds no producer.
   - Embed the query's semantic text with the configured embedder (`packages/knowledge/embedder.py`, the same model and dimension as the corpus, R5.10) in `RetrievalQueryBuilder` or the `ContextBuilder`, guarded by a timeout so a slow embedder degrades to lexical-only (R10.9). Count embedding tokens (`embedding_tokens_total`).
   - Implemented: `HybridRetriever` embeds `semantic_text` inside the vector branch when a query has no vector. Embedding and the ANN search share the vector-branch timeout (`RETRIEVAL__RETRIEVAL_TIMEOUT_MS`, now honoured by the ai-worker and `/v1/search/debug`). An embedder error, timeout, or unusable vector (wrong length or all zeros) fails only the vector branch, and retrieval degrades to lexical (R10.6). The ai-worker and the API use the configured embedder (the corpus model, R5.10); the ai-worker and the knowledge worker count its tokens (R9.11). The ai-worker checks the vector dimension at startup, both workers close their embedder after their consumers drain, and compose forwards the embedding model, URL and key.
@@ -390,7 +390,7 @@
 
 # Runtime Assembly & Delivery Safety (inserted 2026-09-26, before resuming Phase 4)
 
-*Discovered missing work (GEMINI.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
+*Discovered missing work (CLAUDE.md §7). Phases 0–4 built components that no running process hosts, and several broker and API paths drop messages silently. Evidence: `artifacts/superpowers/2026-09-26-project-scouting-audit.md`. Plan: `docs/superpowers/plans/2026-09-26-runtime-assembly-and-delivery-safety.md`.*
 
 > **Status (2026-09-27): RA.1–RA.14 done.** `make ci` is green (evidence below); RA.14 removed the pre-existing lint/format baseline that had held RA.1–RA.13 at `[~]`.
 
@@ -537,7 +537,7 @@
   - _Requirements: R11.7, R21.4, R21.5, R21.6, NFR8_
 
 - [x] **4.13a AI-worker consumer core & generation failure routing**
-  - Discovered missing work (GEMINI.md §7): `services/ai_worker/` hosted no consumer, so no actionable job moved past `QUEUED`, and 4.9's retry/DLQ hop could not be observed.
+  - Discovered missing work (CLAUDE.md §7): `services/ai_worker/` hosted no consumer, so no actionable job moved past `QUEUED`, and 4.9's retry/DLQ hop could not be observed.
   - `AIWorkerConsumer` (`services/ai_worker/consumer.py`) consumes one lane queue `email.<category>.<priority>`. Per job, in process (`design.md` §3.2): Context Builder (`QUEUED → CONTEXT_READY`, 4.4) → Complexity Router (4.8) → `DraftingService` (`CONTEXT_READY → GENERATING → DRAFTED`, 4.11). The classification comes from the envelope snapshot, never a re-classification (`design.md` §7.3).
   - Failure policy (`services/ai_worker/failure_policy.py`, decided 2026-09-27, option 1):
     - `UnvalidatedDraftError`, `DraftSchemaContractError` and `UnpersistableDraftError` → DLQ at once, with the reason. A `max_tokens` truncation is named.
@@ -607,7 +607,7 @@
 > **Design change (2026-09-28, ADR-0008):** the fetch is decided by a code-side plan from typed IDs, the profile's `context_policy` and the intent — not by the intent alone, because the ML triage stage emits no intent. See `specs/design.md` §5.4 "Business data (R13)" and `artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`. Live runs use the Google Gemini API (Gemma 4 and Gemini 3.1 Flash-Lite, chosen as the cheapest working models on 2026-09-28) through the `openai` provider's OpenAI-compatible base URL. Local models are not run on the owner's laptop.
 
 - [x] **5.0 Hosted OpenAI-compatible provider wiring (Gemini) & live smoke check**
-  - Discovered missing work (GEMINI.md §7): compose forwards `LLM__PROVIDER` and the API keys, but not `LLM__OPENAI_BASE_URL` or `LLM__FAST_MODEL` / `LLM__STRONG_MODEL` / `LLM__FALLBACK_MODEL`, so containers would send a Gemini key to the default OpenAI URL with OpenAI model names.
+  - Discovered missing work (CLAUDE.md §7): compose forwards `LLM__PROVIDER` and the API keys, but not `LLM__OPENAI_BASE_URL` or `LLM__FAST_MODEL` / `LLM__STRONG_MODEL` / `LLM__FALLBACK_MODEL`, so containers would send a Gemini key to the default OpenAI URL with OpenAI model names.
   - Forward those four settings and `LLM__PRICE_TABLE` through the shared compose environment. Document them in `.env.example` and `docs/configuration.md` with the Gemini configuration:
     - base URL `https://generativelanguage.googleapis.com/v1beta/openai`;
     - `LLM__FAST_MODEL=gemma-4-26b-a4b-it`, `LLM__STRONG_MODEL=gemma-4-31b-it`, `LLM__FALLBACK_MODEL=gemini-3.1-flash-lite`;
@@ -623,7 +623,7 @@
   - `customer`, `product`, `order`, `order_item`, `ticket` with realistic seed records tied to the fixture emails. The tables already exist (migration 0001) and match design §6.2.
   - Seed order `ORD-82915` for Alice (`alice.smith@clientcorp.com`), and add a fixture email from Alice asking "What is the status of order 82915?".
   - Keep the existing cross-customer case: Edward's `identifier_order_ticket` email asks about Dana's `ORD-9901` (expected `NOT_FOUND` under R13.4 scoping).
-  - Test fixtures for the business provider seed ≥3 tenants with overlapping customer emails and order numbers (GEMINI.md §8).
+  - Test fixtures for the business provider seed ≥3 tenants with overlapping customer emails and order numbers (CLAUDE.md §8).
   - _Requirements: R13.1, R5.9_
   - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1522, integration 191). `ORD-82915` with two items is on Alice, her order-status email is a fixture, Edward still asks about Dana's `ORD-9901`, and `packages/db/fixtures/business_tenants.py` seeds three tenants with overlapping emails and order numbers (`tests/unit/test_seed_fixtures.py`, `tests/integration/test_business_seed.py`). Note: `product` and `order_item` are seeded but not looked up (owner decision, ADR-0008). The fix pass before flipping:
     - none
@@ -642,7 +642,7 @@
   - Case-insensitive match on the whole sender address within the organization. 0 rows ⇒ `customer_status=UNKNOWN_SENDER`, >1 rows ⇒ `AMBIGUOUS_CUSTOMER`; in both cases every planned order and ticket fact is `NOT_LOOKED_UP` with reason `unknown_sender` / `ambiguous_customer`. `INV-` references keep `unsupported_entity`, because no invoice is looked up for any sender (owner decision 2026-09-28).
   - Every order and ticket lookup is scoped to the resolved customer: another customer's order is `NOT_FOUND`.
   - Integration tests on real Postgres over the ≥3-tenant fixtures from 5.1, with overlapping customer emails and order numbers.
-  - The identity assumption is recorded in ADR-0008. Add no verification control (GEMINI.md §6).
+  - The identity assumption is recorded in ADR-0008. Add no verification control (CLAUDE.md §6).
   - _Requirements: R13.4_
   - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1522, integration 191). The five queries in `packages/business/postgres.py` all start with `organization_id = $1`, and the order and ticket queries add `customer_id = $2`. The contract suite runs on real Postgres over the three-tenant fixtures (same email in each tenant, another customer's order and ticket `NOT_FOUND`, ambiguous in one tenant and found in another). `INV-` references keep `unsupported_entity` for an unresolved sender, as the owner decided. The fix pass before flipping:
     - none
@@ -727,7 +727,7 @@
   - _Requirements: R17.2_
 
 - [x] **6.3a Adapter fixes & draft operations**
-  - Discovered missing work (GEMINI.md §7, Phase 6 research): the Graph adapter posts new messages (`/messages`, `/sendMail`) instead of replies and stores a request id as the message id; the Gmail reply has no `Message-ID`; both map every 403 to an expired token.
+  - Discovered missing work (CLAUDE.md §7, Phase 6 research): the Graph adapter posts new messages (`/messages`, `/sendMail`) instead of replies and stores a request id as the message id; the Gmail reply has no `Message-ID`; both map every 403 to an expired token.
   - Graph: `createReply` + `send` with `Prefer: IdType="ImmutableId"`, real message ids. Gmail: set the reply's `Message-ID`. Both: 429, 5xx and rate-limit 403s are retryable with `Retry-After`; 400/404/auth are permanent.
   - Add `send_draft(mailbox, provider_draft_id)` and `get_draft_status(mailbox, provider_draft_id) -> DRAFT | SENT | MISSING` to `MailProviderAdapter`, the fake and both adapters, with the shared contract suite extended (recorded HTTP responses, no live calls).
   - Closed 2026-09-28 after a completion audit (PASS WITH NOTES; `make ci` green, unit 1837, integration 232, e2e 7). Every bullet and R1.1, R17.1, R17.2, R17.5 was traced to code and to the shared contract suite (recorded HTTP responses, run against the fake, Gmail and Graph). Graph is verified by recorded responses only, as ADR-0009 states; the owner accepted, as known limits, that Graph's `createReply` may add its own quoted original and that Graph ids stored at ingestion are not immutable ids (a moved original 404s and dead-letters). The adapters also gained `find_sent_message` and `find_draft` (orphan-draft lookup, 6.5). The fix pass before flipping:
@@ -870,7 +870,7 @@
   - _Requirements: R22.10, R16.7_
 
 - [ ] **7.18 Knowledge category ↔ lane mapping**
-  - Discovered missing work (GEMINI.md §7, 2026-09-28, Phase 5 planning): retrieval filters `d.category` on the classification category, but the seed files knowledge under `source_type` categories (`fulfillment`, `policy`, …) that no lane uses, so seeded knowledge is unreachable from every ai-worker lane. Map document categories to lane categories (or index documents under the lanes that may cite them) so evaluation runs on reachable knowledge. Must land before 7.15–7.17 produce results.
+  - Discovered missing work (CLAUDE.md §7, 2026-09-28, Phase 5 planning): retrieval filters `d.category` on the classification category, but the seed files knowledge under `source_type` categories (`fulfillment`, `policy`, …) that no lane uses, so seeded knowledge is unreachable from every ai-worker lane. Map document categories to lane categories (or index documents under the lanes that may cite them) so evaluation runs on reachable knowledge. Must land before 7.15–7.17 produce results.
   - _Requirements: R9.5, R10.4, R12.4_
 
 - [ ] **7.17 Success-criteria report**
@@ -879,7 +879,7 @@
   - _Requirements: R22.12_
 
 - [ ] **7.19 AgentMailGuard prompt-injection benchmark (C0 vs C3)**
-  - Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`; decision: ADR-0010. AgentMailGuard (separate branch, editable worktree install) wraps rag-email's real `ContextBuilder` output and one `reply.v1` generation call through its own integration adapters; rag-email adds no defence logic (GEMINI.md §6, requirements §0.5), so no R-requirement covers the defence itself and the task is traced to the evaluation requirements it exercises.
+  - Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`; decision: ADR-0010. AgentMailGuard (separate branch, editable worktree install) wraps rag-email's real `ContextBuilder` output and one `reply.v1` generation call through its own integration adapters; rag-email adds no defence logic (CLAUDE.md §6, requirements §0.5), so no R-requirement covers the defence itself and the task is traced to the evaluation requirements it exercises.
   - Configs: `C0` = rag-email exactly as it runs (`generate_draft`, its own profile template, no AgentMailGuard code); `C0T` = `MailGuardPipeline.run` with preset `C0` (guard template, no layer active); `C3` = every layer on. C0, C0T and C3 are required over the full case set; McNemar compares C0 vs C3 (headline) and C0T vs C3.
   - Cases: 300 LLMail-Inject phase-2 attacks from the benchmark half (stratified by scenario, seed 20260930) + 150 benign emails; RAG-vector attacks ingested into an isolated evaluation organization; `C1`/`C2` optional reduced ablation on a fixed 100-attack subset. Case ids are fixed in a case manifest.
   - Scorecard: ASR (headline; target C3 ≤ 5 % on LLMail-Inject, stated as "met / not met" with the Wilson interval), DER, TMR N/A, ASR by scenario and by vector, McNemar exact p, FPR, benign utility, latency p50/p95/p99 split guard vs generation, tokens, model calls and cost per email; no-API analyses: TF-IDF leakage check, first catching layer, worked examples, threat model and limitations.
@@ -934,7 +934,7 @@
   - _Requirements: R20.9_
 
 - [ ] **8.10 Per-mailbox Gmail credentials only**
-  - Discovered missing work (GEMINI.md §7, Phase 6 planning, owner decision E5 on 2026-09-29): `resolve_provider_credentials` in `packages/adapters/registry.py` falls back to the `GMAIL_ACCESS_TOKEN` environment variable for any Gmail mailbox without a resolvable `credentials_ref`, so one token reaches every Gmail mailbox, including seeded demo mailboxes. Drop the fallback so a mailbox only gets the token its own `credentials_ref` names (`make connect-gmail` already sets `env:GMAIL_ACCESS_TOKEN`), and update the adapter-registry tests.
+  - Discovered missing work (CLAUDE.md §7, Phase 6 planning, owner decision E5 on 2026-09-29): `resolve_provider_credentials` in `packages/adapters/registry.py` falls back to the `GMAIL_ACCESS_TOKEN` environment variable for any Gmail mailbox without a resolvable `credentials_ref`, so one token reaches every Gmail mailbox, including seeded demo mailboxes. Drop the fallback so a mailbox only gets the token its own `credentials_ref` names (`make connect-gmail` already sets `env:GMAIL_ACCESS_TOKEN`), and update the adapter-registry tests.
   - Until this lands: do not approve drafts of seeded demo mailboxes while `GMAIL_ACCESS_TOKEN` is set (`docs/demo-runbook.md`).
   - _Requirements: R1.1, R23.6_
 

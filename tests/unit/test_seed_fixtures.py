@@ -260,7 +260,7 @@ def test_snapshot_ordering_is_deterministic_per_customer() -> None:
 
 
 def test_business_tenant_fixtures_overlap_across_three_tenants() -> None:
-    """GEMINI.md §8: ≥3 tenants with overlapping customer emails and order numbers."""
+    """CLAUDE.md §8: ≥3 tenants with overlapping customer emails and order numbers."""
     orgs = {o["id"] for o in BUSINESS_TENANT_ORGS}
     assert orgs == {BIZ_HARBOR_ORG_ID, BIZ_SUMMIT_ORG_ID, BIZ_DELTA_ORG_ID}
     assert orgs.isdisjoint({DEMO_ORG_ID, BETA_ORG_ID, GAMMA_ORG_ID})

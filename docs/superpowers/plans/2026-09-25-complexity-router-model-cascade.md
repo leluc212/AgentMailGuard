@@ -53,7 +53,7 @@ graph TD
 - Max one escalation per job (`R15.5`). Escalation **replaces** the generation call tier, never adds one (`design.md §5.7`).
 - Expose configuration switch `force_single_tier` for H4 ablation comparison (`R15.6`).
 - Record `tier` used and `escalation_reason` (or `"none"`) on every generation result (`R15.4`).
-- No live network calls in tests (`GEMINI.md §8`). All tests use deterministic fixtures and offline stubs.
+- No live network calls in tests (`CLAUDE.md §8`). All tests use deterministic fixtures and offline stubs.
 - Code must pass `ruff check`, `ruff format --check`, and `mypy` strict typing.
 
 ---

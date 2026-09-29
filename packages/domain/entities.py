@@ -5,7 +5,7 @@ Requirements:
 - R5.2: Domain entity modeling.
 - R14.8: Fixed ContextPackage assembly order.
 - R18.4, R18.5: ProcessingEvent telemetry.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations

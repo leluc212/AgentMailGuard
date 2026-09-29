@@ -332,7 +332,7 @@ class MinioObjectStorageClient:
 
 
 class FakeObjectStorageClient:
-    """In-memory object storage client for zero-network unit tests (GEMINI.md §8)."""
+    """In-memory object storage client for zero-network unit tests (CLAUDE.md §8)."""
 
     def __init__(self, settings: ObjectStorageSettings | None = None) -> None:
         self.settings = settings or AppSettings().object_storage

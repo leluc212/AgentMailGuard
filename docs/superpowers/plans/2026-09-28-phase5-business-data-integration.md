@@ -55,8 +55,8 @@ inbound email ─▶ email-worker (normalize) ─▶ triage-worker (category, in
 - Packages never import services.
 - Schema changes go through migrations. Phase 5 needs none: `customer`, `product`, `order`, `order_item` and `ticket` exist in migration 0001.
 - Every new config key goes into both `.env.example` and `docs/configuration.md`, and into the compose `x-app-env` block when the app containers read it.
-- Security hardening (sender verification, auth) is out of scope (GEMINI.md §6). The sender address is the customer's identity, as ADR-0008 records.
-- Commit format (GEMINI.md §2): `feat(business): fetch plan [task 5.4] [R13.3, R13.7]`, then a blank line, a body, a blank line, and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Security hardening (sender verification, auth) is out of scope (CLAUDE.md §6). The sender address is the customer's identity, as ADR-0008 records.
+- Commit format (CLAUDE.md §2): `feat(business): fetch plan [task 5.4] [R13.3, R13.7]`, then a blank line, a body, a blank line, and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Gemini: `LLM__PROVIDER=openai`, `LLM__OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai`, `LLM__FAST_MODEL=gemma-4-26b-a4b-it`, `LLM__STRONG_MODEL=gemma-4-31b-it`, `LLM__FALLBACK_MODEL=gemini-3.1-flash-lite`.
 - `BUSINESS_DATA__TIMEOUT_MS=500`, `BUSINESS_DATA__SNAPSHOT_ORDERS=3`, `BUSINESS_DATA__SNAPSHOT_TICKETS=3` (defaults).
 - Integration tests run in the isolated `rag_email_test` database and vhost (`tests/integration/conftest.py`), never against the live stack. Live-stack restarts (`make up`) are run by the owner.
@@ -126,7 +126,7 @@ These are the input classes the spec implies and a reviewer should check first, 
 
 ### Task 0: Commit the approved Phase 5 spec change on its own [tasks.md 5.0–5.6, ADR-0008]
 
-GEMINI.md §7.4 requires the design update, the ADR and the tasks.md sync to land before any implementation. They are in the working tree but uncommitted (`git status`: ` M specs/design.md`, ` M specs/tasks.md`, `?? docs/adr/0008-business-data-fetch-plan.md`, `?? artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`). Committing them first keeps Task 9's commits to checkbox and evidence edits only, and puts the design and the ADR inside the Task 9 audit range (`git diff 2b4fab9..HEAD`).
+CLAUDE.md §7.4 requires the design update, the ADR and the tasks.md sync to land before any implementation. They are in the working tree but uncommitted (`git status`: ` M specs/design.md`, ` M specs/tasks.md`, `?? docs/adr/0008-business-data-fetch-plan.md`, `?? artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`). Committing them first keeps Task 9's commits to checkbox and evidence edits only, and puts the design and the ADR inside the Task 9 audit range (`git diff 2b4fab9..HEAD`).
 
 **Files:**
 - Commit (no edits by the implementer): `specs/design.md` (§5.4 "Business data (R13)" and the matching edits further down, including §13.3), `specs/tasks.md` (the Phase 5 rewrite and the Phase 5 entries of the traceability table), `docs/adr/0008-business-data-fetch-plan.md`, `artifacts/superpowers/2026-09-28-phase5-business-data-trigger-research.md`, and this plan.
@@ -137,7 +137,7 @@ GEMINI.md §7.4 requires the design update, the ADR and the tasks.md sync to lan
 
 - [ ] **Step 1: Confirm the owner approved the spec change, and ask Open Questions 1 and 2**
 
-The spec files are owner-reserved (GEMINI.md §7). Do not commit them until the owner confirms the working-tree versions are approved. In the same message, ask the owner Open Questions 1 (invoice references when the sender is not resolved) and 2 (the 5.6 "lexical branch" bullet). If the owner answers either now, the owner edits `specs/tasks.md` / `specs/design.md` §5.4 to match before Step 3, so the chosen rule is in the committed spec (and, for Q1, the implementer follows the chosen rule in Task 3 Step 6 and Step 8). An unanswered question does not block Tasks 1–8, but it keeps the affected task at `[~]` in Task 9 (Step 3 for 5.3, Step 6 for 5.6).
+The spec files are owner-reserved (CLAUDE.md §7). Do not commit them until the owner confirms the working-tree versions are approved. In the same message, ask the owner Open Questions 1 (invoice references when the sender is not resolved) and 2 (the 5.6 "lexical branch" bullet). If the owner answers either now, the owner edits `specs/tasks.md` / `specs/design.md` §5.4 to match before Step 3, so the chosen rule is in the committed spec (and, for Q1, the implementer follows the chosen rule in Task 3 Step 6 and Step 8). An unanswered question does not block Tasks 1–8, but it keeps the affected task at `[~]` in Task 9 (Step 3 for 5.3, Step 6 for 5.6).
 
 - [ ] **Step 2: Check that only the spec change is pending**
 
@@ -156,7 +156,7 @@ context_policy and the intent, resolves the sender to one customer first, and bo
 the fetch with BUSINESS_DATA__TIMEOUT_MS. ADR-0008 records why, and the identity
 assumption. tasks.md Phase 5 is rewritten to match (5.0 Gemini wiring through the
 OpenAI-compatible endpoint, then 5.1–5.6), with the research note and the
-implementation plan alongside. Owner-approved before implementation (GEMINI.md §7.4).
+implementation plan alongside. Owner-approved before implementation (CLAUDE.md §7.4).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1205,7 +1205,7 @@ EOF
 
 - [ ] **Step 15: Owner-run live check (not the implementer; not CI)**
 
-Hand to the owner: in the host `.env` set `LLM__PROVIDER=openai` and `LLM__OPENAI_API_KEY=<Gemini key>` (the base URL and model names are already there), optionally add the `LLM__PRICE_TABLE` line from `.env.example`, then run `make llm-smoke`. Expected: two `ok` lines with `finish_reason stop` and `LLM SMOKE OK`. Then `make up` and confirm the stack reaches healthy (GEMINI.md §3 item 3); live-stack restarts are run by the owner.
+Hand to the owner: in the host `.env` set `LLM__PROVIDER=openai` and `LLM__OPENAI_API_KEY=<Gemini key>` (the base URL and model names are already there), optionally add the `LLM__PRICE_TABLE` line from `.env.example`, then run `make llm-smoke`. Expected: two `ok` lines with `finish_reason stop` and `LLM SMOKE OK`. Then `make up` and confirm the stack reaches healthy (CLAUDE.md §3 item 3); live-stack restarts are run by the owner.
 
 ---
 
@@ -1353,7 +1353,7 @@ def test_snapshot_ordering_is_deterministic_per_customer() -> None:
 
 
 def test_business_tenant_fixtures_overlap_across_three_tenants() -> None:
-    """GEMINI.md §8: ≥3 tenants with overlapping customer emails and order numbers."""
+    """CLAUDE.md §8: ≥3 tenants with overlapping customer emails and order numbers."""
     orgs = {o["id"] for o in BUSINESS_TENANT_ORGS}
     assert orgs == {BIZ_HARBOR_ORG_ID, BIZ_SUMMIT_ORG_ID, BIZ_DELTA_ORG_ID}
     assert orgs.isdisjoint({DEMO_ORG_ID, BETA_ORG_ID, GAMMA_ORG_ID})
@@ -1796,7 +1796,7 @@ Create `packages/db/fixtures/business_tenants.py`:
 """Multi-tenant business fixtures for the business-data provider tests (R13.1, R13.4).
 
 Three dedicated tenants, separate from the demo seed so `make seed` and its counts stay
-unchanged, with deliberately overlapping content (GEMINI.md §8):
+unchanged, with deliberately overlapping content (CLAUDE.md §8):
 
 - the same customer email in all three tenants (letter case differs in Summit);
 - the same order number ORD-82915 and ticket TICK-4402 in all three tenants, each owned by
@@ -2318,7 +2318,7 @@ async def upsert_business_records(
 
 
 async def seed_business_tenant_fixtures(pool: asyncpg.Pool[Any]) -> None:
-    """Load the 3-tenant business test fixtures (GEMINI.md §8, R13.4). Idempotent.
+    """Load the 3-tenant business test fixtures (CLAUDE.md §8, R13.4). Idempotent.
 
     Test-only: `make seed` does not call this, so the demo seed and its counts stay as they are.
     """
@@ -2658,7 +2658,7 @@ Requirements:
 - R13.6: A missing entity is an explicit `NOT_FOUND` fact, never an omission.
 - R13.7: `unavailable_context` marks every planned fact `UNAVAILABLE` and sets `degraded`.
 - specs/design.md §5.4 "Business data (R13)"; docs/adr/0008-business-data-fetch-plan.md.
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations
@@ -2883,7 +2883,7 @@ Requirements:
   CRM/ERP adapter) must pass.
 - R13.4: Sender → customer resolution and customer/tenant scoping.
 - R13.6: Missing entities are explicit NOT_FOUND / NOT_LOOKED_UP facts.
-- GEMINI.md §8: The scoping cases run over ≥3 tenants with overlapping emails and numbers.
+- CLAUDE.md §8: The scoping cases run over ≥3 tenants with overlapping emails and numbers.
 - specs/design.md §5.4 "Business data (R13)".
 """
 
@@ -3958,7 +3958,7 @@ TENANT_SCOPED_QUERIES: tuple[str, ...] = (
     RECENT_ORDERS_SQL,
     OPEN_TICKETS_SQL,
 )
-"""Every business query; a unit test asserts each is scoped (R13.4, GEMINI.md §4)."""
+"""Every business query; a unit test asserts each is scoped (R13.4, CLAUDE.md §4)."""
 
 
 class _ConnectionLookups:
@@ -4064,7 +4064,7 @@ git commit -m "feat(business): provider protocol with in-memory and Postgres imp
 - Modify: `tests/integration/test_business_provider_postgres.py` (two imports; one test over the seeded 5.1 fixtures)
 - Test (create): `tests/unit/test_business_postgres_sql.py`
 - Production code: none expected. Task 3 implemented the rules; this task proves them on three tenants and on the real seeded fixtures. If a test here fails, fix `assemble.py` / `memory.py` / `postgres.py`, never the assertion.
-- Docs: none. The identity assumption is already recorded in `docs/adr/0008-business-data-fetch-plan.md` ("## Identity assumption", line 33). No verification control is added (GEMINI.md §6).
+- Docs: none. The identity assumption is already recorded in `docs/adr/0008-business-data-fetch-plan.md` ("## Identity assumption", line 33). No verification control is added (CLAUDE.md §6).
 
 **Interfaces:**
 - Consumes: `BusinessDataProviderContractSuite`, `BusinessDataset`, `T0`, `order_ref`, `ticket_ref`, `fact_rows` (Task 3); `InMemoryBusinessDataProvider`; `PostgresBusinessDataProvider` and its `TENANT_SCOPED_QUERIES`, `CUSTOMERS_BY_EMAIL_SQL`, `ORDER_BY_NUMBER_SQL`; fixtures `BUSINESS_CUSTOMERS`, `BUSINESS_ORDERS`, `BUSINESS_TICKETS`, `DEMO_ORG_ID`, and Task 2's fixed-id 3-tenant set `BUSINESS_TENANT_CUSTOMERS`, `BUSINESS_TENANT_ORDERS`, `BUSINESS_TENANT_TICKETS`, `BIZ_HARBOR_ORG_ID`, `BIZ_SUMMIT_ORG_ID`, `BIZ_DELTA_ORG_ID`, `SHARED_CUSTOMER_EMAIL`, `AMBIGUOUS_CUSTOMER_EMAIL` from `packages.db.fixtures`; `seed_business_tenant_fixtures(pool)` from `packages.db.seed`.
@@ -4099,7 +4099,7 @@ SHARED_ORDER = "ORD-50001"
 
 @dataclass(frozen=True)
 class MultiTenantBusinessData:
-    """Three tenants with overlapping customer emails and order numbers (GEMINI.md §8)."""
+    """Three tenants with overlapping customer emails and order numbers (CLAUDE.md §8)."""
 
     dataset: BusinessDataset
     org_a: UUID
@@ -4378,7 +4378,7 @@ async def test_seeded_business_tenant_fixtures_are_scoped_on_postgres(
 Create `tests/unit/test_business_postgres_sql.py`:
 
 ```python
-"""Static scoping proof for PostgresBusinessDataProvider's fixed queries (R13.4, GEMINI.md §4)."""
+"""Static scoping proof for PostgresBusinessDataProvider's fixed queries (R13.4, CLAUDE.md §4)."""
 
 from __future__ import annotations
 
@@ -6325,7 +6325,7 @@ async def test_context_builder_postgres_fetches_the_senders_typed_order(
     await _seed_customer_with_order(
         db_pool, org_id, email="alice@customer.com", order_number="ORD-82915", status="shipped"
     )
-    # Same address and order number in another tenant must not leak (GEMINI.md §8).
+    # Same address and order number in another tenant must not leak (CLAUDE.md §8).
     await _seed_customer_with_order(
         db_pool, other_org, email="alice@customer.com", order_number="ORD-82915", status="cancelled"
     )
@@ -8156,7 +8156,7 @@ Record the unit and integration pass counts from the two pytest summary lines. I
 
 Dispatch a reviewer (`superpowers:requesting-code-review`) over `git diff 2b4fab9..HEAD`. The brief for each task:
 - Trace every bullet in its `specs/tasks.md` entry, and every cited requirement ID, to code and to a test that fails without it.
-- Check GEMINI.md §3 DoD items 1–6:
+- Check CLAUDE.md §3 DoD items 1–6:
   - new keys are in both `.env.example` and `docs/configuration.md` (`LLM__*` from 5.0, `BUSINESS_DATA__*` from 5.4);
   - the R21 metrics and the `business_fetch` log line are emitted.
 - For 5.2: the shared contract suite covers typed-ID lookups, snapshot rows, `NOT_FOUND`, `NOT_LOOKED_UP` and the provider-level statuses `FOUND`, `UNKNOWN_SENDER` and `AMBIGUOUS_CUSTOMER`. `UNAVAILABLE` is a caller-level status set by `fetch_business_context` on timeout or error; confirm it is covered by `tests/unit/test_business_fetch.py` and the `statement_timeout` integration test, and record that split in the verdict.
@@ -8169,7 +8169,7 @@ Record the verdict per task as PASS, PASS WITH NOTES or FAIL. For each finding, 
 
 - [ ] **Step 3: Flip the checkboxes the audit allows**
 
-In `specs/tasks.md`, flip a task to `[x]` only if three things hold: its audit passed, it has no owner-run leg outstanding, and no owner decision on its written bullets is outstanding (GEMINI.md §3 and §7: do not close on an interpretation the owner has not confirmed). Mark a task `[~]` in these cases:
+In `specs/tasks.md`, flip a task to `[x]` only if three things hold: its audit passed, it has no owner-run leg outstanding, and no owner decision on its written bullets is outstanding (CLAUDE.md §3 and §7: do not close on an interpretation the owner has not confirmed). Mark a task `[~]` in these cases:
 - 5.0 until the owner has run its live smoke script.
 - 5.3 until the owner has answered Open Question 1 and tasks.md 5.3 (or design §5.4) states the chosen rule for invoice references when the sender is unresolved, and the code and `test_unknown_sender_marks_every_planned_fact_not_looked_up` follow it. Sub-bullet: `Left: owner decision on Open Question 1 (invoice reason when the sender is unresolved).`
 - 5.6 until the owner has run `make phase5-gate` **and** has answered Open Question 2 by editing the tasks.md 5.6 bullet (and design, if needed) to the vector-branch wording.
@@ -8254,11 +8254,11 @@ Take every value from the owner's gate output and the Step 1 counts. Do not add 
 >   `make ci` passed afterwards (unit N, integration M).
 ```
 
-Then flip 5.0 to `[x]` with its closing sub-bullet if the owner has run the 5.0 smoke script. Flip 5.6 to `[x]` only if the owner has also edited the tasks.md 5.6 bullet (and design, if needed) to the vector-branch wording (Open Question 2); the evidence above says the vector branch carried the chunk, and the current bullet says the lexical branch does, so closing against the current bullet would close a task whose written bullet is knowingly unmet (GEMINI.md §3, §7.4). Otherwise leave 5.6 at `[~]` with `Left: owner decision on Open Question 2 (5.6 lexical-branch bullet).`
+Then flip 5.0 to `[x]` with its closing sub-bullet if the owner has run the 5.0 smoke script. Flip 5.6 to `[x]` only if the owner has also edited the tasks.md 5.6 bullet (and design, if needed) to the vector-branch wording (Open Question 2); the evidence above says the vector branch carried the chunk, and the current bullet says the lexical branch does, so closing against the current bullet would close a task whose written bullet is knowingly unmet (CLAUDE.md §3, §7.4). Otherwise leave 5.6 at `[~]` with `Left: owner decision on Open Question 2 (5.6 lexical-branch bullet).`
 
 - [ ] **Step 7: Commit the gate evidence**
 
-Name only the tasks this commit actually closes in the subject and the `[task …]` tag (GEMINI.md §2). If 5.6 stays `[~]` for Open Question 2, the subject becomes `record the Phase 5 gate evidence and close 5.0 [task 5.0, 5.6]`. When the owner later answers Open Question 1 or 2, close 5.3 or 5.6 in its own `docs(tasks)` commit tagged with that task and its requirement IDs (5.3: R13.4; 5.6: R13.3, R13.5, R16.1).
+Name only the tasks this commit actually closes in the subject and the `[task …]` tag (CLAUDE.md §2). If 5.6 stays `[~]` for Open Question 2, the subject becomes `record the Phase 5 gate evidence and close 5.0 [task 5.0, 5.6]`. When the owner later answers Open Question 1 or 2, close 5.3 or 5.6 in its own `docs(tasks)` commit tagged with that task and its requirement IDs (5.3: R13.4; 5.6: R13.3, R13.5, R16.1).
 
 ```bash
 git add specs/tasks.md
@@ -8277,7 +8277,7 @@ EOF
 
 ## Open questions for the owner
 
-The plan resolves every other conflict between its parts. These seven need an owner decision, or an owner edit to a spec that GEMINI.md reserves for the owner. Task 0 Step 1 asks Questions 1 and 2 before any code. None of them blocks Tasks 1–8 as written, but Questions 1 and 2 block closing a task: 5.3 stays `[~]` until Question 1 is answered and the spec states the rule, and 5.6 stays `[~]` until Question 2 is answered with a spec edit (Task 9 Steps 3 and 6).
+The plan resolves every other conflict between its parts. These seven need an owner decision, or an owner edit to a spec that CLAUDE.md reserves for the owner. Task 0 Step 1 asks Questions 1 and 2 before any code. None of them blocks Tasks 1–8 as written, but Questions 1 and 2 block closing a task: 5.3 stays `[~]` until Question 1 is answered and the spec states the rule, and 5.6 stays `[~]` until Question 2 is answered with a spec edit (Task 9 Steps 3 and 6).
 
 1. **Invoice references when the sender is not resolved (Task 3).** tasks.md 5.3 says that for `UNKNOWN_SENDER` / `AMBIGUOUS_CUSTOMER`, *every* planned fact is `NOT_LOOKED_UP` with reason `unknown_sender` / `ambiguous_customer`. The plan keeps `unsupported_entity` for `INV-` refs in that case, because an invoice is never looked up for any sender and design §5.4 gives it that reason. To follow the literal text instead, change `_not_looked_up` in `packages/business/assemble.py` and the expected invoice row in `test_unknown_sender_marks_every_planned_fact_not_looked_up` (Task 3, the note before Step 8). Either way, the chosen rule must be written into tasks.md 5.3 or design §5.4 before 5.3 can be closed.
 2. **tasks.md 5.6 says "the lexical branch carries the procedure chunk"; for the gate email it cannot.** `websearch_to_tsquery` ANDs every term (`packages/retrieval/postgres.py:169`). Alice's lexical text is `ORDER 82915 status order alice`, and the procedure must not contain `82915` (R13.3). With `EMBEDDING__MOCK=true`, the chunk reaches the prompt through the vector branch, because pgvector applies no similarity floor. That proves wiring, not semantic quality. Proposed wording: "the procedure chunk reaches the prompt through the vector branch with the mock embedder (wiring, not semantic quality)". This is a spec edit, so the plan does not make it, and 5.6 stays `[~]` until the owner makes it (Task 9 Step 6).

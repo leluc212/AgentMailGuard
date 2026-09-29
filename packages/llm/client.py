@@ -2,7 +2,7 @@
 
 Provides OpenAI / LiteLLM-compatible chat completion invocation with structured
 JSON outputs, tier-based model resolution, latency tracking, and error handling.
-Direct vendor SDK imports outside packages/llm are strictly prohibited per GEMINI.md §4.
+Direct vendor SDK imports outside packages/llm are strictly prohibited per CLAUDE.md §4.
 """
 
 from __future__ import annotations

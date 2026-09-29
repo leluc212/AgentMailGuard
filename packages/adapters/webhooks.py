@@ -5,7 +5,7 @@ Requirements:
 - R2.2: Acknowledge within 5s with NO synchronous provider fetch inside the request.
 - R2.3: Treat notification as a signal only; never trust payload as authoritative state.
 - R3.1: Enqueue sync_mailbox job to RabbitMQ (mail.sync queue).
-- GEMINI.md §4: Provider names ('gmail', 'graph') appear only inside packages/adapters/.
+- CLAUDE.md §4: Provider names ('gmail', 'graph') appear only inside packages/adapters/.
 """
 
 from __future__ import annotations

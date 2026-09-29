@@ -64,7 +64,7 @@ async def test_postgres_job_store_multi_tenant_atomic_persistence(db_pool: async
     """Verify >= 3 tenants isolation and atomic job + event persistence (R18.1–R18.5)."""
     job_store = PostgresJobStore(db_pool)
 
-    # Seed >= 3 distinct organizations per GEMINI.md §8
+    # Seed >= 3 distinct organizations per CLAUDE.md §8
     orgs = [uuid4() for _ in range(3)]
     for i, org_id in enumerate(orgs, start=1):
         await ensure_org(db_pool, org_id, f"Tenant {i} Org")

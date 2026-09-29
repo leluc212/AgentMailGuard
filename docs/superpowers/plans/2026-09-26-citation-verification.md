@@ -15,13 +15,13 @@
 ## Global Constraints
 
 - Python `>=3.12`; `uv` for every command. Run all commands from the repo root.
-- `packages/*` must never import `services/*`; `packages/domain` imports stdlib + `packages/core` only. (`GEMINI.md` §4)
-- Provider names (`gmail`, `graph`, `imap`) appear only inside `packages/adapters/`. (`GEMINI.md` §4)
+- `packages/*` must never import `services/*`; `packages/domain` imports stdlib + `packages/core` only. (`CLAUDE.md` §4)
+- Provider names (`gmail`, `graph`, `imap`) appear only inside `packages/adapters/`. (`CLAUDE.md` §4)
 - `ruff check` and `ruff format --check` clean on every touched file; `mypy packages/` clean under `strict = true`. Line length 100.
 - Metric labels stay low-cardinality (`specs/design.md` line 267). `category` is bounded by `config/categories.yaml`; never label a metric with a chunk id, message id, or draft body.
 - New config keys go in `.env.example` **and** `docs/configuration.md`. **This task adds no config keys** — the verifier has no thresholds and is always on.
 - Commit messages carry the task number and requirement IDs: `feat(llm): ... [task 4.10] [R16.5]`.
-- Definition of Done per `GEMINI.md` §3. Do not mark `[x]` on partial work — mark `[~]` and say what is left.
+- Definition of Done per `CLAUDE.md` §3. Do not mark `[x]` on partial work — mark `[~]` and say what is left.
 - Every commit message ends with: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
 
 ## Decisions taken from the spec (read these before Task 1)
@@ -1118,7 +1118,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 | design.md:370 / proposal §20 "each with citation id" | D1; Task 1 Step 13 pins the template's own fallback rule |
 | proposal §24 response schema `knowledge_chunks` | Task 3 consumes `DraftReplyPayload.knowledge_chunks` (already enforced by task 4.9) |
 | R21.4 metric conventions, R21.5 histograms | Task 2 uses Counters; no new latency metric, so R21.5 does not apply |
-| GEMINI.md §3.4 config keys documented | No config keys added — stated in Global Constraints |
+| CLAUDE.md §3.4 config keys documented | No config keys added — stated in Global Constraints |
 
 Gaps found and accepted: `generated_draft.citations` / `.citation_mismatch` are written by task 4.11, not here; the Grafana panel is task 7.4. Both are recorded in the `specs/tasks.md` note in Task 3 Step 16 so the Phase 4 gate does not assume them.
 

@@ -6,7 +6,7 @@ Runs against live PostgreSQL and RabbitMQ containers:
 - Validates unrecoverable message routes to terminal dead-letter exchange (dlx.email)
   with original routing key and failure reason in headers (R3.5).
 - Validates downstream triage queue does NOT receive jobs for failed messages.
-- Multi-tenant isolation verified across >= 3 tenants (GEMINI.md §8).
+- Multi-tenant isolation verified across >= 3 tenants (CLAUDE.md §8).
 """
 
 from __future__ import annotations

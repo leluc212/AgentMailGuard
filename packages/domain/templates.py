@@ -6,7 +6,7 @@ Requirements:
 - R6.14: Template registry keyed by (category, intent) with variable substitution from
   message and business fields; fall back to workflow_hint='ai' when no template matches.
 - R6.15: Exactly three mutually exclusive outcomes (early exit, template reply, AI generation).
-- GEMINI.md: packages/domain imports standard library and packages/core ONLY.
+- CLAUDE.md: packages/domain imports standard library and packages/core ONLY.
 """
 
 from __future__ import annotations

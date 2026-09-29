@@ -32,7 +32,7 @@
 - **Contract & Multi-Tenant Integration Tests (`tests/integration/test_postgres_search_backend.py`):**
   - Subclassed `SearchBackendContractSuite` proving `PostgresSearchBackend` passes all 10 canonical contract tests on real PostgreSQL.
   - Implemented `test_postgres_hybrid_search_cte` confirming reference CTE execution and score fusion.
-  - Implemented `test_multi_tenant_filtered_vector_and_underfill_mitigation` on $\ge 3$ tenants with overlapping chunks, asserting target tenant receives full top-N (20 chunks) and proving zero cross-tenant leakage (R10.11, GEMINI.md §8).
+  - Implemented `test_multi_tenant_filtered_vector_and_underfill_mitigation` on $\ge 3$ tenants with overlapping chunks, asserting target tenant receives full top-N (20 chunks) and proving zero cross-tenant leakage (R10.11, CLAUDE.md §8).
 
 ## Follow-ups
 - Ready to proceed to **Task 3.9: RRF fusion** (`Run lexical and vector concurrently via SearchBackend; degrade to surviving branch on failure/timeout R10.5, R10.6; RRF fusion k=60 R10.3; retrieval timeout R10.9`).

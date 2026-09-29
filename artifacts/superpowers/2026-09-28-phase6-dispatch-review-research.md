@@ -211,7 +211,7 @@ Assessment: the review screens (queue list, detail with text panels, three butto
 
 ---
 
-## 6. Security controls to FLAG (out of scope per GEMINI.md §6 — not designed here)
+## 6. Security controls to FLAG (out of scope per CLAUDE.md §6 — not designed here)
 
 - **Reviewer authn/authz and org scoping.** R23.6 requires `organization_id` on every request. Without authentication, anyone who can reach the UI can approve sends for any org. (OWASP Top 10:2025 A01 "Broken Access Control": https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/, page opened; category title only.)
 - **Sending as the user.** Zendesk: *"Any replies sent and any actions taken are performed under your name."* Our system sends from the connected mailbox, so every approval is an act in that person's name. Keep a reviewer identity in `feedback` even without auth.
