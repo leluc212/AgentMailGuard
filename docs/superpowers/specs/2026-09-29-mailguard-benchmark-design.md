@@ -61,7 +61,10 @@ Measure how often prompt-injection attacks succeed against that pipeline, once w
 
 1. Turns the case email into a rag-email `NormalizedMessage` in an isolated evaluation organization. For RAG-vector cases, the case's knowledge documents (including the poisoned one) are ingested into that organization's knowledge base first, so retrieval, not the runner, decides what reaches the prompt.
 2. Builds the context with rag-email's real `ContextBuilder` and the real agent profile for the case's category.
-3. Makes **one** generation call through rag-email's `SinglePassGenerator` and `reply.v1` schema. In run 2 the guard wraps this step through `mailguard/integration/adapters.py` (`GuardedReplyAgent`, `decision_to_job_result`), using `GuardConfig.preset("C3")`; run 1 uses `preset("C0")`.
+3. Makes **one** generation call through rag-email's `SinglePassGenerator` and `reply.v1` schema.
+   - **C0 (owner decision B1, 2026-09-29): rag-email exactly as it runs.** `generate_draft` renders rag-email's own profile template; no AgentMailGuard code runs.
+   - **C1, C2, C3:** AgentMailGuard's `MailGuardPipeline.run` wraps the call with that preset and renders the prompt with channel isolation, handing the messages to `SinglePassGenerator.generate_from_messages` (one additive method, no defence logic in rag-email).
+   - **C0T (optional, when time allows):** `MailGuardPipeline.run` with `preset("C0")`, AgentMailGuard's template with no layer active, to separate the template effect from the layer effect.
 4. Records the draft, the guard report, the timings and the token counts to a JSONL results file.
 
 **Scoring.** AgentMailGuard's rule, mapped to rag-email's reply fields, which have no recipient list:
