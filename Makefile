@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test
 
 UV ?= uv
 
@@ -22,6 +22,11 @@ help:
 	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
 	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
 	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
+	@echo "  mailguard-worktree - Check out AgentMailGuard at the pinned commit in ../AgentMailGuard-bench (task 7.19)"
+	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
+	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
+	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
+	@echo "  mailguard-test - Guard-side unit tests under the AgentMailGuard overlay (fake models, no network)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -112,3 +117,37 @@ phase6-gate:
 
 llm-smoke:
 	$(UV) run python scripts/llm_smoke.py
+
+# AgentMailGuard benchmark (task 7.19, ADR-0010). The guard is a pinned, detached git worktree
+# OUTSIDE this repo (ruff/pytest never see it), overlaid per command with `uv run --with-editable`,
+# so pyproject.toml, uv.lock, .venv and `make ci` are untouched. Always `python -m` from this root:
+# AgentMailGuard also ships top-level `services`/`evaluation` packages.
+MAILGUARD_DIR ?= $(abspath $(CURDIR)/../AgentMailGuard-bench)
+MAILGUARD_ARTIFACTS ?= $(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts)
+MAILGUARD_REMOTE_BRANCH ?= feature/mailguard-defense-stack
+MAILGUARD_COMMIT ?= 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0
+MAILGUARD_UV = MAILGUARD_DIR=$(MAILGUARD_DIR) MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) MAILGUARD_ARTIFACTS=$(MAILGUARD_ARTIFACTS) $(UV) run --project $(CURDIR) --with-editable $(MAILGUARD_DIR)
+MAILGUARD_EVAL_DEPS = --with 'datasets>=2.20' --with 'pandas>=2.2' --with 'huggingface-hub>=0.24' --with 'tqdm>=4.66' --with 'pyarrow>=15'
+
+mailguard-worktree:
+	git fetch origin $(MAILGUARD_REMOTE_BRANCH)
+	@if [ -e "$(MAILGUARD_DIR)" ]; then echo "[INFO] $(MAILGUARD_DIR) exists; not re-adding"; \
+	else git worktree add --detach "$(MAILGUARD_DIR)" $(MAILGUARD_COMMIT); fi
+	@test "$$(git -C "$(MAILGUARD_DIR)" rev-parse HEAD)" = "$(MAILGUARD_COMMIT)" || \
+	  { echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT)" >&2; exit 1; }
+	@echo "ok AgentMailGuard worktree $(MAILGUARD_DIR) @ $(MAILGUARD_COMMIT)"
+
+mailguard-prep: mailguard-worktree
+	mkdir -p $(MAILGUARD_ARTIFACTS)
+	$(MAILGUARD_UV) $(MAILGUARD_EVAL_DEPS) --directory $(MAILGUARD_DIR) python -m mailguard.datasets.download --all --max-mb 400
+	$(MAILGUARD_UV) $(MAILGUARD_EVAL_DEPS) --directory $(MAILGUARD_DIR) python -m mailguard.datasets.build_l1_corpus --out-dir $(MAILGUARD_ARTIFACTS)/l1_injection
+	$(MAILGUARD_UV) --directory $(MAILGUARD_DIR) python -m training.train_l1_classifier --corpus $(MAILGUARD_ARTIFACTS)/l1_injection --out $(MAILGUARD_ARTIFACTS)/l1_injection_clf_v1.joblib
+
+mailguard-smoke:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke
+
+mailguard-probe:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke --live-probe
+
+mailguard-test:
+	$(MAILGUARD_UV) python -m pytest tests/unit/test_mailguard_bench_guard.py -v
