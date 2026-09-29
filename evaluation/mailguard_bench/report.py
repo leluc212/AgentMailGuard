@@ -207,13 +207,23 @@ def analysis_fingerprint(run_dir: Path) -> dict[str, str | None]:
 
 
 def analysis_inputs(
-    run_dir: Path, scored: Mapping[str, list[Any]], *, metrics: ModuleType, llmail_ids: set[str]
+    run_dir: Path,
+    scored: Mapping[str, list[Any]],
+    *,
+    metrics: ModuleType,
+    llmail_ids: set[str],
+    planned_attacks: int = 0,
+    planned_benign: int = 0,
+    errored_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[str], list[str]]:
     """Extra headline lines and report sections from the no-API analyses (task 6).
 
     With ``analysis/leakage.json`` present, C3 ASR is restated without the attacks that
     are near-duplicates of the classifier-training half, and C3 FPR without the benign
-    emails that were L1 training rows. ``analyses.md`` is appended as-is only when
+    emails that were L1 training rows; like the headline, each restated line is labelled
+    partial when fewer than the planned C3 cases (``planned_attacks``/``planned_benign``)
+    were scored, and near-duplicates among the C3 ``errored_ids`` are counted as not scored.
+    ``analyses.md`` is appended as-is only when
     ``analysis/inputs.json`` matches the current scoring; otherwise a line says it is out
     of date (the leakage restatement depends only on the pinned case set, so it stays).
     """
@@ -230,18 +240,24 @@ def analysis_inputs(
             dup = set(train_half.get("near_duplicate_ids") or [])
             kept = [r for r in attacks if r.case_id not in dup]
             rate = RateCI.of(metrics.Proportion(sum(r.goal_achieved for r in kept), len(kept)))
-            headline.append(
+            partial = " (partial)" if len(attacks) < planned_attacks else ""
+            line = (
                 f"C3 ASR without the {len(attacks) - len(kept)} near-duplicate(s) of the "
-                f"classifier-training half (TF-IDF cosine ≥ 0.9): {rate.fmt()}."
+                f"classifier-training half (TF-IDF cosine ≥ 0.9){partial}: {rate.fmt()}."
             )
+            errored = len(dup & errored_ids)
+            if errored:
+                line += f" {errored} near-duplicate(s) errored and are not scored."
+            headline.append(line)
         fp_rows = leak.get("benign_vs_l1_train_rows") or {}
         if fp_rows.get("n_reference") and benign:
             dup = set(fp_rows.get("near_duplicate_ids") or [])
             kept = [r for r in benign if r.case_id not in dup]
             rate = RateCI.of(metrics.Proportion(sum(r.blocked for r in kept), len(kept)))
+            partial = " (partial)" if len(benign) < planned_benign else ""
             headline.append(
                 f"C3 FPR on benign emails that were not L1 training rows "
-                f"({len(benign) - len(kept)} excluded): {rate.fmt()}."
+                f"({len(benign) - len(kept)} excluded){partial}: {rate.fmt()}."
             )
     analyses_md = run_dir / "analyses.md"
     if analyses_md.exists():
@@ -352,7 +368,13 @@ def build_report(
 
     overheads: dict[str, Overhead] = {c: overhead(c, records[c], prices) for c in configs}
     headline_extra, extra_sections = analysis_inputs(
-        run_dir, scored, metrics=metrics, llmail_ids=llmail_ids
+        run_dir,
+        scored,
+        metrics=metrics,
+        llmail_ids=llmail_ids,
+        planned_attacks=len(case_manifest["llmail_attack_ids"]),
+        planned_benign=len(case_manifest["benign_ids"]),
+        errored_ids=frozenset(e.case_id for e in errors.get("C3", [])),
     )
     attack_sets = {
         "llmail": set(case_manifest["llmail_attack_ids"]),
