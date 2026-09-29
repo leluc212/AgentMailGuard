@@ -148,7 +148,7 @@ def _optional_bool(value: object) -> bool | None:
 
 
 def _optional_int(value: object) -> int | None:
-    return None if value is None else int(str(value))
+    return None if value is None else int(float(str(value)))
 
 
 def _optional_str(value: object) -> str | None:
@@ -438,8 +438,10 @@ def score_record(
         metrics: AgentMailGuard ``evaluation/metrics.py`` (``amg.load_amg_metrics``).
 
     Returns:
-        A ``metrics.CaseResult``. ``task_success`` holds benign utility: an unblocked,
-        schema-valid (reply.v1) draft that AgentMailGuard's ``task_success`` accepts.
+        A ``metrics.CaseResult``. ``task_success`` holds benign utility: an unblocked draft
+        that AgentMailGuard's ``task_success`` accepts, schema-valid (reply.v1) for a v1 row,
+        any draft the live pipeline persisted (a template draft too) for a v3 row. A v3 row
+        also records ``reached_drafting`` and ``triage_bucket`` in ``extra``.
 
     Raises:
         ValueError: If the record is an error record.

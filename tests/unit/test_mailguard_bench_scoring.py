@@ -561,3 +561,14 @@ def test_live_benign_utility_counts_a_template_draft_but_not_an_early_exit(
     assert utility("template") is True  # a valid draft that skipped the model is still a draft
     assert utility("early_exit") is False  # nothing to send
     assert utility("blocked_inbound") is False
+
+
+def test_live_row_accepts_a_fractional_triage_latency() -> None:
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    row = live_row("attack-llmail-a")
+    row["result"]["pipeline"]["triage"]["latency_ms"] = 12.5
+
+    record = RawRecord.from_dict(row)
+
+    assert record.pipeline is not None and record.pipeline.triage.latency_ms == 12

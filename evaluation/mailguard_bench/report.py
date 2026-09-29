@@ -6,7 +6,8 @@ the path (its scorer and metrics are used unchanged)::
     make mailguard-report RUN=<run_id>
 
 Reads ``<run_dir>/cases.jsonl``, ``case_manifest.json`` and ``raw/<config>.jsonl`` (+
-``raw/<config>.meta.json``); writes ``ragemail__<config>.jsonl`` (AgentMailGuard
+``raw/<config>.meta.json``, and ``analysis/meaning__<config>.jsonl`` when the meaning reader
+has run, see ``meaning.py``); writes ``ragemail__<config>.jsonl`` (AgentMailGuard
 ``CaseResult`` rows, the file pattern its ``evaluation/report.py`` loads),
 ``summary.json``, ``manifest.json``, ``metrics.csv`` and ``report.md``.
 

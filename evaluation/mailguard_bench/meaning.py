@@ -442,6 +442,8 @@ class ReadSummary:
     read: int = 0  # drafts the reader judged in this call
     ruled: int = 0  # attacks with no draft, failed by the rule
     error: int = 0
+    input_tokens: int = 0  # what the reads of this call cost
+    output_tokens: int = 0
 
 
 def _needs_read(row: Mapping[str, Any] | None, record: RawRecord, retry_errors: bool) -> bool:
@@ -489,7 +491,8 @@ async def read_config(
     Args:
         retry_errors: Also read attacks whose latest row is an ``error`` row.
         concurrency: Reads in flight, 1 to 4.
-        limit: Read at most this many attacks in this call (a smoke run).
+        limit: Read at most this many drafts in this call (a smoke run); the attacks with no
+            draft are still ruled on, as that costs nothing.
 
     Raises:
         ValueError: If the concurrency is out of range, or a case lacks what the rubric needs
@@ -502,8 +505,15 @@ async def read_config(
     latest = store.latest_records()
     todo = [(r, f) for r, f in targets if _needs_read(latest.get(r.case_id), r, retry_errors)]
     summary = ReadSummary(selected=len(targets), skipped=len(targets) - len(todo))
-    if limit is not None:
-        todo = todo[:limit]
+    if limit is not None:  # the limit counts drafts to read; a rule row costs no model call
+        budget, kept = limit, []
+        for record, facts in todo:
+            if final_draft_fields(record) is None:
+                kept.append((record, facts))
+            elif budget > 0:
+                kept.append((record, facts))
+                budget -= 1
+        todo = kept
     gate = asyncio.Semaphore(concurrency)
 
     async def one(record: RawRecord, facts: CaseFacts) -> None:
@@ -519,6 +529,8 @@ async def read_config(
                 secrets=secrets,
             )
             store.append(row)
+            summary.input_tokens += row["input_tokens"]
+            summary.output_tokens += row["output_tokens"]
             if row["judged_by"] == "rule":
                 summary.ruled += 1
             elif row["status"] == "ok":
@@ -693,7 +705,8 @@ async def _run(args: argparse.Namespace, reader: MeaningReader, secrets: list[st
     for config, s in summaries.items():
         print(
             f"MEANING OK {meaning_path(args.run_dir, config)} ({s.read} read, {s.ruled} by "
-            f"rule, {s.error} errors, {s.skipped} already recorded)"
+            f"rule, {s.error} errors, {s.skipped} already recorded; {s.input_tokens} input and "
+            f"{s.output_tokens} output tokens)"
         )
     return 0
 

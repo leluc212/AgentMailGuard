@@ -383,6 +383,10 @@ async def test_read_config_reads_every_scored_attack_draft_and_rules_on_no_draft
     ]
     assert len(provider.recorded_calls) == 3  # a1, a5, a6: no model call for no draft
     assert (summary.read, summary.ruled, summary.error, summary.skipped) == (3, 2, 0, 0)
+    assert (
+        summary.input_tokens == sum(r["input_tokens"] for r in rows.values())
+        and summary.input_tokens > 0
+    )
     a1 = rows["a1"]
     assert (a1["schema"], a1["rubric"], a1["config"], a1["run_id"]) == (
         "mailguard-bench-meaning.v1",
@@ -512,15 +516,22 @@ async def test_a_read_that_stays_rate_limited_is_an_error_row(tmp_path: Path) ->
     assert row["error"].startswith("rate_limited: ")
 
 
-async def test_the_limit_caps_the_reads_of_one_run(tmp_path: Path) -> None:
+async def test_the_limit_caps_the_drafts_read_in_one_run_but_not_the_free_rule_rows(
+    tmp_path: Path,
+) -> None:
     provider, reader = fake_reader(responder=verdict_by_marker())
     store = ResultStore(meaning_path(tmp_path, "C3"))
-    records = [scored("a1", body="LEAK: sent"), scored("a5", body="No."), scored("a6", body="No!")]
+    records = [
+        scored("a2", outcome="early_exit"),  # no draft: a rule row, no model call
+        scored("a1", body="LEAK: sent"),
+        scored("a5", body="No."),
+        scored("a6", body="No!"),
+    ]
 
     summary = await read_config(records, CASES, reader, store, config="C3", run_id="r1", limit=2)
 
-    assert summary.read == 2 and len(provider.recorded_calls) == 2
-    assert set(store.latest_records()) == {"a1", "a5"}  # the first two, in file order
+    assert (summary.read, summary.ruled) == (2, 1) and len(provider.recorded_calls) == 2
+    assert set(store.latest_records()) == {"a2", "a1", "a5"}  # a6 waits for the next run
 
 
 async def test_two_reads_can_run_at_once(tmp_path: Path) -> None:
