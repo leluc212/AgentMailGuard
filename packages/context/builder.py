@@ -3,7 +3,10 @@
 Orchestrates (R14.8, R6.6, R13, R18.1):
 1. Resolving static agent and category instructions (cacheable prefix).
 2. Gathering thread conversation context via ThreadContextAssembler (Task 4.3).
-3. Conditionally invoking hybrid RAG only when retrieval_required=True (R6.6).
+3. Conditionally invoking hybrid RAG only when retrieval_required=True (R6.6), reranking the
+   whole fused pool with the RerankService, then keeping the top-K (R11.1, R11.3). When the
+   reranker is off, unavailable or too slow the RRF order stays and the fallback is recorded
+   (R11.5); ``ContextPackage.rerank_applied`` says which happened.
 4. Planning business lookups in code and running them under a deadline (R13.3, R13.7,
    design.md §5.4, ADR-0008). The routed profile's context_policy comes from the
    AgentProfileRegistry; the instruction source is unchanged.
@@ -42,6 +45,9 @@ if TYPE_CHECKING:
     from packages.db.job import JobStore
     from packages.llm.profile import AgentProfileRegistry
     from packages.observability.metrics import PipelineMetrics
+    from packages.retrieval.models import Candidate as RetrievalCandidate
+    from packages.retrieval.models import RetrievalQuery
+    from packages.retrieval.rerank import RerankService
     from packages.retrieval.retriever import HybridRetriever
 
 logger = logging.getLogger(__name__)
@@ -99,6 +105,7 @@ class ContextBuilder:
 
     Enforces:
     - R6.6: Skip hybrid RAG when retrieval_required == False.
+    - R11.1 / R11.3 / R11.5: rerank the fused pool, cut to top-K, keep RRF order on fallback.
     - R13.3 / R13.7: business lookups planned in code and bounded by a deadline; with no
       business_data_provider nothing is planned or fetched.
     - R14.8: Strict fixed assembly order: agent_instructions, category_instructions,
@@ -118,6 +125,7 @@ class ContextBuilder:
         profile_registry: AgentProfileRegistry | None = None,
         business_timeout_ms: int = DEFAULT_BUSINESS_TIMEOUT_MS,
         metrics: PipelineMetrics | None = None,
+        rerank_service: RerankService | None = None,
     ) -> None:
         self.thread_assembler = thread_assembler
         self.retriever = retriever
@@ -129,6 +137,7 @@ class ContextBuilder:
         self.profile_registry = profile_registry
         self.business_timeout_ms = business_timeout_ms
         self.metrics = metrics
+        self.rerank_service = rerank_service
 
     async def build_context(
         self,
@@ -161,6 +170,7 @@ class ContextBuilder:
         )
 
         retrieved_chunks: list[DomainCandidate] = []
+        rerank_applied: bool | None = None  # unknown until retrieval runs
         if retrieval_required and self.retriever is not None:
             query = self.query_builder.build(
                 message=message,
@@ -168,7 +178,9 @@ class ContextBuilder:
                 thread_summary=thread_ctx.summary,
             )
             retrieval_result = await self.retriever.retrieve(query)
-            top_candidates = retrieval_result.candidates[: self.top_k]
+            top_candidates, rerank_applied = await self._rerank_and_cut(
+                query, retrieval_result.candidates, org_id, category
+            )
             for c in top_candidates:
                 ext_id = (
                     getattr(c, "external_id", None) or c.metadata.get("external_id") or c.chunk_id
@@ -201,6 +213,7 @@ class ContextBuilder:
             recent_messages=thread_ctx.recent_messages,
             retrieved_chunks=retrieved_chunks,
             business_data=business_data,
+            rerank_applied=rerank_applied,
         )
 
         # 6. State Machine transition: QUEUED -> CONTEXT_READY (R18.1)
@@ -220,6 +233,32 @@ class ContextBuilder:
             job.state = updated_job.state
 
         return pkg
+
+    async def _rerank_and_cut(
+        self,
+        query: RetrievalQuery,
+        candidates: list[RetrievalCandidate],
+        org_id: UUID,
+        category: str,
+    ) -> tuple[list[RetrievalCandidate], bool]:
+        """Rerank the whole fused pool, then keep the top-K; RRF order when that cannot be done.
+
+        Returns the chunks for the context and whether the cross-encoder ordered them. The
+        service falls back to RRF order (and records why) when the reranker is disabled for this
+        organization or category, unavailable or over its budget (R11.2, R11.5); with no service
+        at all the pool is simply cut. The cut is the builder's own, so top-K holds whatever a
+        reranker returns (R11.3).
+        """
+        if self.rerank_service is None:
+            return candidates[: self.top_k], False
+        result = await self.rerank_service.rerank(
+            query.semantic_text,
+            candidates,
+            organization_id=str(org_id),
+            category=category,
+            top_k=self.top_k,
+        )
+        return result.candidates[: self.top_k], result.rerank_applied
 
     def _context_policy(self, classification: Classification | None) -> str:
         """The routed profile's context_policy, resolved by the generator's rule (§5.4)."""

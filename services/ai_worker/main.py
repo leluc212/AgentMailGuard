@@ -34,6 +34,7 @@ from packages.llm.inference_metrics import start_token_counter_warmup
 from packages.llm.protocol import LLMProvider
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.postgres import PostgresSearchBackend
+from packages.retrieval.rerank import build_rerank_service
 from packages.retrieval.retriever import HybridRetriever
 from services.ai_worker.consumer import AIWorkerConsumer
 from services.ai_worker.drafting import DraftingService
@@ -127,6 +128,8 @@ def build_consumers(
         profile_registry=profile_registry,
         business_timeout_ms=business.timeout_ms,
         metrics=res.metrics,
+        # None when RETRIEVAL__RERANK_ENABLED=false; the cross-encoder loads on the first rerank.
+        rerank_service=build_rerank_service(settings.retrieval, metrics=res.metrics),
     )
     drafting = DraftingService(
         # The plain provider: SinglePassGenerator wraps it per job with its own budget and
