@@ -1084,6 +1084,7 @@ evaluation/
 │   ├── exp07_failure_recovery.py     # kill worker mid-job
 │   ├── exp08_corpus_growth.py        # PostgreSQL retrieval vs corpus size
 │   └── exp09_rag_vs_norag.py         # response quality baseline
+├── mailguard_bench/                  # AgentMailGuard prompt-injection benchmark, C0 vs C3 (7.19, ADR-0010)
 └── results/<experiment>/<run_id>/{manifest.json,metrics.csv,report.md}
 ```
 
@@ -1092,6 +1093,8 @@ evaluation/
 **Metrics:** classification → accuracy, precision, recall, macro-F1, confusion matrix (R22.1). Retrieval → Recall@K, Precision@K, MRR, nDCG@K (R22.2). Response → factual correctness, relevance, completeness, evidence consistency, clarity, thread awareness, redundancy; plus acceptance rate, edit rate, edit distance, reviewer rating from the `feedback` table. **Draft acceptance rate is the headline practical metric** (SC3).
 
 **Load harness:** a generator replays fixture emails through the `FakeProviderAdapter` at a multiple of the 1.16 msg/s reference average, up to 20× ≈ 23 msg/s (NFR12), while Prometheus records throughput, queue depth, and latency percentiles.
+
+**AgentMailGuard prompt-injection benchmark (task 7.19, ADR-0010):** `evaluation/mailguard_bench/` measures AgentMailGuard, the separate prompt-injection subsystem that §0.5 of the requirements and GEMINI.md §6 keep out of rag-email, running inside rag-email's real reply path: `ContextBuilder`, then one `reply.v1` generation call through `SinglePassGenerator`. The same sampled cases (300 LLMail-Inject phase-2 attacks from the half not used to train the guard's classifier, stratified by scenario, seed 20260930; 150 benign emails; about 100 RAG-vector attacks ingested into an isolated evaluation organization) run under three required configs: `C0` is rag-email exactly as it runs (`SinglePassGenerator.generate_draft` on the `ContextPackage`, rendered by rag-email's own profile template; no AgentMailGuard code runs); `C0T` is AgentMailGuard's `MailGuardPipeline.run` with preset `C0` (its prompt template with no layer active; its task line still tells the model to use only trusted sections for instructions); `C3` is `MailGuardPipeline.run` with every layer on. In `C0T` and `C3` the generation call is `SinglePassGenerator.generate_from_messages`, one additive public method, on the prompt AgentMailGuard's L3 layer built from rag-email's `ContextPackage` (`GuardedReplyAgent` is not used because it calls the model with its own schema); `generate_draft` delegates to it, so the live path is unchanged. `C1`/`C2` are an optional ablation on a fixed 100-attack subset. rag-email adds no defence logic. AgentMailGuard is a git worktree of its branch installed editable for the run (`uv run --with-editable`); the branches are not merged. Scoring uses AgentMailGuard's own rule and metrics (`goal_achieved`, Wilson 95 % intervals, exact McNemar). The headline is "C3 ASR ≤ 5 %: met / not met" on LLMail-Inject, always with FPR, benign utility and the C0 ASR; McNemar compares C0 vs C3 (the headline pair: rag-email without vs with the guard) and C0T vs C3 (the guard's layers alone, same template). The report adds latency p50/p95/p99 (guard vs generation), tokens, calls and cost per email, a TF-IDF leakage check, the first catching layer, worked examples and a threat-model section. Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`; the manifest records both branches' commit SHAs. Live runs are owner-run Make targets and never part of `make ci` (R24.5). Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`.
 
 ---
 
@@ -1127,6 +1130,7 @@ evaluation/
 | 0007 | Human-in-the-loop default | drafts are reviewable; auto-send is opt-in per category |
 | 0008 | Business data fetched by a code-side plan, not by intent alone or model tool calls | the ML stage emits no intent; tool calls need a second generation call; typed IDs and profile policy are deterministic and model-independent |
 | 0009 | Dispatch: claim → provider draft → send → confirm; local review UI without login | a provider send cannot be rolled back; the draft id lets a retry check instead of resend; auth is out of scope (GEMINI.md §6) |
+| 0010 | AgentMailGuard is integrated as the separate prompt-injection subsystem, first for evaluation; rag-email adds no defence logic | GEMINI.md §6 keeps defences out of rag-email; the guard is the thesis contribution and needs a real host; consumed as an editable worktree install pinned by commit, no branch merge |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 

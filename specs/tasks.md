@@ -878,6 +878,15 @@
   - Report measured values honestly; do not tune the dataset to hit a target.
   - _Requirements: R22.12_
 
+- [ ] **7.19 AgentMailGuard prompt-injection benchmark (C0 vs C3)**
+  - Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`; decision: ADR-0010. AgentMailGuard (separate branch, editable worktree install) wraps rag-email's real `ContextBuilder` output and one `reply.v1` generation call through its own integration adapters; rag-email adds no defence logic (GEMINI.md §6, requirements §0.5), so no R-requirement covers the defence itself and the task is traced to the evaluation requirements it exercises.
+  - Configs: `C0` = rag-email exactly as it runs (`generate_draft`, its own profile template, no AgentMailGuard code); `C0T` = `MailGuardPipeline.run` with preset `C0` (guard template, no layer active); `C3` = every layer on. C0, C0T and C3 are required over the full case set; McNemar compares C0 vs C3 (headline) and C0T vs C3.
+  - Cases: 300 LLMail-Inject phase-2 attacks from the benchmark half (stratified by scenario, seed 20260930) + 150 benign emails; RAG-vector attacks ingested into an isolated evaluation organization; `C1`/`C2` optional reduced ablation on a fixed 100-attack subset. Case ids are fixed in a case manifest.
+  - Scorecard: ASR (headline; target C3 ≤ 5 % on LLMail-Inject, stated as "met / not met" with the Wilson interval), DER, TMR N/A, ASR by scenario and by vector, McNemar exact p, FPR, benign utility, latency p50/p95/p99 split guard vs generation, tokens, model calls and cost per email; no-API analyses: TF-IDF leakage check, first catching layer, worked examples, threat model and limitations.
+  - Resilience: each case is written as it finishes; reruns skip recorded cases; HTTP 429 gets back-off; failed cases are reported as errors, never as defended.
+  - Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`. Code is unit-tested on the fake provider; live runs are owner-run (`make mailguard-bench`, runbook §9) and never in `make ci`.
+  - _Requirements: R22.12, R21.5, R21.6, R24.5, SC4, SC5, SC9_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -959,10 +968,10 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
-| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17 |
+| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |
