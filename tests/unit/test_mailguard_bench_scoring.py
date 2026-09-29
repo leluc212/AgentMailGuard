@@ -701,3 +701,30 @@ def test_a_live_row_the_drafting_step_never_took_is_stopped_before_drafting(
 
 def test_a_v1_row_has_no_step_to_be_stopped_before() -> None:
     assert RawRecord.from_dict(raw()).stopped_before_drafting is False
+
+
+@pytest.mark.parametrize(
+    "row_kwargs",
+    [
+        {},
+        {"outcome": "early_exit"},
+        {"status": "error"},  # a case that timed out: no result block at all
+        {"job_state": "DEAD_LETTER"},  # a job that did not finish becomes an error record
+    ],
+)
+def test_a_live_row_says_it_is_live_whatever_its_status(row_kwargs: dict[str, Any]) -> None:
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    record = RawRecord.from_dict(live_row("attack-llmail-a", **row_kwargs))
+
+    assert record.live
+    assert record.ok is (not row_kwargs.get("status") and not row_kwargs.get("job_state"))
+
+
+def test_a_v1_row_is_not_live_whatever_its_status() -> None:
+    error = {"kind": "rate_limited", "message": "429"}
+
+    assert not RawRecord.from_dict(runner_row()).live
+    assert not RawRecord.from_dict(runner_row(status="error", error=error, result=None)).live
+    assert not RawRecord.from_dict(raw()).live
+    assert not RawRecord.from_dict(raw(status="error", error="timeout")).live

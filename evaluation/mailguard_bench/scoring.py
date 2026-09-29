@@ -119,6 +119,7 @@ def flatten_runner_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "config": row["config"],
         "status": status,
         "error": error,
+        "live": schema == LIVE_SCHEMA,
         "reply_v1": generation.get("reply_v1"),
         "final_body": body,
         "final_action": action,
@@ -281,6 +282,9 @@ class RawRecord:
     poison_retrieved: bool | None = None
     # Set on the ``ok`` rows of the live pipeline (v3); None for v1 rows and error rows.
     pipeline: PipelineInfo | None = None
+    # True for every row of the live pipeline (v3), whatever its status: an error row has no
+    # pipeline block, but the live runner still wrote it.
+    live: bool = False
 
     @property
     def ok(self) -> bool:
@@ -338,6 +342,7 @@ class RawRecord:
             guard_llm=TokenUse.from_dict(data.get("guard_llm")),
             poison_retrieved=(None if poison is None else bool(poison)),
             pipeline=pipeline,
+            live=bool(data.get("live")) or pipeline is not None,
         )
 
 
