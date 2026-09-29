@@ -590,21 +590,35 @@ def test_manifest_records_the_meaning_reader_only_when_it_ran() -> None:
     assert "meaning" not in manifest()  # a run without a reader keeps its manifest as before
 
 
-def test_live_report_discloses_benign_drafts_kept_but_flagged_for_human_approval() -> None:
+def test_live_report_splits_the_guard_fpr_into_blocked_and_flagged_for_human_approval() -> None:
+    # The guard FPR is the contract's: benign emails that reached drafting and got an
+    # ``agentmailguard`` escalation, which includes a draft kept but flagged for human approval.
+    # The blocked-or-quarantined share is shown next to it.
     from dataclasses import replace
 
-    c3 = replace(live_summary("C3", PIPELINE_7_300, GUARD_7_280), guard_review=4)
+    c3 = replace(
+        live_summary("C3", PIPELINE_7_300, GUARD_7_280, guard_fpr=RateCI(6, 90, 0.0311, 0.1381)),
+        guard_fpr_blocked=RateCI(2, 90, 0.0061, 0.0774),
+        guard_review=4,
+    )
     inputs = live_inputs(llmail={"C0": live_summary("C0", PIPELINE_40_300, GUARD_40_280), "C3": c3})
 
     text = render_report(inputs)
 
-    assert "| Benign flagged for human approval (draft kept) | n/a | 4 |" in text
     assert (
-        "C3 kept the draft but flagged it for human approval on 4 of the 90 benign emails that "
-        "reached drafting (not counted in the guard FPR)."
+        "C3 guard FPR on benign emails that reached drafting (escalated by agentmailguard): "
+        "6.7 % [3.1, 13.8] (6/90)."
     ) in text
-    quiet = render_report(live_inputs())  # nothing flagged: no headline line, no table row
-    assert "flagged it for human approval" not in quiet
+    assert (
+        "Of the escalations, 4 of 6 kept the draft and asked for a human's approval; counting "
+        "only the blocked or quarantined ones, the guard FPR is 2.2 % [0.6, 7.7] (2/90)."
+    ) in text
+    assert "| Guard FPR, blocked or quarantined only | n/a | 2.2 % [0.6, 7.7] (2/90) |" in text
+    assert "| Benign flagged for human approval (draft kept) | n/a | 4 |" in text
+    assert "not counted in the guard FPR" not in text
+    quiet = render_report(live_inputs())  # nothing flagged: the two definitions are one number
+    assert "asked for a human's approval" not in quiet
+    assert "blocked or quarantined only" not in quiet
     assert "Benign flagged for human approval" not in quiet
 
 
@@ -617,3 +631,24 @@ def test_metrics_csv_carries_the_human_approval_count() -> None:
 
     (found,) = [r for r in rows if r["metric"] == "guard_human_approval_benign"]
     assert (found["config"], found["value"]) == ("C3", 4)
+
+
+def test_metrics_csv_carries_the_blocked_only_guard_fpr_next_to_the_guard_fpr() -> None:
+    from dataclasses import replace
+
+    s = replace(
+        live_summary("C3", PIPELINE_7_300, GUARD_7_280, guard_fpr=RateCI(6, 90, 0.0311, 0.1381)),
+        guard_fpr_blocked=RateCI(2, 90, 0.0061, 0.0774),
+    )
+
+    rows = metrics_rows({"llmail": {"C3": s}}, {}, {})
+
+    def one(metric: str) -> dict[str, Any]:
+        (found,) = [r for r in rows if r["metric"] == metric]
+        return found
+
+    assert (one("guard_FPR")["successes"], one("guard_FPR")["total"]) == (6, 90)
+    assert (one("guard_FPR_blocked")["successes"], one("guard_FPR_blocked")["total"]) == (2, 90)
+    # a summary without the blocked-only rate (nothing recorded it) writes no such row
+    bare = metrics_rows({"llmail": {"C3": live_summary("C3", PIPELINE_7_300, GUARD_7_280)}}, {}, {})
+    assert not any(r["metric"] == "guard_FPR_blocked" for r in bare)

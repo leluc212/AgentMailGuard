@@ -44,6 +44,7 @@ from evaluation.mailguard_bench.artifacts import (
     ReportInputs,
     build_manifest,
     git_head,
+    guard_escalated,
     metrics_rows,
     render_report,
     sha256_file,
@@ -276,7 +277,8 @@ def analysis_inputs(
     of date (the leakage restatement depends only on the pinned case set, so it stays).
 
     On a live run (rows that say whether the email reached the drafting step) the headline is
-    the guard ASR and the guard FPR, so the restated lines count only the cases that reached it.
+    the guard ASR and the guard FPR, so the restated lines count only the cases that reached it,
+    and the FPR counts every guard escalation (``guard_escalated``), as the scorecard's does.
     """
     headline: list[str] = []
     sections: list[str] = []
@@ -308,7 +310,8 @@ def analysis_inputs(
         if fp_rows.get("n_reference") and benign:
             dup = set(fp_rows.get("near_duplicate_ids") or [])
             kept = [r for r in counted_benign if r.case_id not in dup]
-            rate = RateCI.of(metrics.Proportion(sum(r.blocked for r in kept), len(kept)))
+            flagged = [guard_escalated(r) if live else bool(r.blocked) for r in kept]
+            rate = RateCI.of(metrics.Proportion(sum(flagged), len(kept)))
             partial = " (partial)" if len(benign) < planned_benign else ""
             headline.append(
                 f"C3 {'guard FPR' if live else 'FPR'} on benign emails that were not L1 "
