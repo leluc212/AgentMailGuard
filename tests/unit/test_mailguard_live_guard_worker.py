@@ -3,13 +3,16 @@
     python -m evaluation.mailguard_bench.live.guard_worker --config C3 --run RUN --model-profile M
 
 It is the ai-worker with GuardedDraftingService in place of DraftingService. These tests run its
-start-up and composition with the broker, the database and the guard replaced by stand-ins, and
-its pid-file rules with real child processes. No mailguard import, no network, no model call, no
-.env (every test that calls ``main`` works in an empty temporary directory).
+start-up and composition with the broker, the database and the guard replaced by stand-ins (one
+test runs the ai-worker's real ``build_consumers``, and skips until work package A gives it
+``drafting_factory``), and its pid-file rules with real child processes. No mailguard import, no
+network, no model call, no .env (every test that calls ``main`` works in an empty temporary
+directory).
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import subprocess
@@ -29,11 +32,17 @@ from evaluation.mailguard_bench.guard_env import GuardEnvError, GuardPaths, Work
 from evaluation.mailguard_bench.live import guard_worker
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from packages.core.settings import AIWorkerSettings
+from packages.llm import SinglePassGenerator
 from services.ai_worker import main as ai_main
+from services.ai_worker.consumer import AIWorkerConsumer
 from tests.stubs.worker_resources import fake_worker_resources
 
 MODEL = "gpt-4o-mini"
 LINUX_PROC = Path("/proc/self/cmdline").exists()
+NEEDS_DRAFTING_FACTORY = pytest.mark.skipif(
+    "drafting_factory" not in inspect.signature(ai_main.build_consumers).parameters,
+    reason="needs work package A: build_consumers(drafting_factory=...)",
+)
 GEMINI_HOST = "generativelanguage.googleapis.com"
 # The host-side .env lines of docs/demo-runbook.md 9.9: the guard-worker is a host process and
 # must embed queries as the knowledge-worker container embedded the knowledge base.
@@ -636,6 +645,53 @@ async def test_the_components_are_the_ai_workers_with_the_guarded_drafting_facto
     await res.shutdown.trigger_shutdown("TEST")  # the HTTP clients close once the lanes drained
     assert provider.closed is True
     assert guard.guard_llm.inner.closed is True
+
+
+@NEEDS_DRAFTING_FACTORY
+async def test_the_real_build_consumers_gives_every_lane_the_one_guarded_drafting_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The connection to work package A, with nothing stubbed but the database and the network.
+
+    The tests above replace ``build_consumers`` with a stand-in that accepts any keyword, so
+    they pass whether or not the real one takes ``drafting_factory``. This one runs the real
+    composition root and looks at what it built.
+    """
+    settings = AIWorkerSettings(_env_file=None)
+    res = fake_worker_resources(settings)
+
+    async def verify(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
+    monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
+    real_build_consumers = ai_main.build_consumers
+    built: list[AIWorkerConsumer] = []
+
+    def recording_build_consumers(*args: Any, **kwargs: Any) -> list[AIWorkerConsumer]:
+        built.extend(real_build_consumers(*args, **kwargs))
+        return list(built)
+
+    monkeypatch.setattr(ai_main, "build_consumers", recording_build_consumers)
+    guard = _stub_guard("C3")
+    audit = tmp_path / "raw" / "audit__C3.jsonl"
+
+    start_fns = await guard_worker.build_guarded_components(res, guard=guard, audit_path=audit)
+
+    lanes = ai_main.resolve_lane_queues(settings)
+    assert lanes and [consumer.queue_name for consumer in built] == lanes
+    assert len(start_fns) == len(built)  # every lane is started
+    service = built[0].drafting
+    assert isinstance(service, GuardedDraftingService)
+    assert all(consumer.drafting is service for consumer in built)  # one service for every lane
+    assert service.guard is guard and service.audit_path == audit
+    # what build_consumers hands DraftingService is what the guarded one was built from
+    assert isinstance(service.generator, SinglePassGenerator)
+    assert service.job_store is built[0].jobs
+    assert service.metrics is res.metrics
+    assert service.price_table == settings.llm.price_table
+
+    await res.shutdown.trigger_shutdown("TEST")  # closes the real provider's client
 
 
 async def test_a_worker_with_no_lane_has_nothing_to_start_and_closes_the_guards_client(
