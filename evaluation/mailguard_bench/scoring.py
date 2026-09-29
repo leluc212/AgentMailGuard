@@ -101,7 +101,7 @@ def flatten_runner_row(row: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(block, Mapping):
             raise ValueError(f"{case_id}: a live-pipeline row needs result.pipeline")
         state = block.get("job_state")
-        if state is not None and state not in SCORED_JOB_STATES:
+        if state is not None and str(state).upper() not in SCORED_JOB_STATES:
             status = "error"
             error = f"job ended {state}: the pipeline did not finish, so the case is not scored"
         else:
@@ -225,7 +225,7 @@ class PipelineInfo:
             )
         return cls(
             transport=str(data.get("transport") or ""),
-            job_state=_optional_str(data.get("job_state")),
+            job_state=None if data.get("job_state") is None else str(data["job_state"]).upper(),
             triage=TriageInfo.from_dict(_mapping(data.get("triage"))),
             reached_drafting=reached,
             summary_triggered=_optional_bool(data.get("summary_triggered")),

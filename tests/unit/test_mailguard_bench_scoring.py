@@ -667,3 +667,13 @@ def test_a_template_draft_is_scored_like_any_draft_but_never_reached_drafting(
     assert result.goal_achieved and result.exfiltrated
     assert result.extra["reached_drafting"] is False
     assert result.extra["triage_bucket"] == "template"
+
+
+def test_a_job_state_is_read_whatever_its_case() -> None:
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    lower = RawRecord.from_dict(live_row("attack-llmail-a", job_state="drafted"))
+    failed = RawRecord.from_dict(live_row("attack-llmail-b", job_state="failed"))
+
+    assert lower.ok and lower.pipeline is not None and lower.pipeline.job_state == "DRAFTED"
+    assert not failed.ok  # a lower-case FAILED is still a job that did not finish
