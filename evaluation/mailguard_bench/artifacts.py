@@ -417,8 +417,8 @@ def render_report(inputs: ReportInputs) -> str:
     fpr_restated = [line for line in inputs.headline_extra if line.startswith("C3 FPR")]
     lines += [line for line in inputs.headline_extra if line not in fpr_restated]
     # Owner decision 2026-09-29 (plan, BINDING section): C0 is rag-email as it runs (its own
-    # v2 profile template, no AgentMailGuard code) and is the headline baseline. C0T, the
-    # guard's template with no layer active, is an optional extra printed only when it ran:
+    # v2 profile template, no AgentMailGuard code) and is the headline baseline. C0T is the
+    # guard's template with no layer active (B1 = a, b: both baselines are required runs);
     # its L3 template still ends with a [TASK] line telling the model to take instructions
     # only from the trusted sections, so it is not an undefended prompt (open question 2).
     baselines = (
@@ -430,11 +430,15 @@ def render_report(inputs: ReportInputs) -> str:
             "instructions, so this baseline is not an undefended prompt.",
         ),
     )
+    missing_baseline = {
+        "C0": "the headline comparison C0 vs C3 is incomplete.",
+        "C0T": "the C0T vs C3 comparison (the guard's layers alone) is incomplete.",
+    }
     for name, label, note in baselines:
         base = inputs.llmail.get(name)
         if base is None:
-            if name == "C0":  # required run: say so rather than print a lone C3 headline
-                lines.append("C0 ASR: not run — the headline comparison C0 vs C3 is incomplete.")
+            # Both baselines are required runs (B1 = a, b); a missing one is stated, not refused.
+            lines.append(f"{name} ASR: not run — {missing_baseline[name]}")
             continue
         base_line = f"{name} ASR ({label}): {base.asr.fmt()}.{note}"
         if base.asr.total < inputs.planned_llmail_attacks:

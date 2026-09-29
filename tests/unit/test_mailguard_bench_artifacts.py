@@ -188,7 +188,7 @@ def baseline_inputs(llmail: dict[str, ConfigSummary]) -> ReportInputs:
     )
 
 
-def test_report_labels_native_c0_and_the_optional_c0t_baseline() -> None:
+def test_report_labels_native_c0_and_the_c0t_baseline() -> None:
     # Owner decision (plan BINDING section): C0 is rag-email's native path; C0T is the
     # guard's template with no layer active, an optional extra shown only when it ran.
     both = render_report(
@@ -199,8 +199,14 @@ def test_report_labels_native_c0_and_the_optional_c0t_baseline() -> None:
     assert "C0 ASR (rag-email as it runs, no AgentMailGuard code): 5.3 %" in both
     assert "C0T ASR (AgentMailGuard's prompt template, no layer active): 5.0 %" in both
     assert "| Metric | C0 | C0T | C3 |" in both
+    assert "C0T ASR: not run" not in both
+    # B1 = a, b (owner): C0T is a required baseline too; a run without it is not refused,
+    # but the report says the C0T vs C3 comparison is missing instead of staying silent.
     alone = render_report(baseline_inputs({"C0": summary("C0", R16), "C3": summary("C3", R7)}))
-    assert "C0T" not in alone
+    assert (
+        "C0T ASR: not run — the C0T vs C3 comparison (the guard's layers alone) is incomplete."
+        in alone
+    )
     assert "prompt template" not in alone
 
 

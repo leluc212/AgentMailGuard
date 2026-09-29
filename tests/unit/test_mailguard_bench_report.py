@@ -284,7 +284,9 @@ def test_build_report_writes_all_artifacts(tmp_path: Path) -> None:
     assert "Partial: 1 of 2 planned attacks scored (1 error excluded; none left to run)." in text
     assert "`attack-llmail-b`: HTTP 429" in text
     assert "C0 ASR (rag-email as it runs, no AgentMailGuard code): 100.0 %" in text
-    assert "C0T" not in text  # optional config: absent, and the report does not need it
+    # B1 = a, b: C0T is required too; its absence is stated, never refused.
+    assert "C0T ASR: not run — the C0T vs C3 comparison" in text
+    assert "| LLMail-Inject C0T vs C3 |" not in text
     assert "| LLMail-Inject C0 vs C3 |" in text
     assert "overlap the L1 classifier's training negatives" in text
     for name in (

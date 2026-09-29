@@ -48,7 +48,8 @@ from packages.core.settings import AppSettings, ModelPricing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # C0 = rag-email native (no AgentMailGuard code); C0T/C1/C2/C3 = AgentMailGuard presets.
-# Only C0 and C3 are required; C0T, C1 and C2 are optional extras (plan, BINDING section).
+# C0 and C0T are required baselines (B1 = a, b); a missing one is stated in the report, never
+# refused. C1 and C2 are optional ablation extras.
 CONFIG_ORDER = ("C0", "C0T", "C1", "C2", "C3")
 MAIN_CONFIGS = ("C0", "C0T", "C3")  # full case set; C1/C2 run only the ablation subset
 BASELINES = ("C0", "C0T")  # each is paired against C3 with McNemar when both ran
@@ -261,7 +262,7 @@ def build_report(
     ablation = table(ablation_ids, configs) if has_ablation else {}
 
     paired: dict[str, dict[str, Any]] = {}
-    # Headline: C0 vs C3. C0T vs C3 is added whenever the optional C0T run exists.
+    # Headline: C0 vs C3. C0T vs C3 is added whenever the C0T run exists.
     for base in BASELINES:
         if base not in configs or "C3" not in configs:
             continue
