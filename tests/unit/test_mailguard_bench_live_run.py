@@ -8,6 +8,7 @@ a simulated set of services.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
@@ -790,20 +791,104 @@ LIVE_KEYS = ("transport", "reranker", "triage", "guard_llm_stages", "service_ima
 TRIAGE = {"mode": "live", "ml_sha256": "m" * 64, "rules_sha256": "r" * 64}
 OLLAMA = {"version": "0.13.5", "context_length": 32768, "keep_alive": "30m"}
 IMAGES = {"ai-worker": "sha256:eee", "api": "sha256:aaa"}
-C3_FACTS: dict[str, Any] = {
-    "config": "C3",
-    "preset": "C3",
-    "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"],
-    "guard_model": "qwen2.5:7b-instruct",
-    "live_stages": {"l1.classifier": True, "l3b.llm": True, "l4.llm": True},
-    "missing_live_stages": [],
-    "live_layers": {"preset": "C3", "l3b_llm": "qwen2.5:7b-instruct"},
-    "l1_model_path": "/artifacts/l1.joblib",
-    "l1_model_sha256": "l" * 64,
-    "mailguard_root": "/worktree",
-    "mailguard_commit": "c" * 40,
-    "audit_log_path": "/run/raw/audit__C3.jsonl",
-}
+L1_MODEL_BYTES = b"l1 classifier"
+L1_MODEL_SHA256 = hashlib.sha256(L1_MODEL_BYTES).hexdigest()
+GUARD_MODEL = "qwen2.5:7b-instruct"
+GUARD_PROVIDER = f"OpenAIProvider:{GUARD_MODEL}"
+
+
+def _guard_facts(
+    config: str = "C3",
+    *,
+    llm_stages: bool | None = None,
+    missing: Sequence[str] = (),
+    l5_log: str = "/run/raw/guard_l5__C3.jsonl",
+) -> dict[str, Any]:
+    """``GuardBuild.describe()`` as the guard-worker records it in its meta.
+
+    The guard-worker's rule (``guard_build.live_guard_llm_stages``): the full guard, C3, also runs
+    L3b's and L4's LLM stages, and the other configs keep them off. ``llm_stages`` overrides it.
+    """
+    on = config == "C3" if llm_stages is None else llm_stages
+    stage = GUARD_PROVIDER if on else None
+    return {
+        "config": config,
+        "preset": "C0" if config == "C0T" else config,
+        "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"] if config == "C3" else ["l1"],
+        "guard_model": GUARD_MODEL,
+        "live_stages": {
+            "l1.classifier": True,
+            "l1.judge": True,
+            "l2.llm": True,
+            "l3b.llm": on,
+            "l4.llm": on,
+        },
+        "missing_live_stages": list(missing),
+        "live_layers": {
+            "preset": config,
+            "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"] if config == "C3" else ["l1"],
+            "l1_classifier": True,
+            "l1_judge": GUARD_PROVIDER,
+            "l2_llm": GUARD_PROVIDER,
+            "l3b_llm": stage,
+            "l4_llm": stage,
+        },
+        "l1_model_path": "/artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": L1_MODEL_SHA256,
+        "mailguard_root": "/worktree",
+        "mailguard_commit": "c" * 40,
+        "audit_log_path": l5_log,
+    }
+
+
+C3_FACTS: dict[str, Any] = _guard_facts("C3")
+
+
+def _worker_meta(
+    config: str = "C3",
+    *,
+    pid: int,
+    run_dir: Path,
+    llm_stages: bool | None = None,
+    missing: Sequence[str] = (),
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """What ``guard_worker.py`` writes to ``raw/guard_worker.<config>.meta.json`` (its
+    ``worker_meta``): the worker's own facts, and the blocks the runner compares key by key."""
+    from evaluation.mailguard_bench.live.run import embedding_facts, reranker_facts, retrieval_facts
+
+    settings = AppSettings()
+    raw = run_dir / "raw"
+    guard = _guard_facts(
+        config,
+        llm_stages=llm_stages,
+        missing=missing,
+        l5_log=str(raw / f"guard_l5__{config}.jsonl"),
+    )
+    on = guard["live_stages"]["l3b.llm"]
+    meta: dict[str, Any] = {
+        "schema": "mailguard-guard-worker.v1",
+        "run_id": "r1",
+        "config": config,
+        "pid": pid,
+        "started_at": "2026-09-30T08:00:00+00:00",
+        "model_profile": "qwen2.5-7b",
+        "guard_model": GUARD_MODEL,
+        "guard_llm_stages": {"l3b_llm": on, "l4_llm": on},
+        "mailguard_commit": guard["mailguard_commit"],
+        "l1_model_sha256": guard["l1_model_sha256"],
+        "live_layers": guard["live_layers"],
+        "embedding": embedding_facts(settings.embedding),
+        "reranker": reranker_facts(settings.retrieval),
+        "retrieval": retrieval_facts(settings.retrieval),
+        "llm_timeout_s": settings.llm.timeout_s,
+        "guard": guard,
+        "audit_log": str(raw / f"audit__{config}.jsonl"),
+        "l5_audit_log": str(raw / f"guard_l5__{config}.jsonl"),
+        "port": 8014,
+        "invocations": [{"pid": pid, "started_at": "2026-09-30T08:00:00+00:00", "port": 8014}],
+    }
+    return {**meta, **(overrides or {})}
 
 
 def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
@@ -899,54 +984,194 @@ def test_a_changed_live_fact_refuses_a_resume(tmp_path: Path) -> None:
 # --- the guard the run is described with -------------------------------------------------
 
 
-def test_c0_is_described_by_the_native_facts(tmp_path: Path) -> None:
+def _paths(tmp_path: Path) -> Any:
+    """The pinned worktree and the L1 artifact the guard-worker and the runner share."""
     from evaluation.mailguard_bench.guard_env import GuardPaths
+
+    paths = GuardPaths(root=tmp_path / "worktree", commit="c" * 40, artifacts=tmp_path / "art")
+    paths.root.mkdir(exist_ok=True)
+    paths.artifacts.mkdir(exist_ok=True)
+    paths.l1_model.write_bytes(L1_MODEL_BYTES)
+    return paths
+
+
+def _worker_setup(
+    tmp_path: Path,
+    config: str = "C3",
+    *,
+    pid: int = 4242,
+    overrides: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> Any:
+    """A run folder that holds a guard-worker's meta, and what ``describe_guard`` is given.
+
+    ``overrides`` replace keys of the meta as it is written; ``kwargs`` shape the guard it holds.
+    """
+    from evaluation.mailguard_bench.live.run import (
+        guard_worker_expectations,
+        guard_worker_meta_path,
+    )
+
+    paths, run_dir = _paths(tmp_path), tmp_path / "results" / "r1"
+    meta_file = guard_worker_meta_path(run_dir, config)
+    meta_file.parent.mkdir(parents=True)
+    meta_file.write_text(
+        json.dumps(_worker_meta(config, pid=pid, run_dir=run_dir, overrides=overrides, **kwargs)),
+        encoding="utf-8",
+    )
+    args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args.guard_model = GUARD_MODEL  # what apply_model_profile makes of the profile
+    return {
+        "meta_file": meta_file,
+        "worker": GuardWorker("r1", config, pid, meta_file.with_name(f"guard_worker.{config}.pid")),
+        "expected": guard_worker_expectations(args, AppSettings(), paths),
+        "paths": paths,
+    }
+
+
+def test_c0_is_described_by_the_native_facts(tmp_path: Path) -> None:
     from evaluation.mailguard_bench.live.run import describe_guard
 
-    paths = GuardPaths(root=tmp_path / "worktree", commit="c" * 40, artifacts=tmp_path)
-    paths.root.mkdir()
-
-    guard = describe_guard("C0", guard_model="m", audit_log_path=tmp_path / "a.jsonl", paths=paths)
+    guard = describe_guard(
+        "C0", meta_file=tmp_path / "none.json", worker=None, expected={}, paths=_paths(tmp_path)
+    )
 
     assert guard.facts["preset"] is None and guard.live_stages == {} and guard.missing == []
 
 
-def test_a_guarded_config_is_described_by_the_guard_it_builds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_guarded_config_is_described_by_the_guard_worker_that_drafts(tmp_path: Path) -> None:
+    """The runner builds no guard of its own: its description is what the worker really built,
+    so C3 records L3b's and L4's LLM stages as live, and the worker's own L5 log."""
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    guard = describe_guard("C3", **_worker_setup(tmp_path))
+
+    assert guard.live_stages == {
+        "l1.classifier": True,
+        "l1.judge": True,
+        "l2.llm": True,
+        "l3b.llm": True,
+        "l4.llm": True,
+    }
+    assert guard.missing == [] and guard.facts["preset"] == "C3"
+    layers = guard.facts["live_layers"]
+    assert (layers["l3b_llm"], layers["l4_llm"]) == (GUARD_PROVIDER, GUARD_PROVIDER)
+    # the L5 log is the worker's guard_l5__C3.jsonl: audit__C3.jsonl holds one line per job
+    assert guard.facts["audit_log_path"].endswith("raw/guard_l5__C3.jsonl")
+
+
+def test_what_the_worker_really_ran_is_what_is_recorded_not_what_c3_should_be(
+    tmp_path: Path,
 ) -> None:
-    from evaluation.mailguard_bench.guard_env import GuardPaths
-    from evaluation.mailguard_bench.live import run as live_run
+    """A C3 worker that ran without the two LLM stages is recorded as it ran, so the report can
+    say that those stages did not run; the runner never fills in a guard it did not see."""
+    from evaluation.mailguard_bench.live.run import describe_guard
 
-    calls: list[tuple[str, dict[str, Any]]] = []
+    guard = describe_guard("C3", **_worker_setup(tmp_path, llm_stages=False))
 
-    class FakeGuard:
-        def describe(self) -> dict[str, Any]:
-            return dict(C3_FACTS)
+    assert (guard.live_stages["l3b.llm"], guard.live_stages["l4.llm"]) == (False, False)
+    assert (guard.facts["live_layers"]["l3b_llm"], guard.facts["live_layers"]["l4_llm"]) == (
+        None,
+        None,
+    )
 
-        def live_stages(self) -> dict[str, bool]:
-            return {"l1.classifier": True, "l4.llm": False}
 
-        def missing_live_stages(self) -> list[str]:
-            return ["l4.llm"]
+def test_the_stages_the_worker_says_are_missing_are_returned_as_missing(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.live.run import describe_guard
 
-    def fake_build_guard(preset: str, **kwargs: Any) -> FakeGuard:
-        calls.append((preset, kwargs))
-        return FakeGuard()
+    guard = describe_guard("C3", **_worker_setup(tmp_path, missing=["l4.llm"]))
 
-    monkeypatch.setattr(live_run, "build_guard", fake_build_guard)
-    paths = GuardPaths(root=tmp_path, commit="c" * 40, artifacts=tmp_path / "art")
-    audit = tmp_path / "raw" / "audit__C3.jsonl"
+    assert guard.missing == ["l4.llm"]
 
-    guard = live_run.describe_guard("C3", guard_model="qwen", audit_log_path=audit, paths=paths)
 
-    assert calls == [
-        (
-            "C3",
-            {"model_name": "qwen", "audit_log_path": audit, "l1_model_path": paths.l1_model},
-        )
-    ]
-    assert guard.live_stages == {"l1.classifier": True, "l4.llm": False}
-    assert guard.missing == ["l4.llm"] and guard.facts["preset"] == "C3"
+@pytest.mark.parametrize(
+    ("key", "other"),
+    [
+        ("run_id", "another-run"),
+        ("config", "C1"),
+        ("model_profile", "llama-3.1-8b-local"),
+        ("guard_model", "llama3.1:8b"),
+        ("mailguard_commit", "d" * 40),
+        ("l1_model_sha256", "0" * 64),
+        ("embedding", {"mock": True, "model": "fake", "dimension": 1536, "base_url_host": None}),
+        ("reranker", {"enabled": False, "model": None}),
+        ("retrieval", {"top_k": 99, "top_n": 99, "timeout_ms": 1}),
+    ],
+)
+def test_a_guard_worker_that_runs_another_setup_than_the_runner_is_refused(
+    tmp_path: Path, key: str, other: Any
+) -> None:
+    from evaluation.mailguard_bench.live.run import LiveRunError, describe_guard
+
+    with pytest.raises(LiveRunError, match=rf"{key}: the guard-worker has"):
+        describe_guard("C3", **_worker_setup(tmp_path, overrides={key: other}))
+
+
+def test_every_difference_is_reported_at_once(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    setup = _worker_setup(
+        tmp_path, overrides={"model_profile": "llama-3.1-8b-local", "guard_model": "llama3.1:8b"}
+    )
+
+    with pytest.raises(LiveRunError) as raised:
+        describe_guard("C3", **setup)
+
+    assert "model_profile: the guard-worker has 'llama-3.1-8b-local'" in str(raised.value)
+    assert "guard_model: the guard-worker has 'llama3.1:8b'" in str(raised.value)
+
+
+def test_a_meta_left_by_an_earlier_start_is_not_the_live_workers(tmp_path: Path) -> None:
+    """The meta is rewritten by every start; one whose pid is not the live worker's is stale."""
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    setup = _worker_setup(tmp_path, pid=4242)
+    setup["worker"] = GuardWorker("r1", "C3", 999, setup["worker"].path)
+
+    with pytest.raises(LiveRunError, match=r"pid.*4242.*999"):
+        describe_guard("C3", **setup)
+
+
+def test_a_guarded_config_without_a_live_worker_cannot_be_described(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    setup = _worker_setup(tmp_path)
+    setup["worker"] = None
+
+    with pytest.raises(LiveRunError, match="no live guard-worker"):
+        describe_guard("C3", **setup)
+
+
+def test_a_meta_the_worker_has_not_written_yet_is_a_refusal_that_says_so(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    setup = _worker_setup(tmp_path)
+    setup["meta_file"].unlink()
+
+    with pytest.raises(LiveRunError, match=r"guard_worker\.C3\.meta\.json.*does not exist"):
+        describe_guard("C3", **setup)
+
+
+@pytest.mark.parametrize(
+    ("content", "why"),
+    [
+        ("not json {", "cannot read"),
+        ("[1, 2]", "schema"),
+        ('{"schema": "another.v9"}', "schema"),
+        ('{"schema": "mailguard-guard-worker.v1", "guard": {"live_stages": {}}}', "guard"),
+        ('{"schema": "mailguard-guard-worker.v1", "guard": [1]}', "guard"),
+    ],
+)
+def test_a_meta_that_is_not_a_guard_workers_is_refused(
+    tmp_path: Path, content: str, why: str
+) -> None:
+    from evaluation.mailguard_bench.live.run import describe_guard
+
+    setup = _worker_setup(tmp_path)
+    setup["meta_file"].write_text(content, encoding="utf-8")
+
+    with pytest.raises(LiveRunError, match=why):
+        describe_guard("C3", **setup)
 
 
 # --- one case: organization, feed, collect, cleanup --------------------------------------
@@ -1455,18 +1680,12 @@ def _live_deps(
     *,
     consumers: int | None = 1,
     docker: Any = None,
-    missing_stages: list[str] | None = None,
     backoff: Any = None,
     commands: Any = None,
     probe: Any = None,
 ) -> Any:
     from evaluation.mailguard_bench.live.feeder import OrchestratorHandOff
-    from evaluation.mailguard_bench.live.run import (
-        GuardDescription,
-        LiveDeps,
-        LiveStack,
-        describe_guard,
-    )
+    from evaluation.mailguard_bench.live.run import LiveDeps, LiveStack
 
     async def open_pool(settings: Any) -> RunPool:
         pool.opened = True
@@ -1511,19 +1730,11 @@ def _live_deps(
             for queue in queues
         }
 
-    def describe(config: str, **kwargs: Any) -> GuardDescription:
-        if config == "C0":
-            return describe_guard(config, **kwargs)
-        return GuardDescription(
-            {**C3_FACTS, "config": config}, dict(C3_FACTS["live_stages"]), missing_stages or []
-        )
-
     return LiveDeps(
         open_pool=open_pool,
         open_stack=open_stack,
         probe_consumers=probe or default_probe,
         resolve_lanes=lambda settings: WHOLE_RUN_LANES,
-        describe_guard=describe,
         require_environment=lambda paths: None,
         run_command=commands or FakeCommands(docker or FakeDocker(APP_IMAGES)),
         get_json=FakeOllama([QWEN]),
@@ -1543,6 +1754,7 @@ def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     worktree, artifacts = tmp_path / "worktree", tmp_path / "artifacts"
     worktree.mkdir()
     artifacts.mkdir()
+    (artifacts / "l1_injection_clf_v1.joblib").write_bytes(L1_MODEL_BYTES)
     os.environ.update(
         {
             "MAILGUARD_DIR": str(worktree),
@@ -1952,10 +2164,26 @@ async def test_a_resume_with_other_settings_is_refused_before_anything_runs(
 # --- a guarded config ----------------------------------------------------------------------
 
 
-def _guarded(tmp_path: Path, child: Any, **kwargs: Any) -> tuple[SimWorld, RunPool, Any]:
-    """C3: a live guard-worker announces itself, and its audit lines land in the run folder."""
-    raw = tmp_path / "results" / "r1" / "raw"
-    _pid_file(tmp_path / "results", "r1", "C3", child().pid)
+def _guarded(
+    tmp_path: Path,
+    child: Any,
+    *,
+    missing_stages: Sequence[str] = (),
+    meta: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> tuple[SimWorld, RunPool, Any]:
+    """C3: a live guard-worker announces itself (pid file, then the meta it writes about
+    itself), and its audit lines land in the run folder."""
+    run_dir = tmp_path / "results" / "r1"
+    raw = run_dir / "raw"
+    pid = child().pid
+    _pid_file(tmp_path / "results", "r1", "C3", pid)
+    (raw / "guard_worker.C3.meta.json").write_text(
+        json.dumps(
+            _worker_meta("C3", pid=pid, run_dir=run_dir, missing=missing_stages, overrides=meta)
+        ),
+        encoding="utf-8",
+    )
     world = SimWorld(config="C3", audit_path=raw / "audit__C3.jsonl")
     world.scenarios = dict(SCENARIOS)
     pool = RunPool()
@@ -1981,6 +2209,39 @@ async def test_a_guarded_run_reads_each_drafted_cases_audit_line(
     meta = json.loads((live_env / "results" / "r1" / "raw" / "C3.meta.json").read_text("utf-8"))
     assert meta["fingerprint"]["guard_llm_stages"] == C3_FACTS["live_stages"]
     assert meta["guard_models"] == "qwen2.5:7b-instruct" and meta["degraded_allowed"] is False
+
+
+async def test_a_guarded_runs_meta_records_the_guard_the_worker_ran_llm_stages_included(
+    live_env: Path, child: Any
+) -> None:
+    """C3's guard-worker runs L3b's and L4's LLM stages, so the meta the report reads must say
+    they were live: the report names "stages that did not run" from it, and a meta describing a
+    guard the runner built for itself, without them, would make that sentence false."""
+    world, _, deps = _guarded(live_env, child)
+
+    assert await run(_run_args(live_env, "C3"), deps) == 0
+
+    meta = json.loads((live_env / "results" / "r1" / "raw" / "C3.meta.json").read_text("utf-8"))
+    assert meta["guard_llm_stages"]["l3b.llm"] is True
+    assert meta["guard_llm_stages"]["l4.llm"] is True
+    assert meta["fingerprint"]["guard_llm_stages"] == meta["guard_llm_stages"]
+    assert meta["live_layers"]["l3b_llm"] == GUARD_PROVIDER
+    assert meta["live_layers"]["l4_llm"] == GUARD_PROVIDER
+    assert meta["guard"]["audit_log_path"].endswith("raw/guard_l5__C3.jsonl")  # not audit__C3
+    assert meta["guard"]["missing_live_stages"] == [] and meta["degraded_allowed"] is False
+
+
+async def test_a_guarded_run_refuses_a_guard_worker_that_runs_another_model(
+    live_env: Path, child: Any
+) -> None:
+    """Its drafts and audit lines would be scored under the runner's model."""
+    world, pool, deps = _guarded(live_env, child, meta={"model_profile": "llama-3.1-8b-local"})
+
+    with pytest.raises(LiveRunError, match=r"model_profile: the guard-worker has 'llama-3\.1"):
+        await run(_run_args(live_env, "C3"), deps)
+
+    assert pool.opened is False and world.received == {}
+    assert not (live_env / "results" / "r1" / "raw" / "C3.meta.json").exists()  # nothing written
 
 
 async def test_a_guarded_run_waits_for_the_guard_worker_to_attach_its_consumers(

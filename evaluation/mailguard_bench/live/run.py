@@ -18,7 +18,10 @@ fingerprint key ``transport: services-v2``, so they never mix with v1 rows.
 
 Exactly one drafting consumer must be active, and the runner refuses to start otherwise:
 C0 is drafted by the ai-worker container, C0T/C1/C2/C3 by the guard-worker host process,
-which the ai-worker container must then not compete with.
+which the ai-worker container must then not compete with. The guard a row was drafted under
+is described by that guard-worker's own meta (``raw/guard_worker.<config>.meta.json``), which
+the runner checks against its own view of the run and refuses on any difference: it never
+builds a guard of its own to describe.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ipaddress
+import json
 import os
 import shlex
 import socket
@@ -46,7 +50,7 @@ from aio_pika.exceptions import ChannelNotFoundEntity
 
 from evaluation.mailguard_bench.case_adapter import EvalCase
 from evaluation.mailguard_bench.cases import DEFAULT_CASE_DIR, load_case_set
-from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG, build_guard, git_head
+from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG, git_head
 from evaluation.mailguard_bench.guard_env import (
     DEFAULT_GUARD_MODEL,
     REPO_ROOT,
@@ -142,6 +146,8 @@ GUARD_WORKER_MARKER = "guard_worker"
 """What a guard-worker's command line contains (``-m ...live.guard_worker``)."""
 GUARD_WORKER_PID_GLOB = "*/raw/guard_worker.*.pid"
 """Where guard-workers announce themselves: ``<results root>/<run>/raw/guard_worker.<cfg>.pid``."""
+GUARD_WORKER_META_SCHEMA = "mailguard-guard-worker.v1"
+"""The ``schema`` of ``raw/guard_worker.<cfg>.meta.json``, which the guard-worker writes."""
 
 APP_SERVICES = (
     "ai-worker",
@@ -406,6 +412,15 @@ def embedding_facts(embedding: EmbeddingSettings) -> dict[str, Any]:
     }
 
 
+def retrieval_facts(retrieval: RetrievalSettings) -> dict[str, Any]:
+    """The retrieval settings of the run (the guard-worker's meta has the same block)."""
+    return {
+        "top_k": retrieval.top_k,
+        "top_n": retrieval.top_n,
+        "timeout_ms": retrieval.retrieval_timeout_ms,
+    }
+
+
 def reranker_facts(retrieval: RetrievalSettings) -> dict[str, Any]:
     """Whether the cross-encoder reranks and which model (None on a tree without the setting)."""
     return {
@@ -576,25 +591,126 @@ class GuardDescription:
     missing: list[str]
 
 
-def describe_guard(
-    config: str, *, guard_model: str, audit_log_path: Path, paths: GuardPaths
-) -> GuardDescription:
-    """The guard of ``config`` as the run's meta describes it.
+def guard_worker_meta_path(run_dir: Path, config: str) -> Path:
+    """The guard-worker's account of itself: ``raw/guard_worker.<cfg>.meta.json``."""
+    return run_dir / "raw" / f"guard_worker.{config}.meta.json"
 
-    The runner never runs the guard; the guard-worker does. It builds the same pipeline once,
-    to record its commit, layers and live stages and to refuse a run whose guard stages the
-    preset needs are not live (a degraded C3 must not pass as a full one). C0 runs no
+
+def guard_worker_expectations(
+    args: argparse.Namespace, settings: AppSettings, paths: GuardPaths
+) -> dict[str, Any]:
+    """What a guard-worker's meta must say for it to be the one that drafts this run's config.
+
+    Its own blocks have the shape of the runner's (``embedding_facts``, ``reranker_facts``,
+    ``retrieval_facts``), so the two compare key by key. The AgentMailGuard commit and the L1
+    artifact are the pinned ones: one RUN is one environment.
+    """
+    l1_model = paths.l1_model
+    return {
+        "run_id": args.run,
+        "config": args.config,
+        "model_profile": args.model_profile,
+        "guard_model": args.guard_model,
+        "mailguard_commit": paths.commit,
+        "l1_model_sha256": sha256_file(l1_model) if l1_model.exists() else None,
+        "embedding": embedding_facts(settings.embedding),
+        "reranker": reranker_facts(settings.retrieval),
+        "retrieval": retrieval_facts(settings.retrieval),
+    }
+
+
+def read_guard_worker_meta(path: Path) -> dict[str, Any]:
+    """The guard-worker's meta, checked for the parts the runner uses.
+
+    Raises:
+        LiveRunError: If the file is missing or unreadable, is not a guard-worker's meta, or
+            has no guard description.
+    """
+    try:
+        meta = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise LiveRunError(
+            f"{path} does not exist: the guard-worker has not written what it is yet"
+        ) from exc
+    except (OSError, ValueError) as exc:
+        raise LiveRunError(f"cannot read {path}: {exc}") from exc
+    schema = meta.get("schema") if isinstance(meta, dict) else None
+    if schema != GUARD_WORKER_META_SCHEMA:
+        raise LiveRunError(f"{path} is not a {GUARD_WORKER_META_SCHEMA} file (schema {schema!r})")
+    guard = meta.get("guard")
+    if (
+        not isinstance(guard, dict)
+        or not isinstance(guard.get("live_stages"), dict)
+        or not isinstance(guard.get("missing_live_stages"), list)
+    ):
+        raise LiveRunError(
+            f"{path} has no guard description (guard.live_stages and guard.missing_live_stages)"
+        )
+    return dict(meta)
+
+
+def guard_worker_mismatches(
+    meta: Mapping[str, Any], *, expected: Mapping[str, Any], worker: GuardWorker | None
+) -> list[str]:
+    """Every way ``meta`` is not the live ``worker``'s account of this run; empty when it is."""
+    if worker is None:
+        return ["no live guard-worker"]
+    problems: list[str] = []
+    if meta.get("pid") != worker.pid:
+        problems.append(
+            f"pid: the meta was written by pid {meta.get('pid')!r}, the live guard-worker is "
+            f"pid {worker.pid} (every start rewrites it: is this the meta of an earlier one?)"
+        )
+    problems.extend(
+        f"{key}: the guard-worker has {meta.get(key)!r}, this run needs {want!r}"
+        for key, want in expected.items()
+        if meta.get(key) != want
+    )
+    return problems
+
+
+def describe_guard(
+    config: str,
+    *,
+    meta_file: Path,
+    worker: GuardWorker | None,
+    expected: Mapping[str, Any],
+    paths: GuardPaths,
+) -> GuardDescription:
+    """The guard of ``config`` as the run's meta describes it: the live guard-worker's own.
+
+    The runner never runs the guard, and the meta must say what ran, because the report names
+    "guard stages that did not run" from it. So the description is what the guard-worker
+    recorded about itself (``guard_worker.<config>.meta.json``), never a guard the runner
+    builds for itself: that one lacks the worker's own choices (C3 turns on L3b's and L4's LLM
+    stages) and would describe a weaker guard than the one that drafted, and name the wrong L5
+    log. The meta must also be this run's, so it is refused unless the live worker wrote it and
+    ``expected`` (the runner's own view) agrees with every fact it states. C0 runs no
     AgentMailGuard code and gets the native facts, as in v1.
+
+    Raises:
+        LiveRunError: If there is no live worker, its meta is missing, unreadable, stale or of
+            another setup than this runner's (every difference is named).
     """
     if config == NATIVE_CONFIG:
         return GuardDescription(native_guard_facts(paths), {}, [])
-    guard = build_guard(
-        config,
-        model_name=guard_model,
-        audit_log_path=audit_log_path,
-        l1_model_path=paths.l1_model,
+    if worker is None:
+        raise LiveRunError(f"no live guard-worker for {config}: there is no guard to describe")
+    meta = read_guard_worker_meta(meta_file)
+    problems = guard_worker_mismatches(meta, expected=expected, worker=worker)
+    if problems:
+        raise LiveRunError(
+            f"the {config} guard-worker (pid {worker.pid}) is not the guard this run needs: "
+            + "; ".join(problems)
+            + f" (stop it, and start it again with this run's --model-profile and the same "
+            f".env; its meta is {meta_file})"
+        )
+    guard = meta["guard"]
+    return GuardDescription(
+        facts=dict(guard),
+        live_stages={str(stage): bool(live) for stage, live in guard["live_stages"].items()},
+        missing=[str(stage) for stage in guard["missing_live_stages"]],
     )
-    return GuardDescription(guard.describe(), guard.live_stages(), guard.missing_live_stages())
 
 
 def require_complete_fingerprint(fingerprint: Mapping[str, Any]) -> None:
@@ -645,11 +761,7 @@ def build_live_meta(
         "l1_model_sha256": guard.facts["l1_model_sha256"],
         "embedding_mock": settings.embedding.mock,
         "embedding": embedding_facts(settings.embedding),
-        "retrieval": {
-            "top_k": settings_retrieval.top_k,
-            "top_n": settings_retrieval.top_n,
-            "timeout_ms": settings_retrieval.retrieval_timeout_ms,
-        },
+        "retrieval": retrieval_facts(settings_retrieval),
         "database": settings.database.name,
         "guard": guard.facts,
         "degraded_allowed": bool(guard.missing),
@@ -900,10 +1012,11 @@ async def check_drafting_consumers(
 async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     """Run one config of one RUN against the running stack; return the exit code.
 
-    The order is v1's: every fact is read and every refusal made before anything is written
-    or any case is fed (the fingerprint and the resume check, then the drafting-consumer
-    preflight), then the case folder is pinned, the RUN/CONFIG lock taken, the stale
-    organizations of an earlier killed run purged, and the cases run.
+    Every fact is read and every refusal made before anything is written or any case is fed:
+    the drafting-consumer preflight first (a guard-worker's account of itself is only read once
+    it consumes), then the guard's description, the fingerprint and the resume check. Then the
+    case folder is pinned, the RUN/CONFIG lock taken, the stale organizations of an earlier
+    killed run purged, and the cases run.
     """
     live = deps or LiveDeps()
     environ = with_dot_env(os.environ)  # the environment over `.env`, as AppSettings reads it
@@ -921,10 +1034,31 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
         limit=args.limit,
     )
     run_dir = live.results_root / args.run
+    lanes = live.resolve_lanes(settings)
+    problems = await check_drafting_consumers(
+        live=live, settings=settings, config=args.config, run_id=args.run, lanes=lanes
+    )
+    if problems:
+        for problem in problems:
+            print(f"FAIL {args.config}: {problem}", file=sys.stderr)
+        return 1
+
+    # Only now: a guard-worker has written its meta before it consumes, so what it says about
+    # itself is read once its lanes have a consumer.
     guard = live.describe_guard(
         args.config,
-        guard_model=args.guard_model,
-        audit_log_path=audit_log_path(run_dir, args.config),
+        meta_file=guard_worker_meta_path(run_dir, args.config),
+        worker=next(
+            (
+                w
+                for w in live_guard_workers(live.results_root)
+                if w.run == args.run and w.config == args.config
+            ),
+            None,
+        ),
+        expected={}
+        if args.config == NATIVE_CONFIG
+        else guard_worker_expectations(args, settings, paths),
         paths=paths,
     )
     if guard.missing and not args.allow_degraded:
@@ -952,15 +1086,6 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     )
     meta_file = meta_path(run_dir, args.config)
     invocations = check_resume(meta_file, meta["fingerprint"])  # before any write or call
-
-    lanes = live.resolve_lanes(settings)
-    problems = await check_drafting_consumers(
-        live=live, settings=settings, config=args.config, run_id=args.run, lanes=lanes
-    )
-    if problems:
-        for problem in problems:
-            print(f"FAIL {args.config}: {problem}", file=sys.stderr)
-        return 1
 
     snapshot_case_set(loaded, run_dir)
     result_path(run_dir, args.config).parent.mkdir(parents=True, exist_ok=True)
