@@ -136,7 +136,6 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
     monkeypatch.setattr(guard_worker, "build_guard", build_guard)
     monkeypatch.setattr(guard_worker, "WorkerRuntime", FakeRuntime)
     with patch.dict(os.environ):  # the run writes the profile and the guard's keys into it
-        os.environ["LLM__OPENAI_API_KEY"] = "sk-from-env"  # what a run without a profile reads
         yield harness
 
 
@@ -148,17 +147,30 @@ def _main(*argv: str) -> int:
 
 
 def test_the_worker_serves_one_guarded_config() -> None:
+    profile = ["--model-profile", "gpt-4o-mini"]
     for config in ("C0T", "C1", "C2", "C3"):
-        args = guard_worker.parse_args(["--config", config, "--run", "r"])
+        args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
         assert args.config == config
-        assert (args.model_profile, args.port) == (None, guard_worker.DEFAULT_PORT)
+        assert (args.model_profile, args.port) == ("gpt-4o-mini", guard_worker.DEFAULT_PORT)
     for bad in ("C0", "C4", "c3"):  # C0 is the ai-worker container's job, not a guard's
         with pytest.raises(SystemExit):
-            guard_worker.parse_args(["--config", bad, "--run", "r"])
+            guard_worker.parse_args(["--config", bad, "--run", "r", *profile])
     with pytest.raises(SystemExit):
-        guard_worker.parse_args(["--config", "C3"])  # --run is required
+        guard_worker.parse_args(["--config", "C3", *profile])  # --run is required
     with pytest.raises(SystemExit):
         guard_worker.parse_args(["--config", "C3", "--run", "r", "--model-profile", "gpt-5"])
+
+
+def test_the_worker_cannot_start_without_a_model_profile(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # One benchmarked model per run in every LLM role: without a profile the guard judges would
+    # run DEFAULT_GUARD_MODEL while the generation call, the summarizer and the router use
+    # whatever .env's LLM__* say, and the runner (which requires the profile) could not tell.
+    with pytest.raises(SystemExit):
+        guard_worker.parse_args(["--config", "C3", "--run", "r"])
+
+    assert "--model-profile" in capsys.readouterr().err
 
 
 def test_only_c3_turns_the_l3b_and_l4_llm_stages_on() -> None:
@@ -326,9 +338,10 @@ def test_the_guard_is_built_for_the_config_on_the_runs_model(rig: Rig) -> None:
 
 
 def test_c0t_and_the_ablation_configs_keep_l3b_and_l4_llm_off(rig: Rig) -> None:
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
     for config in ("C0T", "C1", "C2"):
         rig.built.clear()
-        assert _main("--config", config, "--run", "r1") == 0
+        assert _main("--config", config, "--run", "r1", "--model-profile", "gpt-4o-mini") == 0
         (call,) = rig.built
         assert (call["l3b_llm"], call["l4_llm"]) == (False, False)
 
@@ -337,8 +350,9 @@ def test_main_refuses_a_guard_that_is_not_at_full_strength(
     rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
     rig.missing.extend(["l1.classifier", "l3b.llm"])
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
 
-    code = _main("--config", "C3", "--run", "r1")
+    code = _main("--config", "C3", "--run", "r1", "--model-profile", "gpt-4o-mini")
 
     assert code == 1
     assert FakeRuntime.instances == []  # nothing was started
@@ -353,10 +367,11 @@ def test_main_refuses_while_another_guard_worker_is_alive(
     other = rig.pid_file("C1", run="older-run")
     other.parent.mkdir(parents=True)
     sleeper = _sleeper("evaluation.mailguard_bench.live.guard_worker")
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
     try:
         other.write_text(f"{sleeper.pid}\n", encoding="utf-8")
 
-        code = _main("--config", "C3", "--run", "r1")
+        code = _main("--config", "C3", "--run", "r1", "--model-profile", "gpt-4o-mini")
     finally:
         sleeper.kill()
         sleeper.wait()

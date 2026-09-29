@@ -210,9 +210,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model-profile",
+        required=True,
         choices=sorted(PROFILES),
-        default=None,
-        help="live model for the generation call, the summarizer and the guard judges",
+        help="the run's one live model: the generation call, the summarizer and the guard judges",
     )
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help=f"health/metrics port on {HOST}"
