@@ -43,3 +43,13 @@ def test_report_target_runs_the_module_from_the_repo_root_with_the_worktree() ->
     assert "--with-editable $(MAILGUARD_DIR)" in MAKEFILE
     assert "-m evaluation.mailguard_bench.report" in body
     assert 'test -n "$(RUN)"' in body
+
+
+def test_analyses_target_scores_then_analyses_then_reports() -> None:
+    assert "mailguard-analyses" in targets() and "mailguard-analyses" in phony()
+    steps = re.findall(r"-m (evaluation\.mailguard_bench\.\w+)", recipe("mailguard-analyses"))
+    assert steps == [
+        "evaluation.mailguard_bench.report",
+        "evaluation.mailguard_bench.analyses",
+        "evaluation.mailguard_bench.report",
+    ]

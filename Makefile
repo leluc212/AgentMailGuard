@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test mailguard-report
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test mailguard-report mailguard-analyses
 
 UV ?= uv
 
@@ -31,6 +31,7 @@ help:
 	@echo "  mailguard-bench RUN=... CONFIG=C0|C3|C0T|C1|C2 - Benchmark on the real rag-email path: C0 native rag-email, C3 all guard layers (required); C0T/C1/C2 optional. Owner-run, live Gemini (task 7.19; not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
+	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -183,4 +184,10 @@ MAILGUARD_PY = $(MAILGUARD_UV) python
 
 mailguard-report:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+
+mailguard-analyses:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
 	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)

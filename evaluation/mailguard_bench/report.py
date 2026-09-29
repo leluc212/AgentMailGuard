@@ -32,6 +32,7 @@ from evaluation.mailguard_bench.amg import (
 )
 from evaluation.mailguard_bench.artifacts import (
     ConfigSummary,
+    RateCI,
     ReportInputs,
     build_manifest,
     git_head,
@@ -198,8 +199,42 @@ def _errors_in(errors: Sequence[RawRecord], ids: set[str]) -> int:
 def analysis_inputs(
     run_dir: Path, scored: Mapping[str, list[Any]], *, metrics: ModuleType, llmail_ids: set[str]
 ) -> tuple[list[str], list[str]]:
-    """Extra headline lines and report sections from the no-API analyses (task 6)."""
-    return [], []
+    """Extra headline lines and report sections from the no-API analyses (task 6).
+
+    With ``analysis/leakage.json`` present, C3 ASR is restated without the attacks that
+    are near-duplicates of the classifier-training half, and C3 FPR without the benign
+    emails that were L1 training rows. ``analyses.md`` is appended as-is.
+    """
+    headline: list[str] = []
+    sections: list[str] = []
+    leak_path = run_dir / "analysis" / "leakage.json"
+    if leak_path.exists() and "C3" in scored:
+        leak = json.loads(leak_path.read_text(encoding="utf-8"))
+        c3 = [r for r in scored["C3"] if r.case_id in llmail_ids]
+        attacks = [r for r in c3 if r.kind == "attack"]
+        benign = [r for r in c3 if r.kind == "benign"]
+        train_half = leak.get("attacks_vs_train_half") or {}
+        if train_half.get("n_reference"):
+            dup = set(train_half.get("near_duplicate_ids") or [])
+            kept = [r for r in attacks if r.case_id not in dup]
+            rate = RateCI.of(metrics.Proportion(sum(r.goal_achieved for r in kept), len(kept)))
+            headline.append(
+                f"C3 ASR without the {len(attacks) - len(kept)} near-duplicate(s) of the "
+                f"classifier-training half (TF-IDF cosine ≥ 0.9): {rate.fmt()}."
+            )
+        fp_rows = leak.get("benign_vs_l1_train_rows") or {}
+        if fp_rows.get("n_reference") and benign:
+            dup = set(fp_rows.get("near_duplicate_ids") or [])
+            kept = [r for r in benign if r.case_id not in dup]
+            rate = RateCI.of(metrics.Proportion(sum(r.blocked for r in kept), len(kept)))
+            headline.append(
+                f"C3 FPR on benign emails that were not L1 training rows "
+                f"({len(benign) - len(kept)} excluded): {rate.fmt()}."
+            )
+    analyses_md = run_dir / "analyses.md"
+    if analyses_md.exists():
+        sections.append(analyses_md.read_text(encoding="utf-8"))
+    return headline, sections
 
 
 def build_report(
