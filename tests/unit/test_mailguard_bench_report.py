@@ -78,6 +78,18 @@ def test_c0t_is_checked_as_a_guarded_config() -> None:
     assert degradation_problems("C0T", {**C0T_META, "degraded_allowed": True}) == [
         "C0T: started with --allow-degraded"
     ]
+    # C0T must really be the guard template with no layer, C0 really the native path.
+    assert degradation_problems("C0T", {**C0T_META, "guard_preset": "C3"}) == [
+        "C0T: guard preset 'C3' is not 'C0'"
+    ]
+    layered = {**C0T_META, "guard": {"active_layers": ["l1"], "missing_live_stages": []}}
+    assert degradation_problems("C0T", layered) == ["C0T: active layers ['l1'] are not []"]
+    assert degradation_problems("C0", C0_META) == []
+    assert degradation_problems("C0", {**C0_META, "guard_preset": "C0"}) == [
+        "C0: guard preset 'C0' ran, but C0 is rag-email's native path"
+    ]
+    guarded_c0 = {**C0_META, "guard": {"active_layers": ["l1"], "missing_live_stages": []}}
+    assert degradation_problems("C0", guarded_c0) == ["C0: active layers ['l1'] are not []"]
     assert settings_problems("C0T", C0T_META) == []
     assert settings_problems("C0T", {**C0T_META, "guard_models": "fake"}) == [
         "C0T: guard model 'fake' is not the pinned 'gemma-4-26b-a4b-it'"

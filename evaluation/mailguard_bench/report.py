@@ -73,23 +73,35 @@ SHARED_SETTINGS = (
 def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[str]:
     """Why a guarded run would describe a weaker guard than its preset (empty when none).
 
-    C0 is rag-email's native path, runs no AgentMailGuard code and is not checked here
-    (settings_problems still requires its meta). C0T is a guarded config (the guard's
-    template, preset "C0") and is checked like C1/C2. A C3 run must have its run meta, all six
-    layers active and every LLM stage it needs live; C1/C2 must have no missing stage.
+    C0 is rag-email's native path: it must have run no guard preset and no layer
+    (settings_problems requires its meta). C0T is a guarded config (the guard's template,
+    preset "C0", no layer active) and is checked like C1/C2. A C3 run must have its run meta,
+    all six layers active and every LLM stage it needs live; C1/C2 must have no missing stage.
     """
-    if config == "C0":
-        return []
     if meta is None:
         return [f"{config}: raw/{config}.meta.json is missing"] if config == "C3" else []
     guard = meta.get("guard") or {}
+    active = tuple(guard.get("active_layers") or ())
     problems: list[str] = []
+    if config == "C0":
+        if meta.get("guard_preset") is not None:
+            problems.append(
+                f"C0: guard preset {meta.get('guard_preset')!r} ran, but C0 is rag-email's "
+                "native path"
+            )
+        if active:
+            problems.append(f"C0: active layers {list(active)} are not []")
+        return problems
+    if config == "C0T":
+        if meta.get("guard_preset") != "C0":
+            problems.append(f"C0T: guard preset {meta.get('guard_preset')!r} is not 'C0'")
+        if active:
+            problems.append(f"C0T: active layers {list(active)} are not []")
     missing = list(guard.get("missing_live_stages") or [])
     if missing:
         problems.append(f"{config}: guard stages not live: {', '.join(missing)}")
     if meta.get("degraded_allowed"):
         problems.append(f"{config}: started with --allow-degraded")
-    active = tuple(guard.get("active_layers") or ())
     if config == "C3" and active != FULL_LAYERS:
         problems.append(f"C3: active layers {list(active)} are not {list(FULL_LAYERS)}")
     return problems
