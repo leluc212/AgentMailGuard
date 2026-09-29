@@ -156,7 +156,8 @@ def render_leakage(results: Sequence[LeakageResult]) -> str:
         lines.append(f"| {r.name} | {r.n_reference} | {len(r.max_cosine_by_case)} | {dup} |")
     lines += [
         "",
-        "The benchmark and training halves are disjoint by exact text (sha1 split). "
+        "The benchmark and training halves are disjoint by exact subject + body (the split "
+        "hashes the sha1 of the labelled subject + body key). "
         "LLMail submissions are often near-copies of each other, so the headline ASR is "
         "also reported without the near-duplicates of the training half. The benign emails "
         "come from `emails_for_fp_tests.json`, which AgentMailGuard also used as L1 "

@@ -67,3 +67,10 @@ def test_l1_train_rows_filters_by_source(tmp_path: Path) -> None:
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     assert l1_train_rows(tmp_path, "llmail_fp") == ["b"]
     assert l1_train_rows(tmp_path / "missing", "llmail_fp") == []
+
+
+def test_render_leakage_names_the_split_key() -> None:
+    # AgentMailGuard splits on the sha1 of the labelled subject + body key, not the body.
+    text = render_leakage([check("attacks_vs_train_half", {"a": BASE}, [OTHER])])
+    assert "disjoint by exact subject + body" in text
+    assert "disjoint by exact text" not in text
