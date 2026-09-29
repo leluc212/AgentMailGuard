@@ -21,6 +21,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ from evaluation.mailguard_bench.report import (
     load_cases,
     settings_problems,
 )
-from evaluation.mailguard_bench.scoring import RawRecord, read_raw
+from evaluation.mailguard_bench.scoring import LIVE_TRANSPORT, RawRecord, read_raw
 from evaluation.mailguard_bench.threat_model import render_threat_model
 
 ATTACKS_VS_TRAIN_HALF = "attacks_vs_train_half"
@@ -58,12 +59,30 @@ GUARD_LLM_STAGES = {
 }
 
 
-def run_model_and_stages_off(run_dir: Path) -> tuple[str, list[str]]:
-    """The run's model and the guard LLM stages its C3 meta records as not live."""
+@dataclass(frozen=True)
+class RunFacts:
+    """What the threat-model section says about the run, read from its C3 meta."""
+
+    model: str
+    stages_off: list[str]  # guard LLM stages the meta records as not live
+    live: bool  # transport services-v2: every service ran and triage decided what reached drafting
+    embedding_mock: bool
+    embedding_model: str | None
+
+
+def run_facts(run_dir: Path) -> RunFacts:
+    """The run's model, the guard LLM stages its C3 meta records as not live, and its transport."""
     meta = json.loads((run_dir / "raw" / "C3.meta.json").read_text(encoding="utf-8"))
     live = meta.get("live_layers") or {}
     off = [name for key, name in GUARD_LLM_STAGES.items() if key in live and not live[key]]
-    return str(meta.get("generation_model") or "unknown"), off
+    embedding = meta.get("embedding") or {}
+    return RunFacts(
+        model=str(meta.get("generation_model") or "unknown"),
+        stages_off=off,
+        live=meta.get("transport") == LIVE_TRANSPORT,
+        embedding_mock=bool(embedding.get("mock", meta.get("embedding_mock"))),
+        embedding_model=str(embedding["model"]) if embedding.get("model") else None,
+    )
 
 
 def _scored(run_dir: Path, config: str) -> dict[str, dict[str, Any]]:
@@ -180,12 +199,18 @@ def run_analyses(
             writer.writerow([case_id, table, layers[case_id] or "attack succeeded"])
 
     examples = pick_examples(cases, c0, c3, c0_records, c3_records, layers, llmail_ids=llmail_ids)
-    model, stages_off = run_model_and_stages_off(run_dir)
+    facts = run_facts(run_dir)
     sections = [
         render_leakage(leakage),
         render_first_layer(tally(llmail_layers)),
         render_examples(examples),
-        render_threat_model(model, stages_off),
+        render_threat_model(
+            facts.model,
+            facts.stages_off,
+            live=facts.live,
+            embedding_mock=facts.embedding_mock,
+            embedding_model=facts.embedding_model,
+        ),
     ]
     path = run_dir / "analyses.md"
     path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")

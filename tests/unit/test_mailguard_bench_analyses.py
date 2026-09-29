@@ -209,6 +209,61 @@ def test_run_analyses_credits_a_triage_stopped_attack_to_triage_not_to_the_model
     assert "(`a1`," not in text  # triage's stop is no worked example of the guard
 
 
+def _threat_model_of(path: Path) -> str:
+    """The threat-model section on one line (it is hard-wrapped, so a phrase may span lines)."""
+    text = path.read_text("utf-8")
+    return " ".join(text[text.index("## Threat model and limitations") :].split())
+
+
+def test_run_analyses_describes_a_live_run_by_its_transport(tmp_path: Path) -> None:
+    from tests.unit.test_mailguard_bench_report import GPT_C0_META, GPT_C3_META
+
+    run = _live_run_dir(tmp_path)
+    embedding = {
+        "mock": False,
+        "model": "gemini-embedding-001",
+        "dimension": 1536,
+        "base_url_host": "generativelanguage.googleapis.com",
+    }
+    for config, meta in (("C0", GPT_C0_META), ("C3", GPT_C3_META)):
+        (run / "raw" / f"{config}.meta.json").write_text(
+            json.dumps({**meta, "embedding": embedding}), "utf-8"
+        )
+
+    text = _threat_model_of(run_analyses(run, train_half=list, l1_rows=lambda source: []))
+
+    assert "not exercised" not in text
+    assert "every case is routed to drafting" not in text
+    assert "text/plain" in text and "guard ASR" in text
+    assert "`gemini-embedding-001`" in text and "`gpt-4o-mini`" in text
+
+
+def test_run_analyses_of_a_live_run_on_the_mock_embedder_keeps_the_lexical_warning(
+    tmp_path: Path,
+) -> None:
+    from tests.unit.test_mailguard_bench_report import GPT_C0_META, GPT_C3_META
+
+    run = _live_run_dir(tmp_path)
+    for config, meta in (("C0", GPT_C0_META), ("C3", GPT_C3_META)):
+        mock = {**meta, "embedding": {"mock": True, "model": "text-embedding-3-small"}}
+        (run / "raw" / f"{config}.meta.json").write_text(json.dumps(mock), "utf-8")
+
+    text = _threat_model_of(run_analyses(run, train_half=list, l1_rows=lambda source: []))
+
+    assert "retrieval is effectively lexical" in text
+    assert "text-embedding-3-small" not in text  # a mock embedder has no model to name
+    assert "not exercised" not in text  # the services still ran
+
+
+def test_run_analyses_of_an_in_process_run_keeps_its_limitations_text(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)  # v1 rows and a v1 meta: no transport key
+
+    text = _threat_model_of(run_analyses(run, train_half=list, l1_rows=lambda source: []))
+
+    assert "triage (every case is routed to drafting) are not exercised" in text
+    assert "guard ASR" not in text
+
+
 def test_run_analyses_needs_scored_c3(tmp_path: Path) -> None:
     run = _run_dir(tmp_path)
     (run / "ragemail__C3.jsonl").unlink()

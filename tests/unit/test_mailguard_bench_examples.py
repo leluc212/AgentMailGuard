@@ -165,6 +165,55 @@ def test_threat_model_names_the_run_model_and_the_guard_stages_that_did_not_run(
     assert "did not run" not in render_threat_model("qwen2.5:7b-instruct")
 
 
+def flat(text: str) -> str:
+    """The text on one line: the section is hard-wrapped, so a phrase may span two lines."""
+    return " ".join(text.split())
+
+
+def test_threat_model_of_an_in_process_run_says_what_it_does_not_exercise() -> None:
+    text = flat(render_threat_model("gpt-4o-mini"))
+
+    assert "triage (every case is routed to drafting) are not exercised" in text
+    assert "are not measured" in text and "retrieval is effectively lexical" in text
+    assert "meaning-based" not in text and "pipeline ASR" not in text
+
+
+def test_threat_model_of_a_live_run_describes_the_live_pipeline_not_the_in_process_one() -> None:
+    text = flat(
+        render_threat_model("gpt-4o-mini", live=True, embedding_model="gemini-embedding-001")
+    )
+
+    # The v1 method sentences would misdescribe a run in which every service ran.
+    assert "not exercised" not in text
+    assert "every case is routed to drafting" not in text
+    assert "already-cleaned" not in text
+    assert "effectively lexical" not in text
+    # What a live run does: triage decides what reaches the guard, hence two ASRs.
+    assert "text/plain" in text
+    assert "triage cascade" in text
+    assert "pipeline ASR" in text and "guard ASR" in text
+    assert "meaning-based second column" in text
+    assert "`gemini-embedding-001`" in text
+    assert "every LLM role" in text and "`gpt-4o-mini`" in text
+    # The parts that do not depend on the transport are still there.
+    assert "Transfer test, not an adaptive attack" in text
+    assert "**Leakage.**" in text and "**No tools.**" in text
+    assert "LLM01:2025" in text
+
+
+def test_threat_model_of_a_live_run_with_the_mock_embedder_keeps_the_lexical_warning() -> None:
+    text = flat(render_threat_model("gpt-4o-mini", live=True, embedding_mock=True))
+
+    assert "retrieval is effectively lexical" in text
+    assert "not exercised" not in text  # the services still ran
+
+
+def test_threat_model_of_a_live_run_still_lists_the_guard_stages_that_did_not_run() -> None:
+    text = flat(render_threat_model("gpt-4o-mini", ["L4's LLM output check"], live=True))
+
+    assert "L4's LLM output check" in text and "did not run" in text
+
+
 def test_threat_model_names_the_framing_identifiers() -> None:
     text = render_threat_model("gpt-4o-mini")
     for ident in (
