@@ -17,11 +17,18 @@ budget, so the first job of a fresh worker is reranked like every other.
 
 ``rerank_score`` is a relevance probability between 0 and 1, the scale of
 RETRIEVAL__RELEVANCE_FLOOR and of the complexity router's ROUTER_MIN_RELEVANCE_SCORE.
+
+predict is CPU-bound and cannot be interrupted, and ``asyncio.wait_for`` cancels only the job that
+awaits it, so a rerank that ran past its budget leaves its predict computing. The reranker runs
+predict on one thread of its own: predicts never overlap, a predict still queued when its rerank
+is cancelled never starts, and while an abandoned predict is still computing the next rerank
+falls back at once (``RerankerBusyError``, reason ``busy``) instead of waiting for the cores.
 """
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import functools
 import logging
@@ -48,6 +55,13 @@ DEFAULT_LOAD_TIMEOUT_SECONDS = 60.0
 
 class RerankerUnavailableError(Exception):
     """Raised when the semantic reranker is not available or fails to initialize."""
+
+
+class RerankerBusyError(RerankerUnavailableError):
+    """Raised when an earlier predict ran past its budget and is still computing (R11.5).
+
+    The rerank falls back to RRF order at once instead of queueing behind work nobody awaits.
+    """
 
 
 class Reranker(Protocol):
@@ -162,9 +176,9 @@ class CrossEncoderReranker:
 
     ``rerank_score`` is the probability the model's logit stands for, ``sigmoid(logit)``, so it
     lies between 0 and 1 and can be compared with RETRIEVAL__RELEVANCE_FLOOR and the router's
-    ROUTER_MIN_RELEVANCE_SCORE. The ms-marco cross-encoders return an unbounded raw logit
-    (the sentence-transformers docs show 8.6 for a match and -4.3 for a miss); the logit is what
-    the model produces and the sigmoid is what a relevance bar can be set against.
+    ROUTER_MIN_RELEVANCE_SCORE. The ms-marco cross-encoders themselves return an unbounded raw
+    logit (the sentence-transformers docs show 8.6 for a match and -4.3 for a miss), which no
+    0..1 bar can be set against. predict runs on one thread of its own (see the module docstring).
     """
 
     def __init__(
@@ -194,6 +208,12 @@ class CrossEncoderReranker:
         self._available: bool | None = None
         # rerank() loads in a worker thread: racing first calls must build the model once.
         self._load_lock = threading.Lock()
+        # One thread for every predict (see the module docstring); it starts on the first one.
+        self._predict_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="rerank-predict"
+        )
+        # The predict of a rerank that was cancelled, kept to tell whether it is still running.
+        self._abandoned: concurrent.futures.Future[Any] | None = None
 
     def _load_model(self) -> Any:
         if self._model is not None:
@@ -228,6 +248,12 @@ class CrossEncoderReranker:
             )
             return self._model
 
+    @property
+    def busy(self) -> bool:
+        """True while the predict of a cancelled rerank is still computing (R11.5)."""
+        abandoned = self._abandoned
+        return abandoned is not None and not abandoned.done()
+
     def warm_up(self) -> None:
         """Load the model now (R11.1). Blocking: call it in a worker thread, never on the loop.
 
@@ -242,10 +268,19 @@ class CrossEncoderReranker:
         candidates: Sequence[Candidate],
         top_k: int | None = None,
     ) -> list[Candidate]:
-        """Compute cross-encoder relevance scores for query-candidate pairs."""
+        """Compute cross-encoder relevance scores for query-candidate pairs.
+
+        Raises:
+            RerankerBusyError: If a predict of an earlier, cancelled rerank is still computing.
+            RerankerUnavailableError: If the dependency or the model cannot be loaded.
+        """
         if not candidates:
             return []
 
+        if self.busy:
+            raise RerankerBusyError(
+                f"An earlier {self.model_name} predict ran past its budget and is still computing"
+            )
         loop = asyncio.get_running_loop()
         model = self._model
         if model is None:
@@ -254,10 +289,17 @@ class CrossEncoderReranker:
             model = await loop.run_in_executor(None, self._load_model)
         pairs = [(query, c.content) for c in candidates]
 
-        # Run CPU/GPU bound prediction in threadpool to avoid blocking asyncio loop
-        logits = await loop.run_in_executor(
-            None, functools.partial(model.predict, pairs, activation_fn=_raw_logits)
+        # Run CPU/GPU bound prediction on the predict thread to avoid blocking asyncio loop
+        predict = self._predict_pool.submit(
+            functools.partial(model.predict, pairs, activation_fn=_raw_logits)
         )
+        try:
+            logits = await asyncio.wrap_future(predict)
+        except asyncio.CancelledError:
+            # wait_for cancels this coroutine and drops a predict that is still queued, but a
+            # predict that already computes runs on; remember it so the next rerank can tell.
+            self._abandoned = predict
+            raise
 
         scored: list[Candidate] = []
         for cand, logit in zip(candidates, logits, strict=True):
@@ -344,7 +386,8 @@ def _log_rerank(
 ) -> None:
     """Emit the structured ``rerank`` event of one attempt (R21.3).
 
-    ``outcome`` is ``applied`` or the fallback reason (``timeout``, ``unavailable``, ``error``).
+    ``outcome`` is ``applied`` or the fallback reason (``timeout``, ``busy``, ``unavailable``,
+    ``error``).
     """
     with contextlib.suppress(Exception):  # logging must never fail the job
         fields: dict[str, Any] = {
@@ -529,7 +572,12 @@ class RerankService:
         except Exception as err:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             msg = str(err)
-            reason = "unavailable" if isinstance(err, RerankerUnavailableError) else "error"
+            if isinstance(err, RerankerBusyError):
+                reason = "busy"
+            elif isinstance(err, RerankerUnavailableError):
+                reason = "unavailable"
+            else:
+                reason = "error"
             logger.warning(
                 "Reranker unavailable/failed for tenant %s (%s); falling back to RRF order (R11.5)",
                 organization_id,

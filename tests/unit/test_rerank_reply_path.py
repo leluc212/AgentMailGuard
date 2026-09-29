@@ -2,8 +2,9 @@
 
 The ai-worker loads the cross-encoder from the image's model folder with no network, loads it
 once and off the event loop, and keeps that one-time load out of the per-rerank budget so the
-first job of a fresh worker is reranked like every other. Every model here is a fake: nothing
-loads torch, reads weights or touches the network.
+first job of a fresh worker is reranked like every other. Its scores are probabilities, and its
+predict runs on one thread of its own. Every model here is a fake: nothing loads torch, reads
+weights or touches the network.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from packages.observability.metrics import create_pipeline_metrics, generate_met
 from packages.retrieval.models import Candidate
 from packages.retrieval.rerank import (
     CrossEncoderReranker,
+    RerankerBusyError,
     RerankerUnavailableError,
     RerankPolicy,
     RerankService,
@@ -241,6 +243,164 @@ class TestCrossEncoderScores:
         )
 
         assert [(c.chunk_id, c.rerank_score) for c in ranked] == [("hi", 1.0), ("lo", 0.0)]
+
+
+class _PredictModel:
+    """A model whose predict() cannot be interrupted, like a torch forward pass on the CPU.
+
+    Each call notes its thread and how many predicts overlap, sleeps ``seconds`` and waits until
+    ``gate`` is set: a ``blocked`` model holds every predict until the test opens the gate.
+    """
+
+    def __init__(self, *, seconds: float = 0.0, blocked: bool = False) -> None:
+        self.seconds = seconds
+        self.gate = threading.Event()
+        if not blocked:
+            self.gate.set()
+        self.calls = 0
+        self.running = 0
+        self.max_running = 0
+        self.threads: list[str] = []
+        self._lock = threading.Lock()
+
+    def predict(
+        self, pairs: list[tuple[str, str]], activation_fn: Callable[[Any], Any] | None = None
+    ) -> list[float]:
+        with self._lock:
+            self.calls += 1
+            self.running += 1
+            self.max_running = max(self.max_running, self.running)
+            self.threads.append(threading.current_thread().name)
+        try:
+            time.sleep(self.seconds)
+            self.gate.wait(timeout=10)  # bounded: a failing test must not hang the suite
+            return [float(len(passage)) for _, passage in pairs]
+        finally:
+            with self._lock:
+                self.running -= 1
+
+
+async def _until(predicate: Callable[[], bool], what: str, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out waiting for {what}")
+        await asyncio.sleep(0.005)
+
+
+class TestPredictWorker:
+    """R11.5: the rerank budget bounds how long a job waits, and how much CPU predict may use.
+
+    asyncio.wait_for cancels the awaiting coroutine, never a predict that is already computing.
+    The reranker runs predict on one thread of its own, so an abandoned predict cannot overlap
+    the next job's and a predict still queued when its rerank is cancelled never starts.
+    """
+
+    POOL = (_candidate("a", "a"), _candidate("bb", "bb"))
+
+    @staticmethod
+    def _reranker(model: _PredictModel) -> CrossEncoderReranker:
+        reranker = CrossEncoderReranker("org/model")
+        reranker._model = model
+        return reranker
+
+    def _service(self, model: _PredictModel, **kwargs: Any) -> RerankService:
+        return RerankService(self._reranker(model), **kwargs)
+
+    @staticmethod
+    async def _idle(reranker: CrossEncoderReranker) -> None:
+        """Wait for the abandoned predict to finish: the worker thread is free again."""
+        await _until(lambda: not reranker.busy, "the abandoned predict to finish")
+
+    async def test_predicts_never_overlap_and_run_on_the_rerankers_own_thread(self) -> None:
+        model = _PredictModel(seconds=0.05)
+        service = self._service(model, timeout_seconds=5)
+
+        results = await asyncio.gather(*(service.rerank("q", self.POOL) for _ in range(4)))
+
+        assert all(r.rerank_applied for r in results)
+        assert model.calls == 4 and model.max_running == 1
+        assert len(set(model.threads)) == 1 and "rerank" in model.threads[0]
+
+    async def test_a_rerank_behind_a_live_predict_waits_its_turn(self) -> None:
+        """Two jobs at once are normal: the second is not turned away while the first is in time."""
+        model = _PredictModel(seconds=0.1)
+        service = self._service(model, timeout_seconds=5)
+
+        first = asyncio.create_task(service.rerank("q", self.POOL))
+        await _until(lambda: model.calls == 1, "the first predict to start")
+        second = await service.rerank("q", self.POOL)
+
+        assert (await first).rerank_applied and second.rerank_applied
+        assert model.calls == 2 and model.max_running == 1
+
+    async def test_a_queued_predict_is_dropped_when_its_rerank_times_out(self) -> None:
+        model = _PredictModel(blocked=True)
+        service = self._service(model, timeout_seconds=5)
+        try:
+            first = asyncio.create_task(service.rerank("q", self.POOL))
+            await _until(lambda: model.calls == 1, "the first predict to start")
+            second = await service.rerank("q", self.POOL, timeout=0.05)  # queued behind it
+        finally:
+            model.gate.set()
+        first_result = await first
+        await asyncio.sleep(0.05)  # the worker is free now: it would start a queued predict here
+        third = await service.rerank("q", self.POOL)
+
+        assert not second.rerank_applied and "Timeout" in (second.fallback_reason or "")
+        assert first_result.rerank_applied and third.rerank_applied
+        assert model.calls == 2, "the queued predict of the timed-out rerank never started"
+
+    async def test_after_a_timeout_the_next_rerank_falls_back_at_once_and_starts_no_predict(
+        self,
+    ) -> None:
+        metrics = create_pipeline_metrics()
+        model = _PredictModel(blocked=True)
+        reranker = self._reranker(model)
+        service = RerankService(reranker, timeout_seconds=2, metrics=metrics)
+        try:
+            first = await service.rerank("q", self.POOL, organization_id="org-1", timeout=0.05)
+            second = await service.rerank("q", self.POOL, organization_id="org-1")
+            calls_after_second = model.calls
+        finally:
+            model.gate.set()
+        await self._idle(reranker)
+        third = await service.rerank("q", self.POOL, organization_id="org-1")
+
+        assert not first.rerank_applied and "Timeout" in (first.fallback_reason or "")
+        assert not second.rerank_applied and second.fallback_recorded
+        assert [c.chunk_id for c in second.candidates] == ["a", "bb"], "RRF order"
+        assert second.latency_ms < 500, "it must not wait out its own 2 s budget"
+        assert calls_after_second == 1, "no second predict started while the first still ran"
+        assert third.rerank_applied and model.calls == 2
+        payload = generate_metrics_payload(metrics.registry)[0].decode()
+        assert 'rerank_fallback_total{reason="timeout",tenant="org-1"} 1.0' in payload
+        assert 'rerank_fallback_total{reason="busy",tenant="org-1"} 1.0' in payload
+
+    async def test_a_predict_left_running_makes_the_reranker_busy_until_it_ends(self) -> None:
+        model = _PredictModel(blocked=True)
+        reranker = self._reranker(model)
+        try:
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(reranker.rerank("q", self.POOL), timeout=0.05)
+            assert reranker.busy
+            with pytest.raises(RerankerBusyError, match="still computing"):
+                await reranker.rerank("q", self.POOL)
+            assert model.calls == 1
+        finally:
+            model.gate.set()
+        await self._idle(reranker)
+
+        ranked = await reranker.rerank("q", self.POOL)
+
+        assert [c.chunk_id for c in ranked] == ["bb", "a"]
+
+    def test_a_fresh_reranker_is_not_busy(self) -> None:
+        assert not CrossEncoderReranker("org/model").busy
+
+    def test_busy_is_a_kind_of_unavailable(self) -> None:
+        """Whatever already handles an unavailable reranker (R11.5) handles a busy one."""
+        assert issubclass(RerankerBusyError, RerankerUnavailableError)
 
 
 class _WarmableReranker:
