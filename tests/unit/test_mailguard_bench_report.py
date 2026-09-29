@@ -317,3 +317,91 @@ def test_build_report_adds_c0t_columns_and_its_mcnemar_when_c0t_ran(tmp_path: Pa
     summary = json.loads((run / "summary.json").read_text("utf-8"))
     assert set(summary["paired"]) == {"LLMail-Inject C0 vs C3", "LLMail-Inject C0T vs C3"}
     assert (run / "ragemail__C0T.jsonl").exists()
+
+
+# --- build_report / main refuse bad runs (Review Focus 1). These run in CI: with empty raw
+# files score_records never touches the harness, so stub modules stand in for mailguard.
+
+
+def _empty_run(tmp_path: Path, metas: dict[str, dict[str, Any]]) -> Path:
+    run = tmp_path / "bad_run"
+    (run / "raw").mkdir(parents=True)
+    (run / "cases.jsonl").write_text(json.dumps(_case("attack-llmail-a", "attack")) + "\n")
+    (run / "case_manifest.json").write_text(
+        json.dumps({"llmail_attack_ids": ["attack-llmail-a"], "benign_ids": []}), "utf-8"
+    )
+    for config, meta in metas.items():
+        (run / "raw" / f"{config}.jsonl").write_text("", "utf-8")
+        (run / "raw" / f"{config}.meta.json").write_text(json.dumps(meta), "utf-8")
+    return run
+
+
+def _build(run: Path) -> Path:
+    from types import ModuleType
+
+    from evaluation.mailguard_bench.report import build_report
+
+    return build_report(
+        run,
+        harness=ModuleType("stub_harness"),
+        metrics=ModuleType("stub_metrics"),
+        prices=PRICES,
+        mailguard_dir=run,
+    )
+
+
+WEAKENED_C3 = {
+    "allow_degraded": {**C3_META, "degraded_allowed": True},
+    "missing_stage": {
+        **C3_META,
+        "guard": {**C3_META["guard"], "missing_live_stages": ["l1.classifier"]},
+    },
+    "fewer_layers": {
+        **C3_META,
+        "guard": {"active_layers": ["l1", "l2", "l3", "l5"], "missing_live_stages": []},
+    },
+}
+
+
+@pytest.mark.parametrize("weakness", sorted(WEAKENED_C3))
+def test_build_report_refuses_a_weakened_c3_run(tmp_path: Path, weakness: str) -> None:
+    run = _empty_run(tmp_path, {"C0": C0_META, "C3": WEAKENED_C3[weakness]})
+    with pytest.raises(ValueError, match="refusing to score a weakened guard run"):
+        _build(run)
+    assert not (run / "report.md").exists()
+
+
+OFF_PIN = {
+    "fake_provider": {
+        "C0": C0_META,
+        "C3": {**C3_META, "generation": {**C3_META["generation"], "provider": "fake"}},
+    },
+    "other_case_set": {"C0": C0_META, "C3": {**C3_META, "cases_sha256": "9" * 64}},
+}
+
+
+@pytest.mark.parametrize("case", sorted(OFF_PIN))
+def test_build_report_refuses_runs_off_the_pinned_settings(tmp_path: Path, case: str) -> None:
+    run = _empty_run(tmp_path, OFF_PIN[case])
+    with pytest.raises(ValueError, match="off the pinned settings"):
+        _build(run)
+    assert not (run / "report.md").exists()
+
+
+def test_report_main_prints_fail_and_exits_1_for_a_weakened_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import ModuleType
+
+    from evaluation.mailguard_bench import report
+
+    monkeypatch.setattr(report, "load_amg_harness", lambda _d: ModuleType("stub_harness"))
+    monkeypatch.setattr(report, "load_amg_metrics", lambda _d: ModuleType("stub_metrics"))
+    run = _empty_run(tmp_path, {"C0": C0_META, "C3": WEAKENED_C3["allow_degraded"]})
+
+    code = report.main(["--run-dir", str(run), "--mailguard-dir", str(tmp_path)])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL refusing to score a weakened guard run")
+    assert not (run / "report.md").exists()
