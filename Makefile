@@ -152,7 +152,7 @@ mailguard-smoke:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke
 
 mailguard-probe:
-	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke --live-probe
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke --live-probe $(if $(MODEL),--model-profile $(MODEL))
 
 mailguard-test:
 	$(MAILGUARD_UV) python -m pytest tests/unit/test_mailguard_bench_guard.py -v
@@ -164,12 +164,14 @@ RUN ?=
 MAILGUARD_LLM_TIMEOUT_S ?= 60
 
 mailguard-bench:
-	@case "$(CONFIG)" in C0|C3|C0T|C1|C2) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [LIMIT=n]"; exit 2;; esac
+	@case "$(CONFIG)" in C0|C3|C0T|C1|C2) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [MODEL=gpt-4o-mini|llama-3.1-8b|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]"; exit 2;; esac
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
 		--config $(CONFIG) --run $(RUN) --retry-errors \
 		--llm-timeout-s $(MAILGUARD_LLM_TIMEOUT_S) \
-		$(if $(LIMIT),--limit $(LIMIT))
+		$(if $(LIMIT),--limit $(LIMIT)) \
+		$(if $(MODEL),--model-profile $(MODEL)) \
+		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY))
 
 mailguard-bench-test:
 	$(MAILGUARD_UV) python -m pytest \

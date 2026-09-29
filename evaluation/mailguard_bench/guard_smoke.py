@@ -50,6 +50,7 @@ from evaluation.mailguard_bench.guard_factory import (
     live_layers,
     require_live,
 )
+from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile
 from packages.core.settings import AppSettings
 
 SMOKE_EMAIL: dict[str, Any] = {
@@ -106,7 +107,10 @@ def run(argv: Sequence[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="AgentMailGuard install and wiring check.")
     ap.add_argument("--model", default=DEFAULT_GUARD_MODEL)
     ap.add_argument("--live-probe", action="store_true", help="make ONE real guard-judge call")
+    ap.add_argument("--model-profile", choices=sorted(PROFILES), default=None)
     args = ap.parse_args(argv)
+    updates, args.model = resolve_profile(args.model_profile, os.environ, args.model)
+    os.environ.update(updates)  # before AppSettings reads the env
 
     paths = guard_paths_from_env(os.environ)
     info = require_pinned_worktree(paths.root, paths.commit)

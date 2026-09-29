@@ -42,7 +42,7 @@ from evaluation.mailguard_bench.artifacts import (
     summarize_config,
     write_metrics_csv,
 )
-from evaluation.mailguard_bench.guard_env import DEFAULT_GUARD_MODEL
+from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.scoring import RawRecord, read_raw, score_records
 from packages.core.settings import AppSettings, ModelPricing
@@ -109,12 +109,14 @@ def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[st
 
 
 def settings_problems(config: str, meta: Mapping[str, Any] | None) -> list[str]:
-    """Why a run did not use the live pinned model (empty when it did).
+    """Why a run did not use one live benchmark model (empty when it did).
 
     Every scored config needs its run meta. The generation call must not be the fake
-    provider and must use the pinned model; a guarded config's guard stages must too
-    (the guard registry's own "fake" backend counts as a live stage, so the live-stage
-    check alone does not catch it). C0 has no guard stage, so its guard model is ignored.
+    provider and must use one of the benchmark's model profiles (owner decision
+    2026-09-29: GPT-4o-mini, Llama-3.1-8B, Qwen2.5-7B, and the first test run's Gemma); a
+    guarded config's guard stages must use that same model (the guard registry's own "fake"
+    backend counts as a live stage, so the live-stage check alone does not catch it). C0 has
+    no guard stage, so its guard model is ignored.
     """
     if meta is None:
         return [f"{config}: raw/{config}.meta.json is missing"]
@@ -122,15 +124,13 @@ def settings_problems(config: str, meta: Mapping[str, Any] | None) -> list[str]:
     generation = meta.get("generation") or {}
     if str(generation.get("provider") or "").strip().lower() == "fake":
         problems.append(f"{config}: generation provider is 'fake'")
-    if meta.get("generation_model") != DEFAULT_GUARD_MODEL:
+    model = meta.get("generation_model")
+    if model not in BENCH_MODELS:
+        problems.append(f"{config}: generation model {model!r} is not a benchmark model profile")
+    if config != "C0" and meta.get("guard_models") != model:
         problems.append(
-            f"{config}: generation model {meta.get('generation_model')!r} is not the pinned "
-            f"{DEFAULT_GUARD_MODEL!r}"
-        )
-    if config != "C0" and meta.get("guard_models") != DEFAULT_GUARD_MODEL:
-        problems.append(
-            f"{config}: guard model {meta.get('guard_models')!r} is not the pinned "
-            f"{DEFAULT_GUARD_MODEL!r}"
+            f"{config}: guard model {meta.get('guard_models')!r} is not the generation model "
+            f"{model!r}"
         )
     return problems
 

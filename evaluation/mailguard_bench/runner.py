@@ -68,6 +68,7 @@ from evaluation.mailguard_bench.guard_env import (
     sha256_file,
 )
 from evaluation.mailguard_bench.guarded_reply import CaseExecution, GuardedCaseExecutor
+from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
@@ -466,6 +467,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--llm-timeout-s", type=float, default=None)
     parser.add_argument("--guard-model", default=DEFAULT_GUARD_MODEL)
     parser.add_argument(
+        "--model-profile",
+        choices=sorted(PROFILES),
+        default=None,
+        help="live model for BOTH the generation call and the guard judges (model_profiles.py)",
+    )
+    parser.add_argument(
         "--allow-degraded",
         action="store_true",
         help="run even when a guard stage the preset needs is not live (the report refuses it)",
@@ -473,7 +480,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def apply_model_profile(args: argparse.Namespace, environ: Mapping[str, str]) -> dict[str, str]:
+    """Settings for the chosen model profile; also points the guard judges at that model."""
+    updates, args.guard_model = resolve_profile(args.model_profile, environ, args.guard_model)
+    return updates
+
+
 async def run(args: argparse.Namespace) -> int:
+    os.environ.update(apply_model_profile(args, os.environ))  # before AppSettings reads the env
     paths = guard_paths_from_env(os.environ)
     require_pinned_worktree(paths.root, paths.commit)
     require_module_origins(REPO_ROOT, paths.root)

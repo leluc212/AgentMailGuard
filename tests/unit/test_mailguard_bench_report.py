@@ -92,7 +92,7 @@ def test_c0t_is_checked_as_a_guarded_config() -> None:
     assert degradation_problems("C0", guarded_c0) == ["C0: active layers ['l1'] are not []"]
     assert settings_problems("C0T", C0T_META) == []
     assert settings_problems("C0T", {**C0T_META, "guard_models": "fake"}) == [
-        "C0T: guard model 'fake' is not the pinned 'gemma-4-26b-a4b-it'"
+        "C0T: guard model 'fake' is not the generation model 'gemma-4-26b-a4b-it'"
     ]
 
 
@@ -104,13 +104,22 @@ def test_fake_or_unpinned_models_are_refused() -> None:
     assert settings_problems("C0", None) == ["C0: raw/C0.meta.json is missing"]
     fake_gen = {**C3_META, "generation": {**C3_META["generation"], "provider": "fake"}}
     assert settings_problems("C3", fake_gen) == ["C3: generation provider is 'fake'"]
-    other = {**C3_META, "generation_model": "gemma-3-27b-it"}
+    other = {**C3_META, "generation_model": "gemma-3-27b-it", "guard_models": "gemma-3-27b-it"}
     assert settings_problems("C3", other) == [
-        "C3: generation model 'gemma-3-27b-it' is not the pinned 'gemma-4-26b-a4b-it'"
+        "C3: generation model 'gemma-3-27b-it' is not a benchmark model profile"
     ]
     fake_guard = {**C3_META, "guard_models": "fake"}
     assert settings_problems("C3", fake_guard) == [
-        "C3: guard model 'fake' is not the pinned 'gemma-4-26b-a4b-it'"
+        "C3: guard model 'fake' is not the generation model 'gemma-4-26b-a4b-it'"
+    ]
+    # Owner decision 2026-09-29: GPT-4o-mini, Llama-3.1-8B and Qwen2.5-7B are live benchmark
+    # models too; one model writes the reply and judges for the guard in a run.
+    for model in ("gpt-4o-mini", "meta-llama/llama-3.1-8b-instruct", "qwen2.5:7b-instruct"):
+        meta = {**C3_META, "generation_model": model, "guard_models": model}
+        assert settings_problems("C3", meta) == []
+    mixed = {**C3_META, "generation_model": "gpt-4o-mini", "guard_models": "qwen2.5:7b-instruct"}
+    assert settings_problems("C3", mixed) == [
+        "C3: guard model 'qwen2.5:7b-instruct' is not the generation model 'gpt-4o-mini'"
     ]
     assert settings_problems("C0", {**C0_META, "guard_models": "fake"}) == []  # C0 has no guard
 

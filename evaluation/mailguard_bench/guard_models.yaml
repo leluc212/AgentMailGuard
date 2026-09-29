@@ -12,3 +12,20 @@ models:
     model: gemma-4-26b-a4b-it
     json_mode: json_object
     timeout_s: 60
+  # Owner decision 2026-09-29: the benchmark's three models. Endpoints and keys come from the
+  # process env set by model_profiles.profile_env (OpenAI, OpenRouter, the desktop's Ollama).
+  gpt-4o-mini:
+    backend: openai
+    model: gpt-4o-mini
+    json_mode: json_object
+    timeout_s: 60
+  meta-llama/llama-3.1-8b-instruct:
+    backend: openai
+    model: meta-llama/llama-3.1-8b-instruct
+    json_mode: json_object
+    timeout_s: 60
+  qwen2.5:7b-instruct:
+    backend: openai
+    model: qwen2.5:7b-instruct
+    json_mode: json_object
+    timeout_s: 120

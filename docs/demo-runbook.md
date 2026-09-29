@@ -425,6 +425,84 @@ git commit -m "docs(eval): AgentMailGuard benchmark results, run 2026-09-29-a [t
 
 `manifest.json` records both branches' commit SHAs, the case-manifest hash, the models, and which guard stages were live, so the numbers can be traced to exact code.
 
+### 9.8 The three benchmark models on the desktop (owner decision 2026-09-29)
+
+Every run is live: real endpoints, real calls. One `RUN` folder per model; in each run the same model writes rag-email's reply and serves as the guard's L1/L2 judge.
+
+```
+desktop, three runs in parallel
+  RUN=2026-09-29-gpt4omini  MODEL=gpt-4o-mini   ─▶ api.openai.com         key BENCH_OPENAI_API_KEY
+  RUN=2026-09-29-llama31    MODEL=llama-3.1-8b  ─▶ openrouter.ai          key BENCH_OPENROUTER_API_KEY
+  RUN=2026-09-29-qwen25     MODEL=qwen2.5-7b    ─▶ Ollama on this desktop (no key)
+  each: C0 → C3 → C0T → C1 → C2, then make mailguard-analyses
+```
+
+**1. Get the project onto the desktop.** On Windows, do everything below inside **WSL 2 (Ubuntu)** with Docker Desktop's WSL integration on; the Makefile needs bash. On Linux, run it directly.
+
+```bash
+git clone https://github.com/leluc212/AgentMailGuard.git rag-email && cd rag-email
+git checkout RAG_Email_System
+cp .env.example .env           # then add the lines in step 3
+make up                        # Postgres, RabbitMQ and the app services (migrations included)
+make seed
+make mailguard-worktree        # AgentMailGuard at the pinned commit, next to the repo
+make mailguard-prep            # LLMail-Inject download, L1 classifier (no API key)
+make mailguard-cases           # must print the same sha256=c00dddca… as the laptop
+make mailguard-smoke
+```
+
+**2. Ollama and Qwen (local model).** A GPU with 8 GB of VRAM is enough for the 4-bit `qwen2.5:7b-instruct`.
+
+- Linux: `curl -fsSL https://ollama.com/install.sh | sh`
+- Windows: install the Ollama app from https://ollama.com/download. From WSL, reach it at the Windows host: set `BENCH_OLLAMA_BASE_URL=http://<windows-host-ip>:11434/v1` in `.env` (`ip route | awk '/default/ {print $3}'` prints the host IP), and set the Windows environment variable `OLLAMA_HOST=0.0.0.0` before starting Ollama.
+
+```bash
+ollama pull qwen2.5:7b-instruct
+ollama run qwen2.5:7b-instruct "Reply with OK"      # the model loads and answers
+```
+
+**3. Keys in `.env`** (never committed):
+
+```bash
+BENCH_OPENAI_API_KEY=<your OpenAI key>              # GPT-4o-mini
+BENCH_OPENROUTER_API_KEY=<your OpenRouter key>      # Llama-3.1-8B
+# BENCH_OLLAMA_BASE_URL=http://<host>:11434/v1      # only when Ollama is not on localhost
+```
+
+**4. Probe each model once** (one live guard-judge call each; all three must print `ok live probe`):
+
+```bash
+make mailguard-probe MODEL=gpt-4o-mini
+make mailguard-probe MODEL=llama-3.1-8b
+make mailguard-probe MODEL=qwen2.5-7b
+```
+
+Then one email per config for each model, so a format problem shows before the full runs (Ollama's handling of the strict JSON-schema reply format is the one to watch):
+
+```bash
+for m in gpt-4o-mini llama-3.1-8b qwen2.5-7b; do
+  for c in C0 C0T C3; do make mailguard-bench RUN=preflight-$m CONFIG=$c MODEL=$m LIMIT=1; done
+done
+```
+
+**5. The three runs, in parallel** (three terminals, or `&` as below). Local Qwen uses one worker, because one GPU answers one request at a time; the API models use two.
+
+```bash
+run_model() {  # $1 profile  $2 RUN  $3 workers
+  for c in C0 C3 C0T C1 C2; do make mailguard-bench RUN=$2 CONFIG=$c MODEL=$1 CONCURRENCY=$3; done
+  for c in C0 C3 C0T C1 C2; do make mailguard-bench RUN=$2 CONFIG=$c MODEL=$1 CONCURRENCY=$3; done  # retry errors
+  make mailguard-analyses RUN=$2
+}
+run_model gpt-4o-mini  2026-09-29-gpt4omini 2 > gpt.log   2>&1 &
+run_model llama-3.1-8b 2026-09-29-llama31   2 > llama.log 2>&1 &
+run_model qwen2.5-7b   2026-09-29-qwen25    1 > qwen.log  2>&1 &
+wait
+```
+
+A stopped run resumes where it left off when you rerun the same command (§9.5). Every command of one `RUN` must use the same `MODEL`; the runner refuses a mix.
+
+**6. Results.** Each `RUN` gets its own `report.md`; keep them as in §9.7. The results page and slides compare the three runs side by side (plus the laptop's Gemma test run, `RUN=2026-09-29-a`).
+
 ---
 
 ## Appendix A: Using your own Google Cloud OAuth client (optional)
