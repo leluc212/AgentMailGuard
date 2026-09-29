@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+from collections.abc import Callable
+from typing import Any
 
 from packages.broker.routing import is_queue_consumed, load_categories_from_yaml
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
@@ -75,8 +77,15 @@ def build_consumers(
     llm_provider: LLMProvider | None = None,
     token_counter: TokenCounter | None = None,
     embedder: Embedder | None = None,
+    drafting_factory: Callable[..., Any] | None = None,
 ) -> list[AIWorkerConsumer]:
-    """Compose one shared generation pipeline and one consumer per lane."""
+    """Compose one shared generation pipeline and one consumer per lane.
+
+    ``drafting_factory`` replaces ``DraftingService`` (the evaluation guard-worker's guarded
+    drafting step). It is called with exactly the keyword arguments ``DraftingService(...)``
+    receives and must return an object with the same public interface: ``draft`` and
+    ``generator``. Default: the stock ``DraftingService``.
+    """
     settings = res.settings
     # The corpus model embeds every query (R5.10); tokens are counted (R9.11).
     query_embedder = embedder or get_embedder(settings.embedding, metrics=res.metrics)
@@ -128,7 +137,8 @@ def build_consumers(
         business_timeout_ms=business.timeout_ms,
         metrics=res.metrics,
     )
-    drafting = DraftingService(
+    make_drafting: Callable[..., Any] = drafting_factory or DraftingService
+    drafting = make_drafting(
         # The plain provider: SinglePassGenerator wraps it per job with its own budget and
         # telemetry; a pre-built BudgetedLLMProvider would keep its own metrics/price table.
         generator=SinglePassGenerator(
