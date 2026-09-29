@@ -34,6 +34,16 @@ from tests.stubs.worker_resources import fake_worker_resources
 
 MODEL = "gpt-4o-mini"
 LINUX_PROC = Path("/proc/self/cmdline").exists()
+GEMINI_HOST = "generativelanguage.googleapis.com"
+# The host-side .env lines of docs/demo-runbook.md 9.9: the guard-worker is a host process and
+# must embed queries as the knowledge-worker container embedded the knowledge base.
+V2_EMBEDDING_ENV = {
+    "EMBEDDING__MOCK": "false",
+    "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
+    "EMBEDDING__DIMENSION": "1536",
+    "EMBEDDING__BASE_URL": f"https://{GEMINI_HOST}/v1beta/openai",
+    "EMBEDDING__API_KEY": "gemini-key-not-real",
+}
 
 
 class _Model:
@@ -114,7 +124,10 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
     """A run of the worker with every outside dependency replaced; os.environ is restored."""
     monkeypatch.chdir(tmp_path)  # AppSettings and with_dot_env read ./.env; there is none here
     for name in list(os.environ):
-        if name.startswith(("LLM__", "BENCH_")) or name in ("OPENAI_BASE_URL", "OPENAI_API_KEY"):
+        if name.startswith(("LLM__", "BENCH_", "EMBEDDING__", "RETRIEVAL__")) or name in (
+            "OPENAI_BASE_URL",
+            "OPENAI_API_KEY",
+        ):
             monkeypatch.delenv(name)
     results = tmp_path / "results"
     paths = GuardPaths(root=tmp_path / "guard", commit="c" * 40, artifacts=tmp_path / "artifacts")
@@ -137,6 +150,7 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
     monkeypatch.setattr(guard_worker, "build_guard", build_guard)
     monkeypatch.setattr(guard_worker, "WorkerRuntime", FakeRuntime)
     with patch.dict(os.environ):  # the run writes the profile and the guard's keys into it
+        os.environ.update(V2_EMBEDDING_ENV)
         yield harness
 
 
@@ -371,17 +385,31 @@ def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
     assert not rig.pid_file("C3").exists()
 
 
+@pytest.mark.parametrize(
+    ("setting", "first", "then", "fact"),
+    [
+        ("LLM__TIMEOUT_S", "60", "15", "llm_timeout_s"),
+        ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", "3000", "500", "retrieval"),
+        ("RETRIEVAL__RERANK_ENABLED", "true", "false", "reranker"),
+        (
+            "EMBEDDING__BASE_URL",
+            V2_EMBEDDING_ENV["EMBEDDING__BASE_URL"],
+            "https://e.test/v1",
+            "embedding",
+        ),
+    ],
+)
 def test_a_restart_under_other_settings_is_refused(
-    rig: Rig, capsys: pytest.CaptureFixture[str]
+    rig: Rig, capsys: pytest.CaptureFixture[str], setting: str, first: str, then: str, fact: str
 ) -> None:
-    os.environ["LLM__TIMEOUT_S"] = "60"
+    os.environ[setting] = first
     assert _start() == 0
-    os.environ["LLM__TIMEOUT_S"] = "15"
+    os.environ[setting] = then
     FakeRuntime.instances.clear()
 
     assert _start() == 1
 
-    assert "llm_timeout_s" in capsys.readouterr().err
+    assert fact in capsys.readouterr().err  # the message names the fact that changed
     assert FakeRuntime.instances == []
     assert len(_meta(rig)["invocations"]) == 1
 
@@ -393,6 +421,79 @@ def test_another_config_or_run_keeps_its_own_history(rig: Rig) -> None:
 
     assert [len(_meta(rig, "C3")["invocations"]), len(_meta(rig, "C1")["invocations"])] == [1, 1]
     assert len(_meta(rig, "C3", run="r2")["invocations"]) == 1
+
+
+def test_the_meta_records_the_settings_the_worker_drafts_with(rig: Rig) -> None:
+    os.environ["LLM__TIMEOUT_S"] = "60"
+    os.environ["RETRIEVAL__RETRIEVAL_TIMEOUT_MS"] = "3000"
+
+    assert _start() == 0
+
+    meta = _meta(rig)
+    assert meta["embedding"] == {
+        "mock": False,
+        "model": "gemini-embedding-001",
+        "dimension": 1536,
+        "base_url_host": GEMINI_HOST,
+    }
+    assert set(meta["reranker"]) == {"enabled", "model"}
+    assert meta["reranker"]["enabled"] is True  # the setting's default: rerank when it can
+    assert meta["retrieval"] == {"top_k": 5, "top_n": 20, "timeout_ms": 3000}
+    assert meta["llm_timeout_s"] == 60.0
+    for fact in ("embedding", "reranker", "retrieval", "llm_timeout_s"):
+        assert meta["fingerprint"][fact] == meta[fact]
+    text = guard_worker.meta_path(rig.run_dir(), "C3").read_text(encoding="utf-8")
+    assert V2_EMBEDDING_ENV["EMBEDDING__API_KEY"] not in text  # the host of the URL, never a key
+    assert "sk-bench" not in text
+
+
+def _refused(rig: Rig, capsys: pytest.CaptureFixture[str]) -> str:
+    """Start the worker, expect the refusal, check nothing was built, started or written."""
+    assert _start() == 1
+    assert rig.built == [] and FakeRuntime.instances == []
+    assert not rig.pid_file("C3").exists()
+    assert not guard_worker.meta_path(rig.run_dir(), "C3").exists()
+    return capsys.readouterr().err
+
+
+def test_main_refuses_the_mock_embedder(rig: Rig, capsys: pytest.CaptureFixture[str]) -> None:
+    # .env without the runbook's Gemini lines leaves EMBEDDING__MOCK at its default (true): the
+    # guarded configs would embed queries with the fake embedder, at the right dimension, against
+    # a knowledge base the knowledge-worker embedded with Gemini, and nothing would say so.
+    os.environ["EMBEDDING__MOCK"] = "true"
+
+    err = _refused(rig, capsys)
+
+    assert "EMBEDDING__MOCK" in err
+
+
+def test_main_refuses_another_embedding_model(rig: Rig, capsys: pytest.CaptureFixture[str]) -> None:
+    os.environ["EMBEDDING__MODEL_NAME"] = "text-embedding-3-small"
+
+    err = _refused(rig, capsys)
+
+    assert "EMBEDDING__MODEL_NAME" in err and "gemini-embedding-001" in err
+
+
+def test_main_refuses_another_embedding_dimension(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    os.environ["EMBEDDING__DIMENSION"] = "768"
+
+    err = _refused(rig, capsys)
+
+    assert "EMBEDDING__DIMENSION" in err and "1536" in err
+
+
+def test_main_with_no_embedding_settings_at_all_names_every_wrong_one(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for name in V2_EMBEDDING_ENV:
+        del os.environ[name]  # what a .env without the runbook's lines gives
+
+    err = _refused(rig, capsys)
+
+    assert "EMBEDDING__MOCK" in err and "EMBEDDING__MODEL_NAME" in err
 
 
 def test_main_reads_a_profile_key_kept_only_in_dot_env(rig: Rig, tmp_path: Path) -> None:

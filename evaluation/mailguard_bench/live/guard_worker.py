@@ -34,7 +34,10 @@ folder). Files, all in ``<run_dir>/raw``:
                                      exactly one line per job
 
 Like a runner resume (``runner.check_resume``), a restart of the same RUN/CONFIG under another
-model or other settings is refused: its drafts and audit lines would mix both into one run.
+model or other settings is refused: its drafts and audit lines would mix both into one run. It
+also refuses to start unless the embedding is the one the knowledge base was embedded with: as a
+host process it reads ``.env``, not the stack env the containers get, and a fake or another
+embedder would make every guarded config's retrieval meaningless without an error.
 
 The guard's audit is AgentMailGuard's own (ADR-0010); rag-email adds no defence logic here.
 """
@@ -52,6 +55,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from evaluation.mailguard_bench.guard_build import (
     BENCH_PRESETS,
@@ -72,7 +76,7 @@ from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingServ
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
-from packages.core.settings import AIWorkerSettings
+from packages.core.settings import AIWorkerSettings, EmbeddingSettings, RetrievalSettings
 from packages.db.migrator import verify_database_vector_dimension
 from packages.knowledge.embedder import get_embedder
 from packages.knowledge.token_counter import TokenCounter
@@ -85,6 +89,10 @@ DEFAULT_PORT = 8014
 """Health and metrics port; the ai-worker container's 8004 is not published to the host."""
 HOST = "127.0.0.1"
 META_SCHEMA = "mailguard-guard-worker.v1"
+V2_EMBEDDING_MODEL = "gemini-embedding-001"
+V2_EMBEDDING_DIMENSION = 1536
+"""The embedding every v2 run shares, and the one the knowledge-worker container embeds the
+knowledge base with (package F's stack_env renders the same two values into the containers)."""
 FINGERPRINT_KEYS = (
     "model_profile",
     "guard_model",
@@ -92,6 +100,9 @@ FINGERPRINT_KEYS = (
     "mailguard_commit",
     "l1_model_sha256",
     "live_layers",
+    "embedding",
+    "reranker",
+    "retrieval",
     "llm_timeout_s",
 )
 """What every start of one RUN/CONFIG must share (``runner.check_resume`` compares it)."""
@@ -171,6 +182,55 @@ def pid_file(path: Path) -> Iterator[None]:
         path.unlink(missing_ok=True)
 
 
+def require_v2_embedding(embedding: EmbeddingSettings) -> None:
+    """Refuse an embedding other than the one the knowledge base was embedded with.
+
+    The guard-worker is a host process: it reads the embedding settings from ``.env``, while the
+    knowledge-worker container gets them from the stack env. Without the runbook's Gemini lines
+    EMBEDDING__MOCK stays true, and every guarded config would embed its queries with the fake
+    embedder, at the right dimension, against a knowledge base Gemini embedded: retrieval would be
+    meaningless and no layer would say so.
+
+    Raises:
+        GuardEnvError: Naming every setting that is wrong and the value it needs.
+    """
+    problems: list[str] = []
+    if embedding.mock:
+        problems.append("EMBEDDING__MOCK is true (the fake embedder), expected false")
+    if embedding.model_name != V2_EMBEDDING_MODEL:
+        problems.append(
+            f"EMBEDDING__MODEL_NAME is {embedding.model_name!r}, expected {V2_EMBEDDING_MODEL!r}"
+        )
+    if embedding.dimension != V2_EMBEDDING_DIMENSION:
+        problems.append(
+            f"EMBEDDING__DIMENSION is {embedding.dimension}, expected {V2_EMBEDDING_DIMENSION}"
+        )
+    if problems:
+        raise GuardEnvError(
+            "the embedding is not the one the knowledge base is embedded with: "
+            + "; ".join(problems)
+            + " (the host-side .env lines of docs/demo-runbook.md 9.9)"
+        )
+
+
+def embedding_facts(embedding: EmbeddingSettings) -> dict[str, Any]:
+    """The embedding setup of the worker; the host of the base URL, never a key."""
+    return {
+        "mock": embedding.mock,
+        "model": embedding.model_name,
+        "dimension": embedding.dimension,
+        "base_url_host": urlsplit(embedding.base_url).hostname,
+    }
+
+
+def reranker_facts(retrieval: RetrievalSettings) -> dict[str, Any]:
+    """Whether the cross-encoder reranks and which model (None until the settings name one)."""
+    return {
+        "enabled": retrieval.rerank_enabled,
+        "model": getattr(retrieval, "rerank_model", None),
+    }
+
+
 def write_meta(path: Path, meta: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(meta, indent=2, default=str) + "\n", encoding="utf-8")
@@ -200,8 +260,9 @@ def worker_meta(
     """The facts of this start, with the fingerprint every start of the run must share.
 
     The runner reads these to check that the worker it is about to use runs the model, the guard
-    stages and the settings the runner describes itself with. ``guard`` holds ``describe()``,
-    the shape of the runner's own ``guard`` block, so the two compare key by key.
+    stages and the settings the runner describes itself with. ``guard`` holds ``describe()`` and
+    ``embedding``, ``reranker`` and ``retrieval`` have the shape of the runner's own blocks of
+    those names, so the two compare key by key.
     """
     facts = guard.describe()
     meta: dict[str, Any] = {
@@ -216,6 +277,13 @@ def worker_meta(
         "mailguard_commit": facts["mailguard_commit"],
         "l1_model_sha256": facts["l1_model_sha256"],
         "live_layers": facts["live_layers"],
+        "embedding": embedding_facts(settings.embedding),
+        "reranker": reranker_facts(settings.retrieval),
+        "retrieval": {
+            "top_k": settings.retrieval.top_k,
+            "top_n": settings.retrieval.top_n,
+            "timeout_ms": settings.retrieval.retrieval_timeout_ms,
+        },
         "llm_timeout_s": settings.llm.timeout_s,
         "guard": facts,
         "audit_log": str(audit_log_path(run_dir, args.config)),
@@ -297,6 +365,7 @@ async def run(args: argparse.Namespace) -> int:
     require_module_origins(REPO_ROOT, paths.root)
     require_no_other_guard_worker(RESULTS_ROOT)
     settings = AIWorkerSettings()
+    require_v2_embedding(settings.embedding)
     llm = settings.llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
 
