@@ -1,9 +1,10 @@
 """AI-worker consumer core (task 4.13a): lane queue -> context -> tier -> draft.
 
 Per job: load job (early exit if already drafted, R19.3) -> load message -> classification
-from the envelope snapshot (R7.3) -> ContextBuilder (QUEUED -> CONTEXT_READY) ->
-ComplexityRouter -> DraftingService (CONTEXT_READY -> GENERATING -> DRAFTED). Failures are
-routed by ``failure_policy``; BaseConsumer owns ack/nack, the retry ladder and the DLQ.
+from the envelope snapshot (R7.3) -> ContextBuilder (QUEUED -> CONTEXT_READY) -> a
+``context_built`` diagnostics event (R21) -> ComplexityRouter -> DraftingService
+(CONTEXT_READY -> GENERATING -> DRAFTED). Failures are routed by ``failure_policy``;
+BaseConsumer owns ack/nack, the retry ladder and the DLQ.
 """
 
 from __future__ import annotations
@@ -18,11 +19,11 @@ from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
 from packages.broker.consumer import BaseConsumer, FatalError
 from packages.broker.envelope import JobEnvelope
 from packages.context.builder import ContextBuilder
-from packages.context.summarizer import ThreadSummarizer
+from packages.context.summarizer import SummarizationResult, ThreadSummarizer
 from packages.core.settings import BrokerSettings, RetryLadderSettings
 from packages.db.job import JobStore
 from packages.db.message import MessageStore
-from packages.domain.entities import Classification
+from packages.domain.entities import Classification, ContextPackage
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.llm.router import ComplexityRouter, EscalationReason
 from packages.observability.metrics import PipelineMetrics
@@ -37,6 +38,8 @@ from services.ai_worker.failure_policy import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATEGORY = "general_inquiry"
+CONTEXT_BUILT_EVENT = "context_built"
+"""``processing_event.event_type`` of the diagnostics recorded after a job's context is built."""
 _CLASSIFICATION_FIELDS = frozenset(f.name for f in dataclasses.fields(Classification))
 
 
@@ -45,6 +48,34 @@ def classification_from_snapshot(snapshot: dict[str, Any]) -> Classification:
     values = {k: v for k, v in snapshot.items() if k in _CLASSIFICATION_FIELDS}
     values.setdefault("category", DEFAULT_CATEGORY)
     return Classification(**values)
+
+
+def context_built_payload(
+    context: ContextPackage, summary: SummarizationResult | None
+) -> dict[str, Any]:
+    """Diagnostics of one context build: the payload of a ``context_built`` event (R21).
+
+    ``rank`` is a chunk's 1-based position in the context handed to the model. A value the
+    context does not expose is None (unknown), never guessed: ``retrieval_degraded``,
+    ``retrieval_underfilled`` and ``rerank_applied`` are read from the ContextPackage when the
+    builder sets them, and the ``summary_*`` values are None without a summarizer.
+    """
+    return {
+        "retrieved": [
+            {
+                "chunk_id": str(chunk.chunk_id),
+                "document_id": str(chunk.document_id),
+                "rank": rank,
+                "rerank_score": chunk.rerank_score,
+            }
+            for rank, chunk in enumerate(context.retrieved_chunks, start=1)
+        ],
+        "retrieval_degraded": getattr(context, "retrieval_degraded", None),
+        "retrieval_underfilled": getattr(context, "retrieval_underfilled", None),
+        "rerank_applied": getattr(context, "rerank_applied", None),
+        "summary_triggered": None if summary is None else summary.summarized,
+        "summary_model": None if summary is None else summary.model,
+    }
 
 
 class AIWorkerConsumer(BaseConsumer):
@@ -127,6 +158,7 @@ class AIWorkerConsumer(BaseConsumer):
         classification = classification_from_snapshot(envelope.classification)
         thread_messages = await self.messages.get_messages_by_thread(org_id, message.thread_id)
         thread_state = None
+        summary: SummarizationResult | None = None
         if self.summarizer is not None:
             # Threshold-triggered (R8.2, R8.3): below the threshold this makes no model call.
             summary = await self.summarizer.summarize_thread(
@@ -140,6 +172,7 @@ class AIWorkerConsumer(BaseConsumer):
             thread_messages=thread_messages,
             thread_state=thread_state,
         )
+        await self._record_context_built(org_id, job.id, context, summary)
         escalations = await self._escalations_performed(org_id, job.id)
         decision = self.router.route(context, classification, escalations)
         await self.drafting.draft(
@@ -148,6 +181,38 @@ class AIWorkerConsumer(BaseConsumer):
             category=classification.category,
             escalated_tier=decision.tier if decision.is_escalated else None,
             escalation_reason=str(decision.escalation_reason) if decision.is_escalated else None,
+        )
+
+    async def _record_context_built(
+        self,
+        org_id: UUID | str,
+        job_id: UUID | str,
+        context: ContextPackage,
+        summary: SummarizationResult | None,
+    ) -> None:
+        """Record the context build's diagnostics on the job's timeline (R21). Never raises.
+
+        Diagnostics only: the draft does not depend on this row, so a failed write is logged and
+        the job goes on. A redelivered job builds its context again and records another event;
+        readers take the latest.
+        """
+        payload = context_built_payload(context, summary)
+        try:
+            await self.jobs.record_event(org_id, job_id, CONTEXT_BUILT_EVENT, payload)
+        except Exception:
+            logger.warning("context_built event for job %s was not recorded", job_id, exc_info=True)
+            return
+        logger.info(
+            CONTEXT_BUILT_EVENT,
+            extra={
+                "fields": {
+                    "job_id": str(job_id),
+                    "retrieved_chunks": len(payload["retrieved"]),
+                    "retrieval_degraded": payload["retrieval_degraded"],
+                    "rerank_applied": payload["rerank_applied"],
+                    "summary_triggered": payload["summary_triggered"],
+                }
+            },
         )
 
     async def _escalations_performed(self, org_id: UUID | str, job_id: UUID | str) -> int:

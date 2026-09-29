@@ -125,6 +125,23 @@ class JobStore(Protocol):
         """List chronological events for a job."""
         ...
 
+    async def record_event(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> ProcessingEvent:
+        """Append a non-transition event to a job's timeline (R18.6, R21).
+
+        The job's current state is both ``state_from`` and ``state_to``: the event changes no
+        state, and the timeline API requires ``state_to``.
+
+        Raises:
+            KeyError: If the job does not exist in its organization.
+        """
+        ...
+
     async def acquire_lease(
         self,
         organization_id: UUID | str,
@@ -513,6 +530,40 @@ class PostgresJobStore(JobStore):
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(query, job_u, org_u)
             return [self._row_to_event(r) for r in rows]
+
+    async def record_event(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> ProcessingEvent:
+        """Append a non-transition event to a job's timeline (R18.6, R21).
+
+        One statement reads the job's state and inserts the event, so the state it records
+        cannot drift from the row it belongs to; both the job id and the organization filter
+        the source row (R5.3).
+        """
+        org_u = _to_uuid(organization_id)
+        job_u = _to_uuid(job_id)
+
+        query = """
+            INSERT INTO processing_event (
+                job_id, message_id, organization_id, event_type,
+                state_from, state_to, payload, trace_id
+            )
+            SELECT j.id, j.message_id, j.organization_id, $3,
+                   j.state, j.state, $4::jsonb, j.trace_id
+            FROM processing_job j
+            WHERE j.id = $1 AND j.organization_id = $2
+            RETURNING id, job_id, message_id, organization_id, event_type,
+                      state_from, state_to, payload, trace_id, created_at;
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(query, job_u, org_u, event_type, _to_json_val(payload or {}))
+        if row is None:
+            raise KeyError(f"Job {job_id} not found for organization {organization_id}")
+        return self._row_to_event(row)
 
     async def acquire_lease(
         self,
@@ -1046,6 +1097,33 @@ class InMemoryJobStore(JobStore):
                 for e in self._events
                 if str(e.organization_id) == org_str and str(e.job_id) == job_str
             ]
+
+    async def record_event(
+        self,
+        organization_id: UUID | str,
+        job_id: UUID | str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> ProcessingEvent:
+        async with self._lock:
+            job = self._jobs.get(str(job_id))
+            if job is None or str(job.organization_id) != str(organization_id):
+                raise KeyError(f"Job {job_id} not found for organization {organization_id}")
+            event = ProcessingEvent(
+                id=self._event_id_seq,
+                job_id=job.id,
+                message_id=job.message_id,
+                organization_id=job.organization_id,
+                event_type=event_type,
+                state_from=job.state,
+                state_to=job.state,
+                payload=dict(payload or {}),
+                trace_id=job.trace_id,
+                created_at=datetime.now(UTC),
+            )
+            self._event_id_seq += 1
+            self._events.append(event)
+            return event
 
     async def acquire_lease(
         self,
