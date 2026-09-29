@@ -800,6 +800,93 @@ async def test_context_flags_the_event_left_null_stay_null() -> None:
     assert pipeline["rerank_applied"] is None and pipeline["retrieval_degraded"] is None
 
 
+async def _redelivered_path(world: World) -> None:
+    """A job whose first delivery built a context and lost the model call, and whose redelivery
+    built another: two ``context_built`` events, of which the second is the draft's."""
+    await world.receive()
+    await world.to(JobState.NORMALIZED)
+    await world.classify()
+    await world.to(JobState.CLASSIFIED)
+    await world.to(JobState.QUEUED, {"retrieval_required": True})
+    await world.to(JobState.CONTEXT_READY)
+    await world.context_built(
+        retrieved=[RETRIEVED[0]],  # the poisoned chunk ranked first, then the call failed
+        retrieval_degraded=True,
+        retrieval_underfilled=True,
+        rerank_applied=False,
+        summary_triggered=True,
+        summary_model="first-delivery-model",
+    )
+    await world.to(JobState.GENERATING)
+    await world.to(JobState.RETRY_PENDING)  # the retry ladder redelivers the job
+    await world.to(JobState.GENERATING)
+    await world.context_built(
+        retrieved=[RETRIEVED[1], RETRIEVED[2]],  # the second delivery's context has no poison
+        retrieval_degraded=False,
+        retrieval_underfilled=False,
+        rerank_applied=True,
+        summary_triggered=False,
+        summary_model=None,
+    )
+    await world.draft()
+    await world.to(JobState.DRAFTED, {"draft_id": "d"})
+
+
+async def test_a_redelivered_job_takes_its_context_from_the_latest_context_built_event() -> None:
+    """The ai-worker records another event on every redelivery and readers take the latest
+    (package A): it describes the context the persisted draft was generated from."""
+    world, clock = World(), FakeClock()
+    await _redelivered_path(world)
+
+    result = await _collect(world, clock)
+
+    assert [c["rag_chunk_id"] for c in result["retrieved"]] == ["ch-clean", "ch-other"]
+    assert (
+        result["host"]["poison_retrieved"] is False
+    )  # the first delivery's chunk is not the draft's
+    pipeline = result["pipeline"]
+    assert (pipeline["retrieval_degraded"], pipeline["retrieval_underfilled"]) == (False, False)
+    assert (pipeline["rerank_applied"], pipeline["summary_triggered"]) == (True, False)
+
+
+async def test_a_redelivered_guarded_job_agrees_with_its_audit_lines_retrieved_list(
+    tmp_path: Path,
+) -> None:
+    """The audit line describes the delivery that drafted; the row's own ``retrieved`` must not
+    replace it with the first delivery's chunks."""
+    world = World()
+    await _redelivered_path(world)
+    latest = [
+        {
+            "rank": 2,
+            "rag_chunk_id": "ch-clean",
+            "rag_document_id": str(CLEAN_DOC),
+            "case_chunk_id": "kb-1",
+            "poisoned": False,
+            "rerank_score": None,
+        },
+        {
+            "rank": 3,
+            "rag_chunk_id": "ch-other",
+            "rag_document_id": RETRIEVED[2]["document_id"],
+            "case_chunk_id": None,
+            "poisoned": False,
+            "rerank_score": 0.2,
+        },
+    ]
+    path = tmp_path / "audit__C3.jsonl"
+    path.write_text(
+        _audit_line(world.org, world.message_id, **{**GUARDED_AUDIT, "retrieved": latest}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = await _collect(world, FakeClock(), config="C3", audit=path)
+
+    assert result["retrieved"] == latest  # the audit line's list, not the first delivery's
+    assert result["host"]["retrieved"] == latest
+    assert result["host"]["poison_retrieved"] is False
+
+
 async def test_an_early_exit_has_no_draft_and_never_reached_drafting() -> None:
     world, clock = World(), FakeClock()
     await world.early_exit_path()

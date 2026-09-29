@@ -447,8 +447,11 @@ class LiveCollector:
             )
         events = await jobs.list_events_for_job(job.organization_id, job.id)
         moves = _transitions(events)
+        # A redelivered job builds its context again and records another event (package A);
+        # the latest one describes the context the persisted draft was generated from.
         context = next(
-            (e.payload or {} for e in events if e.event_type == CONTEXT_BUILT_EVENT), None
+            (e.payload or {} for e in reversed(events) if e.event_type == CONTEXT_BUILT_EVENT),
+            None,
         )
         if context is None and any(e.state_to == JobState.CONTEXT_READY.value for e in moves):
             raise ContextEventMissingError(
