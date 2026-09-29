@@ -357,16 +357,19 @@ def test_triage_table_counts_early_exit_template_and_drafted_per_config() -> Non
 
     triage = {
         "C0": TriageTable(TriageCounts(12, 0, 288), TriageCounts(30, 20, 100)),
-        "C3": TriageTable(TriageCounts(12, 0, 288), TriageCounts(0, 0, 0)),
+        "C3": TriageTable(TriageCounts(10, 0, 285, 5), TriageCounts(0, 0, 0)),
     }
 
     text = render_report(live_inputs(triage=triage))
 
     assert "## Triage outcomes (live pipeline)" in text
-    assert "| Config | Cases | Scored | Early exit | Template | Drafted |" in text
-    assert "| C0 | attacks | 300 | 12 (4.0 %) | 0 (0.0 %) | 288 (96.0 %) |" in text
-    assert "| C0 | benign | 150 | 30 (20.0 %) | 20 (13.3 %) | 100 (66.7 %) |" in text
-    assert "| C3 | benign | 0 | 0 | 0 | 0 |" in text  # no share of nothing
+    assert (
+        "| Config | Cases | Scored | Early exit | Template | Drafted | Stuck (job left QUEUED) |"
+    ) in text
+    assert "| C0 | attacks | 300 | 12 (4.0 %) | 0 (0.0 %) | 288 (96.0 %) | 0 (0.0 %) |" in text
+    assert "| C0 | benign | 150 | 30 (20.0 %) | 20 (13.3 %) | 100 (66.7 %) | 0 (0.0 %) |" in text
+    assert "| C3 | attacks | 300 | 10 (3.3 %) | 0 (0.0 %) | 285 (95.0 %) | 5 (1.7 %) |" in text
+    assert "| C3 | benign | 0 | 0 | 0 | 0 | 0 |" in text  # no share of nothing
 
 
 def test_summarize_triage_counts_scored_rows_by_kind_and_bucket() -> None:
@@ -381,11 +384,12 @@ def test_summarize_triage_counts_scored_rows_by_kind_and_bucket() -> None:
         row("attack", "early_exit"),
         row("attack", "drafted"),
         row("attack", "drafted"),
+        row("attack", "stuck_unconsumed"),
         row("benign", "template"),
         row("benign", "drafted"),
     ]
 
-    assert summarize_triage(live) == TriageTable(TriageCounts(1, 0, 2), TriageCounts(0, 1, 1))
+    assert summarize_triage(live) == TriageTable(TriageCounts(1, 0, 2, 1), TriageCounts(0, 1, 1))
     assert summarize_triage([row("attack", None)]) is None  # a v1 row has no live triage
     assert summarize_triage([]) is None
 
@@ -393,7 +397,7 @@ def test_summarize_triage_counts_scored_rows_by_kind_and_bucket() -> None:
 def test_metrics_csv_carries_the_guard_rates_and_the_triage_counts() -> None:
     from evaluation.mailguard_bench.artifacts import TriageCounts, TriageTable
 
-    triage = {"C3": TriageTable(TriageCounts(12, 3, 285), TriageCounts(30, 20, 100))}
+    triage = {"C3": TriageTable(TriageCounts(12, 3, 280, 5), TriageCounts(30, 20, 100))}
     rows = metrics_rows(
         {"llmail": {"C3": live_summary("C3", PIPELINE_7_300, GUARD_7_280)}},
         {},
@@ -416,10 +420,12 @@ def test_metrics_csv_carries_the_guard_rates_and_the_triage_counts() -> None:
     assert counts == {
         ("C3", "attack_early_exit"): 12,
         ("C3", "attack_template"): 3,
-        ("C3", "attack_drafted"): 285,
+        ("C3", "attack_drafted"): 280,
+        ("C3", "attack_stuck_unconsumed"): 5,
         ("C3", "benign_early_exit"): 30,
         ("C3", "benign_template"): 20,
         ("C3", "benign_drafted"): 100,
+        ("C3", "benign_stuck_unconsumed"): 0,
     }
 
 

@@ -460,7 +460,14 @@ def build_report(
     triage = {
         c: counts for c in configs if (counts := summarize_triage(scored[c])) is not None
     }  # live rows only
-    overheads: dict[str, Overhead] = {c: overhead(c, records[c], prices) for c in configs}
+    # Overhead is the drafting step's: a live email that triage stopped (early exit, template)
+    # takes no drafting time, tokens or guard calls, and its zeros would understate the cost.
+    overheads: dict[str, Overhead] = {
+        c: overhead(
+            c, [r for r in records[c] if r.pipeline is None or r.pipeline.reached_drafting], prices
+        )
+        for c in configs
+    }
     headline_extra, extra_sections = analysis_inputs(
         run_dir,
         scored,

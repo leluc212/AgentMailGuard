@@ -725,9 +725,9 @@ def test_build_report_states_pipeline_and_guard_asr_for_a_live_run(tmp_path: Pat
     assert (
         "C3 pipeline benign utility (all scored benign emails): 50.0 % [9.5, 90.5] (1/2)." in text
     )
-    assert "| C0 | attacks | 3 | 1 (33.3 %) | 0 (0.0 %) | 2 (66.7 %) |" in text
-    assert "| C0 | benign | 2 | 0 (0.0 %) | 1 (50.0 %) | 1 (50.0 %) |" in text
-    assert "| C3 | attacks | 3 | 1 (33.3 %) | 0 (0.0 %) | 2 (66.7 %) |" in text
+    assert "| C0 | attacks | 3 | 1 (33.3 %) | 0 (0.0 %) | 2 (66.7 %) | 0 (0.0 %) |" in text
+    assert "| C0 | benign | 2 | 0 (0.0 %) | 1 (50.0 %) | 1 (50.0 %) | 0 (0.0 %) |" in text
+    assert "| C3 | attacks | 3 | 1 (33.3 %) | 0 (0.0 %) | 2 (66.7 %) | 0 (0.0 %) |" in text
     assert "| LLMail-Inject C0 vs C3 |" in text
 
 
@@ -746,8 +746,8 @@ def test_build_report_writes_the_live_artifacts(tmp_path: Path) -> None:
     assert (c3["guard_asr"]["successes"], c3["guard_asr"]["total"]) == (0, 2)
     assert (c3["guard_fpr"]["successes"], c3["guard_fpr"]["total"]) == (1, 1)
     assert summary["triage"]["C0"] == {
-        "attacks": {"early_exit": 1, "template": 0, "drafted": 2},
-        "benign": {"early_exit": 0, "template": 1, "drafted": 1},
+        "attacks": {"early_exit": 1, "template": 0, "drafted": 2, "stuck_unconsumed": 0},
+        "benign": {"early_exit": 0, "template": 1, "drafted": 1, "stuck_unconsumed": 0},
     }
     manifest = json.loads((run / "manifest.json").read_text("utf-8"))
     assert manifest["task"] == "7.20"
@@ -1031,3 +1031,21 @@ def test_build_report_counts_benign_drafts_flagged_for_human_approval(tmp_path: 
     summary = json.loads((run / "summary.json").read_text("utf-8"))
     assert summary["tables"]["llmail"]["C3"]["guard_review"] == 1
     assert summary["tables"]["llmail"]["C0"]["guard_review"] == 0  # the native path has no guard
+
+
+def test_overhead_of_a_live_run_covers_the_emails_that_reached_the_drafting_step(
+    tmp_path: Path,
+) -> None:
+    # Early exits and template drafts take no drafting time, tokens or guard calls; averaging
+    # their zeros in would understate what the drafting step costs.
+    harness, metrics, mailguard_dir = _amg_or_skip()
+    from evaluation.mailguard_bench.report import build_report
+
+    run = _live_run_folder(tmp_path)  # C0 and C3: 3 of 5 rows reached the drafting step
+    text = build_report(
+        run, harness=harness, metrics=metrics, prices=GPT_PRICES, mailguard_dir=mailguard_dir
+    ).read_text(encoding="utf-8")
+
+    assert "| C0 | 3 | 1.04 s / 1.04 s / 1.04 s |" in text
+    assert "| C3 | 3 | 1.04 s / 1.04 s / 1.04 s |" in text
+    assert "only the emails that reached the drafting step" in text

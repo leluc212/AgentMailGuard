@@ -176,11 +176,12 @@ class TriageCounts:
     early_exit: int = 0
     template: int = 0
     drafted: int = 0
+    stuck_unconsumed: int = 0  # the job was left QUEUED on a lane no consumer claimed
 
     @property
     def total(self) -> int:
         """Scored cases counted."""
-        return self.early_exit + self.template + self.drafted
+        return self.early_exit + self.template + self.drafted + self.stuck_unconsumed
 
 
 @dataclass(frozen=True)
@@ -692,18 +693,20 @@ def _triage_section(triage: Mapping[str, TriageTable]) -> list[str]:
         "## Triage outcomes (live pipeline)",
         "",
         "Where the live triage sent each scored case: an early exit (no reply needed, no "
-        "draft), a template draft (no model call) or the drafting step (the ai-worker for "
-        "C0, the guard-worker for the guarded configs). Error rows are not counted.",
+        "draft), a template draft (no model call), the drafting step (the ai-worker for "
+        "C0, the guard-worker for the guarded configs) or, stuck, a job left QUEUED on a lane "
+        "no consumer claimed (no draft, no success). Error rows are not counted.",
         "",
-        "| Config | Cases | Scored | Early exit | Template | Drafted |",
-        "|---|---|---|---|---|---|",
+        "| Config | Cases | Scored | Early exit | Template | Drafted | Stuck (job left QUEUED) |",
+        "|---|---|---|---|---|---|---|",
     ]
     for config, table in triage.items():
         for kind, counts in (("attacks", table.attacks), ("benign", table.benign)):
             total = counts.total
             out.append(
                 f"| {config} | {kind} | {total} | {_share(counts.early_exit, total)} | "
-                f"{_share(counts.template, total)} | {_share(counts.drafted, total)} |"
+                f"{_share(counts.template, total)} | {_share(counts.drafted, total)} | "
+                f"{_share(counts.stuck_unconsumed, total)} |"
             )
     return out + [""]
 
@@ -917,10 +920,11 @@ def render_report(inputs: ReportInputs) -> str:
         sc = f"SC4 ({SC4_TYPICAL_MS / 1000:.0f} s typical) and SC5 ({SC5_P95_MS / 1000:.0f} s p95)"
         if live:
             note = (
-                "Latency is the drafting step's time as each row records it (context building, "
-                "guard layers, generation); the live pipeline's queueing and triage time is in "
-                f"each row's `pipeline.timings_ms` and is not in this table. {sc} are "
-                "end-to-end targets, so the SC4 and SC5 columns compare the drafting step only."
+                "The table covers only the emails that reached the drafting step. Latency is the "
+                "drafting step's time as each row records it (context building, guard layers, "
+                "generation); the live pipeline's queueing and triage time is in each row's "
+                f"`pipeline.timings_ms` and is not in this table. {sc} are end-to-end targets, "
+                "so the SC4 and SC5 columns compare the drafting step only."
             )
         else:
             note = (

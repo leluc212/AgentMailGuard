@@ -38,11 +38,13 @@ def live_row(
     status: str = "ok",
     job_state: str | None = None,
     decision: str = "draft_only",
+    template_body: str = TEMPLATE_BODY,
 ) -> dict[str, Any]:
     """One ``mailguard-bench-result.v3`` row.
 
     ``decision`` is the guard's policy action on a draft that was not blocked (``draft_only``,
     or ``human_approval`` for a draft kept with a reviewer sign-off note).
+    ``template_body`` is the text of a ``template`` draft.
     ``outcome`` picks the path the email took: ``drafted`` (the drafting consumer wrote
     ``body``), ``early_exit`` (triage: no reply required, no draft), ``template`` (triage
     wrote the template draft), ``blocked_inbound`` / ``blocked_outbound`` (the guard-worker
@@ -60,8 +62,8 @@ def live_row(
     elif outcome == "template":
         draft = {
             "action": "reply",
-            "body_original": TEMPLATE_BODY,
-            "body_after_guard": TEMPLATE_BODY,
+            "body_original": template_body,
+            "body_after_guard": template_body,
         }
     elif blocked:
         draft = {
