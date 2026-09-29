@@ -15,7 +15,10 @@ import pytest
 pytest.importorskip("mailguard")
 
 from evaluation.mailguard_bench import guard_smoke  # noqa: E402
-from evaluation.mailguard_bench.guard_build import build_guard  # noqa: E402
+from evaluation.mailguard_bench.guard_build import (  # noqa: E402
+    build_guard,
+    live_guard_llm_stages,
+)
 from evaluation.mailguard_bench.guard_env import (  # noqa: E402
     L1_MODEL_NAME,
     GuardEnvError,
@@ -107,6 +110,32 @@ def test_build_guard_can_turn_the_two_stages_on_one_at_a_time(tmp_path: Path) ->
     )
     assert guard.pipeline.l3b.llm is None
     assert guard.pipeline.l4.llm is guard.guard_llm
+
+
+@pytest.mark.parametrize(
+    ("config", "on"), [("C3", True), ("C2", False), ("C1", False), ("C0T", False)]
+)
+def test_a_guard_built_with_the_live_rule_reports_the_stages_the_worker_runs(
+    tmp_path: Path, config: str, on: bool
+) -> None:
+    # What the guard-worker builds and what the runner builds to describe the run must agree:
+    # both ask the rule, and both facts the fingerprint keeps (the live stages and the live
+    # layers) then name the stages the worker really ran.
+    l3b_llm, l4_llm = live_guard_llm_stages(config)
+
+    guard = build_guard(
+        config,
+        model_name="fake",
+        audit_log_path=tmp_path / "audit.jsonl",
+        l1_model_path=tmp_path / "clf.joblib",
+        l3b_llm=l3b_llm,
+        l4_llm=l4_llm,
+    )
+
+    stages = guard.live_stages()
+    assert (stages["l3b.llm"], stages["l4.llm"]) == (on, on)
+    layers = guard.describe()["live_layers"]
+    assert (layers["l3b_llm"] is not None, layers["l4_llm"] is not None) == (on, on)
 
 
 def test_an_enabled_stage_that_did_not_come_up_is_a_missing_live_stage(tmp_path: Path) -> None:

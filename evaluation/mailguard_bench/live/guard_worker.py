@@ -17,15 +17,24 @@ and `evaluation` win over the guard's packages of the same name:
 It applies the model profile (keys from the environment or ``.env``, as the runner does), builds
 the guard for the config on the profile's model, and runs ``build_consumers(...,
 drafting_factory=...)`` until SIGTERM (WorkerRuntime drains the consumers first). C3 turns
-L3b's and L4's LLM stages on; C0T, C1 and C2 keep them off. Only one of these workers, or the
-ai-worker container, may consume the lane queues at a time, so it refuses to start while another
-guard-worker is alive (pid files under every run folder). Files, all in ``<run_dir>/raw``:
+L3b's and L4's LLM stages on (``guard_build.live_guard_llm_stages``); C0T, C1 and C2 keep them
+off. Only one of these workers, or the ai-worker container, may consume the lane queues at a
+time, so it refuses to start while another guard-worker is alive (pid files under every run
+folder). Files, all in ``<run_dir>/raw``:
 
     guard_worker.<config>.pid        this process's pid, while it is alive (the feeder reads it)
-    guard_worker.<config>.meta.json  the guard's facts: live layers, L1 hash, guard commit, stages
+    guard_worker.<config>.meta.json  what this worker is, for the runner to check against its own:
+                                     ``model_profile``, ``guard_model``, ``guard_llm_stages`` (the
+                                     optional LLM stages asked for), ``live_layers`` and
+                                     ``guard.live_stages`` (what the guard really has live), the
+                                     LLM timeout; ``fingerprint`` is what every start of this
+                                     RUN/CONFIG must share, and ``invocations`` keeps every start
     audit__<config>.jsonl            one line per job (guarded_drafting.py describes it)
     guard_l5__<config>.jsonl         the guard's own L5 log; kept apart so the file above is
                                      exactly one line per job
+
+Like a runner resume (``runner.check_resume``), a restart of the same RUN/CONFIG under another
+model or other settings is refused: its drafts and audit lines would mix both into one run.
 
 The guard's audit is AgentMailGuard's own (ADR-0010); rag-email adds no defence logic here.
 """
@@ -44,7 +53,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from evaluation.mailguard_bench.guard_build import BENCH_PRESETS, GuardBuild, build_guard
+from evaluation.mailguard_bench.guard_build import (
+    BENCH_PRESETS,
+    GuardBuild,
+    build_guard,
+    live_guard_llm_stages,
+)
 from evaluation.mailguard_bench.guard_env import (
     DEFAULT_GUARD_MODEL,
     REPO_ROOT,
@@ -56,7 +70,7 @@ from evaluation.mailguard_bench.guard_env import (
 )
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
-from evaluation.mailguard_bench.runner import RESULTS_ROOT
+from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AIWorkerSettings
 from packages.db.migrator import verify_database_vector_dimension
@@ -70,14 +84,17 @@ SERVICE_NAME = "guard_worker"
 DEFAULT_PORT = 8014
 """Health and metrics port; the ai-worker container's 8004 is not published to the host."""
 HOST = "127.0.0.1"
-FULL_GUARD_CONFIG = "C3"
 META_SCHEMA = "mailguard-guard-worker.v1"
-
-
-def guard_llm_stages(config: str) -> tuple[bool, bool]:
-    """``(l3b_llm, l4_llm)``: C3, the full guard, runs both LLM stages; the others keep them off."""
-    full = config == FULL_GUARD_CONFIG
-    return full, full
+FINGERPRINT_KEYS = (
+    "model_profile",
+    "guard_model",
+    "guard_llm_stages",
+    "mailguard_commit",
+    "l1_model_sha256",
+    "live_layers",
+    "llm_timeout_s",
+)
+"""What every start of one RUN/CONFIG must share (``runner.check_resume`` compares it)."""
 
 
 def pid_path(run_dir: Path, config: str) -> Path:
@@ -159,6 +176,56 @@ def write_meta(path: Path, meta: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(meta, indent=2, default=str) + "\n", encoding="utf-8")
 
 
+def settings_fingerprint(meta: Mapping[str, Any]) -> dict[str, Any]:
+    """The facts of one start that every start of its RUN/CONFIG must share.
+
+    Returned in its JSON form (tuples become lists), the form the meta file stores, so a
+    restart compares like with like.
+    """
+    fingerprint: dict[str, Any] = json.loads(
+        json.dumps({key: meta.get(key) for key in FINGERPRINT_KEYS}, default=str)
+    )
+    return fingerprint
+
+
+def worker_meta(
+    args: argparse.Namespace,
+    *,
+    guard: GuardBuild,
+    guard_model: str,
+    stages: tuple[bool, bool],
+    settings: AIWorkerSettings,
+    run_dir: Path,
+) -> dict[str, Any]:
+    """The facts of this start, with the fingerprint every start of the run must share.
+
+    The runner reads these to check that the worker it is about to use runs the model, the guard
+    stages and the settings the runner describes itself with. ``guard`` holds ``describe()``,
+    the shape of the runner's own ``guard`` block, so the two compare key by key.
+    """
+    facts = guard.describe()
+    meta: dict[str, Any] = {
+        "schema": META_SCHEMA,
+        "run_id": args.run,
+        "config": args.config,
+        "pid": os.getpid(),
+        "started_at": datetime.now(UTC).isoformat(),
+        "model_profile": args.model_profile,
+        "guard_model": guard_model,
+        "guard_llm_stages": {"l3b_llm": stages[0], "l4_llm": stages[1]},
+        "mailguard_commit": facts["mailguard_commit"],
+        "l1_model_sha256": facts["l1_model_sha256"],
+        "live_layers": facts["live_layers"],
+        "llm_timeout_s": settings.llm.timeout_s,
+        "guard": facts,
+        "audit_log": str(audit_log_path(run_dir, args.config)),
+        "l5_audit_log": str(l5_log_path(run_dir, args.config)),
+        "port": args.port,
+    }
+    meta["fingerprint"] = settings_fingerprint(meta)
+    return meta
+
+
 async def build_guarded_components(
     res: WorkerResources, *, guard: GuardBuild, audit_path: Path
 ) -> list[StartFn]:
@@ -234,7 +301,7 @@ async def run(args: argparse.Namespace) -> int:
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
 
     run_dir = RESULTS_ROOT / args.run
-    l3b_llm, l4_llm = guard_llm_stages(args.config)
+    l3b_llm, l4_llm = live_guard_llm_stages(args.config)
     guard = build_guard(
         args.config,
         model_name=guard_model,
@@ -253,20 +320,19 @@ async def run(args: argparse.Namespace) -> int:
         return 1
 
     audit_path = audit_log_path(run_dir, args.config)
-    meta = {
-        "schema": META_SCHEMA,
-        "run_id": args.run,
-        "config": args.config,
-        "pid": os.getpid(),
-        "started_at": datetime.now(UTC).isoformat(),
-        "model_profile": args.model_profile,
-        "guard_model": guard_model,
-        "guard_llm_stages": {"l3b_llm": l3b_llm, "l4_llm": l4_llm},
-        "guard": guard.describe(),
-        "audit_log": str(audit_path),
-        "l5_audit_log": str(l5_log_path(run_dir, args.config)),
-        "port": args.port,
-    }
+    meta = worker_meta(
+        args,
+        guard=guard,
+        guard_model=guard_model,
+        stages=(l3b_llm, l4_llm),
+        settings=settings,
+        run_dir=run_dir,
+    )
+    # Before any file is written or consumer started: a restart under other settings would mix
+    # the drafts of both into one RUN/CONFIG, as a runner resume would mix rows.
+    invocations = check_resume(meta_path(run_dir, args.config), meta["fingerprint"])
+    invocations.append({"pid": meta["pid"], "started_at": meta["started_at"], "port": args.port})
+    meta["invocations"] = invocations  # history: every start is kept, never overwritten
     with pid_file(pid_path(run_dir, args.config)):
         write_meta(meta_path(run_dir, args.config), meta)
         print(f"ok {args.config} guard-worker pid {os.getpid()}, audit lines -> {audit_path}")

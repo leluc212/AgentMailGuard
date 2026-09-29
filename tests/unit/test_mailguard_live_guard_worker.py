@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
+from evaluation.mailguard_bench import guard_build
 from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.guard_build import GuardBuild
 from evaluation.mailguard_bench.guard_env import GuardEnvError, GuardPaths, WorktreeInfo
@@ -143,6 +144,18 @@ def _main(*argv: str) -> int:
     return guard_worker.main(list(argv))
 
 
+def _start(*extra: str, config: str = "C3", run: str = "r1", profile: str = "gpt-4o-mini") -> int:
+    """`main` for a worker whose profile key the test provides."""
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
+    return _main("--config", config, "--run", run, "--model-profile", profile, *extra)
+
+
+def _meta(rig: Rig, config: str = "C3", run: str = "r1") -> dict[str, Any]:
+    text = guard_worker.meta_path(rig.run_dir(run), config).read_text(encoding="utf-8")
+    meta: dict[str, Any] = json.loads(text)
+    return meta
+
+
 # ------------------------------------------------------------------ the command line
 
 
@@ -173,10 +186,13 @@ def test_the_worker_cannot_start_without_a_model_profile(
     assert "--model-profile" in capsys.readouterr().err
 
 
-def test_only_c3_turns_the_l3b_and_l4_llm_stages_on() -> None:
-    assert guard_worker.guard_llm_stages("C3") == (True, True)
+def test_only_c3_runs_the_l3b_and_l4_llm_stages_of_a_live_run() -> None:
+    # The rule sits next to build_guard so that whatever describes a live run's guard (the
+    # runner's fingerprint) asks the same question the worker asked when it built its own.
+    assert guard_build.live_guard_llm_stages("C3") == (True, True)
+    assert guard_build.live_guard_llm_stages("c3") == (True, True)  # build_guard reads any case
     for config in ("C0T", "C1", "C2"):
-        assert guard_worker.guard_llm_stages(config) == (False, False)
+        assert guard_build.live_guard_llm_stages(config) == (False, False)
 
 
 def test_the_run_folder_files_have_the_names_the_feeder_looks_for() -> None:
@@ -314,6 +330,69 @@ def test_main_starts_the_worker_runtime_for_the_config_and_writes_its_files(rig:
     assert meta["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
     assert meta["guard"]["mailguard_commit"] == "c" * 40
     assert meta["audit_log"] == str(guard_worker.audit_log_path(rig.run_dir(), "C3"))
+
+
+def test_a_restart_adds_to_the_meta_instead_of_overwriting_it(rig: Rig) -> None:
+    assert _start("--port", "8123") == 0
+    assert _start("--port", "8124") == 0
+
+    meta = _meta(rig)
+    assert [start["port"] for start in meta["invocations"]] == [8123, 8124]  # every start is kept
+    assert all({"pid", "started_at", "port"} == set(start) for start in meta["invocations"])
+    assert meta["port"] == 8124  # the top-level facts are the latest start's
+
+
+def test_the_meta_names_what_a_start_must_share_with_every_other_start_of_the_run(
+    rig: Rig,
+) -> None:
+    assert _start() == 0
+
+    fingerprint = _meta(rig)["fingerprint"]
+    assert fingerprint["model_profile"] == "gpt-4o-mini" and fingerprint["guard_model"] == MODEL
+    assert fingerprint["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
+    assert fingerprint["mailguard_commit"] == "c" * 40
+    assert fingerprint["live_layers"]["l3b_llm"] == "stub"
+
+
+def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _start() == 0
+    before = _meta(rig)
+    FakeRuntime.instances.clear()
+
+    code = _start(profile="qwen2.5-7b")  # the same RUN and config, another benchmarked model
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "model_profile" in err and "guard_model" in err  # both name the other model
+    assert FakeRuntime.instances == []  # nothing was started
+    assert _meta(rig) == before  # the history is untouched
+    assert not rig.pid_file("C3").exists()
+
+
+def test_a_restart_under_other_settings_is_refused(
+    rig: Rig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    os.environ["LLM__TIMEOUT_S"] = "60"
+    assert _start() == 0
+    os.environ["LLM__TIMEOUT_S"] = "15"
+    FakeRuntime.instances.clear()
+
+    assert _start() == 1
+
+    assert "llm_timeout_s" in capsys.readouterr().err
+    assert FakeRuntime.instances == []
+    assert len(_meta(rig)["invocations"]) == 1
+
+
+def test_another_config_or_run_keeps_its_own_history(rig: Rig) -> None:
+    assert _start() == 0
+    assert _start(config="C1") == 0
+    assert _start(run="r2") == 0
+
+    assert [len(_meta(rig, "C3")["invocations"]), len(_meta(rig, "C1")["invocations"])] == [1, 1]
+    assert len(_meta(rig, "C3", run="r2")["invocations"]) == 1
 
 
 def test_main_reads_a_profile_key_kept_only_in_dot_env(rig: Rig, tmp_path: Path) -> None:
