@@ -433,6 +433,8 @@ def render_report(inputs: ReportInputs) -> str:
     for name, label, note in baselines:
         base = inputs.llmail.get(name)
         if base is None:
+            if name == "C0":  # required run: say so rather than print a lone C3 headline
+                lines.append("C0 ASR: not run — the headline comparison C0 vs C3 is incomplete.")
             continue
         base_line = f"{name} ASR ({label}): {base.asr.fmt()}.{note}"
         if base.asr.total < inputs.planned_llmail_attacks:

@@ -202,3 +202,11 @@ def test_report_labels_native_c0_and_the_optional_c0t_baseline() -> None:
     alone = render_report(baseline_inputs({"C0": summary("C0", R16), "C3": summary("C3", R7)}))
     assert "C0T" not in alone
     assert "prompt template" not in alone
+
+
+def test_report_says_when_the_required_c0_baseline_has_not_run() -> None:
+    # Spec Q2: "FPR and the C0 ASR are always reported with it"; C0 is a required run.
+    text = render_report(baseline_inputs({"C3": summary("C3", R7)}))
+    assert "C0 ASR: not run — the headline comparison C0 vs C3 is incomplete." in text
+    ran = render_report(baseline_inputs({"C0": summary("C0", R16), "C3": summary("C3", R7)}))
+    assert "C0 ASR: not run" not in ran
