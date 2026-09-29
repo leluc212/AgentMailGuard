@@ -416,8 +416,15 @@ class RunSettingsMismatchError(ValueError):
 
 
 def settings_fingerprint(meta: Mapping[str, Any]) -> dict[str, Any]:
-    """The settings of one invocation that every row of a config must share."""
-    return {key: meta.get(key) for key in FINGERPRINT_KEYS}
+    """The settings of one invocation that every row of a config must share.
+
+    Returned in its JSON form (tuples become lists), the form the meta file stores, so a
+    resume compares like with like.
+    """
+    fingerprint: dict[str, Any] = json.loads(
+        json.dumps({key: meta.get(key) for key in FINGERPRINT_KEYS}, default=str)
+    )
+    return fingerprint
 
 
 def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[str, Any]]:

@@ -402,6 +402,26 @@ def test_resume_refuses_other_settings_and_keeps_the_history(tmp_path: Path) -> 
         check_resume(meta_file, first)
 
 
+def test_resume_accepts_its_own_json_round_tripped_fingerprint(tmp_path: Path) -> None:
+    """A guarded config's live_layers holds tuples; JSON stores them as lists.
+
+    Live bug 2026-09-29: every resume of C0T/C3 was refused ("live_layers changed")
+    because () != [] after the meta file round trip.
+    """
+    from evaluation.mailguard_bench.runner import check_resume, settings_fingerprint
+
+    meta = {
+        "preset": "C3",
+        "live_layers": {"preset": "C3", "active_layers": ("L1", "L2", "L3"), "l3b_llm": None},
+    }
+    first = settings_fingerprint(meta)
+    history = [{"started_at": "t1", "summary": {"ok": 1}}]
+    meta_file = tmp_path / "C3.meta.json"
+    meta_file.write_text(json.dumps({"fingerprint": first, "invocations": history}), "utf-8")
+
+    assert check_resume(meta_file, settings_fingerprint(meta)) == history
+
+
 def test_c0_runs_the_native_executor_and_the_other_configs_need_a_guard() -> None:
     """Owner decision 2026-09-29: C0 = rag-email's generate_draft, C0T/C1/C2/C3 = the guard."""
     from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
