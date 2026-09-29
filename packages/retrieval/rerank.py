@@ -136,8 +136,9 @@ class CrossEncoderReranker:
     Fulfills R11.1. Lazily loads SentenceTransformers CrossEncoder if available,
     raising RerankerUnavailableError if dependencies are missing or model load fails.
 
-    ``rerank_score`` is the model's own output: for the default ms-marco cross-encoders that is
-    a raw logit (roughly -11 to +11), not a probability.
+    ``rerank_score`` is the model's own output. For the default ms-marco cross-encoders that is
+    an unbounded raw logit (the sentence-transformers docs show 8.6 for a match and -4.3 for a
+    miss), not a probability between 0 and 1.
     """
 
     def __init__(

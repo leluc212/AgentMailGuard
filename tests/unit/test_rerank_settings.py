@@ -13,8 +13,11 @@ from packages.core.settings import AppSettings, RetrievalSettings
 
 
 def test_rerank_defaults() -> None:
-    """R11.1, R11.5: MiniLM, the Hugging Face cache, a one-second budget, and rerank on."""
-    retrieval = AppSettings(_env_file=None).retrieval
+    """R11.1, R11.5: MiniLM, the Hugging Face cache, a one-second budget, and rerank on.
+
+    The model's own defaults, so a RETRIEVAL__RERANK_* value in the environment cannot change them.
+    """
+    retrieval = RetrievalSettings()
 
     assert retrieval.rerank_enabled is True
     assert retrieval.rerank_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"

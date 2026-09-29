@@ -18,7 +18,7 @@ from tests.stubs.worker_resources import fake_worker_resources
 
 
 def test_every_lane_shares_a_context_builder_with_the_default_cross_encoder() -> None:
-    settings = AIWorkerSettings()
+    settings = AIWorkerSettings(retrieval=RetrievalSettings())
     res = fake_worker_resources(settings)
 
     consumers = build_consumers(res, token_counter=TokenCounter())
@@ -71,6 +71,7 @@ def test_composing_the_worker_loads_no_model() -> None:
     module = MagicMock()
 
     with patch.dict(sys.modules, {"sentence_transformers": module}):
-        build_consumers(fake_worker_resources(AIWorkerSettings()), token_counter=TokenCounter())
+        settings = AIWorkerSettings(retrieval=RetrievalSettings(rerank_enabled=True))
+        build_consumers(fake_worker_resources(settings), token_counter=TokenCounter())
 
     module.CrossEncoder.assert_not_called()
