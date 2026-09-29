@@ -33,7 +33,13 @@ from evaluation.mailguard_bench.leakage import (
     llmail_train_half,
     render_leakage,
 )
-from evaluation.mailguard_bench.report import load_cases
+from evaluation.mailguard_bench.report import (
+    CONFIG_ORDER,
+    consistency_problems,
+    degradation_problems,
+    load_cases,
+    settings_problems,
+)
 from evaluation.mailguard_bench.scoring import RawRecord, read_raw
 from evaluation.mailguard_bench.threat_model import render_threat_model
 
@@ -58,6 +64,27 @@ def _scored(run_dir: Path, config: str) -> dict[str, dict[str, Any]]:
 def _records(run_dir: Path, config: str) -> dict[str, RawRecord]:
     path = run_dir / "raw" / f"{config}.jsonl"
     return {r.case_id: r for r in read_raw(path)} if path.exists() else {}
+
+
+def acceptance_problems(run_dir: Path) -> tuple[list[str], list[str]]:
+    """The report's refusal checks over every ``raw/<config>.jsonl`` of ``run_dir``.
+
+    ``ragemail__C3.jsonl`` alone is no proof the report accepted the run: the report
+    writes it before it refuses a weakened or off-pin run. Returns the weakened-guard
+    problems and the off-pin problems (both empty when the report would score the run).
+    """
+    configs = [c for c in CONFIG_ORDER if (run_dir / "raw" / f"{c}.jsonl").exists()]
+    run_meta: dict[str, Any] = {}
+    records: dict[str, list[RawRecord]] = {}
+    for config in configs:
+        records[config] = read_raw(run_dir / "raw" / f"{config}.jsonl")
+        meta_path = run_dir / "raw" / f"{config}.meta.json"
+        if meta_path.exists():
+            run_meta[config] = json.loads(meta_path.read_text(encoding="utf-8"))
+    weakened = [p for c in configs for p in degradation_problems(c, run_meta.get(c))]
+    off_pin = [p for c in configs for p in settings_problems(c, run_meta.get(c))]
+    off_pin += consistency_problems(run_meta, records)
+    return weakened, off_pin
 
 
 def run_leakage(
@@ -88,6 +115,7 @@ def run_analyses(
 
     Raises:
         FileNotFoundError: If the run has no scored C3 results yet.
+        ValueError: If the report would refuse the run (weakened guard or off-pin settings).
     """
     cases = load_cases(run_dir / "cases.jsonl")
     manifest = json.loads((run_dir / "case_manifest.json").read_text(encoding="utf-8"))
@@ -95,6 +123,11 @@ def run_analyses(
     c0, c3 = _scored(run_dir, "C0"), _scored(run_dir, "C3")
     if not c3:
         raise FileNotFoundError(f"no ragemail__C3.jsonl in {run_dir}; run the report first")
+    weakened, off_pin = acceptance_problems(run_dir)
+    if weakened:
+        raise ValueError("refusing to analyse a weakened guard run: " + "; ".join(weakened))
+    if off_pin:
+        raise ValueError("refusing to analyse runs off the pinned settings: " + "; ".join(off_pin))
     c0_records, c3_records = _records(run_dir, "C0"), _records(run_dir, "C3")
     out_dir = run_dir / "analysis"
     out_dir.mkdir(exist_ok=True)
@@ -156,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             train_half=llmail_train_half,
             l1_rows=lambda source: l1_train_rows(artifacts, source) if artifacts else [],
         )
-    except (FileNotFoundError, KeyError) as exc:
+    except (FileNotFoundError, KeyError, ValueError) as exc:
         print(f"FAIL {exc}", file=sys.stderr)
         return 1
     print(f"ANALYSES OK {path}")
