@@ -63,11 +63,12 @@ GATE_EARLY_EXIT = "early_exit"
 GATE_TEMPLATE = "template_reply"
 GATE_RAG = "proceed_rag"
 GATE_NO_RAG = "proceed_no_rag"
+LAST_ERROR_CHARS = 200
+"""How much of a job's last error a timeout message carries."""
 AUDIT_GRACE_S = 10.0
 """How long a drafted job may wait for its audit line: the guard-worker writes the line
 around the DRAFTED commit, not inside it."""
 NATIVE_PROMPT_MODE = "native"
-TIMING_KEYS = ("normalize", "triage", "context", "drafting", "generation", "total")
 _AUDIT_ID_KEYS = frozenset({"message_id", "organization_id", "config"})
 
 
@@ -120,7 +121,9 @@ async def wait_for_job(
 
     Raises:
         CaseTimeoutError: If the case budget is spent first; the message names the state the
-            job was in, which says which stage stalled.
+            job was in, which says which stage stalled, and its last error. A failing model
+            call does not fail the job: the retry ladder holds it (30 s, 5 m and 30 m tiers),
+            so an unreachable model or an HTTP 429 shows up here as a stalled state.
         PipelineJobError: If the job row disappears (its organization was deleted).
     """
     while True:
@@ -129,7 +132,10 @@ async def wait_for_job(
             raise PipelineJobError(f"job {job.id} disappeared while it was awaited")
         if current.state in TERMINAL_STATES:
             return current
-        deadline.check(f"waiting for job {job.id} (state {current.state})")
+        detail = f"state {current.state}"
+        if current.last_error:
+            detail += f"; last error: {current.last_error[:LAST_ERROR_CHARS]}"
+        deadline.check(f"waiting for job {job.id} ({detail})")
         await sleep(min(poll_interval_s, deadline.remaining()))
 
 

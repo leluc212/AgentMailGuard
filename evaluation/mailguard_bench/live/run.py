@@ -730,7 +730,8 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     organizations of an earlier killed run purged, and the cases run.
     """
     live = deps or LiveDeps()
-    os.environ.update(apply_model_profile(args, with_dot_env(os.environ)))  # before AppSettings
+    environ = with_dot_env(os.environ)  # the environment over `.env`, as AppSettings reads it
+    os.environ.update(apply_model_profile(args, environ))  # before AppSettings
     paths = guard_paths_from_env(os.environ)
     live.require_environment(paths)
     settings = AppSettings()
@@ -768,7 +769,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
         ollama=ollama_facts(
             get_profile(args.model_profile),
             base_url=llm.openai_base_url,
-            environ=os.environ,
+            environ=environ,
             get_json=live.get_json,
         ),
     )

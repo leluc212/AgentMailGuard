@@ -401,6 +401,38 @@ async def test_wait_times_out_naming_the_state_the_job_was_stuck_in() -> None:
     assert sum(clock.sleeps) <= 5.0
 
 
+async def test_a_timeout_names_the_last_error_of_a_job_the_retry_ladder_is_still_holding() -> None:
+    """A failing model call does not fail the job: it waits in the retry ladder, so the wait
+    must say why instead of only "state RETRY_PENDING"."""
+    world, clock = World(), FakeClock()
+    job = await world.receive()
+    await world.to(JobState.NORMALIZED)
+    await world.to(JobState.CLASSIFIED)
+    await world.to(JobState.QUEUED, {"retrieval_required": True})
+    await world.to(JobState.CONTEXT_READY)
+    await world.to(JobState.GENERATING)
+    assert world.job is not None
+    await world.jobs.transition_job_state(
+        world.org,
+        world.job.id,
+        JobState.RETRY_PENDING,
+        error_message="LLM request failed with status 429: quota exceeded " + "x" * 500,
+    )
+
+    with pytest.raises(CaseTimeoutError) as raised:
+        await wait_for_job(
+            world.jobs,
+            job,
+            Deadline(3, monotonic=clock.monotonic),
+            sleep=clock.sleep,
+            poll_interval_s=1.0,
+        )
+
+    message = str(raised.value)
+    assert "state RETRY_PENDING" in message and "status 429: quota exceeded" in message
+    assert len(message) < 400  # the error is cut, not pasted whole
+
+
 @pytest.mark.parametrize("state", [JobState.FAILED, JobState.DEAD_LETTER])
 async def test_a_failed_job_is_a_pipeline_error_with_its_last_error(state: JobState) -> None:
     world, clock = World(), FakeClock()

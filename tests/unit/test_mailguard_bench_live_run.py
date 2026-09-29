@@ -1317,6 +1317,7 @@ def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             "MAILGUARD_DIR": str(worktree),
             "MAILGUARD_COMMIT": "c" * 40,
             "MAILGUARD_ARTIFACTS": str(artifacts),
+            "OLLAMA_KEEP_ALIVE": "30m",  # what the operator declared for the Ollama server
         }
     )
     (tmp_path / "repo" / "artifacts" / "models").mkdir(parents=True)
@@ -1413,7 +1414,11 @@ async def test_a_c0_run_feeds_every_case_and_writes_one_v3_row_each(
 
     meta = json.loads((live_env / "results" / "r1" / "raw" / "C0.meta.json").read_text("utf-8"))
     assert meta["fingerprint"]["transport"] == "services-v2"
-    assert meta["fingerprint"]["ollama"]["context_length"] == 32768
+    assert meta["fingerprint"]["ollama"] == {
+        "version": "0.13.5",
+        "context_length": 32768,
+        "keep_alive": "30m",
+    }
     (invocation,) = meta["invocations"]
     assert invocation["summary"]["ok"] == 4 and invocation["summary"]["error"] == 0
     assert invocation["summary"]["cleanup_failures"] == 0
