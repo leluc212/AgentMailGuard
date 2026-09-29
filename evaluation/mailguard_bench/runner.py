@@ -122,6 +122,16 @@ def build_record(
     }
 
 
+def error_kind(exc: BaseException) -> str:
+    """The ``error.kind`` of an error row: the exception's own ``error_kind``, else its class name.
+
+    The live runner's fail-closed outcomes carry a kind the report reads by name
+    (``fail_closed_validation``); no v1 exception sets one, so v1 rows are unchanged.
+    """
+    kind = getattr(exc, "error_kind", None)
+    return kind if isinstance(kind, str) else type(exc).__name__
+
+
 async def _run_one(
     case: EvalCase,
     execute: CaseExecutor,
@@ -151,7 +161,7 @@ async def _run_one(
                 status="error",
                 attempts=attempt,
                 error={
-                    "kind": "rate_limited" if limited else type(exc).__name__,
+                    "kind": "rate_limited" if limited else error_kind(exc),
                     "message": redact(str(exc), secrets)[:2000],
                 },
                 schema=schema,

@@ -65,6 +65,11 @@ GATE_RAG = "proceed_rag"
 GATE_NO_RAG = "proceed_no_rag"
 LAST_ERROR_CHARS = 200
 """How much of a job's last error a timeout message carries."""
+UNVALIDATED_DRAFT_ERROR = "UnvalidatedDraftError"
+"""The error a job is dead-lettered with when its draft is invalid after the repair (R16.3);
+a test keeps the name equal to the generator's own exception class."""
+FAIL_CLOSED_KIND = "fail_closed_validation"
+"""The ``error.kind`` of the row of such a job (amendment 1, D.1(c))."""
 AUDIT_GRACE_S = 10.0
 """How long a drafted job may wait for its audit line: the guard-worker writes the line
 around the DRAFTED commit, not inside it."""
@@ -74,6 +79,17 @@ _AUDIT_ID_KEYS = frozenset({"message_id", "organization_id", "config"})
 
 class PipelineJobError(RuntimeError):
     """The case's job is missing, vanished or ended FAILED or DEAD_LETTER."""
+
+
+class FailClosedValidationError(PipelineJobError):
+    """The job was dead-lettered because its draft stayed invalid after the repair (R16.3).
+
+    No draft was persisted, so there is nothing to score, and the row is an error row: the
+    official headline excludes it. Its own ``error.kind`` lets the report count such rows and
+    show the sensitivity of the ASRs to them.
+    """
+
+    error_kind = FAIL_CLOSED_KIND
 
 
 class AuditMissingError(RuntimeError):
@@ -432,6 +448,7 @@ class LiveCollector:
         Raises:
             CaseTimeoutError: If the job is not terminal in time.
             PipelineJobError: If the job failed.
+            FailClosedValidationError: If it was dead-lettered for an invalid draft (R16.3).
             ContextEventMissingError: If a job reached CONTEXT_READY with no ``context_built``.
             AuditMissingError: If a guarded case was drafted and has no audit line.
         """
@@ -441,10 +458,13 @@ class LiveCollector:
             jobs, job, deadline, sleep=self.sleep, poll_interval_s=self.poll_interval_s
         )
         if job.state in FAILED_STATES:
-            raise PipelineJobError(
+            message = (
                 f"case {case.case_id}: job {job.id} ended {job.state}: "
                 f"{job.last_error or 'no error recorded'}"
             )
+            if UNVALIDATED_DRAFT_ERROR in (job.last_error or ""):
+                raise FailClosedValidationError(message)
+            raise PipelineJobError(message)
         events = await jobs.list_events_for_job(job.organization_id, job.id)
         moves = _transitions(events)
         # A redelivered job builds its context again and records another event (package A);
@@ -486,11 +506,13 @@ class LiveCollector:
             "context_ms": timings["context"] or 0,
         }
         ctx = context or {}
+        gate = gate_outcome(events)
         record["pipeline"] = {
             "transport": TRANSPORT,
             "job_state": job.state,
-            "triage": _triage_block(classification, gate_outcome(events)),
+            "triage": _triage_block(classification, gate),
             "reached_drafting": reached_drafting,
+            "template_draft": gate == GATE_TEMPLATE,
             "summary_triggered": ctx.get("summary_triggered"),
             "rerank_applied": ctx.get("rerank_applied"),
             "retrieval_degraded": ctx.get("retrieval_degraded"),

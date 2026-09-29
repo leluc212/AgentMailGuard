@@ -20,6 +20,7 @@ from evaluation.mailguard_bench.case_adapter import EVAL_RECIPIENT, EvalCase
 from evaluation.mailguard_bench.live.collect import (
     AuditMissingError,
     ContextEventMissingError,
+    FailClosedValidationError,
     LiveCollector,
     PipelineJobError,
     PipelineStores,
@@ -446,6 +447,59 @@ async def test_a_failed_job_is_a_pipeline_error_with_its_last_error(state: JobSt
 
     with pytest.raises(PipelineJobError, match=rf"{state.value}.*status 500"):
         await _collect(world, clock)
+
+
+UNVALIDATED = (
+    "FatalError: UnvalidatedDraftError: Repair retry returned an unparseable payload; "
+    "failing job into the retry/DLQ path without persisting"
+)
+
+
+@pytest.mark.parametrize("state", [JobState.FAILED, JobState.DEAD_LETTER])
+async def test_a_job_dead_lettered_for_an_unvalidated_draft_fails_closed_on_validation(
+    state: JobState,
+) -> None:
+    """R16.3: a draft invalid after its repair is never persisted, and the job goes to the DLQ.
+    The row says so by kind, so the report can size what this fail-closed path costs."""
+    world, clock = World(), FakeClock()
+    await world.receive()
+    assert world.job is not None
+    await world.jobs.transition_job_state(
+        world.org, world.job.id, JobState.FAILED, error_message=UNVALIDATED
+    )
+    if state is JobState.DEAD_LETTER:
+        await world.jobs.transition_job_state(world.org, world.job.id, JobState.DEAD_LETTER)
+
+    with pytest.raises(
+        FailClosedValidationError, match=rf"{state.value}.*UnvalidatedDraftError"
+    ) as raised:
+        await _collect(world, clock)
+
+    assert raised.value.error_kind == "fail_closed_validation"
+    assert isinstance(
+        raised.value, PipelineJobError
+    )  # still a job that ended FAILED or DEAD_LETTER
+
+
+async def test_any_other_dead_letter_stays_a_plain_pipeline_error() -> None:
+    world, clock = World(), FakeClock()
+    await world.receive()
+    assert world.job is not None
+    await world.jobs.transition_job_state(
+        world.org, world.job.id, JobState.FAILED, error_message="FatalError: no queue bound"
+    )
+
+    with pytest.raises(PipelineJobError) as raised:
+        await _collect(world, clock)
+
+    assert type(raised.value) is PipelineJobError
+
+
+def test_the_unvalidated_draft_marker_is_the_generators_own_error_name() -> None:
+    from evaluation.mailguard_bench.live import collect
+    from packages.llm.validation import UnvalidatedDraftError
+
+    assert UnvalidatedDraftError.__name__ == collect.UNVALIDATED_DRAFT_ERROR
 
 
 # --- the gate outcome and the timings ----------------------------------------------------
@@ -927,6 +981,23 @@ async def test_a_template_reply_is_a_draft_that_never_reached_the_drafting_step(
     assert (pipeline["job_state"], pipeline["reached_drafting"]) == ("DRAFTED", False)
     assert pipeline["triage"]["gate_outcome"] == "template_reply"
     assert result["host"]["retrieved"] == []
+
+
+@pytest.mark.parametrize(
+    ("path", "template"),
+    [("template_path", True), ("ai_path", False), ("early_exit_path", False)],
+)
+async def test_only_a_template_reply_is_marked_as_a_template_draft(
+    path: str, template: bool
+) -> None:
+    """Amendment 1, D.1(a): the report lists template-path successes, so the row says which
+    drafts triage wrote."""
+    world, clock = World(), FakeClock()
+    await getattr(world, path)()
+
+    pipeline = (await _collect(world, clock))["pipeline"]
+
+    assert pipeline["template_draft"] is template
 
 
 async def test_a_job_that_reached_context_without_the_diagnostics_event_is_an_error() -> None:

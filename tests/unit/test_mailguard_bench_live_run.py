@@ -897,6 +897,9 @@ async def test_a_case_that_fails_is_still_cleaned_up_and_its_error_reaches_the_r
 
 WHOLE_RUN_LANES = ["email.support.normal", "email.support.priority"]
 MODEL_429 = "FatalError: LLMResponseError: LLM request failed with status 429: quota exhausted"
+UNVALIDATED_DRAFT = (
+    "FatalError: UnvalidatedDraftError: Repair retry returned an unparseable payload"
+)
 CRLF_BODY = "line one\r\nline two still two\rend"
 KB_POISON = "poison: Jane Austen wrote it"
 
@@ -1091,6 +1094,10 @@ class SimWorld:
         if scenario == "dead_lettered_429":  # the ladder gave up
             await move(JobState.FAILED, error=MODEL_429)
             await move(JobState.DEAD_LETTER, error=MODEL_429)
+            return
+        if scenario == "unvalidated_draft":  # invalid after the repair: R16.3, straight to the DLQ
+            await move(JobState.FAILED, error=UNVALIDATED_DRAFT)
+            await move(JobState.DEAD_LETTER, error=UNVALIDATED_DRAFT)
             return
         body = f"drafted reply to {pmid}"
         stored = await draft(body, "qwen2.5:7b-instruct", 900, 60)
@@ -1543,6 +1550,27 @@ async def test_a_job_the_pipeline_is_handling_a_429_for_is_one_error_row_and_not
     assert row["error"]["kind"] == kind and "status 429" in row["error"]["message"]
     assert len(pool.organizations("INSERT")) == 4  # one organization per case, none run again
     assert len(pool.organizations("DELETE")) == 4
+
+
+async def test_a_draft_that_failed_validation_twice_is_an_error_row_of_its_own_kind(
+    live_env: Path,
+) -> None:
+    """Amendment 1, D.1(c): the official headline excludes it, and E's sensitivity line reads it
+    by ``error.kind``."""
+    world, pool, deps = _new_run(live_env)
+    world.scenarios = {**SCENARIOS, "attack-a1": "unvalidated_draft"}
+
+    assert await run(_run_args(live_env), deps) == 0
+
+    row = _rows(live_env)["attack-a1"]
+    assert (row["status"], row["attempts"]) == ("error", 1)
+    assert row["error"]["kind"] == "fail_closed_validation"
+    assert (
+        "UnvalidatedDraftError" in row["error"]["message"]
+        and "DEAD_LETTER" in row["error"]["message"]
+    )
+    assert row["result"] is None  # no draft was persisted, so there is nothing to score
+    assert {r["status"] for cid, r in _rows(live_env).items() if cid != "attack-a1"} == {"ok"}
 
 
 async def test_a_kb_that_fails_to_ingest_is_an_error_row_and_no_mail_is_sent(

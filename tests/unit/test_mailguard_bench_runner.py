@@ -178,6 +178,25 @@ async def test_a_caller_decides_which_errors_are_worth_a_rerun(tmp_path: Path) -
     assert sleeps.delays == [] and scripted.calls == ["a"]
 
 
+async def test_an_error_that_names_its_own_kind_gives_the_row_that_kind(tmp_path: Path) -> None:
+    class CarriesItsKindError(RuntimeError):
+        error_kind = "a_kind_of_its_own"
+
+    store = ResultStore(tmp_path / "r.jsonl")
+
+    await run_cases(
+        [_case("a"), _case("b")],
+        Scripted({"a": [CarriesItsKindError("nope")], "b": [RuntimeError("plain")]}),
+        store,
+        config_name="C0",
+        run_id="r",
+        sleep=Sleeps(),
+    )
+
+    kinds = {row["case_id"]: row["error"]["kind"] for row in _rows(store.path)}
+    assert kinds == {"a": "a_kind_of_its_own", "b": "RuntimeError"}  # v1's class name otherwise
+
+
 async def test_other_failures_are_error_rows_with_the_secret_redacted(tmp_path: Path) -> None:
     store = ResultStore(tmp_path / "r.jsonl")
     sleeps = Sleeps()
