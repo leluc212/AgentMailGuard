@@ -110,6 +110,34 @@ def test_run_analyses_writes_all_sections(tmp_path: Path) -> None:
         assert heading in text
 
 
+def test_run_analyses_names_the_run_model_and_its_guard_stages_that_did_not_run(
+    tmp_path: Path,
+) -> None:
+    run = _run_dir(tmp_path)
+    model = {
+        "generation_model": "gpt-4o-mini",
+        "generation": {"provider": "openai", "model": "gpt-4o-mini", "timeout_s": 60.0},
+    }
+    live = {
+        "preset": "C3",
+        "l1_classifier": True,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": None,
+        "l4_llm": None,
+    }
+    c0 = {**C0_META, **model}
+    c3 = {**C3_META, **model, "guard_models": "gpt-4o-mini", "live_layers": live}
+    for config, meta in (("C0", c0), ("C3", c3)):
+        (run / "raw" / f"{config}.meta.json").write_text(json.dumps(meta), "utf-8")
+    text = run_analyses(run, train_half=lambda: [], l1_rows=lambda source: []).read_text("utf-8")
+    assert "`gpt-4o-mini`" in text
+    assert "gemma-4-26b-a4b-it" not in text
+    assert "L3b's LLM poisoned-document check" in text
+    assert "L4's LLM output check" in text
+    assert "L2's LLM intent extraction" not in text  # it ran
+
+
 def test_run_analyses_needs_scored_c3(tmp_path: Path) -> None:
     run = _run_dir(tmp_path)
     (run / "ragemail__C3.jsonl").unlink()

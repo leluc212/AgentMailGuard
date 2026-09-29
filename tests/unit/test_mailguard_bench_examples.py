@@ -76,8 +76,16 @@ def test_no_failure_is_stated() -> None:
     assert "No LLMail-Inject attack succeeded under C3" in render_examples([])
 
 
+def test_threat_model_names_the_run_model_and_the_guard_stages_that_did_not_run() -> None:
+    text = render_threat_model("qwen2.5:7b-instruct", stages_off=["L4's LLM output check"])
+    assert "`qwen2.5:7b-instruct`" in text
+    assert "gemma" not in text  # the section once hard-coded the first test run's model
+    assert "L4's LLM output check" in text
+    assert "did not run" not in render_threat_model("qwen2.5:7b-instruct")
+
+
 def test_threat_model_names_the_framing_identifiers() -> None:
-    text = render_threat_model()
+    text = render_threat_model("gpt-4o-mini")
     for ident in (
         "LLM01:2025",
         "NIST AI 100-2 E2025",

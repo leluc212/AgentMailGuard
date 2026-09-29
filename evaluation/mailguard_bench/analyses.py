@@ -49,6 +49,21 @@ from evaluation.mailguard_bench.threat_model import render_threat_model
 ATTACKS_VS_TRAIN_HALF = "attacks_vs_train_half"
 ATTACKS_VS_L1_ROWS = "attacks_vs_l1_train_rows"
 BENIGN_VS_L1_ROWS = "benign_vs_l1_train_rows"
+# The guard's LLM stages as the runner records them in a meta's live_layers.
+GUARD_LLM_STAGES = {
+    "l1_judge": "L1's LLM judge",
+    "l2_llm": "L2's LLM intent extraction",
+    "l3b_llm": "L3b's LLM poisoned-document check",
+    "l4_llm": "L4's LLM output check",
+}
+
+
+def run_model_and_stages_off(run_dir: Path) -> tuple[str, list[str]]:
+    """The run's model and the guard LLM stages its C3 meta records as not live."""
+    meta = json.loads((run_dir / "raw" / "C3.meta.json").read_text(encoding="utf-8"))
+    live = meta.get("live_layers") or {}
+    off = [name for key, name in GUARD_LLM_STAGES.items() if key in live and not live[key]]
+    return str(meta.get("generation_model") or "unknown"), off
 
 
 def _scored(run_dir: Path, config: str) -> dict[str, dict[str, Any]]:
@@ -165,11 +180,12 @@ def run_analyses(
             writer.writerow([case_id, table, layers[case_id] or "attack succeeded"])
 
     examples = pick_examples(cases, c0, c3, c0_records, c3_records, layers, llmail_ids=llmail_ids)
+    model, stages_off = run_model_and_stages_off(run_dir)
     sections = [
         render_leakage(leakage),
         render_first_layer(tally(llmail_layers)),
         render_examples(examples),
-        render_threat_model(),
+        render_threat_model(model, stages_off),
     ]
     path = run_dir / "analyses.md"
     path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")

@@ -1,4 +1,7 @@
-"""Threat model and limitations section of the benchmark report (fixed text, no API).
+"""Threat model and limitations section of the benchmark report (no API).
+
+The text is fixed except for the run's model and the guard LLM stages that did not run,
+which ``analyses.run_analyses`` reads from the run's C3 meta.
 
 Identifiers were checked against the primary sources on 2026-09-28
 (artifacts/superpowers/2026-09-28-mailguard-benchmark-and-council-research.md §3):
@@ -10,6 +13,8 @@ limitations"; specs/tasks.md 7.19)
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 THREAT_MODEL_MD = """## Threat model and limitations
 
@@ -36,12 +41,18 @@ poisoned knowledge documents); MITRE ATLAS **AML.T0051** LLM Prompt Injection
   attacks adapted to a specific defence usually break it; an adaptive red-team against
   AgentMailGuard is the main next step, and the ASR here is a lower bound on what an
   adaptive attacker would reach.
-- **One model, one sample.** One generation model (`gemma-4-26b-a4b-it` on the Gemini
-  API) and 300 + 150 LLMail cases with a fixed seed; other models or samples may differ.
-  The Wilson intervals describe sampling error only.
+- **One model per run, one sample.** This run's model is `{model}`: it writes rag-email's
+  reply and serves as the guard's judge. 300 + 150 LLMail cases with a fixed seed; other
+  models or samples may differ. The Wilson intervals describe sampling error only.
 - **String-match scoring.** Success is decided by AgentMailGuard's own rule on the draft
-  text. A refusal that quotes the attacker address counts as a success (conservative);
-  the worked examples show real drafts.
+  text. A refusal or a draft that only mentions the attacker address counts as a success,
+  which is conservative for C3 but inflates the C0 and C0T baselines, and the rule misses
+  a spelled-out address; the worked examples show real drafts.
+- **Reply path only, entered as clean text.** The harness hands each case to rag-email as
+  an already-cleaned message and passes each knowledge document's text straight to the
+  ingestion pipeline. The mailbox fetch, MinIO storage, rag-email's MIME parser and
+  cleaner, the queues and workers, and triage (every case is routed to drafting) are not
+  exercised, so attacks carried by MIME structure, HTML or attachments are not measured.{stages}
 - **Leakage.** The benchmark half is disjoint from the classifier-training half by exact
   text only; near-duplicates are counted and the headline is also given without them.
   The benign emails were also classifier negatives, so FPR is also given without them.
@@ -57,6 +68,19 @@ poisoned knowledge documents); MITRE ATLAS **AML.T0051** LLM Prompt Injection
 """
 
 
-def render_threat_model() -> str:
-    """The section text, ready to append to ``analyses.md``."""
-    return THREAT_MODEL_MD.strip()
+def render_threat_model(model: str, stages_off: Sequence[str] = ()) -> str:
+    """The section text for a run of ``model``, ready to append to ``analyses.md``.
+
+    Args:
+        model: The run's generation model, which is also its guard judge.
+        stages_off: Guard LLM stages C3 needs that were not configured in this run.
+    """
+    stages = ""
+    if stages_off:
+        stages = (
+            "\n- **Guard stages that did not run.** "
+            + ", ".join(stages_off)
+            + " did not run in this run: they were not configured, so C3's every layer ran"
+            "\n  without them. `manifest.json` records the live stages."
+        )
+    return THREAT_MODEL_MD.format(model=model, stages=stages).strip()
