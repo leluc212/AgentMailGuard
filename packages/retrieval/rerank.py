@@ -6,8 +6,14 @@ Requirements:
 - R11.3: Pass configurable top-K to generation (defaulting to 4–6 chunks).
 - R11.5: IF reranker is unavailable, THEN fall back to RRF order, record fallback, and continue.
 - R11.6: Record rerank_latency_ms separately from retrieval_latency_ms.
-- R21.4: Observability metrics (rerank_fallback_total, rerank_latency_ms).
+- R21.3: One structured ``rerank`` event per attempt; R21.4: Observability metrics
+  (rerank_fallback_total, rerank_latency_ms).
 - specs/design.md §5.5: Cross-encoder rerank over fused candidates with RRF fallback.
+
+In the ai-worker's reply path (task 7.20) ``build_rerank_service`` composes the RerankService
+from the RETRIEVAL__RERANK_* settings. The model is read from RETRIEVAL__RERANK_MODEL_DIR with no
+network, loaded once and off the event loop, and that one-time load is kept out of the per-rerank
+budget, so the first job of a fresh worker is reranked like every other.
 """
 
 from __future__ import annotations
@@ -15,17 +21,24 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from packages.retrieval.models import Candidate
 
 if TYPE_CHECKING:
+    from packages.core.settings import RetrievalSettings
     from packages.observability.metrics import PipelineMetrics
 
 logger = logging.getLogger(__name__)
+
+RERANK_LOG_EVENT = "rerank"
+DEFAULT_LOAD_TIMEOUT_SECONDS = 60.0
+"""How long the first rerank waits for the model to load before it falls back to RRF order."""
 
 
 class RerankerUnavailableError(Exception):
@@ -51,6 +64,19 @@ class Reranker(Protocol):
         Returns:
             Reranked list of Candidate objects with rerank_score populated.
         """
+        ...
+
+
+@runtime_checkable
+class WarmableReranker(Protocol):
+    """A reranker whose model loads on demand and can be loaded ahead of the first rerank.
+
+    RerankService loads such a reranker before it starts the rerank clock (R11.6): the load is a
+    one-time cost of seconds that would otherwise make a fresh worker's first job fall back.
+    """
+
+    def warm_up(self) -> None:
+        """Load the model now. Blocking: the service calls it in a worker thread."""
         ...
 
 
@@ -109,6 +135,9 @@ class CrossEncoderReranker:
 
     Fulfills R11.1. Lazily loads SentenceTransformers CrossEncoder if available,
     raising RerankerUnavailableError if dependencies are missing or model load fails.
+
+    ``rerank_score`` is the model's own output: for the default ms-marco cross-encoders that is
+    a raw logit (roughly -11 to +11), not a probability.
     """
 
     def __init__(
@@ -116,31 +145,69 @@ class CrossEncoderReranker:
         model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         *,
         device: str | None = None,
+        model_dir: str | os.PathLike[str] | None = None,
     ) -> None:
+        """Configure the reranker; nothing is loaded until ``warm_up`` or the first rerank.
+
+        Args:
+            model_name: Hugging Face model id of the cross-encoder.
+            device: Torch device, or None to let sentence-transformers choose.
+            model_dir: Folder that holds the model in the Hugging Face cache layout (the image
+                bakes it there at build time). When set the model is read from it with
+                ``local_files_only``, so a missing model is an error and never a download
+                (R11.5). None or blank uses the default Hugging Face cache, which downloads on
+                first use.
+        """
         self.model_name = model_name
         self.device = device
+        self.model_dir = (
+            str(model_dir) if model_dir is not None and str(model_dir).strip() else None
+        )
         self._model: Any = None
         self._available: bool | None = None
+        # rerank() loads in a worker thread: racing first calls must build the model once.
+        self._load_lock = threading.Lock()
 
     def _load_model(self) -> Any:
         if self._model is not None:
             return self._model
-        if self._available is False:
-            raise RerankerUnavailableError(
-                f"Reranker model {self.model_name} is marked unavailable"
+        with self._load_lock:
+            if self._model is not None:  # another thread finished loading while this one waited
+                return self._model
+            if self._available is False:
+                raise RerankerUnavailableError(
+                    f"Reranker model {self.model_name} is marked unavailable"
+                )
+
+            started = time.perf_counter()
+            try:
+                from sentence_transformers import CrossEncoder
+
+                kwargs: dict[str, Any] = {"device": self.device}
+                if self.model_dir is not None:
+                    kwargs.update(cache_folder=self.model_dir, local_files_only=True)
+                self._model = CrossEncoder(self.model_name, **kwargs)
+                self._available = True
+            except Exception as err:
+                self._available = False
+                raise RerankerUnavailableError(
+                    f"Failed to load CrossEncoder model {self.model_name}: {err}"
+                ) from err
+            logger.info(
+                "Loaded reranker model %s from %s in %.1fs",
+                self.model_name,
+                self.model_dir or "the default Hugging Face cache",
+                time.perf_counter() - started,
             )
-
-        try:
-            from sentence_transformers import CrossEncoder
-
-            self._model = CrossEncoder(self.model_name, device=self.device)
-            self._available = True
             return self._model
-        except Exception as err:
-            self._available = False
-            raise RerankerUnavailableError(
-                f"Failed to load CrossEncoder model {self.model_name}: {err}"
-            ) from err
+
+    def warm_up(self) -> None:
+        """Load the model now (R11.1). Blocking: call it in a worker thread, never on the loop.
+
+        Raises:
+            RerankerUnavailableError: If the dependency or the model cannot be loaded.
+        """
+        self._load_model()
 
     async def rerank(
         self,
@@ -152,11 +219,15 @@ class CrossEncoderReranker:
         if not candidates:
             return []
 
-        model = self._load_model()
+        loop = asyncio.get_running_loop()
+        model = self._model
+        if model is None:
+            # The first load imports torch and reads the weights, which takes seconds: keep it
+            # off the event loop. RerankService normally loads the model before it gets here.
+            model = await loop.run_in_executor(None, self._load_model)
         pairs = [(query, c.content) for c in candidates]
 
         # Run CPU/GPU bound prediction in threadpool to avoid blocking asyncio loop
-        loop = asyncio.get_running_loop()
         scores = await loop.run_in_executor(None, model.predict, pairs)
 
         scored: list[Candidate] = []
@@ -230,6 +301,37 @@ class StubReranker:
         return scored[:top_k] if top_k is not None else scored
 
 
+def _log_rerank(
+    outcome: str,
+    *,
+    organization_id: str | None,
+    category: str | None,
+    model: str | None,
+    candidates: int,
+    selected: int,
+    top_k: int,
+    latency_ms: float,
+    fallback_reason: str | None = None,
+) -> None:
+    """Emit the structured ``rerank`` event of one attempt (R21.3).
+
+    ``outcome`` is ``applied`` or the fallback reason (``timeout``, ``unavailable``, ``error``).
+    """
+    with contextlib.suppress(Exception):  # logging must never fail the job
+        fields: dict[str, Any] = {
+            "outcome": outcome,
+            "model": model,
+            "category": category,
+            "candidates": candidates,
+            "selected": selected,
+            "top_k": top_k,
+            "latency_ms": round(latency_ms, 2),
+        }
+        if fallback_reason is not None:
+            fields["fallback_reason"] = fallback_reason
+        logger.info(RERANK_LOG_EVENT, extra={"organization_id": organization_id, "fields": fields})
+
+
 class RerankService:
     """Coordinates policy-based cross-encoder reranking and RRF fallback.
 
@@ -244,17 +346,53 @@ class RerankService:
         timeout_seconds: float = 1.0,
         default_top_k: int = 5,
         metrics: PipelineMetrics | None = None,
+        load_timeout_seconds: float = DEFAULT_LOAD_TIMEOUT_SECONDS,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError(f"timeout_seconds must be > 0, got {timeout_seconds}")
         if default_top_k <= 0:
             raise ValueError(f"default_top_k must be > 0, got {default_top_k}")
+        if load_timeout_seconds <= 0:
+            raise ValueError(f"load_timeout_seconds must be > 0, got {load_timeout_seconds}")
 
         self.reranker = reranker
         self.policy = policy or RerankPolicy()
         self.timeout_seconds = timeout_seconds
         self.default_top_k = default_top_k
         self.metrics = metrics
+        self.load_timeout_seconds = load_timeout_seconds
+        self._model_ready = False
+        # Concurrent first reranks queue here instead of each holding a worker thread.
+        self._load_lock = asyncio.Lock()
+
+    async def warm_up(self) -> None:
+        """Load a WarmableReranker's model before the rerank clock starts (R11.1, R11.6).
+
+        The first load imports torch and reads the weights, which takes seconds. Inside the
+        rerank budget it would make the first job of every fresh worker fall back to RRF order,
+        so it gets its own budget, ``load_timeout_seconds``. The load runs once: concurrent
+        callers wait for it, and later calls return at once. A reranker without ``warm_up`` is
+        left alone.
+
+        Raises:
+            RerankerUnavailableError: If the model cannot be loaded, or not within the budget
+                (the load then carries on in its thread and a later call finds it ready).
+        """
+        reranker = self.reranker
+        if self._model_ready or not isinstance(reranker, WarmableReranker):
+            return
+        async with self._load_lock:
+            if self._model_ready:
+                return
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(reranker.warm_up), timeout=self.load_timeout_seconds
+                )
+            except TimeoutError as err:
+                raise RerankerUnavailableError(
+                    f"Reranker model not loaded after {self.load_timeout_seconds}s"
+                ) from err
+            self._model_ready = True
 
     async def rerank(
         self,
@@ -289,11 +427,14 @@ class RerankService:
                 latency_ms=0.0,
             )
 
-        # Step 2: Attempt reranking with timeout (R11.1, R11.6)
+        # Step 2: Load the model outside the rerank budget, then attempt reranking with timeout
+        # (R11.1, R11.6). A model that cannot load falls back like any other failure (R11.5).
         to = timeout if timeout is not None else self.timeout_seconds
         start_time = time.perf_counter()
 
         try:
+            await self.warm_up()
+            start_time = time.perf_counter()  # the one-time model load is not rerank latency
             reranked = await asyncio.wait_for(
                 self.reranker.rerank(query, candidates, top_k=k),
                 timeout=to,
@@ -304,6 +445,16 @@ class RerankService:
             if self.metrics is not None:
                 with contextlib.suppress(Exception):
                     self.metrics.rerank_latency_ms.observe(elapsed_ms)
+            _log_rerank(
+                "applied",
+                organization_id=organization_id,
+                category=category,
+                model=getattr(self.reranker, "model_name", None),
+                candidates=len(candidates),
+                selected=len(reranked),
+                top_k=k,
+                latency_ms=elapsed_ms,
+            )
 
             return RerankResult(
                 candidates=reranked,
@@ -326,6 +477,17 @@ class RerankService:
                 with contextlib.suppress(Exception):
                     self.metrics.rerank_latency_ms.observe(elapsed_ms)
                     self.metrics.rerank_fallback_total.labels(tenant=org, reason="timeout").inc()
+            _log_rerank(
+                "timeout",
+                organization_id=organization_id,
+                category=category,
+                model=getattr(self.reranker, "model_name", None),
+                candidates=len(candidates),
+                selected=min(k, len(candidates)),
+                top_k=k,
+                latency_ms=elapsed_ms,
+                fallback_reason=msg,
+            )
 
             return RerankResult(
                 candidates=list(candidates)[:k],
@@ -349,6 +511,17 @@ class RerankService:
                 with contextlib.suppress(Exception):
                     self.metrics.rerank_latency_ms.observe(elapsed_ms)
                     self.metrics.rerank_fallback_total.labels(tenant=org, reason=reason).inc()
+            _log_rerank(
+                reason,
+                organization_id=organization_id,
+                category=category,
+                model=getattr(self.reranker, "model_name", None),
+                candidates=len(candidates),
+                selected=min(k, len(candidates)),
+                top_k=k,
+                latency_ms=elapsed_ms,
+                fallback_reason=msg,
+            )
 
             return RerankResult(
                 candidates=list(candidates)[:k],
@@ -357,3 +530,24 @@ class RerankService:
                 fallback_reason=msg,
                 latency_ms=elapsed_ms,
             )
+
+
+def build_rerank_service(
+    settings: RetrievalSettings, *, metrics: PipelineMetrics | None = None
+) -> RerankService | None:
+    """Compose the ai-worker's RerankService from the RETRIEVAL__RERANK_* settings (R11.1, R11.5).
+
+    Returns None when RETRIEVAL__RERANK_ENABLED is false: the Context Builder then keeps RRF
+    order and no model is ever loaded. Otherwise the service wraps a CrossEncoderReranker for
+    RETRIEVAL__RERANK_MODEL, read from RETRIEVAL__RERANK_MODEL_DIR when that is set, with the
+    RETRIEVAL__RERANK_TIMEOUT_MS budget and RETRIEVAL__TOP_K as its default cut. Building it
+    loads nothing: the model loads on the first rerank (or ``RerankService.warm_up``).
+    """
+    if not settings.rerank_enabled:
+        return None
+    return RerankService(
+        CrossEncoderReranker(settings.rerank_model, model_dir=settings.rerank_model_dir),
+        timeout_seconds=settings.rerank_timeout_ms / 1000,
+        default_top_k=settings.top_k,
+        metrics=metrics,
+    )
