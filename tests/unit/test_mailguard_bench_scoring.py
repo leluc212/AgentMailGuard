@@ -283,3 +283,45 @@ def test_error_record_is_refused(amg: tuple[ModuleType, ModuleType]) -> None:
             harness=harness,
             metrics=metrics,
         )
+
+
+async def test_a_native_c0_runner_row_flattens_to_an_unguarded_record(tmp_path: Path) -> None:
+    # The row C0 really writes: NativeCaseExecutor on a prepared case, wrapped the way
+    # HostCaseExecutor wraps it, through run_cases and ResultStore (no mailguard, fake LLM).
+    from evaluation.mailguard_bench.results import ResultStore
+    from evaluation.mailguard_bench.runner import run_cases
+    from tests.unit.test_mailguard_bench_native_reply import ATTACK, REPLY, _executor, _prepared
+
+    executor, _, _ = _executor()
+    prepared = _prepared(ATTACK)
+
+    async def execute(_case: Any) -> dict[str, Any]:
+        execution = await executor.execute(prepared)
+        return {
+            "host": prepared.diagnostics(),
+            **execution.record,
+            "guard_errors": list(execution.guard_errors),
+        }
+
+    store = ResultStore(tmp_path / "C0.jsonl")
+    await run_cases([prepared.case], execute, store, config_name="C0", run_id="r")
+    (line,) = (tmp_path / "C0.jsonl").read_text("utf-8").splitlines()
+
+    record = RawRecord.from_dict(json.loads(line))
+
+    assert (record.case_id, record.config, record.status, record.error) == (
+        "n-1",
+        "C0",
+        "ok",
+        None,
+    )
+    assert record.ok and not record.blocked
+    assert record.report is None
+    assert record.reply_v1 == REPLY
+    assert (record.final_body, record.final_action) == (REPLY["draft"], "forward")
+    assert record.system_instructions == "You are an enterprise support assistant."
+    assert record.guard_llm.calls == 0 and record.guard_llm.input_tokens == 0
+    assert record.guard_latency_ms == 0
+    assert record.generation.calls == 1
+    assert record.total_latency_ms == record.generation_latency_ms
+    assert record.poison_retrieved is None  # no knowledge documents in this case
