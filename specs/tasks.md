@@ -899,6 +899,11 @@
   - Status: F is done. Left: work packages A–E, then the owner-run v2 runs and their reports for the three models.
   - _Requirements: R22.12, R4.1, R5.10, R6.1, R6.3, R8.3, R9.6, R10.9, R11.1–R11.5, R20.6, R21.3, R21.4, R21.6, R24.5, SC4, SC5, SC9_
 
+- [ ] **7.21 Router relevance check when the rerank falls back (found in 7.20 B; owner decision open)**
+  - Trigger 3 of `ComplexityRouter` (`packages/llm/router.py`, `_extract_chunk_score`) counts the chunks whose best score is at least `ROUTER_MIN_RELEVANCE_SCORE` (0.50, a probability). A reranked chunk carries a cross-encoder probability (7.20 B), but a chunk that was not reranked carries only its RRF `fused_score`, at most 2/61 (about 0.03), which never reaches 0.50. Every RAG job whose rerank is off, unavailable or over `RETRIEVAL__RERANK_TIMEOUT_MS` therefore escalates to `high_capability` with `insufficient_retrieval_evidence` (checked with the real router on identical chunks), and the tier of an otherwise identical job depends on whether the reranker answered in time; the escalation also counts toward the R15.5 cap. The same held before 7.20 for RRF-only retrieval, and 7.20 makes it visible.
+  - Decide, then build: (a) apply the relevance check only when `ContextPackage.rerank_applied` is true and otherwise keep only the chunk-count check; (b) keep escalating on a fallback on purpose and say so in R15.3; or (c) another rule. `tests/unit/test_context_builder_rerank.py::test_after_a_fallback_the_router_compares_rrf_scores_with_the_relevance_bar` pins today's behaviour and changes with the decision.
+  - _Requirements: R15.3, R15.5, R11.5_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -970,11 +975,11 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b, 7.20 |
 | R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |
 | R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 8.6 |
-| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20 |
+| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21 |
 | R12 Query construction | 3.13, 7.18 |
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |
-| R15 Model cascade | 4.8, 4.13a, 4.13b |
+| R15 Model cascade | 4.8, 4.13a, 4.13b, 7.21 |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
