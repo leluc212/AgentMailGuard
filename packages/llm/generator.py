@@ -7,7 +7,7 @@ with a single prompt-templated generation call enforcing strict budget tracking.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +102,9 @@ class SinglePassGenerator:
     ) -> GenerationResult:
         """Synthesize draft reply in a single model invocation (R14.3, R14.4, R14.6, R15.5).
 
+        Renders the resolved profile's prompt template into one user message and runs it
+        through :meth:`generate_from_messages`.
+
         Args:
             context: Assembled ContextPackage for the current message and thread.
             category: Optional classification category to resolve AgentProfile.
@@ -129,15 +132,58 @@ class SinglePassGenerator:
         # 1. Resolve profile
         resolved_profile = profile or self.profile_registry.resolve_profile(category)
 
-        # 2. Resolve model tier (escalation replaces generation tier, never adds a call - R15.5)
-        raw_tier = escalated_tier or resolved_profile.model_tier
-        effective_tier = raw_tier if isinstance(raw_tier, ModelTier) else ModelTier(raw_tier)
-
         # 3. Render prompt text
         prompt_text = self.profile_registry.render_prompt(resolved_profile, context)
 
         # 4. Build chat message
         messages = [ChatMessage(role="user", content=prompt_text)]
+
+        return await self.generate_from_messages(
+            messages,
+            context=context,
+            category=category,
+            profile=resolved_profile,
+            budget_tracker=budget_tracker,
+            escalated_tier=escalated_tier,
+            escalation_reason=escalation_reason,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    async def generate_from_messages(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        context: ContextPackage,
+        category: str | None = None,
+        profile: AgentProfile | None = None,
+        budget_tracker: CallBudgetTracker | None = None,
+        escalated_tier: ModelTier | str | None = None,
+        escalation_reason: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 1000,
+    ) -> GenerationResult:
+        """Run the single generation call on caller-built messages (R14.3, R16.2, R16.3).
+
+        Same budget, one-call invariant, schema validation, single repair and citation
+        check as :meth:`generate_draft`, which delegates here. The AgentMailGuard benchmark
+        (task 7.19, ADR-0010) uses it to send the prompt the guard's L3 layer built through
+        rag-email's own generation step. ``context`` is still required: citations are
+        verified against its retrieved chunks.
+
+        Raises:
+            ValueError: If ``messages`` is empty.
+            CallBudgetExceededError, CallBudgetViolationError, UnvalidatedDraftError,
+            DraftSchemaContractError, LLMError: as :meth:`generate_draft`.
+        """
+        if not messages:
+            raise ValueError("generate_from_messages needs at least one message")
+        messages_list: list[ChatMessage] = list(messages)
+        resolved_profile = profile or self.profile_registry.resolve_profile(category)
+
+        # 2. Resolve model tier (escalation replaces generation tier, never adds a call - R15.5)
+        raw_tier = escalated_tier or resolved_profile.model_tier
+        effective_tier = raw_tier if isinstance(raw_tier, ModelTier) else ModelTier(raw_tier)
 
         # 5. Fetch output schema and refuse one this module cannot actually enforce
         schema = self.profile_registry.get_schema(resolved_profile)
@@ -179,7 +225,7 @@ class SinglePassGenerator:
         generate_already_counted = False
         try:
             result = await budgeted.generate(
-                messages=messages,
+                messages=messages_list,
                 schema=schema,
                 tier=effective_tier,
                 max_tokens=max_tokens,
@@ -213,7 +259,7 @@ class SinglePassGenerator:
             validated_payload, repair_attempts = await self._validate_with_repair(
                 budgeted=budgeted,
                 tracker=tracker,
-                messages=messages,
+                messages=messages_list,
                 schema=schema,
                 tier=effective_tier,
                 max_tokens=max_tokens,
