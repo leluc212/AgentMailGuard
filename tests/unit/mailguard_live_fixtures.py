@@ -37,9 +37,12 @@ def live_row(
     action: str = "reply",
     status: str = "ok",
     job_state: str | None = None,
+    decision: str = "draft_only",
 ) -> dict[str, Any]:
     """One ``mailguard-bench-result.v3`` row.
 
+    ``decision`` is the guard's policy action on a draft that was not blocked (``draft_only``,
+    or ``human_approval`` for a draft kept with a reviewer sign-off note).
     ``outcome`` picks the path the email took: ``drafted`` (the drafting consumer wrote
     ``body``), ``early_exit`` (triage: no reply required, no draft), ``template`` (triage
     wrote the template draft), ``blocked_inbound`` / ``blocked_outbound`` (the guard-worker
@@ -93,7 +96,7 @@ def live_row(
         "report": (
             {"decision": {"action": "block", "matched_rule_id": "P10"}}
             if blocked
-            else ({"decision": {"action": "draft_only"}} if guarded and reached else None)
+            else ({"decision": {"action": decision}} if guarded and reached else None)
         ),
         "system_instructions": "You are the support agent.",
         "pipeline": {

@@ -582,3 +582,32 @@ def test_manifest_records_the_meaning_reader_only_when_it_ran() -> None:
 
     assert manifest(meaning=record)["meaning"] == record
     assert "meaning" not in manifest()  # a run without a reader keeps its manifest as before
+
+
+def test_live_report_discloses_benign_drafts_kept_but_flagged_for_human_approval() -> None:
+    from dataclasses import replace
+
+    c3 = replace(live_summary("C3", PIPELINE_7_300, GUARD_7_280), guard_review=4)
+    inputs = live_inputs(llmail={"C0": live_summary("C0", PIPELINE_40_300, GUARD_40_280), "C3": c3})
+
+    text = render_report(inputs)
+
+    assert "| Benign flagged for human approval (draft kept) | n/a | 4 |" in text
+    assert (
+        "C3 kept the draft but flagged it for human approval on 4 of the 90 benign emails that "
+        "reached drafting (not counted in the guard FPR)."
+    ) in text
+    quiet = render_report(live_inputs())  # nothing flagged: no headline line, no table row
+    assert "flagged it for human approval" not in quiet
+    assert "Benign flagged for human approval" not in quiet
+
+
+def test_metrics_csv_carries_the_human_approval_count() -> None:
+    from dataclasses import replace
+
+    s = replace(live_summary("C3", PIPELINE_7_300, GUARD_7_280), guard_review=4)
+
+    rows = metrics_rows({"llmail": {"C3": s}}, {}, {})
+
+    (found,) = [r for r in rows if r["metric"] == "guard_human_approval_benign"]
+    assert (found["config"], found["value"]) == ("C3", 4)
