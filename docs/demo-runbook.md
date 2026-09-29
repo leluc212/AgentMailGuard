@@ -556,26 +556,34 @@ What is different from §9.8:
 
 Run the models in that order, each one completely (all its configs, the retry pass, the reports) before the next.
 
-**1. Once.** Do §9.8 step 1 (repo, `make up`, worktree, `make mailguard-prep`, `make mailguard-cases`, `make mailguard-smoke`), then `make up` again once the v2 code is on the branch: it rebuilds the images. That first build is slow and needs the network, because the CPU-only torch and the cross-encoder model are downloaded into the image; the containers never download them at runtime. Then add the keys and the host-side settings to `.env` (never committed):
+**Finish every §9.8 v1 `RUN` before you start v2**: all its configs, the retry pass and `make mailguard-analyses`. Step 2 moves Ollama's address, after which `localhost:11434` no longer answers, so a v1 run that is still going or has not started would fail. Pointing v1 at the new address with `BENCH_OLLAMA_BASE_URL` instead does not help: v1's settings fingerprint records the base URL (`generation.base_url`), so the runner then stops a resume of that config with `was started with other settings (generation changed)`, and the report refuses a `RUN` whose configs recorded different addresses (§9.4).
+
+**1. Once.** Do §9.8 step 1 (repo, `make up`, worktree, `make mailguard-prep`, `make mailguard-cases`, `make mailguard-smoke`), then `make up` again once the v2 code is on the branch: it rebuilds the images. That first build is slow and needs the network, because the CPU-only torch and the cross-encoder model are downloaded into the image; the containers never download them at runtime. Then set the keys and the host-side settings in `.env` (never committed).
+
+The guard-worker and the runner are host processes: they read `.env` (and the shell), never `.env.stack`, while the containers get their settings from the stack env (step 3). `.env` must therefore say what the containers get. The corpus and the queries must use one embedding model, and C0 and the guarded configs one retrieval budget, one LLM timeout and one set of lane queues; otherwise the guarded configs run on other settings than C0 and nothing reports it. Step 3 refuses to write while `.env` disagrees, and step 5 prints both sides:
 
 ```dotenv
 BENCH_OPENAI_API_KEY=<your OpenAI key>          # GPT-4o-mini only
 LLM__OPENAI_API_KEY=<your Gemini API key>       # embeddings for EVERY run, and the Gemma profile's LLM key
-# The guard-worker and the runner are host processes: they read the embedding settings here,
-# and they must match the containers' (the corpus and the queries must use one model).
 EMBEDDING__MOCK=false
 EMBEDDING__MODEL_NAME=gemini-embedding-001
 EMBEDDING__DIMENSION=1536
 EMBEDDING__BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 EMBEDDING__API_KEY=<the same Gemini key>
+RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000            # the .env.example of before task 7.20 says 500: change it
 LLM__TIMEOUT_S=60                               # the guard-worker's per-call timeout; the containers get 60 from the stack env
 ```
 
-Keep these out of your shell: do not `export` them, and `env | grep -E '^(LLM__|EMBEDDING__|RETRIEVAL__|SUMMARIZATION__)'` must print nothing. Compose lets a variable exported in the shell win over every env file, so an exported `LLM__OPENAI_API_KEY` (the Gemini key) would reach a GPT-4o-mini run as its LLM key. In AI Studio, read the request limits of `gemini-embedding-001`: every case's knowledge documents are embedded at ingestion and each email that needs retrieval embeds one query, in every run, whichever model is under test.
+**An `.env` made before task 7.20 (a copy of the old `.env.example`) also has two lines that must go**; a fresh copy of the current example has neither. `grep -nE '^(SUMMARIZATION__SUMMARIZER_MODEL|ROUTING__CONFIGURED_CONSUMERS)=' .env` prints them (nothing printed: you are clear):
+
+- `SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini`. The old example named a summarizer model that nothing read; the summarizer honours the setting now, so the guard-worker would ask the run's endpoint for `gpt-4o-mini` on every thread long enough to be summarized, and those jobs would fail. Without the line the summaries use the run's model, as in the containers. The containers themselves never read this name from `.env` (Compose maps `BENCH_SUMMARIZER_MODEL` to it), so only the host processes are at risk.
+- `ROUTING__CONFIGURED_CONSUMERS=[...]`. The old example's list has no `email.administration.priority`, a lane the containers consume by default, so in a guarded config that lane's emails would never be drafted. Leave the setting unset in `.env`, so that the host processes use the same default as the containers.
+
+Keep these out of your shell: do not `export` them, and `env | grep -E '^(LLM__|EMBEDDING__|RETRIEVAL__|SUMMARIZATION__|ROUTING__|BENCH_SUMMARIZER_MODEL)'` must print nothing. Compose lets a variable exported in the shell win over every env file, so an exported `LLM__OPENAI_API_KEY` (the Gemini key) would reach a GPT-4o-mini run as its LLM key. In AI Studio, read the request limits of `gemini-embedding-001`: every case's knowledge documents are embedded at ingestion and each email that needs retrieval embeds one query, in every run, whichever model is under test.
 
 **Pick the reader model now.** The meaning-based column (step 7) needs a reader model that is not one of the three benchmarked models. Choose it and write it down before the first v2 run, and set `READER` to it in the shell where you reach step 7: the rubric and the reader are pre-registered, and changing either after seeing a result means new runs (the same rule as §9's "do not tune").
 
-**2. Ollama on the Docker bridge (local models only; the `sudo` steps are yours).** Inside a container `localhost` is the container itself, so the containers reach the desktop's Ollama through `host.docker.internal`, which `docker-compose.yml` maps to the host (`extra_hosts`) for the four services that call a model. Docker Engine resolves that name to the host's address on the default bridge (`docker0`, normally `172.17.0.1`). Ollama listens on `127.0.0.1` only by default, so nothing in a container can reach it. Make it listen on the bridge address, and only there, so it is not open on your network:
+**2. Ollama on the Docker bridge (local models only; the `sudo` steps are yours).** Do this only after every §9.8 v1 `RUN` is finished (all its configs, the retry pass and the report). The change stops `localhost:11434` from answering, so a v1 run still going or not yet started would fail; and the v1 fingerprint records the base URL, so moving v1 to the new address changes it (see the note under the table above). Inside a container `localhost` is the container itself, so the containers reach the desktop's Ollama through `host.docker.internal`, which `docker-compose.yml` maps to the host (`extra_hosts`) for the four services that call a model. Docker Engine resolves that name to the host's address on the default bridge (`docker0`, normally `172.17.0.1`). Ollama listens on `127.0.0.1` only by default, so nothing in a container can reach it. Make it listen on the bridge address, and only there, so it is not open on your network:
 
 ```bash
 BRIDGE_IP=$(ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1)   # 172.17.0.1 on this machine
@@ -608,10 +616,11 @@ docker compose --env-file .env --env-file .env.stack up -d --no-deps api triage-
 docker compose ps api triage-worker knowledge-worker ai-worker     # wait until all four are healthy
 ```
 
-`.env.stack` gives those four containers the model's LLM settings (an endpoint on `localhost` becomes `host.docker.internal`), the same model as the summarizer, Gemini `gemini-embedding-001` at 1536 dimensions with the Gemini key read from `.env`'s `LLM__OPENAI_API_KEY`, a 3000 ms retrieval budget, the reranker settings and a 60 s LLM timeout (`docs/configuration.md` §2.22). `--no-deps` and the service list keep Postgres, RabbitMQ and MinIO running, so no data is lost; the other app containers (mail-connector, email-worker, dispatch-worker, frontend) call no model and keep running as they are. Rules:
+`.env.stack` gives those four containers the model's LLM settings (an endpoint on `localhost` becomes `host.docker.internal`), the same model as the summarizer (written as `BENCH_SUMMARIZER_MODEL`, which Compose maps to the containers' `SUMMARIZATION__SUMMARIZER_MODEL`, so a line of that name left in `.env` never reaches a container), Gemini `gemini-embedding-001` at 1536 dimensions with the Gemini key read from `.env`'s `LLM__OPENAI_API_KEY`, a 3000 ms retrieval budget, the reranker settings and a 60 s LLM timeout (`docs/configuration.md` §2.22). `--no-deps` and the service list keep Postgres, RabbitMQ and MinIO running, so no data is lost; the other app containers (mail-connector, email-worker, dispatch-worker, frontend) call no model and keep running as they are. Rules:
 
 - The file holds API keys: it is git-ignored, written owner-only and never printed. Delete it after the last run (step 8).
 - `FAIL the shell sets ...` means a variable exported in your shell would win over the file (step 1). Unset it and run again; the message names the setting, never its value.
+- `FAIL the guard-worker and the runner are host processes ...` means `.env` (or the shell) would give them other settings than the containers get: it lists each setting and what it must be (a 500 ms retrieval budget from an old `.env`, a summarizer model, a `ROUTING__CONFIGURED_CONSUMERS` list, a missing embedding line). Fix `.env` as in step 1 and run again; nothing is written until it agrees.
 - **Never run `make up`, or `docker compose up` without both `--env-file` flags, between two configs of one `RUN`.** It recreates the app containers from `.env` alone and drops this model's settings. `docker compose stop` and `docker compose start` keep a container's settings, and step 4 uses only those.
 - The next model gets its own `stack_env` run and command before its preflight; that recreates the four containers.
 
@@ -636,8 +645,8 @@ mg() {
 M=qwen2.5-7b RUN=2026-09-29-qwen25-live WORKERS=1     # one row of the table above
 R=evaluation/results/mailguard_bench/$RUN
 
-run_config() {   # $1 = C0 | C0T | C1 | C2 | C3; uses M, RUN, R, WORKERS; LIMIT=n runs only the first n cases
-  local c=$1 gw stamp pid rc
+run_config() {   # $1 = C0 | C0T | C1 | C2 | C3; uses M, RUN, R, WORKERS; LIMIT=n runs only the first n cases; GW_WAIT_S=n waits n s for the guard-worker (default 300)
+  local c=$1 gw stamp pid rc waited=0
   if [ "$c" = C0 ]; then
     docker compose start ai-worker
     until [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q ai-worker)")" = healthy ]; do sleep 2; done
@@ -650,9 +659,17 @@ run_config() {   # $1 = C0 | C0T | C1 | C2 | C3; uses M, RUN, R, WORKERS; LIMIT=
   mg python -m evaluation.mailguard_bench.live.guard_worker --config "$c" --run "$RUN" --model-profile "$M" \
     > "$R/raw/guard-worker.$c.log" 2>&1 &
   gw=$!
-  until [ "$pid" -nt "$stamp" ]; do     # a pid file newer than this start: the guard-worker is consuming
+  # Ready = a pid file newer than this start AND /readyz answering. The guard-worker writes the pid file first and
+  # starts its consumers afterwards, /readyz answers only once they run, and the runner fails a config at once
+  # when a lane queue has no consumer.
+  until [ "$pid" -nt "$stamp" ] && curl -sf --max-time 2 http://127.0.0.1:8014/readyz > /dev/null; do
     if ! kill -0 "$gw" 2>/dev/null; then
       wait "$gw"; rm -f "$stamp"; echo "FAIL guard-worker $c exited; see $R/raw/guard-worker.$c.log" >&2; return 1
+    fi
+    if [ $((waited += 1)) -gt "${GW_WAIT_S:-300}" ]; then
+      [ "$pid" -nt "$stamp" ] && kill -TERM "$(cat "$pid")" 2>/dev/null
+      kill -TERM "$gw" 2>/dev/null; wait "$gw" 2>/dev/null; rm -f "$stamp"
+      echo "FAIL guard-worker $c not ready after ${GW_WAIT_S:-300} s; see $R/raw/guard-worker.$c.log" >&2; return 1
     fi
     sleep 1
   done
@@ -664,7 +681,9 @@ run_config() {   # $1 = C0 | C0T | C1 | C2 | C3; uses M, RUN, R, WORKERS; LIMIT=
 }
 ```
 
-By hand, the switch is `docker compose stop ai-worker` before a guarded config, `docker compose start ai-worker` before C0 (wait until it is healthy), and `kill -TERM "$(cat $R/raw/guard_worker.C3.pid)"` to stop the guard-worker of `C3`. A forgotten switch stops the runner before it spends anything: it names the drafting consumer that is missing or extra.
+`run_config` starts the runner only when the guard-worker is consuming: its pid file is newer than the start and its health endpoint answers (`http://127.0.0.1:8014/readyz`, the guard-worker's default health port; the endpoint starts after every consumer has). The pid file alone is not enough, because the guard-worker writes it before it connects and starts its consumers, and the runner fails a config at once when a lane queue has no consumer. A guard-worker that exits fails the config with `FAIL`, and one that is not ready after `GW_WAIT_S` seconds (default 300) is stopped and fails it too; its log is `$R/raw/guard-worker.<config>.log`.
+
+By hand, the switch is `docker compose stop ai-worker` before a guarded config, `docker compose start ai-worker` before C0 (wait until it is healthy), and `kill -TERM "$(cat $R/raw/guard_worker.C3.pid)"` to stop the guard-worker of `C3`; after starting a guard-worker by hand, wait until `curl -sf http://127.0.0.1:8014/readyz` succeeds before you start the runner. A forgotten switch stops the runner before it spends anything: it names the drafting consumer that is missing or extra.
 
 **5. Preflight (a handful of calls, before the full runs).** First check that the containers carry this model's settings (values only; the keys are never printed), that the reranker model is in the image, and, for a local model, that a container reaches Ollama at the address it will use:
 
@@ -677,7 +696,31 @@ docker compose exec -T ai-worker sh -c 'curl -sS "${LLM__OPENAI_BASE_URL%/v1}/ap
 make mailguard-probe MODEL=$M                                                   # ONE guard-judge call; must print `ok live probe`
 ```
 
-Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms` and `timeout=60.0s`; the Ollama call prints its version as JSON. Then run the first five cases of C0, C0T and C3 on a throwaway `RUN`, and print what each case did:
+Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms` and `timeout=60.0s`; the Ollama call prints its version as JSON.
+
+That checks C0 only: the guard-worker, a host process, reads `.env` and not `.env.stack`. Check that it would run on the settings the ai-worker container runs on. The probe below prints the model, the timeout, the summarizer model, the embedding, the retrieval budget and the lane queues the ai-worker consumes. It runs in the container, and on the host with the model profile applied first, as the guard-worker does; `diff` must print nothing. (The ai-worker container must be running for it: `docker compose start ai-worker` if a guarded config stopped it.)
+
+```bash
+PROBE=$(cat <<'PY'
+import os, sys
+if len(sys.argv) > 1:  # on the host: apply the model profile before the settings are read, as the guard-worker does
+    from evaluation.mailguard_bench.model_profiles import resolve_profile, with_dot_env
+    os.environ.update(resolve_profile(sys.argv[1], with_dot_env(os.environ), "")[0])
+from packages.core.settings import AIWorkerSettings
+from services.ai_worker.main import resolve_lane_queues
+s = AIWorkerSettings()
+m = s.summarization  # unset means the FAST tier model writes the summaries
+print("llm:", s.llm.fast_model, "timeout", s.llm.timeout_s)
+print("summarizer:", (m.summarizer_model if "summarizer_model" in m.model_fields_set else None) or s.llm.fast_model)
+print("embedding:", s.embedding.model_name, s.embedding.dimension, "mock", s.embedding.mock, s.embedding.base_url)
+print("retrieval budget:", s.retrieval.retrieval_timeout_ms, "ms")
+print("lane queues:", *sorted(resolve_lane_queues(s)))
+PY
+)
+diff <(docker compose exec -T ai-worker python -c "$PROBE") <(mg python -c "$PROBE" "$M") && echo "the guard-worker and the ai-worker container read the same settings"
+```
+
+A line that differs names the setting: `retrieval budget:` 500 against 3000, `summarizer:` `gpt-4o-mini` against the run's model, `lane queues:` without `email.administration.priority`. Fix `.env` as in step 1 (step 3 refuses the same disagreements) and run the probe again. Then run the first five cases of C0, C0T and C3 on a throwaway `RUN`, and print what each case did:
 
 ```bash
 (   # a subshell: the throwaway RUN does not replace the real one
@@ -686,14 +729,14 @@ Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `bud
   for c in C0 C0T C3; do python3 -c "
 import json, sys
 for line in open(sys.argv[1]):
-    r = json.loads(line); p = (r['result'] or {}).get('pipeline') or {}
-    print(sys.argv[2], r['case_id'], r['status'], p.get('job_state'), 'drafting:', p.get('reached_drafting'), 'rerank:', p.get('rerank_applied'), 'degraded:', p.get('retrieval_degraded'))
+    r = json.loads(line); res = r['result'] or {}; p = res.get('pipeline') or {}
+    print(sys.argv[2], r['case_id'], r['status'], p.get('job_state'), 'drafting:', p.get('reached_drafting'), 'retrieved:', len(res.get('retrieved') or []), 'rerank:', p.get('rerank_applied'), 'degraded:', p.get('retrieval_degraded'))
 " "$R/raw/$c.jsonl" $c; done
   rm -r "$R"
 )
 ```
 
-Each run must finish without `FAIL` and record its cases as `ok`, not as errors. Triage stops some emails before drafting (`drafting: False`), and those say nothing about generation: every config needs at least one case with `drafting: True` and a `job_state` of `DRAFTED` or `COMPLETED`, and `rerank: True` on a case that retrieved. If none does, raise `LIMIT`. A failed preflight leaves its folder for you to read; fix the cause before any quota is spent. The `preflight` folder is never a result, so delete it (the runner already removed its throwaway organizations and their MinIO objects).
+Each run must finish without `FAIL` and record its cases as `ok`, not as errors. Triage stops some emails before drafting (`drafting: False`), and those say nothing about generation: every config needs at least one case with `drafting: True` and a `job_state` of `DRAFTED` or `COMPLETED`, and a case that retrieved (`retrieved:` above 0) must show `rerank: True`. No case may show `degraded: True`: that is retrieval that fell back to the lexical branch because the query embedding ran out of its budget or failed. Only in C0T to C3, it means the guard-worker's settings differ from the containers' (the probe above); in every config, it is Gemini's quota or key. If no case drafted or retrieved, raise `LIMIT`. A failed preflight leaves its folder for you to read; fix the cause before any quota is spent. The `preflight` folder is never a result, so delete it (the runner already removed its throwaway organizations and their MinIO objects).
 
 **6. The runs.**
 
@@ -736,7 +779,7 @@ rm .env.stack      # it holds API keys
 make up            # recreates the app containers from .env alone
 ```
 
-`make up` gives the app containers `.env`'s own settings, which now include the Gemini embedding lines of step 1: comment those out for the offline defaults (fake LLM, mock embedder). Commit the results as in §9.7 (`analysis/` now also holds the `meaning__<config>.jsonl` files). If you set up the Ollama bridge only for this benchmark, undo it as in step 2. When a run misbehaves:
+`make up` gives the app containers `.env`'s own settings, and Compose forwards two groups of the lines you set in step 1: the Gemini embedding lines (`EMBEDDING__*`) and `LLM__TIMEOUT_S=60`. Comment out the embedding lines for the offline defaults (fake LLM, mock embedder) and set `LLM__TIMEOUT_S` back to `15.0` (or delete it), or every LLM call of the normal stack keeps the benchmark's 60 s timeout. `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` is the default now and may stay. Commit the results as in §9.7 (`analysis/` now also holds the `meaning__<config>.jsonl` files). If you set up the Ollama bridge only for this benchmark, undo it as in step 2. When a run misbehaves:
 
 - **The runner refuses to start** and names a missing or extra drafting consumer: switch as in step 4.
 - **`retrieval_degraded` is true on many rows:** the Gemini embedding call ran out of its 3000 ms budget or its quota; check AI Studio's limits before rerunning.

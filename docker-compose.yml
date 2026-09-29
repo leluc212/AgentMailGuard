@@ -36,14 +36,20 @@ x-app-env: &app-env
   # 3000 ms leaves room for a hosted embedding call; with 500 ms it could run out and degrade
   # retrieval to lexical (task 7.20).
   RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-3000}
+  # Model that writes thread summaries (R8.3); the ai-worker honours it once set. The containers
+  # get it only from the stack-only name BENCH_SUMMARIZER_MODEL (the live benchmark's stack env
+  # sets it), never from a line of this setting's own name in .env: the .env.example of before
+  # task 7.20 set SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini, and a container that read that
+  # line would ask its endpoint for that model and fail every summary. Blank means unset: the
+  # FAST tier model writes the summary (the settings default).
+  SUMMARIZATION__SUMMARIZER_MODEL: ${BENCH_SUMMARIZER_MODEL:-}
   # Optional settings of the live benchmark (task 7.20, demo-runbook section 9.9): forwarded only
   # when the host .env, the stack env (.env.stack) or the shell sets them. Compose drops a
   # value-less key that nothing resolves (Compose spec, `environment`), so the settings default or
   # the image's own value applies. A blank forward would override both: the image sets
-  # RETRIEVAL__RERANK_MODEL_DIR (the reranker model is baked in at build time), and a blank
-  # SUMMARIZATION__SUMMARIZER_MODEL is not a model name. Keep these out of .env as `NAME=`.
+  # RETRIEVAL__RERANK_MODEL_DIR (the reranker model is baked in at build time). Keep these out
+  # of .env as `NAME=`.
   LLM__TIMEOUT_S:
-  SUMMARIZATION__SUMMARIZER_MODEL:
   EMBEDDING__DIMENSION:
   RETRIEVAL__RERANK_ENABLED:
   RETRIEVAL__RERANK_MODEL:

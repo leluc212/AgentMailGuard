@@ -9,10 +9,13 @@ from __future__ import annotations
 import fnmatch
 import io
 import json
+import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -27,6 +30,7 @@ from evaluation.mailguard_bench.live.stack_env import (
     compose_command,
     container_url,
     format_env_file,
+    host_env_problems,
     main,
     render_stack_env,
     shell_conflicts,
@@ -38,6 +42,18 @@ GEMINI_KEY = "gemini-key-000"
 OPENAI_KEY = "sk-openai-000"
 # What `with_dot_env` yields for a .env holding both keys (demo-runbook §9.8 step 3).
 DOT_ENV = {"BENCH_OPENAI_API_KEY": OPENAI_KEY, "LLM__OPENAI_API_KEY": GEMINI_KEY}
+# Plus what §9.9 step 1 has the owner keep there for the host processes. The guard-worker and the
+# runner read .env and the shell, never .env.stack, so these must say what the containers get.
+HOST_ENV = {
+    **DOT_ENV,
+    "EMBEDDING__MOCK": "false",
+    "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
+    "EMBEDDING__DIMENSION": "1536",
+    "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "EMBEDDING__API_KEY": GEMINI_KEY,
+    "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
+    "LLM__TIMEOUT_S": "60",
+}
 
 
 @pytest.mark.parametrize(
@@ -87,10 +103,13 @@ def test_an_ollama_url_set_to_the_bridge_address_reaches_the_container_unchanged
 
 @pytest.mark.parametrize("name", sorted(PROFILES))
 def test_the_summarizer_uses_the_benchmarked_model_for_every_profile(name: str) -> None:
-    # One benchmarked model in every LLM role, the summarizer included (owner decision).
+    # One benchmarked model in every LLM role, the summarizer included (owner decision). It
+    # travels under a stack-only name that docker-compose.yml maps to the containers'
+    # SUMMARIZATION__SUMMARIZER_MODEL, so a line of that name in .env never reaches a container.
     profile = get_profile(name)
     values = render_stack_env(profile, DOT_ENV)
-    assert values["SUMMARIZATION__SUMMARIZER_MODEL"] == profile.model
+    assert values["BENCH_SUMMARIZER_MODEL"] == profile.model
+    assert "SUMMARIZATION__SUMMARIZER_MODEL" not in values
     assert values["LLM__FAST_MODEL"] == profile.model
 
 
@@ -267,22 +286,167 @@ def test_a_shell_value_that_differs_is_a_conflict_because_compose_prefers_the_sh
     assert shell_conflicts(values, shell) == ["LLM__FAST_MODEL"]
 
 
+# --- the host processes read what the containers read -----------------------------------------
+# C0 drafts in the ai-worker container (settings from compose, .env.stack and defaults). C0T to C3
+# draft in the guard-worker, a host process that reads .env and the shell, never .env.stack; the
+# runner builds its fingerprint and its lane list from the same host environment. A .env that
+# disagrees would run the guarded configs on other settings than C0, with no error to show it.
+
+
+def _problems(profile_name: str, environ: dict[str, str], **render: Any) -> list[str]:
+    profile = get_profile(profile_name)
+    return host_env_problems(render_stack_env(profile, environ, **render), environ)
+
+
+@pytest.mark.parametrize("name", sorted(PROFILES))
+def test_a_dot_env_that_says_what_the_containers_get_has_no_disagreement(name: str) -> None:
+    assert _problems(name, HOST_ENV) == []
+
+
+@pytest.mark.parametrize(
+    ("setting", "stale"),
+    [
+        # The .env.example of before task 7.20 set a 500 ms budget and a 15 s timeout.
+        ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", "500"),
+        ("LLM__TIMEOUT_S", "15.0"),
+        ("EMBEDDING__MOCK", "true"),
+        ("EMBEDDING__MODEL_NAME", "text-embedding-3-small"),
+        ("EMBEDDING__DIMENSION", "768"),
+        ("EMBEDDING__BASE_URL", "https://api.openai.com/v1"),
+        ("EMBEDDING__API_KEY", "not-the-gemini-key"),
+        ("RETRIEVAL__RERANK_ENABLED", "false"),
+        ("RETRIEVAL__RERANK_MODEL", "other/cross-encoder"),
+        ("RETRIEVAL__RERANK_TIMEOUT_MS", "50"),
+        # Settings no container reads from a file: an older .env still carries them.
+        ("SUMMARIZATION__SUMMARIZER_MODEL", "gpt-4o-mini"),
+        ("ROUTING__CONFIGURED_CONSUMERS", '["email.support.*"]'),
+    ],
+)
+def test_a_dot_env_that_disagrees_with_the_containers_is_named(setting: str, stale: str) -> None:
+    problems = _problems("qwen2.5-7b", {**HOST_ENV, setting: stale})
+    assert len(problems) == 1 and problems[0].startswith(setting), problems
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "EMBEDDING__MOCK",
+        "EMBEDDING__MODEL_NAME",
+        "EMBEDDING__DIMENSION",
+        "EMBEDDING__BASE_URL",
+        "EMBEDDING__API_KEY",
+        "LLM__TIMEOUT_S",
+        "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+    ],
+)
+def test_a_dot_env_that_leaves_out_a_setting_the_host_must_state_is_named(setting: str) -> None:
+    # Unset on the host means the code default (a mock embedder, 15 s), not the container's
+    # value; the vector column's width is stated too rather than left to a default (R5.10).
+    problems = _problems("qwen2.5-7b", {k: v for k, v in HOST_ENV.items() if k != setting})
+    assert len(problems) == 1 and problems[0].startswith(setting), problems
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"SUMMARIZATION__SUMMARIZER_MODEL": ""},  # blank means unset
+        {"SUMMARIZATION__SUMMARIZER_MODEL": " qwen2.5:7b-instruct "},  # the containers' model
+        {"ROUTING__CONFIGURED_CONSUMERS": ""},
+        {"LLM__TIMEOUT_S": "60.0"},
+        {"LLM__TIMEOUT_S": "060"},
+        {"EMBEDDING__MOCK": "False"},
+        {"EMBEDDING__MOCK": "0"},
+        {"EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+        {"RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "03000"},
+        {
+            "RETRIEVAL__RERANK_ENABLED": "TRUE",
+            "RETRIEVAL__RERANK_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "RETRIEVAL__RERANK_TIMEOUT_MS": "1000",
+        },
+    ],
+)
+def test_another_spelling_of_what_the_containers_get_is_no_disagreement(
+    change: dict[str, str],
+) -> None:
+    assert _problems("qwen2.5-7b", {**HOST_ENV, **change}) == []
+
+
+def test_the_summarizer_may_only_be_the_profiles_own_model_on_the_host() -> None:
+    # Another profile's model is not the containers' model, even if it is a benchmarked one.
+    problems = _problems(
+        "qwen2.5-7b", {**HOST_ENV, "SUMMARIZATION__SUMMARIZER_MODEL": "llama3.1:8b"}
+    )
+    assert len(problems) == 1 and problems[0].startswith("SUMMARIZATION__SUMMARIZER_MODEL")
+    assert "qwen2.5:7b-instruct" in problems[0]  # what to set instead
+
+
+def test_a_custom_llm_timeout_must_be_in_dot_env_too() -> None:
+    profile = get_profile("qwen2.5-7b")
+    values = render_stack_env(profile, HOST_ENV, llm_timeout_s=90)  # .env says 60
+    problems = host_env_problems(values, HOST_ENV)
+    assert len(problems) == 1 and problems[0].startswith("LLM__TIMEOUT_S")
+    assert "90" in problems[0]
+
+
+def test_every_disagreement_is_listed_at_once() -> None:
+    old_example = {
+        **DOT_ENV,
+        "EMBEDDING__MOCK": "true",
+        "EMBEDDING__DIMENSION": "1536",
+        "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "500",
+        "LLM__TIMEOUT_S": "15.0",
+        "SUMMARIZATION__SUMMARIZER_MODEL": "gpt-4o-mini",
+        "ROUTING__CONFIGURED_CONSUMERS": '["email.support.*"]',
+    }
+    named = {problem.split(" ")[0] for problem in _problems("qwen2.5-7b", old_example)}
+    assert {
+        "EMBEDDING__MOCK",
+        "EMBEDDING__MODEL_NAME",
+        "EMBEDDING__BASE_URL",
+        "EMBEDDING__API_KEY",
+        "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+        "LLM__TIMEOUT_S",
+        "SUMMARIZATION__SUMMARIZER_MODEL",
+        "ROUTING__CONFIGURED_CONSUMERS",
+    } <= named
+    assert "EMBEDDING__DIMENSION" not in named  # 1536 was right
+
+
+def test_a_disagreement_names_settings_and_never_echoes_a_value_or_a_key() -> None:
+    environ = {
+        **HOST_ENV,
+        "EMBEDDING__API_KEY": "host-side-key-123",
+        "SUMMARIZATION__SUMMARIZER_MODEL": "host-only-model",
+    }
+    text = " ".join(_problems("qwen2.5-7b", environ))
+    for secret in ("host-side-key-123", "host-only-model", GEMINI_KEY, OPENAI_KEY):
+        assert secret not in text
+
+
 # --- the command line -----------------------------------------------------------------------
 
-DOT_ENV_TEXT = f"BENCH_OPENAI_API_KEY={OPENAI_KEY}\nLLM__OPENAI_API_KEY={GEMINI_KEY}\n"
+DOT_ENV_TEXT = "".join(f"{name}={value}\n" for name, value in HOST_ENV.items())
 COMMAND = (
     "docker compose --env-file .env --env-file .env.stack up -d --no-deps "
     "api triage-worker knowledge-worker ai-worker"
 )
+# Read by the host processes and by nothing in the stack env; an old .env may carry them.
+HOST_ONLY = ("SUMMARIZATION__SUMMARIZER_MODEL", "ROUTING__CONFIGURED_CONSUMERS")
+
+
+def _dot_env(**changes: str | None) -> str:
+    """HOST_ENV with some lines changed or (None) removed, as the text of a .env."""
+    merged = {**HOST_ENV, **changes}
+    return "".join(f"{name}={value}\n" for name, value in merged.items() if value is not None)
 
 
 @pytest.fixture
 def cli_repo(repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A repo with a .env holding both keys, as the cwd, and none of the settings exported."""
+    """A repo with the step 1 .env, as the cwd, and none of the settings exported."""
     (repo / ".env").write_text(DOT_ENV_TEXT, encoding="utf-8")
     monkeypatch.chdir(repo)
     # tests/conftest.py exports LLM__PROVIDER and EMBEDDING__MOCK for every unit test.
-    for name in [*render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV), *DOT_ENV]:
+    for name in [*render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV), *HOST_ENV, *HOST_ONLY]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("BENCH_OLLAMA_BASE_URL", raising=False)
     return repo
@@ -294,12 +458,14 @@ def test_main_writes_the_file_prints_the_command_and_never_a_key(
     assert main(["--model-profile", "gpt-4o-mini"]) == 0
     captured = capsys.readouterr()
     assert COMMAND in captured.out.splitlines()
+    assert any(line.strip().startswith("host") for line in captured.out.splitlines())
     for secret in (OPENAI_KEY, GEMINI_KEY):
         assert secret not in captured.out + captured.err
     written = dotenv_values(cli_repo / ".env.stack", interpolate=False)
     assert written["LLM__OPENAI_API_KEY"] == OPENAI_KEY
     assert written["EMBEDDING__API_KEY"] == GEMINI_KEY
-    assert written["SUMMARIZATION__SUMMARIZER_MODEL"] == "gpt-4o-mini"
+    assert written["BENCH_SUMMARIZER_MODEL"] == "gpt-4o-mini"
+    assert "SUMMARIZATION__SUMMARIZER_MODEL" not in written
     assert stat.S_IMODE((cli_repo / ".env.stack").stat().st_mode) == 0o600
 
 
@@ -317,8 +483,11 @@ def test_main_names_only_the_stack_file_when_there_is_no_dot_env(
     cli_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (cli_repo / ".env").unlink()
-    # The Gemma profile's LLM key is the Gemini key itself, so exporting it conflicts with nothing.
-    monkeypatch.setenv("LLM__OPENAI_API_KEY", GEMINI_KEY)
+    # Everything in the shell: the host processes read it from there, and the shell values equal
+    # the rendered ones (a shell value is compared as text: "60.0", not "60"), so nothing
+    # conflicts (the Gemma profile's LLM key is the Gemini key).
+    for name, value in {**HOST_ENV, "LLM__TIMEOUT_S": "60.0"}.items():
+        monkeypatch.setenv(name, value)
     assert main(["--model-profile", "gemma-4-26b"]) == 0
     assert "docker compose --env-file .env.stack up -d --no-deps" in capsys.readouterr().out
 
@@ -336,11 +505,74 @@ def test_an_exported_gemini_key_is_refused_for_another_profile_because_the_shell
 
 
 def test_main_can_change_the_llm_timeout_and_the_output_path(cli_repo: Path) -> None:
+    (cli_repo / ".env").write_text(_dot_env(LLM__TIMEOUT_S="90"), encoding="utf-8")
     assert (
         main(["--model-profile", "qwen2.5-7b", "--llm-timeout-s", "90", "--out", "out/s.env"]) == 0
     )
     written = dotenv_values(cli_repo / "out" / "s.env", interpolate=False)
     assert written["LLM__TIMEOUT_S"] == "90.0"
+
+
+def test_main_refuses_a_timeout_that_the_host_processes_would_not_share(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # .env says 60: the guard-worker would time out at 60 s while the containers wait 90 s.
+    assert main(["--model-profile", "qwen2.5-7b", "--llm-timeout-s", "90"]) == 1
+    assert "LLM__TIMEOUT_S" in capsys.readouterr().err
+    assert not (cli_repo / ".env.stack").exists()
+
+
+def test_main_refuses_a_dot_env_from_before_task_7_20_and_writes_nothing(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The old .env.example named a summarizer model nothing read (the guard-worker now honours
+    # it: it would ask Ollama for gpt-4o-mini), a 500 ms retrieval budget and a lane list that
+    # lacks email.administration.priority, which the containers do consume.
+    (cli_repo / ".env").write_text(
+        _dot_env(
+            RETRIEVAL__RETRIEVAL_TIMEOUT_MS="500",
+            SUMMARIZATION__SUMMARIZER_MODEL="gpt-4o-mini",
+            ROUTING__CONFIGURED_CONSUMERS='["email.support.*"]',
+        ),
+        encoding="utf-8",
+    )
+    assert main(["--model-profile", "qwen2.5-7b"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL ")
+    for name in ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", *HOST_ONLY):
+        assert name in err
+    assert "gpt-4o-mini" not in err and "email.support" not in err  # names, not values
+    assert "docs/demo-runbook.md" in err  # where the fix is written down
+    assert not (cli_repo / ".env.stack").exists()
+
+
+@pytest.mark.parametrize("name", HOST_ONLY)
+def test_an_exported_host_only_setting_is_refused_too(
+    cli_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+) -> None:
+    # The host processes read the shell as well as .env; a container reads neither of these.
+    monkeypatch.setenv(name, "gpt-4o-mini")
+    assert main(["--model-profile", "qwen2.5-7b"]) == 1
+    assert name in capsys.readouterr().err
+    assert not (cli_repo / ".env.stack").exists()
+
+
+def test_a_dot_env_without_the_host_settings_is_refused_naming_them(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Only the keys: the host processes would embed with the mock embedder while the knowledge
+    # worker container embedded the corpus with Gemini.
+    (cli_repo / ".env").write_text(
+        "".join(f"{name}={value}\n" for name, value in DOT_ENV.items()), encoding="utf-8"
+    )
+    assert main(["--model-profile", "qwen2.5-7b"]) == 1
+    err = capsys.readouterr().err
+    for name in ("EMBEDDING__MOCK", "EMBEDDING__MODEL_NAME", "LLM__TIMEOUT_S"):
+        assert name in err
+    assert not (cli_repo / ".env.stack").exists()
 
 
 @pytest.mark.parametrize(
@@ -461,10 +693,32 @@ def test_the_default_stack_env_file_never_enters_a_docker_build_context() -> Non
 @pytest.mark.parametrize("service", APP_SERVICES)
 def test_the_model_services_carry_every_setting_the_stack_env_renders(service: str) -> None:
     environment = _compose()["services"][service]["environment"]
+    interpolated = " ".join(str(value) for value in environment.values() if value is not None)
     for name in render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV):
-        assert name in environment, f"{service} does not forward {name}: the setting is cosmetic"
-        forwarded = environment[name]
-        assert forwarded is None or str(forwarded).startswith("${" + name), (service, name)
+        if name in environment:  # forwarded under its own name, from itself
+            forwarded = environment[name]
+            assert forwarded is None or str(forwarded).startswith("${" + name), (service, name)
+        else:  # or read by another entry's interpolation (the summarizer's stack-only name)
+            assert "${" + name in interpolated, f"{service} never reads {name}: it is cosmetic"
+
+
+@pytest.mark.parametrize("service", APP_SERVICES)
+def test_the_containers_get_the_summarizer_model_only_from_the_stack_only_name(
+    service: str,
+) -> None:
+    # The .env.example of before task 7.20 set SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini and
+    # the ai-worker now honours the setting. A container that read that line of an old .env
+    # would ask a Gemini or an Ollama endpoint for gpt-4o-mini, and every thread over the
+    # summarization threshold would fail its summary. A blank value means unset (settings).
+    environment = _compose()["services"][service]["environment"]
+    assert environment["SUMMARIZATION__SUMMARIZER_MODEL"] == "${BENCH_SUMMARIZER_MODEL:-}"
+
+
+def test_no_compose_entry_reads_a_summarizer_line_from_dot_env() -> None:
+    # Neither by interpolation nor as a value-less key (which Compose resolves from .env).
+    assert "${SUMMARIZATION__SUMMARIZER_MODEL" not in _read("docker-compose.yml")
+    for name, forwarded in _compose()["x-app-env"].items():
+        assert forwarded is not None or name != "SUMMARIZATION__SUMMARIZER_MODEL"
 
 
 def test_only_the_services_that_call_a_model_reach_the_host_by_name() -> None:
@@ -490,11 +744,11 @@ def test_the_command_names_application_services_only() -> None:
 
 def test_settings_the_image_or_the_settings_default_own_are_forwarded_only_when_set() -> None:
     # A blank forward would override the image's RETRIEVAL__RERANK_MODEL_DIR (a compose
-    # `environment` entry beats the image ENV) and would name an empty summarizer model. A
-    # value-less key is dropped by Compose when nothing resolves it (Compose spec, `environment`).
+    # `environment` entry beats the image ENV). A value-less key is dropped by Compose when
+    # nothing resolves it (Compose spec, `environment`).
     environment = _compose()["x-app-env"]
-    for name in ("RETRIEVAL__RERANK_MODEL_DIR", "SUMMARIZATION__SUMMARIZER_MODEL"):
-        assert name in environment and environment[name] is None, name
+    assert "RETRIEVAL__RERANK_MODEL_DIR" in environment
+    assert environment["RETRIEVAL__RERANK_MODEL_DIR"] is None
 
 
 def test_env_example_never_sets_an_optional_setting_to_blank() -> None:
@@ -511,6 +765,16 @@ def test_the_retrieval_budget_is_3000_ms_in_compose_env_example_and_the_referenc
     assert _compose()["x-app-env"][name] == "${" + name + ":-3000}"
     assert dotenv_values(REPO_ROOT / ".env.example")[name] == "3000"
     assert _default_cell(name) == "`3000`"
+
+
+def test_a_fresh_copy_of_env_example_sets_nothing_the_host_check_refuses() -> None:
+    # dotenv skips comment lines, so this reads the active lines only. The containers read
+    # neither setting from a file, so a copy that set them would run the guard-worker (a host
+    # process that reads .env) on other settings than the ai-worker container.
+    active = dotenv_values(REPO_ROOT / ".env.example")
+    for name in HOST_ONLY:
+        assert name not in active, f"{name} must stay commented out in .env.example"
+    assert active["RETRIEVAL__RETRIEVAL_TIMEOUT_MS"] == "3000"
 
 
 def _default_cell(name: str) -> str:
@@ -545,3 +809,238 @@ def test_the_gemini_embedding_example_matches_what_the_stack_env_renders() -> No
         assert example[name] == rendered[name], name
     # The key line is a <placeholder>, never a key.
     assert re.search(r"^# EMBEDDING__API_KEY=<[^>]+>$", _read(".env.example"), re.M)
+
+
+def test_the_configuration_reference_documents_the_stack_only_summarizer_name() -> None:
+    assert "`BENCH_SUMMARIZER_MODEL`" in _read("docs/configuration.md")
+
+
+# --- what docs/demo-runbook.md §9.9 tells the owner to run ------------------------------------
+# The owner runs these blocks against real quota, so the blocks are executed here: the .env of
+# step 1 against the check above, the preflight probe on real settings, and the run_config
+# helper of step 4 (a bash function) against stand-in executables for docker, uv and curl.
+
+
+def _runbook_9_9() -> str:
+    text = _read("docs/demo-runbook.md")
+    start = text.index("### 9.9 ")
+    end = text.find("\n## ", start)
+    return text[start : end if end != -1 else len(text)]
+
+
+def _fenced(section: str, language: str) -> list[str]:
+    return re.findall(rf"```{language}\n(.*?)```", section, re.S)
+
+
+def _block_with(section: str, language: str, marker: str) -> str:
+    blocks = [block for block in _fenced(section, language) if marker in block]
+    assert len(blocks) == 1, f"expected one {language} block with {marker!r} in §9.9"
+    return blocks[0]
+
+
+def test_the_dot_env_of_step_1_is_what_the_host_check_accepts_for_every_model() -> None:
+    parsed = dotenv_values(
+        stream=io.StringIO(_block_with(_runbook_9_9(), "dotenv", "EMBEDDING__MOCK")),
+        interpolate=False,
+    )
+    keys = {
+        "BENCH_OPENAI_API_KEY": OPENAI_KEY,
+        "LLM__OPENAI_API_KEY": GEMINI_KEY,
+        "EMBEDDING__API_KEY": GEMINI_KEY,  # "the same Gemini key"
+    }
+    assert set(keys) <= set(parsed), "step 1 must name the keys as placeholders"
+    environ = {name: value for name, value in parsed.items() if value is not None}
+    environ.update(keys)
+    for name in sorted(PROFILES):
+        assert _problems(name, environ) == [], name
+    # Lines the owner must not keep (an older .env has them; the fresh example does not).
+    for name in HOST_ONLY:
+        assert name not in parsed, f"step 1 must not set {name}"
+
+
+def _probe_script() -> str:
+    found = re.search(r"PROBE=\$\(cat <<'PY'\n(.*?)\nPY\n\)", _runbook_9_9(), re.S)
+    assert found, "step 5 must define PROBE (the settings probe) as a heredoc"
+    return found.group(1)
+
+
+def _run_probe(where: Path, env: dict[str, str], *argv: str, dot_env: str | None = None) -> str:
+    """Run the step 5 probe as `python -c "$PROBE" [profile]` does: a container has no .env."""
+    where.mkdir(parents=True, exist_ok=True)
+    if dot_env is not None:
+        (where / ".env").write_text(dot_env, encoding="utf-8")
+    done = subprocess.run(
+        [sys.executable, "-c", _probe_script(), *argv],
+        cwd=where,
+        env={
+            "PATH": os.environ["PATH"],
+            "PYTHONPATH": str(REPO_ROOT),
+            # config/categories.yaml is relative to the repo root, the cwd of a real run
+            "ROUTING__CATEGORIES_CONFIG_PATH": str(REPO_ROOT / "config" / "categories.yaml"),
+            **env,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def _container_env(values: dict[str, str]) -> dict[str, str]:
+    """What Compose hands a container: the rendered settings, the summarizer under its own name."""
+    env = {name: value for name, value in values.items() if name != "BENCH_SUMMARIZER_MODEL"}
+    env["SUMMARIZATION__SUMMARIZER_MODEL"] = values["BENCH_SUMMARIZER_MODEL"]
+    return env
+
+
+def test_the_preflight_probe_agrees_between_the_container_and_the_host_when_dot_env_is_right(
+    tmp_path: Path,
+) -> None:
+    profile = get_profile("qwen2.5-7b")
+    container_env = _container_env(render_stack_env(profile, HOST_ENV))
+    container = _run_probe(tmp_path / "container", container_env)
+    host = _run_probe(tmp_path / "host", {}, profile.name, dot_env=DOT_ENV_TEXT)
+    assert host == container
+    # It reads real settings: the model, the Gemini embedding, the budget and the lanes.
+    for fact in (profile.model, "gemini-embedding-001", "1536", "3000", "email.support.normal"):
+        assert fact in host, fact
+
+
+def test_the_preflight_probe_shows_an_old_dot_env_as_a_difference(tmp_path: Path) -> None:
+    profile = get_profile("qwen2.5-7b")
+    container = _run_probe(
+        tmp_path / "container", _container_env(render_stack_env(profile, HOST_ENV))
+    )
+    old = _dot_env(
+        RETRIEVAL__RETRIEVAL_TIMEOUT_MS="500",
+        SUMMARIZATION__SUMMARIZER_MODEL="gpt-4o-mini",
+        ROUTING__CONFIGURED_CONSUMERS='["email.support.*"]',
+    )
+    host = _run_probe(tmp_path / "host", {}, profile.name, dot_env=old)
+    differing = {line.split(":")[0] for line in host.splitlines() if line not in container}
+    assert differing == {"retrieval budget", "summarizer", "lane queues"}
+
+
+BASH = shutil.which("bash")
+needs_bash = pytest.mark.skipif(BASH is None, reason="the runbook's helpers are bash")
+# Stand-ins for the executables run_config calls, so it runs without docker, uv, a guard-worker
+# or a model. The guard-worker stand-in does what the real one does in order: it writes its pid
+# file first, and answers /readyz only later, after it has "started its consumers".
+STUBS = {
+    "docker": """\
+echo "docker $*" >> "$STUB_LOG"
+case "$1" in inspect) echo healthy ;; compose) [ "$2" = ps ] && echo ai-worker-container ;; esac
+exit 0
+""",
+    "curl": '[ -e "$READY_FLAG" ]\n',  # curl -f fails until the guard-worker is ready
+    "uv": """\
+args="$*"
+run=$(sed -n 's/.*--run \\([^ ]*\\).*/\\1/p' <<<"$args")
+config=$(sed -n 's/.*--config \\([^ ]*\\).*/\\1/p' <<<"$args")
+case "$args" in
+  *live.guard_worker*)
+    pidfile="evaluation/results/mailguard_bench/$run/raw/guard_worker.$config.pid"
+    trap 'rm -f "$pidfile"; exit 0' TERM
+    sleep "${GW_PID_DELAY:-0.2}" & wait $!
+    echo $$ > "$pidfile"
+    sleep "${GW_READY_DELAY:-1.2}" & wait $!
+    if [ "${GW_DIES:-0}" = 1 ]; then exit 3; fi
+    touch "$READY_FLAG"
+    while :; do sleep 0.1 & wait $!; done ;;
+  *live.run*)
+    if [ -e "$READY_FLAG" ]; then state=ready; else state=not-ready; fi
+    echo "runner $state $config" >> "$STUB_LOG" ;;
+esac
+""",
+}
+
+
+def _run_config(tmp_path: Path, config: str, **stub_env: str) -> tuple[int, str, list[str]]:
+    """Run the runbook's run_config for one config; return its exit code, stderr, the stubs' log."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in STUBS.items():
+        executable = bin_dir / name
+        executable.write_text(f"#!/usr/bin/env bash\n{body}", encoding="utf-8")
+        executable.chmod(0o755)
+    (tmp_path / "Makefile").write_text("MAILGUARD_COMMIT ?= 0123abc\n", encoding="utf-8")
+    helpers = _block_with(_runbook_9_9(), "bash", "run_config() {")
+    log = tmp_path / "calls.log"
+    assert BASH is not None
+    done = subprocess.run(
+        [BASH, "-c", f"{helpers}\nrun_config {config}"],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_LOG": str(log),
+            "READY_FLAG": str(tmp_path / "ready"),
+            **stub_env,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return done.returncode, done.stderr, calls
+
+
+def _pid_file(tmp_path: Path, config: str) -> Path:
+    run = "2026-09-29-qwen25-live"  # the RUN the helper block sets
+    return (
+        tmp_path / "evaluation/results/mailguard_bench" / run / "raw" / f"guard_worker.{config}.pid"
+    )
+
+
+@needs_bash
+def test_every_bash_block_of_the_runbook_section_parses() -> None:
+    blocks = _fenced(_runbook_9_9(), "bash")
+    assert blocks
+    assert BASH is not None
+    for block in blocks:
+        done = subprocess.run(
+            [BASH, "-n"], input=block, capture_output=True, text=True, check=False
+        )
+        assert done.returncode == 0, f"{done.stderr}\n{block}"
+
+
+@needs_bash
+def test_the_runner_starts_only_once_the_guard_worker_answers_readyz(tmp_path: Path) -> None:
+    # The guard-worker writes its pid file before it connects and starts its consumers; the
+    # runner fails a config at once when a lane queue has no consumer, so a run that starts on
+    # the pid file alone loses the race whenever the runner is the faster process.
+    code, stderr, calls = _run_config(tmp_path, "C3")
+    assert code == 0, stderr
+    assert calls == ["docker compose stop ai-worker", "runner ready C3"]
+    assert not _pid_file(tmp_path, "C3").exists()  # the helper stopped the guard-worker again
+
+
+@needs_bash
+def test_a_guard_worker_that_dies_before_it_is_ready_fails_the_config(tmp_path: Path) -> None:
+    code, stderr, calls = _run_config(tmp_path, "C3", GW_DIES="1")
+    assert code == 1
+    assert "FAIL guard-worker C3 exited" in stderr
+    assert not [call for call in calls if call.startswith("runner")]
+
+
+@needs_bash
+def test_a_guard_worker_that_never_becomes_ready_is_stopped_and_fails_the_config(
+    tmp_path: Path,
+) -> None:
+    code, stderr, calls = _run_config(tmp_path, "C3", GW_READY_DELAY="8", GW_WAIT_S="2")
+    assert code == 1
+    assert "FAIL guard-worker C3 not ready after 2 s" in stderr
+    assert not [call for call in calls if call.startswith("runner")]
+    assert not _pid_file(tmp_path, "C3").exists()  # it was sent SIGTERM, not left consuming
+
+
+@needs_bash
+def test_c0_switches_the_container_on_and_starts_no_guard_worker(tmp_path: Path) -> None:
+    code, stderr, calls = _run_config(tmp_path, "C0")
+    assert code == 0, stderr
+    assert calls[0] == "docker compose start ai-worker"
+    assert calls[-1] == "runner not-ready C0"  # not-ready: no stand-in guard-worker ever ran
+    assert not _pid_file(tmp_path, "C0").exists()

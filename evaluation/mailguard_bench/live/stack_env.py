@@ -15,8 +15,12 @@ What the file holds, the same for every run apart from the model:
 
 - LLM__* from the model profile, with a loopback base URL pointed at the host (inside a
   container ``localhost`` is the container; ``host.docker.internal`` is the host, mapped by
-  docker-compose.yml's ``extra_hosts``), and SUMMARIZATION__SUMMARIZER_MODEL set to the same
-  model: one benchmarked model in every LLM role.
+  docker-compose.yml's ``extra_hosts``), and the summarizer model set to the same model: one
+  benchmarked model in every LLM role. The summarizer model travels as BENCH_SUMMARIZER_MODEL,
+  which docker-compose.yml maps to the containers' SUMMARIZATION__SUMMARIZER_MODEL. An .env
+  made before task 7.20 still holds SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini (the example
+  set it) and the ai-worker now honours that setting, so Compose must never read the setting's
+  own name from .env.
 - Gemini ``gemini-embedding-001`` at 1536 dimensions for every run. Its key is the Gemini key
   kept in .env as LLM__OPENAI_API_KEY, which is not the LLM key of a profile such as
   GPT-4o-mini; it is read at run time and never written to a tracked file.
@@ -26,6 +30,12 @@ The file holds API keys, so it is written owner-only and only where git ignores 
 keys are never printed. ``uv run`` does not load .env, so like the runner this reads it with
 the process environment on top (``with_dot_env``). Compose lets a variable exported in the
 shell win over every env file; a shell value that differs from a rendered one is refused.
+
+C0 drafts in the ai-worker container; C0T to C3 draft in the guard-worker, a host process. The
+guard-worker and the live runner take the model profile's LLM__* keys from the profile and
+every other setting from the shell and .env, never from .env.stack, so an .env that disagrees
+with the containers would run the guarded configs on other settings than C0 with no error to
+show it. `host_env_problems` finds those settings, and this refuses to write while any exists.
 """
 
 from __future__ import annotations
@@ -54,6 +64,8 @@ CONTAINER_HOST_ALIAS = "host.docker.internal"
 EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIMENSION = 1536
 EMBEDDING_KEY_ENV = "LLM__OPENAI_API_KEY"
+# Not SUMMARIZATION__SUMMARIZER_MODEL: docker-compose.yml maps this name to it (see above).
+SUMMARIZER_MODEL_ENV = "BENCH_SUMMARIZER_MODEL"
 RETRIEVAL_TIMEOUT_MS = 3000
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 RERANK_TIMEOUT_MS = 1000
@@ -63,6 +75,43 @@ DEFAULT_ENV_FILE = ".env"
 DEFAULT_OUT = ".env.stack"  # git-ignored (.gitignore) and never sent to a docker build
 # The app services that call a model. Postgres, RabbitMQ and MinIO are never restarted.
 APP_SERVICES = ("api", "triage-worker", "knowledge-worker", "ai-worker")
+
+# What the host processes (the guard-worker, the live runner) must read like the containers do.
+# The host must state these: its code default is not the container's value (a mock embedder,
+# a 15 s timeout), or it must not be left to a default (the vector column's width, R5.10).
+HOST_MUST_SET = (
+    "EMBEDDING__MOCK",
+    "EMBEDDING__MODEL_NAME",
+    "EMBEDDING__DIMENSION",
+    "EMBEDDING__BASE_URL",
+    "EMBEDDING__API_KEY",
+    "LLM__TIMEOUT_S",
+    "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+)
+# The code default is the container's value (design contract, packages A and B): unset is fine.
+HOST_MAY_OMIT = (
+    "RETRIEVAL__RERANK_ENABLED",
+    "RETRIEVAL__RERANK_MODEL",
+    "RETRIEVAL__RERANK_TIMEOUT_MS",
+)
+# Read by no container from a file (Compose forwards no ROUTING__*, and the summarizer model
+# only under its stack-only name), so a line in .env would reach the host processes alone. An
+# .env made before task 7.20 has both: gpt-4o-mini as the summarizer, a shorter lane list.
+HOST_MUST_NOT_SET = ("ROUTING__CONFIGURED_CONSUMERS",)
+SUMMARIZER_MODEL_SETTING = "SUMMARIZATION__SUMMARIZER_MODEL"
+_SECRET_SETTINGS = frozenset({"EMBEDDING__API_KEY"})
+_FLAG_SETTINGS = frozenset({"EMBEDDING__MOCK", "RETRIEVAL__RERANK_ENABLED"})
+_NUMBER_SETTINGS = frozenset(
+    {
+        "EMBEDDING__DIMENSION",
+        "LLM__TIMEOUT_S",
+        "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+        "RETRIEVAL__RERANK_TIMEOUT_MS",
+    }
+)
+_URL_SETTINGS = frozenset({"EMBEDDING__BASE_URL"})
+_TRUE = frozenset({"1", "t", "true", "y", "yes", "on"})  # what the settings accept for a bool
+_FALSE = frozenset({"0", "f", "false", "n", "no", "off"})
 
 
 class StackEnvError(RuntimeError):
@@ -121,7 +170,7 @@ def render_stack_env(
         **llm,
         "LLM__OPENAI_BASE_URL": container_url(llm["LLM__OPENAI_BASE_URL"]),
         "LLM__TIMEOUT_S": str(float(llm_timeout_s)),
-        "SUMMARIZATION__SUMMARIZER_MODEL": profile.model,
+        SUMMARIZER_MODEL_ENV: profile.model,
         "EMBEDDING__MOCK": "false",
         "EMBEDDING__MODEL_NAME": EMBEDDING_MODEL,
         "EMBEDDING__DIMENSION": str(EMBEDDING_DIMENSION),
@@ -233,6 +282,67 @@ def shell_conflicts(values: Mapping[str, str], process_env: Mapping[str, str]) -
     return [name for name, value in values.items() if process_env.get(name, value) != value]
 
 
+def _flag(text: str) -> bool | None:
+    lowered = text.strip().lower()
+    if lowered in _TRUE:
+        return True
+    return False if lowered in _FALSE else None
+
+
+def _agree(name: str, host: str, container: str) -> bool:
+    """Whether the host's spelling of a setting means what the containers get.
+
+    The settings parse a number as a number (``60`` is ``60.0``), accept several spellings of
+    a flag, and the embedder ignores a trailing slash on the base URL.
+    """
+    if name in _FLAG_SETTINGS:
+        parsed = _flag(host)
+        return parsed is not None and parsed == _flag(container)
+    if name in _NUMBER_SETTINGS:
+        try:
+            return float(host) == float(container)
+        except ValueError:
+            return False
+    if name in _URL_SETTINGS:
+        return host.rstrip("/") == container.rstrip("/")
+    return host == container
+
+
+def host_env_problems(values: Mapping[str, str], environ: Mapping[str, str]) -> list[str]:
+    """Settings on which the host processes would differ from the containers.
+
+    ``values`` is the rendered stack env and ``environ`` what the host processes read: the
+    shell over .env (`with_dot_env`). Blank counts as unset. Each problem is one line that
+    starts with the setting's name and says what it must be. The host's own values are never
+    repeated, because one may be a key; only the containers' values are, and never their key.
+    """
+    problems: list[str] = []
+    for name in (*HOST_MUST_SET, *HOST_MAY_OMIT):
+        host = (environ.get(name) or "").strip()
+        if host and _agree(name, host, values[name]):
+            continue
+        if not host and name in HOST_MAY_OMIT:
+            continue
+        must = (
+            f"the Gemini key (the value of {EMBEDDING_KEY_ENV})"
+            if name in _SECRET_SETTINGS
+            else values[name]
+        )
+        problems.append(
+            f"{name} must be {must}" if name in HOST_MUST_SET else f"{name} must be unset or {must}"
+        )
+    # Unset is the same as the containers' model: the FAST tier, which the profile points at it.
+    summarizer = (environ.get(SUMMARIZER_MODEL_SETTING) or "").strip()
+    if summarizer and summarizer != values[SUMMARIZER_MODEL_ENV]:
+        problems.append(
+            f"{SUMMARIZER_MODEL_SETTING} must be unset or {values[SUMMARIZER_MODEL_ENV]}"
+        )
+    problems.extend(
+        f"{name} must be unset" for name in HOST_MUST_NOT_SET if (environ.get(name) or "").strip()
+    )
+    return problems
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument(
@@ -245,7 +355,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--env-file",
         type=Path,
         default=Path(DEFAULT_ENV_FILE),
-        help=f"the .env that holds the keys (default: {DEFAULT_ENV_FILE})",
+        help="the .env that holds the keys, and that the guard-worker and the runner read "
+        f"(default: {DEFAULT_ENV_FILE})",
     )
     parser.add_argument(
         "--out",
@@ -266,15 +377,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def run(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     profile = get_profile(args.model_profile)
-    values = render_stack_env(
-        profile, with_dot_env(os.environ, args.env_file), llm_timeout_s=args.llm_timeout_s
-    )
+    environ = with_dot_env(os.environ, args.env_file)
+    values = render_stack_env(profile, environ, llm_timeout_s=args.llm_timeout_s)
     shadowed = shell_conflicts(values, os.environ)
     if shadowed:
         raise StackEnvError(
             f"the shell sets {', '.join(shadowed)} to other values; docker compose lets the "
             "shell win over the env files, so the containers would not get the rendered "
             "settings. Unset them (unset NAME) and run this again"
+        )
+    disagreements = host_env_problems(values, environ)
+    if disagreements:
+        raise StackEnvError(
+            f"the guard-worker and the runner are host processes: they read {args.env_file} "
+            "and the shell, never .env.stack, so they would run on other settings than the "
+            f"containers: {'; '.join(disagreements)}. Fix {args.env_file} as "
+            "docs/demo-runbook.md section 9.9 step 1 says and run this again"
         )
     write_env_file(
         args.out,
@@ -298,6 +416,10 @@ def run(argv: Sequence[str] | None = None) -> None:
         f"   embedding {values['EMBEDDING__MODEL_NAME']}, {values['EMBEDDING__DIMENSION']} "
         f"dimensions; retrieval budget {values['RETRIEVAL__RETRIEVAL_TIMEOUT_MS']} ms; "
         f"reranker {values['RETRIEVAL__RERANK_MODEL']}"
+    )
+    print(
+        f"   host      {args.env_file} agrees, so the guard-worker and the runner read "
+        "the same embedding, retrieval budget, LLM timeout, summarizer and lanes"
     )
     print(
         f"apply it to {', '.join(APP_SERVICES)} "
