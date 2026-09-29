@@ -313,6 +313,96 @@ async def test_consumer_counts_come_from_passive_declares_on_a_channel_per_queue
     assert connection.log[-1] == "connection closed"
 
 
+# --- a guard-worker that has announced itself but is not consuming yet --------------------
+#
+# The guard-worker writes its pid file before WorkerRuntime attaches its consumers, and the
+# runbook starts the runner as soon as that file appears, so for a moment every lane shows none.
+
+
+class Attaching:
+    """A broker whose lanes get their one consumer after ``polls`` probes: a worker's start."""
+
+    def __init__(self, polls: int, final: int | None = 1) -> None:
+        self.polls, self.final, self.calls = polls, final, 0
+
+    async def __call__(self, broker: Any, queues: Sequence[str]) -> dict[str, int | None]:
+        self.calls += 1
+        return dict.fromkeys(queues, 0 if self.calls <= self.polls else self.final)
+
+
+async def _wait_for_consumers(
+    tmp_path: Path,
+    probe: Any,
+    *,
+    config: str = "C3",
+    wait_s: float = 30.0,
+    workers: Sequence[tuple[str, str, int]] = (),
+) -> list[str]:
+    from evaluation.mailguard_bench.live.run import LiveDeps, check_drafting_consumers
+
+    for run_id, worker_config, pid in workers:
+        _pid_file(tmp_path / "results", run_id, worker_config, pid)
+    live = LiveDeps(
+        probe_consumers=probe,
+        results_root=tmp_path / "results",
+        poll_interval_s=0.001,
+        consumer_wait_s=wait_s,
+    )
+    return await check_drafting_consumers(
+        live=live, settings=AppSettings(), config=config, run_id="r1", lanes=LANES
+    )
+
+
+async def test_a_guard_worker_that_is_still_attaching_is_waited_for(
+    tmp_path: Path, child: Any
+) -> None:
+    probe = Attaching(polls=2)
+
+    problems = await _wait_for_consumers(tmp_path, probe, workers=[("r1", "C3", child().pid)])
+
+    assert problems == [] and probe.calls == 3  # two starts in progress, then consuming
+
+
+async def test_a_guard_worker_that_never_attaches_fails_once_the_wait_is_over(
+    tmp_path: Path, child: Any
+) -> None:
+    probe = Attaching(polls=10**9)
+
+    started = time.monotonic()
+    problems = await _wait_for_consumers(
+        tmp_path, probe, wait_s=0.05, workers=[("r1", "C3", child().pid)]
+    )
+
+    assert len(problems) == len(LANES) and all("no consumer" in p for p in problems)
+    assert probe.calls > 1 and time.monotonic() - started < 5  # it waited, and not forever
+
+
+@pytest.mark.parametrize(
+    ("config", "polls", "final", "workers"),
+    [
+        ("C3", 0, 2, "ours"),  # the ai-worker container is still consuming: the operator stops it
+        ("C3", 0, None, "ours"),  # a lane queue that does not exist: the services are not up
+        ("C3", 10**9, 1, "none"),  # no guard-worker announced itself: there is nothing to wait for
+        ("C3", 10**9, 1, "another"),  # a worker of another run is alive too: they would split lanes
+        ("C0", 10**9, 1, "none"),  # the ai-worker container reports healthy only once consuming
+    ],
+)
+async def test_only_a_starting_guard_worker_is_waited_for(
+    tmp_path: Path, child: Any, config: str, polls: int, final: int | None, workers: str
+) -> None:
+    probe = Attaching(polls=polls, final=final)
+    alive = {
+        "ours": [("r1", "C3", child().pid)],
+        "another": [("r1", "C3", child().pid), ("other-run", "C1", child().pid)],
+        "none": [],
+    }[workers]
+
+    problems = await _wait_for_consumers(tmp_path, probe, config=config, workers=alive, wait_s=30.0)
+
+    assert problems  # it fails at once with what is wrong ...
+    assert probe.calls == 1  # ... and is not given the 30 s a starting worker gets
+
+
 # --- the run facts that make up the fingerprint ------------------------------------------
 
 
@@ -1368,6 +1458,7 @@ def _live_deps(
     missing_stages: list[str] | None = None,
     backoff: Any = None,
     commands: Any = None,
+    probe: Any = None,
 ) -> Any:
     from evaluation.mailguard_bench.live.feeder import OrchestratorHandOff
     from evaluation.mailguard_bench.live.run import (
@@ -1414,7 +1505,7 @@ def _live_deps(
             close=close,
         )
 
-    async def probe(broker: Any, queues: Sequence[str]) -> dict[str, int | None]:
+    async def default_probe(broker: Any, queues: Sequence[str]) -> dict[str, int | None]:
         return {
             queue: 0 if queue in world.dead_lanes or queue not in WHOLE_RUN_LANES else consumers
             for queue in queues
@@ -1430,7 +1521,7 @@ def _live_deps(
     return LiveDeps(
         open_pool=open_pool,
         open_stack=open_stack,
-        probe_consumers=probe,
+        probe_consumers=probe or default_probe,
         resolve_lanes=lambda settings: WHOLE_RUN_LANES,
         describe_guard=describe,
         require_environment=lambda paths: None,
@@ -1890,6 +1981,20 @@ async def test_a_guarded_run_reads_each_drafted_cases_audit_line(
     meta = json.loads((live_env / "results" / "r1" / "raw" / "C3.meta.json").read_text("utf-8"))
     assert meta["fingerprint"]["guard_llm_stages"] == C3_FACTS["live_stages"]
     assert meta["guard_models"] == "qwen2.5:7b-instruct" and meta["degraded_allowed"] is False
+
+
+async def test_a_guarded_run_waits_for_the_guard_worker_to_attach_its_consumers(
+    live_env: Path, child: Any
+) -> None:
+    """The pid file is there, the consumers are not yet: the documented procedure starts the runner
+    at exactly that moment, and must not fail from time to time."""
+    probe = Attaching(polls=2)
+    world, _, deps = _guarded(live_env, child, probe=probe)
+
+    assert await run(_run_args(live_env, "C3"), deps) == 0
+
+    assert probe.calls > 2
+    assert {r["status"] for r in _rows(live_env, "C3").values()} == {"ok"}
 
 
 async def test_a_guarded_case_drafted_without_an_audit_line_is_an_error_row(

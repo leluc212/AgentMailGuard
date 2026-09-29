@@ -136,6 +136,8 @@ from packages.db.mailbox import PostgresMailboxStore
 from services.mail_connector.orchestrator import SyncOrchestrator
 
 DEFAULT_CASE_TIMEOUT_S = 300.0
+CONSUMER_WAIT_S = 60.0
+"""How long a guard-worker that has announced itself may take to attach its consumers."""
 GUARD_WORKER_MARKER = "guard_worker"
 """What a guard-worker's command line contains (``-m ...live.guard_worker``)."""
 GUARD_WORKER_PID_GLOB = "*/raw/guard_worker.*.pid"
@@ -826,7 +828,73 @@ class LiveDeps:
     poll_interval_s: float = 1.0
     audit_grace_s: float = AUDIT_GRACE_S
     unconsumed_grace_s: float = UNCONSUMED_GRACE_S
+    consumer_wait_s: float = CONSUMER_WAIT_S
     backoff: BackoffPolicy = BackoffPolicy()
+
+
+def guard_worker_is_attaching(
+    *,
+    config: str,
+    run_id: str,
+    workers: Sequence[GuardWorker],
+    consumers: Mapping[str, int | None],
+    lane_queues: Sequence[str],
+) -> bool:
+    """Whether the only thing missing is this config's guard-worker finishing its start.
+
+    A guard-worker writes its pid file before ``WorkerRuntime`` attaches its consumers, so for a
+    moment every lane shows none, and the runbook starts the runner as soon as the file
+    appears. That is a start in progress when this run's worker for this config is the only one
+    alive and no lane is missing or over-consumed: every lane has none or one consumer, and
+    some lane has none. A second consumer (the ai-worker container still running), a queue
+    that does not exist and a second worker are for the operator to fix, not to wait out, and
+    the ai-worker container does not need this: it reports healthy only once it is consuming.
+    """
+    if config == NATIVE_CONFIG:
+        return False
+    ours = [w for w in workers if w.run == run_id and w.config == config]
+    if len(ours) != 1 or len(workers) != 1:
+        return False
+    counts = [consumers.get(queue) for queue in lane_queues]
+    return any(count == 0 for count in counts) and all(count in (0, 1) for count in counts)
+
+
+async def check_drafting_consumers(
+    *, live: LiveDeps, settings: AppSettings, config: str, run_id: str, lanes: Sequence[str]
+) -> list[str]:
+    """``drafting_consumer_problems``, given the time a starting guard-worker needs.
+
+    The check is repeated every ``poll_interval_s`` while ``guard_worker_is_attaching`` says the
+    worker is on its way, for at most ``consumer_wait_s``; anything else is reported at once.
+    Nothing is written while it waits.
+
+    Returns:
+        The problems of the last look; empty when the stack is in the state ``config`` needs.
+    """
+    give_up = time.monotonic() + live.consumer_wait_s
+    while True:
+        workers = live_guard_workers(live.results_root)
+        consumers = await live.probe_consumers(settings.broker, lanes)
+        problems = drafting_consumer_problems(
+            config=config,
+            run_id=run_id,
+            workers=workers,
+            consumers=consumers,
+            lane_queues=lanes,
+        )
+        if (
+            not problems
+            or time.monotonic() >= give_up
+            or not guard_worker_is_attaching(
+                config=config,
+                run_id=run_id,
+                workers=workers,
+                consumers=consumers,
+                lane_queues=lanes,
+            )
+        ):
+            return problems
+        await asyncio.sleep(live.poll_interval_s)
 
 
 async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
@@ -886,12 +954,8 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     invocations = check_resume(meta_file, meta["fingerprint"])  # before any write or call
 
     lanes = live.resolve_lanes(settings)
-    problems = drafting_consumer_problems(
-        config=args.config,
-        run_id=args.run,
-        workers=live_guard_workers(live.results_root),
-        consumers=await live.probe_consumers(settings.broker, lanes),
-        lane_queues=lanes,
+    problems = await check_drafting_consumers(
+        live=live, settings=settings, config=args.config, run_id=args.run, lanes=lanes
     )
     if problems:
         for problem in problems:
