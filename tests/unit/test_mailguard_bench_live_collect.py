@@ -272,7 +272,12 @@ RETRIEVED = [
 
 
 def _collector(
-    world: World, clock: FakeClock, *, config: str = "C0", audit: Path | None = None
+    world: World,
+    clock: FakeClock,
+    *,
+    config: str = "C0",
+    audit: Path | None = None,
+    **lanes: Any,
 ) -> LiveCollector:
     return LiveCollector(
         stores=world.stores,
@@ -282,14 +287,21 @@ def _collector(
         audit_grace_s=3.0,
         sleep=clock.sleep,
         monotonic=clock.monotonic,
+        **lanes,
     )
 
 
 async def _collect(
-    world: World, clock: FakeClock, config: str = "C0", audit: Path | None = None
+    world: World,
+    clock: FakeClock,
+    config: str = "C0",
+    audit: Path | None = None,
+    *,
+    budget_s: float = 300,
+    **lanes: Any,
 ) -> dict[str, Any]:
-    return await _collector(world, clock, config=config, audit=audit).collect(
-        _case(), world.fed, Deadline(300, monotonic=clock.monotonic)
+    return await _collector(world, clock, config=config, audit=audit, **lanes).collect(
+        _case(), world.fed, Deadline(budget_s, monotonic=clock.monotonic)
     )
 
 
@@ -500,6 +512,189 @@ def test_the_unvalidated_draft_marker_is_the_generators_own_error_name() -> None
     from packages.llm.validation import UnvalidatedDraftError
 
     assert UnvalidatedDraftError.__name__ == collect.UNVALIDATED_DRAFT_ERROR
+
+
+# --- a job left QUEUED on a lane nobody claims (amendment 1, D.1(b)) -----------------------
+
+CLAIMED = ["email.support.normal", "email.support.priority"]
+UNCLAIMED_GRACE_S = 3.0
+
+
+class Lanes:
+    """The collector's passive declares: the consumers of a lane queue, None when it is missing."""
+
+    def __init__(self, counts: dict[str, int | None]) -> None:
+        self.counts = counts
+        self.asked: list[str] = []
+
+    async def __call__(self, queue: str) -> int | None:
+        self.asked.append(queue)
+        return self.counts.get(queue)
+
+
+async def _queued(world: World, **classification: Any) -> None:
+    """A job triage let through to a lane, and that nothing has picked up."""
+    await world.receive()
+    await world.to(JobState.NORMALIZED)
+    await world.classify(**classification)
+    await world.to(JobState.CLASSIFIED)
+    await world.to(JobState.QUEUED, {"retrieval_required": True, "workflow_hint": "ai"})
+
+
+def _watching(lanes: Lanes, **more: Any) -> dict[str, Any]:
+    return {
+        "lane_consumers": lanes,
+        "claimed_lanes": CLAIMED,
+        "unconsumed_grace_s": UNCLAIMED_GRACE_S,
+        **more,
+    }
+
+
+async def test_a_job_left_queued_on_a_lane_nobody_claims_is_a_stuck_outcome_not_a_timeout() -> None:
+    world, clock = World(), FakeClock()
+    await _queued(world, category="billing")
+    lanes = Lanes({"email.billing.normal": 0})
+
+    result = await _collect(world, clock, **_watching(lanes))
+
+    pipeline = result["pipeline"]
+    assert (pipeline["job_state"], pipeline["reached_drafting"]) == ("QUEUED", False)
+    assert (
+        pipeline["triage"]["gate_outcome"] == "proceed_rag" and pipeline["template_draft"] is False
+    )
+    assert (result["final_body"], result["final_action"]) == ("", "none")
+    assert result["generation"]["called"] is False and result["final_draft"] is None
+    assert result["host"]["retrieved"] == [] and result["host"]["poison_retrieved"] is False
+    assert lanes.asked == ["email.billing.normal"]  # asked once, and only after the grace
+    assert sum(clock.sleeps) == UNCLAIMED_GRACE_S  # not the 300 s of the case budget
+
+
+@pytest.mark.parametrize(
+    ("classification", "lane"),
+    [
+        ({"category": "billing", "priority": "normal"}, "email.billing.normal"),
+        ({"category": "billing", "priority": "urgent"}, "email.billing.priority"),
+        ({"category": "administration", "priority": "high"}, "email.administration.priority"),
+        ({"category": "administration", "priority": "low"}, "email.administration.normal"),
+    ],
+)
+async def test_the_lane_is_the_one_triage_routed_the_job_to(
+    classification: dict[str, str], lane: str
+) -> None:
+    """Triage names it ``email.<category>.<normal|priority>`` (``format_routing_key``)."""
+    world, clock = World(), FakeClock()
+    await _queued(world, **classification)
+    lanes = Lanes({lane: 0})
+
+    result = await _collect(world, clock, **_watching(lanes))
+
+    assert result["pipeline"]["job_state"] == "QUEUED" and lanes.asked == [lane]
+
+
+async def test_a_lane_the_drafting_consumer_claims_is_never_a_stuck_outcome() -> None:
+    """Its consumer is expected: if it is gone the stack is broken, which is an error row."""
+    world, clock = World(), FakeClock()
+    await _queued(world, category="support")
+    lanes = Lanes({"email.support.normal": 0})  # the consumer died after the preflight
+
+    with pytest.raises(CaseTimeoutError, match="QUEUED"):
+        await _collect(world, clock, budget_s=20, **_watching(lanes))
+
+    assert lanes.asked == []  # a claimed lane is not even asked about
+
+
+async def test_a_lane_nobody_claims_but_something_consumes_is_waited_for() -> None:
+    world, clock = World(), FakeClock()
+    await _queued(world, category="billing")
+    lanes = Lanes({"email.billing.normal": 1})
+
+    with pytest.raises(CaseTimeoutError, match="QUEUED"):
+        await _collect(world, clock, budget_s=20, **_watching(lanes))
+
+    assert lanes.asked == ["email.billing.normal"]  # decided once, not every poll
+
+
+async def test_a_missing_lane_queue_has_no_consumer_either() -> None:
+    world, clock = World(), FakeClock()
+    await _queued(world, category="billing")
+
+    result = await _collect(world, clock, **_watching(Lanes({"email.billing.normal": None})))
+
+    assert result["pipeline"]["job_state"] == "QUEUED"
+
+
+async def test_a_job_that_is_consumed_within_the_grace_is_never_asked_about() -> None:
+    world, clock = World(), FakeClock()
+    await _queued(world, category="billing")
+    lanes = Lanes({"email.billing.normal": 0})
+
+    async def consumer_picks_it_up() -> None:
+        if len(clock.sleeps) == 2:  # before the 3 s grace is over
+            await world.to(JobState.CONTEXT_READY)
+            await world.context_built(retrieved=[], rerank_applied=True)
+            await world.to(JobState.GENERATING)
+            await world.draft()
+            await world.to(JobState.DRAFTED, {"draft_id": "d"})
+
+    clock.on_sleep = consumer_picks_it_up
+
+    result = await _collect(world, clock, **_watching(lanes))
+
+    assert result["pipeline"]["job_state"] == "DRAFTED" and lanes.asked == []
+
+
+async def test_a_job_with_no_classification_cannot_be_placed_on_a_lane_and_times_out() -> None:
+    world, clock = World(), FakeClock()
+    await world.receive()
+    await world.to(JobState.NORMALIZED)
+    await world.to(JobState.CLASSIFIED)
+    await world.to(JobState.QUEUED, {"retrieval_required": True})
+    lanes = Lanes({})
+
+    with pytest.raises(CaseTimeoutError, match="QUEUED"):
+        await _collect(world, clock, budget_s=20, **_watching(lanes))
+
+    assert lanes.asked == []
+
+
+async def test_without_a_lane_probe_a_queued_job_is_waited_for_until_the_budget_ends() -> None:
+    world, clock = World(), FakeClock()
+    await _queued(world, category="billing")
+
+    with pytest.raises(CaseTimeoutError, match="QUEUED"):
+        await _collect(world, clock, budget_s=20)
+
+
+async def test_wait_asks_the_check_only_while_the_job_is_queued() -> None:
+    world, clock = World(), FakeClock()
+    job = await world.receive()
+    asked: list[str] = []
+
+    async def check(job: Job) -> bool:
+        asked.append(job.state)
+        return True
+
+    steps = [
+        lambda: world.to(JobState.NORMALIZED),
+        lambda: world.to(JobState.CLASSIFIED),
+        lambda: world.to(JobState.QUEUED, {"retrieval_required": True}),
+    ]
+
+    async def advance() -> None:
+        await steps.pop(0)()
+
+    clock.on_sleep = advance
+
+    done = await wait_for_job(
+        world.jobs,
+        job,
+        Deadline(60, monotonic=clock.monotonic),
+        sleep=clock.sleep,
+        poll_interval_s=1.0,
+        unconsumed=check,
+    )
+
+    assert done.state == "QUEUED" and asked == ["QUEUED"]
 
 
 # --- the gate outcome and the timings ----------------------------------------------------

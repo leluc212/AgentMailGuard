@@ -1,7 +1,8 @@
 """Wait for one case's job to finish, then read what the services persisted (task 7.20; R21).
 
     FedCase ─▶ find_job          processing_job, by the key the mail-connector derived for it
-            ─▶ wait_for_job      until COMPLETED · DRAFTED · FAILED · DEAD_LETTER
+            ─▶ wait_for_job      until COMPLETED · DRAFTED · FAILED · DEAD_LETTER, or QUEUED
+                                 on a lane nothing claims or consumes (a stuck outcome)
             ─▶ processing_event  gate outcome · stage timings · the ai-worker's context_built
             ─▶ classification_result   the live triage decision
             ─▶ generated_draft   what the drafting consumer persisted (never approved or sent)
@@ -11,8 +12,8 @@
 The row keeps the v1 blocks (``host``, ``generation``, ``draft``, ``final_draft``,
 ``timings_ms``, ``guard_llm``, ``report`` ...) so v1's scoring flatten reads it unchanged, and
 adds the flat ``final_body`` / ``final_action`` / ``retrieved`` names of ``scoring.RawRecord``
-and ``result.pipeline`` (transport, job state, triage, whether drafting was reached, the
-context flags, stage timings).
+and ``result.pipeline`` (transport, job state, triage, whether drafting was reached, whether
+triage's template wrote the draft, the context flags, stage timings).
 
 The persisted draft is the authority for ``final_body`` and ``final_action``: in a v1 row the
 key ``final_action`` was the guard's decision ("allow"), in a draft it is the reply action
@@ -27,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,7 @@ from uuid import UUID
 from evaluation.mailguard_bench.case_adapter import EvalCase
 from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
 from evaluation.mailguard_bench.live.feeder import Deadline, FedCase, Sleep
+from packages.broker.routing import format_routing_key
 from packages.context.builder import DefaultInstructionProvider
 from packages.core.idempotency import derive_idempotency_key
 from packages.db.classification import ClassificationResultRow, ClassificationStore
@@ -73,8 +75,16 @@ FAIL_CLOSED_KIND = "fail_closed_validation"
 AUDIT_GRACE_S = 10.0
 """How long a drafted job may wait for its audit line: the guard-worker writes the line
 around the DRAFTED commit, not inside it."""
+UNCONSUMED_GRACE_S = 10.0
+"""How long a job must have sat QUEUED before its lane is looked at for a consumer."""
 NATIVE_PROMPT_MODE = "native"
 _AUDIT_ID_KEYS = frozenset({"message_id", "organization_id", "config"})
+
+
+LaneConsumers = Callable[[str], Awaitable[int | None]]
+"""The consumers attached to a lane queue, from a passive declare; None if it does not exist."""
+UnconsumedCheck = Callable[[Job], Awaitable[bool]]
+"""Whether a QUEUED job is on a lane that nothing will consume."""
 
 
 class PipelineJobError(RuntimeError):
@@ -131,9 +141,19 @@ async def find_job(jobs: JobStore, fed: FedCase) -> Job:
 
 
 async def wait_for_job(
-    jobs: JobStore, job: Job, deadline: Deadline, *, sleep: Sleep, poll_interval_s: float
+    jobs: JobStore,
+    job: Job,
+    deadline: Deadline,
+    *,
+    sleep: Sleep,
+    poll_interval_s: float,
+    unconsumed: UnconsumedCheck | None = None,
 ) -> Job:
     """Poll until the job is COMPLETED, DRAFTED, FAILED or DEAD_LETTER; return it.
+
+    A job left QUEUED on a lane nothing will consume is returned as it is, still QUEUED, when
+    ``unconsumed`` says so: it will never move, and waiting out the case budget would turn a
+    known outcome into a timeout. ``unconsumed`` is asked only while the job is QUEUED.
 
     Raises:
         CaseTimeoutError: If the case budget is spent first; the message names the state the
@@ -147,6 +167,12 @@ async def wait_for_job(
         if current is None:
             raise PipelineJobError(f"job {job.id} disappeared while it was awaited")
         if current.state in TERMINAL_STATES:
+            return current
+        if (
+            unconsumed is not None
+            and current.state == JobState.QUEUED.value
+            and await unconsumed(current)
+        ):
             return current
         detail = f"state {current.state}"
         if current.last_error:
@@ -429,6 +455,9 @@ class LiveCollector:
         audit_path: Path | None,
         poll_interval_s: float = 1.0,
         audit_grace_s: float = AUDIT_GRACE_S,
+        lane_consumers: LaneConsumers | None = None,
+        claimed_lanes: Collection[str] = (),
+        unconsumed_grace_s: float = UNCONSUMED_GRACE_S,
         sleep: Sleep = asyncio.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -439,11 +468,17 @@ class LiveCollector:
         self.audit_path = audit_path
         self.poll_interval_s = poll_interval_s
         self.audit_grace_s = audit_grace_s
+        self.lane_consumers = lane_consumers
+        self.claimed_lanes = frozenset(claimed_lanes)
+        self.unconsumed_grace_s = unconsumed_grace_s
         self.sleep = sleep
         self.monotonic = monotonic
 
     async def collect(self, case: EvalCase, fed: FedCase, deadline: Deadline) -> dict[str, Any]:
         """Wait for the job, then build the row's ``result`` from what the services wrote.
+
+        A job left QUEUED on a lane nothing claims or consumes is an outcome, not a timeout: its
+        row is ``ok`` with ``job_state`` QUEUED and no draft (amendment 1, D.1(b)).
 
         Raises:
             CaseTimeoutError: If the job is not terminal in time.
@@ -455,7 +490,12 @@ class LiveCollector:
         jobs = self.stores.jobs
         job = await find_job(jobs, fed)
         job = await wait_for_job(
-            jobs, job, deadline, sleep=self.sleep, poll_interval_s=self.poll_interval_s
+            jobs,
+            job,
+            deadline,
+            sleep=self.sleep,
+            poll_interval_s=self.poll_interval_s,
+            unconsumed=self._unconsumed_check(),
         )
         if job.state in FAILED_STATES:
             message = (
@@ -520,6 +560,52 @@ class LiveCollector:
             "timings_ms": timings,
         }
         return record
+
+    def _unconsumed_check(self) -> UnconsumedCheck | None:
+        """One case's test for "this QUEUED job will never be picked up"; None without a probe.
+
+        The verdict is taken once, after the job has been QUEUED for ``unconsumed_grace_s``: a
+        lane that has a consumer is then only busy, and one without is not going to have one.
+        The state is per case because concurrent cases share this collector.
+        """
+        probe = self.lane_consumers
+        if probe is None:
+            return None
+        queued_since: float | None = None
+        verdict: bool | None = None
+
+        async def check(job: Job) -> bool:
+            nonlocal queued_since, verdict
+            if verdict is not None:
+                return verdict
+            now = self.monotonic()
+            queued_since = now if queued_since is None else queued_since
+            if now - queued_since < self.unconsumed_grace_s:
+                return False
+            verdict = await self._lane_is_unconsumed(job, probe)
+            return verdict
+
+        return check
+
+    async def _lane_is_unconsumed(self, job: Job, probe: LaneConsumers) -> bool:
+        """Whether ``job``'s lane is one no consumer claims and none is attached to.
+
+        The lane is the one triage routed the job to, ``email.<category>.<lane>``, named by the
+        triage worker's own key function from the classification it persisted. A lane the
+        drafting consumer claims is not this case: its consumer is expected, so its absence is a
+        broken stack and stays a timeout (an error row), and it is not even asked about.
+        """
+        if job.message_id is None:
+            return False
+        classification = await self.stores.classifications.get_latest_classification_by_message(
+            job.organization_id, job.message_id
+        )
+        if classification is None:
+            return False
+        lane = format_routing_key(classification.category, classification.priority)
+        if lane in self.claimed_lanes:
+            return False
+        return not await probe(lane)
 
     async def _audit(
         self, job: Job, fed: FedCase, case: EvalCase, reached_drafting: bool

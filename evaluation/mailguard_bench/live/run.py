@@ -67,6 +67,7 @@ from evaluation.mailguard_bench.live.cleanup import (
 from evaluation.mailguard_bench.live.collect import (
     AUDIT_GRACE_S,
     TRANSPORT,
+    UNCONSUMED_GRACE_S,
     LiveCollector,
     PipelineJobError,
     PipelineStores,
@@ -738,6 +739,7 @@ class LiveDeps:
     repo_root: Path = REPO_ROOT
     poll_interval_s: float = 1.0
     audit_grace_s: float = AUDIT_GRACE_S
+    unconsumed_grace_s: float = UNCONSUMED_GRACE_S
     backoff: BackoffPolicy = BackoffPolicy()
 
 
@@ -836,6 +838,9 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                         f"{outcome.organization_id}: {'; '.join(outcome.errors)}"
                     )
 
+            async def lane_consumers(queue: str) -> int | None:
+                return (await live.probe_consumers(settings.broker, [queue]))[queue]
+
             executor = LiveCaseExecutor(
                 pool=pool,
                 admin=stack.admin,
@@ -856,6 +861,9 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                     ),
                     poll_interval_s=live.poll_interval_s,
                     audit_grace_s=live.audit_grace_s,
+                    lane_consumers=lane_consumers,
+                    claimed_lanes=lanes,
+                    unconsumed_grace_s=live.unconsumed_grace_s,
                 ),
                 label=f"{args.run}/{args.config}",
                 case_timeout_s=args.case_timeout_s,
