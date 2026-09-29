@@ -37,6 +37,8 @@ from evaluation.mailguard_bench.amg import (
 )
 from evaluation.mailguard_bench.artifacts import (
     ConfigSummary,
+    MeaningOutcome,
+    MeaningSummary,
     RateCI,
     ReportInputs,
     build_manifest,
@@ -45,11 +47,19 @@ from evaluation.mailguard_bench.artifacts import (
     render_report,
     sha256_file,
     summarize_config,
+    summarize_meaning,
     summarize_triage,
     write_metrics_csv,
 )
+from evaluation.mailguard_bench.meaning import (
+    PROMPT_SHA256,
+    RUBRIC_VERSION,
+    current_verdict,
+    meaning_path,
+)
 from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
+from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.scoring import LIVE_TRANSPORT, RawRecord, read_raw, score_records
 from packages.core.settings import AppSettings, ModelPricing
 
@@ -373,6 +383,40 @@ def build_report(
     if problems:
         raise ValueError("refusing to score runs off the pinned settings: " + "; ".join(problems))
 
+    meaning_rows = {
+        c: ResultStore(meaning_path(run_dir, c)).latest_records()
+        for c in configs
+        if meaning_path(run_dir, c).exists()
+    }
+
+    # The run's reader, from every file: a config whose attacks were all stopped before drafting
+    # never called it, and its rows name none.
+    run_readers = sorted(
+        {
+            str(row["reader_model"])
+            for rows in meaning_rows.values()
+            for row in rows.values()
+            if row.get("reader_model")
+        }
+    )
+
+    def meaning_of(config: str, ids: set[str]) -> MeaningSummary | None:
+        """The config's meaning-based column on the attacks of ``ids``; None when not read."""
+        rows = meaning_rows.get(config)
+        if rows is None:
+            return None
+        outcomes = [
+            MeaningOutcome(
+                current_verdict(rows.get(r.case_id), r),
+                None if r.pipeline is None else r.pipeline.reached_drafting,
+            )
+            for r in records[config]
+            if r.ok and r.case_id in ids and cases[r.case_id].get("kind") == "attack"
+        ]
+        return summarize_meaning(
+            outcomes, metrics=metrics, reader_models=run_readers, rubric=RUBRIC_VERSION
+        )
+
     def table(ids: set[str], names: Sequence[str]) -> dict[str, ConfigSummary]:
         return {
             c: summarize_config(
@@ -380,6 +424,7 @@ def build_report(
                 _subset(scored[c], ids),
                 metrics=metrics,
                 n_errors=_errors_in(errors[c], ids),
+                meaning=meaning_of(c, ids),
             )
             for c in names
         }
@@ -476,6 +521,7 @@ def build_report(
         }
         for c, meta in run_meta.items()
     }
+    live_run = any(m.get("transport") == LIVE_TRANSPORT for m in run_meta.values())
     # The commits the runs used (from their metas), not HEAD at report time; the report
     # time checkouts are kept alongside for reference.
     manifest = build_manifest(
@@ -495,9 +541,17 @@ def build_report(
             c: {"records": len(records[c]), "scored": len(scored[c]), "errors": len(errors[c])}
             for c in configs
         },
-        task="7.20"
-        if any(m.get("transport") == LIVE_TRANSPORT for m in run_meta.values())
-        else "7.19",
+        task="7.20" if live_run else "7.19",
+        meaning=(
+            {
+                "rubric": RUBRIC_VERSION,
+                "prompt_sha256": PROMPT_SHA256,
+                "reader_models": run_readers,
+                "files": {c: sha256_file(meaning_path(run_dir, c)) for c in meaning_rows},
+            }
+            if meaning_rows
+            else None
+        ),
     )
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", "utf-8")
     report_path = run_dir / "report.md"

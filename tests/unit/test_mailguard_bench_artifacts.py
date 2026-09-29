@@ -458,3 +458,127 @@ def test_overhead_note_says_what_the_latency_covers_on_a_live_run() -> None:
     assert "(no queueing or triage)" not in live
     assert "`pipeline.timings_ms`" in live  # where the live pipeline's own timings are
     assert "compare the drafting step only" in live
+
+
+# --- the meaning-based second column (rubric meaning-rubric.v1, task 7.20; R22.12) ---------
+
+
+def meaning_of(
+    asr: RateCI,
+    *,
+    guard: RateCI | None = None,
+    unclear: int = 0,
+    unread: int = 0,
+    scored: int = 300,
+) -> Any:
+    from evaluation.mailguard_bench.artifacts import MeaningSummary
+
+    return MeaningSummary(
+        asr=asr,
+        guard_asr=guard,
+        unclear=unclear,
+        unread=unread,
+        scored=scored,
+        reader_models=("gemini-2.5-flash",),
+        rubric="meaning-rubric.v1",
+    )
+
+
+def test_meaning_based_asr_is_shown_next_to_the_official_asr() -> None:
+    from dataclasses import replace
+
+    c3 = replace(summary("C3", R7), meaning=meaning_of(RateCI(12, 290, 0.0238, 0.0708), unclear=10))
+
+    text = render_report(baseline_inputs({"C0": summary("C0", R16), "C3": c3}))
+
+    assert "| Meaning-based ASR | not run | 4.1 % [2.4, 7.1] (12/290) |" in text
+    assert "| Meaning: unclear (left out) | not run | 10 |" in text
+    assert (
+        "C3 meaning-based ASR (rubric meaning-rubric.v1, reader gemini-2.5-flash): "
+        "4.1 % [2.4, 7.1] (12/290); 10 unclear."
+    ) in text
+    assert "C0 meaning-based ASR" not in text  # C0 has no meaning file
+    # How the no-draft attacks are counted is stated where the numbers are.
+    assert "counts as failed" in text
+    assert "Meaning: not read yet" not in text  # nothing is unread
+
+
+def test_meaning_of_a_live_run_is_stated_over_both_populations() -> None:
+    from dataclasses import replace
+
+    meaning = meaning_of(
+        RateCI(6, 260, 0.0106, 0.0494),
+        guard=RateCI(6, 240, 0.0117, 0.0538),
+        unclear=4,
+        scored=300,
+    )
+    c3 = replace(live_summary("C3", PIPELINE_7_300, GUARD_7_280), meaning=meaning)
+    inputs = live_inputs(llmail={"C3": c3})
+
+    text = render_report(inputs)
+
+    assert (
+        "C3 meaning-based ASR (rubric meaning-rubric.v1, reader gemini-2.5-flash): "
+        "guard ASR 2.5 % [1.2, 5.4] (6/240); pipeline ASR 2.3 % [1.1, 4.9] (6/260); 4 unclear."
+    ) in text
+    assert "| Meaning-based ASR (pipeline) | 2.3 % [1.1, 4.9] (6/260) |" in text
+    assert (
+        "| Meaning-based guard ASR (attacks that reached drafting) | 2.5 % [1.2, 5.4] (6/240) |"
+    ) in text
+
+
+def test_attacks_without_a_current_verdict_are_named() -> None:
+    from dataclasses import replace
+
+    c3 = replace(summary("C3", R7), meaning=meaning_of(RateCI(1, 50, 0.004, 0.105), unread=250))
+
+    text = render_report(baseline_inputs({"C3": c3}))
+
+    assert "| Meaning: not read yet | 250 |" in text
+    assert (
+        "250 of 300 scored attacks have no current verdict (not read yet, the read errored, or "
+        "the draft changed since): read them again."
+    ) in text
+
+
+def test_a_report_without_a_meaning_column_has_no_meaning_lines() -> None:
+    text = render_report(baseline_inputs({"C0": summary("C0", R16), "C3": summary("C3", R7)}))
+
+    assert "eaning" not in text
+
+
+def test_metrics_csv_carries_the_meaning_rows() -> None:
+    from dataclasses import replace
+
+    meaning = meaning_of(RateCI(6, 260, 0.0106, 0.0494), guard=RateCI(6, 240, 0.0115, 0.0535))
+    meaning = replace(meaning, unclear=4, unread=2)
+    s = replace(live_summary("C3", PIPELINE_7_300, GUARD_7_280), meaning=meaning)
+
+    rows = metrics_rows({"llmail": {"C3": s}}, {}, {})
+
+    def one(metric: str) -> dict[str, Any]:
+        (found,) = [r for r in rows if r["metric"] == metric and r["table"] == "llmail"]
+        return found
+
+    assert (one("meaning_ASR")["successes"], one("meaning_ASR")["total"]) == (6, 260)
+    assert (one("meaning_guard_ASR")["successes"], one("meaning_guard_ASR")["total"]) == (6, 240)
+    assert (one("meaning_unclear")["value"], one("meaning_unread")["value"]) == (4, 2)
+
+
+def test_manifest_records_the_meaning_reader_only_when_it_ran() -> None:
+    def manifest(**extra: Any) -> dict[str, Any]:
+        return build_manifest(
+            run_id="r1",
+            rag_email={"sha": "a" * 40, "dirty": False},
+            mailguard={"sha": "b" * 40, "dirty": False},
+            case_manifest_sha256="c" * 64,
+            run_meta={},
+            models={},
+            counts={},
+            **extra,
+        )
+
+    record = {"rubric": "meaning-rubric.v1", "reader_models": ["gemini-2.5-flash"], "files": {}}
+
+    assert manifest(meaning=record)["meaning"] == record
+    assert "meaning" not in manifest()  # a run without a reader keeps its manifest as before
