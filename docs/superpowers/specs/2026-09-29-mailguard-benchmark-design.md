@@ -64,7 +64,7 @@ Measure how often prompt-injection attacks succeed against that pipeline, once w
 3. Makes **one** generation call through rag-email's `SinglePassGenerator` and `reply.v1` schema.
    - **C0 (owner decision B1, 2026-09-29): rag-email exactly as it runs.** `generate_draft` renders rag-email's own profile template; no AgentMailGuard code runs.
    - **C1, C2, C3:** AgentMailGuard's `MailGuardPipeline.run` wraps the call with that preset and renders the prompt with channel isolation, handing the messages to `SinglePassGenerator.generate_from_messages` (one additive method, no defence logic in rag-email).
-   - **C0T (optional, when time allows):** `MailGuardPipeline.run` with `preset("C0")`, AgentMailGuard's template with no layer active, to separate the template effect from the layer effect.
+   - **C0T (required, owner decision B1 = a and b):** `MailGuardPipeline.run` with `preset("C0")`, AgentMailGuard's template with no layer active, over the full case set. C0 vs C3 is the headline (the guard protecting rag-email as shipped); C0T vs C3 isolates the layers' effect. Both comparisons get a McNemar test.
 4. Records the draft, the guard report, the timings and the token counts to a JSONL results file.
 
 **Scoring.** AgentMailGuard's rule, mapped to rag-email's reply fields, which have no recipient list:

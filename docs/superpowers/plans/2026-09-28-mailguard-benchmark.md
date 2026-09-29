@@ -45,10 +45,13 @@
 
 ## Owner decisions after the plan was written (2026-09-29) — BINDING, overrides the task text below
 
-- **B1 = b. C0 is rag-email exactly as it runs.** The C0 run calls rag-email's existing `SinglePassGenerator.generate_draft` on the `ContextPackage` from the real `ContextBuilder`, so the prompt is rendered by rag-email's own profile template (`prompts/*.v2.j2`, with `[BUSINESS DATA]` and the precedence rule). **No AgentMailGuard code runs in C0.** C1, C2 and C3 go through `MailGuardPipeline.run` + `generate_from_messages` as planned: taking over prompt rendering is part of what the guard does. The report must say this plainly: "C0 = rag-email as shipped; C1–C3 = rag-email with AgentMailGuard, which renders the prompt with channel isolation".
-- **B1 = c when time allows: config `C0T`.** An optional extra run that goes through `MailGuardPipeline.run` with `GuardConfig.preset("C0")` (AgentMailGuard's template, no layer active). It separates "template effect" from "layer effect". The runner, scoring and report must accept `C0T` as a config name and show it in its own column when present; nothing requires it to exist.
-- **The McNemar test and the headline comparison are C0 (native) vs C3.** C0T vs C3 is reported additionally when C0T exists.
-- **Open questions 1–14 below: all answered with the recommended answer.** Question 2's wording is superseded by B1 (C0 no longer uses the guard's template; C0T does).
+- **B1 = a AND b (owner, 2026-09-29): two baselines, both REQUIRED.**
+  - **C0 = rag-email exactly as it runs.** The run calls rag-email's existing `SinglePassGenerator.generate_draft` on the `ContextPackage` from the real `ContextBuilder`, so the prompt is rendered by rag-email's own profile template (`prompts/*.v2.j2`, with `[BUSINESS DATA]` and the precedence rule). **No AgentMailGuard code runs in C0.**
+  - **C0T = AgentMailGuard's template, no layer active.** `MailGuardPipeline.run` with `GuardConfig.preset("C0")` and `generate_from_messages`. It separates the template effect from the layer effect.
+  - **C1, C2, C3** go through `MailGuardPipeline.run` + `generate_from_messages` as planned.
+  - The runner, scoring, report, Make targets and runbook treat `C0` and `C0T` as two distinct, required configs, both over the full case set (300 LLMail attacks + 150 benign + ~100 RAG-vector). C1/C2 stay on the 100-attack ablation subset.
+  - **Report comparisons, both shown:** C0 vs C3 = "AgentMailGuard protecting rag-email as shipped" (headline, McNemar); C0T vs C3 = "effect of the guard's layers alone" (McNemar). The report states plainly what each baseline is.
+- **Open questions 1–14 below: all answered with the recommended answer.** Question 2's wording is superseded by B1 (C0 is native rag-email; C0T is the guard's template with no layers; both required).
 - **Phase 6 is complete** (commit 2a0dbc8; only the owner-run live Gmail gate 6.10 remains), so Task 8's spec sync may run.
 - **Live runs are not part of the build.** The downloads in open question 6 (`make mailguard-prep`, `make mailguard-cases`, no API key) are allowed. Anything that calls Gemini (`mailguard-probe`, `mailguard-bench`) is the owner's step, run after the build.
 
