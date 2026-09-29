@@ -4,8 +4,10 @@ Run after ``evaluation.mailguard_bench.report`` has written ``ragemail__<config>
 
     make mailguard-analyses RUN=<run_id>
 
-Writes ``analysis/leakage.json``, ``analysis/first_layer.csv`` and ``analyses.md``; the
-next report build adds the near-duplicate-free headline and appends ``analyses.md``.
+Writes ``analysis/leakage.json``, ``analysis/first_layer.csv``, ``analyses.md`` and
+``analysis/inputs.json`` (sha256 of the C0/C3 files it was built from); the next report
+build adds the near-duplicate-free headline and appends ``analyses.md`` while those files
+are unchanged, and says it is out of date otherwise.
 
 (docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md §4b "No-API analyses";
 specs/tasks.md 7.19; R22.12)
@@ -35,6 +37,7 @@ from evaluation.mailguard_bench.leakage import (
 )
 from evaluation.mailguard_bench.report import (
     CONFIG_ORDER,
+    analysis_fingerprint,
     consistency_problems,
     degradation_problems,
     load_cases,
@@ -128,6 +131,7 @@ def run_analyses(
         raise ValueError("refusing to analyse a weakened guard run: " + "; ".join(weakened))
     if off_pin:
         raise ValueError("refusing to analyse runs off the pinned settings: " + "; ".join(off_pin))
+    fingerprint = analysis_fingerprint(run_dir)  # what this analysis is built from
     c0_records, c3_records = _records(run_dir, "C0"), _records(run_dir, "C3")
     out_dir = run_dir / "analysis"
     out_dir.mkdir(exist_ok=True)
@@ -169,6 +173,7 @@ def run_analyses(
     ]
     path = run_dir / "analyses.md"
     path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
+    (out_dir / "inputs.json").write_text(json.dumps(fingerprint, indent=2) + "\n", "utf-8")
     return path
 
 

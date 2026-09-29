@@ -196,6 +196,16 @@ def _errors_in(errors: Sequence[RawRecord], ids: set[str]) -> int:
     return sum(1 for e in errors if e.case_id in ids)
 
 
+# Files analyses.md is built from; their sha256 is kept in analysis/inputs.json so a report
+# rescored after a resume never appends a first-layer tally or examples from older data.
+ANALYSIS_SOURCES = ("ragemail__C0.jsonl", "ragemail__C3.jsonl", "raw/C0.jsonl", "raw/C3.jsonl")
+
+
+def analysis_fingerprint(run_dir: Path) -> dict[str, str | None]:
+    """sha256 of each ``ANALYSIS_SOURCES`` file of ``run_dir`` (``None`` when absent)."""
+    return {name: sha256_file(run_dir / name) for name in ANALYSIS_SOURCES}
+
+
 def analysis_inputs(
     run_dir: Path, scored: Mapping[str, list[Any]], *, metrics: ModuleType, llmail_ids: set[str]
 ) -> tuple[list[str], list[str]]:
@@ -203,7 +213,9 @@ def analysis_inputs(
 
     With ``analysis/leakage.json`` present, C3 ASR is restated without the attacks that
     are near-duplicates of the classifier-training half, and C3 FPR without the benign
-    emails that were L1 training rows. ``analyses.md`` is appended as-is.
+    emails that were L1 training rows. ``analyses.md`` is appended as-is only when
+    ``analysis/inputs.json`` matches the current scoring; otherwise a line says it is out
+    of date (the leakage restatement depends only on the pinned case set, so it stays).
     """
     headline: list[str] = []
     sections: list[str] = []
@@ -233,7 +245,19 @@ def analysis_inputs(
             )
     analyses_md = run_dir / "analyses.md"
     if analyses_md.exists():
-        sections.append(analyses_md.read_text(encoding="utf-8"))
+        inputs_path = run_dir / "analysis" / "inputs.json"
+        recorded = (
+            json.loads(inputs_path.read_text(encoding="utf-8")) if inputs_path.exists() else None
+        )
+        if recorded == analysis_fingerprint(run_dir):
+            sections.append(analyses_md.read_text(encoding="utf-8"))
+        else:
+            sections.append(
+                "## No-API analyses\n\n"
+                "analyses.md is out of date for this scoring (the scored or raw C0/C3 results "
+                "changed since it was built), so its first-catching-layer tally and worked "
+                f"examples are left out — run `make mailguard-analyses RUN={run_dir.name}`."
+            )
     return headline, sections
 
 

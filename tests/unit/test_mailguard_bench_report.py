@@ -428,7 +428,7 @@ def test_report_restates_headline_without_near_duplicates(tmp_path: Path) -> Non
         load_amg_metrics,
         resolve_mailguard_dir,
     )
-    from evaluation.mailguard_bench.report import build_report
+    from evaluation.mailguard_bench.report import analysis_fingerprint, build_report
 
     mailguard_dir = resolve_mailguard_dir()
     if not (mailguard_dir / "evaluation" / "harness.py").exists():
@@ -475,13 +475,18 @@ def test_report_restates_headline_without_near_duplicates(tmp_path: Path) -> Non
     )
     (run / "analyses.md").write_text("## Threat model and limitations\n\nx\n", "utf-8")
 
-    path = build_report(
-        run,
-        harness=load_amg_harness(mailguard_dir),
-        metrics=load_amg_metrics(mailguard_dir),
-        prices={},
-        mailguard_dir=mailguard_dir,
-    )
+    def build() -> Path:
+        return build_report(
+            run,
+            harness=load_amg_harness(mailguard_dir),
+            metrics=load_amg_metrics(mailguard_dir),
+            prices={},
+            mailguard_dir=mailguard_dir,
+        )
+
+    build()  # scores the run; analyses.md is then recorded as built from that scoring
+    (run / "analysis" / "inputs.json").write_text(json.dumps(analysis_fingerprint(run)), "utf-8")
+    path = build()
 
     text = path.read_text("utf-8")
     assert "**C3 ASR ≤ 5 %: not met — 50.0 %" in text
@@ -491,3 +496,29 @@ def test_report_restates_headline_without_near_duplicates(tmp_path: Path) -> Non
     ) in text
     assert "C3 FPR on benign emails that were not L1 training rows (1 excluded): n/a" in text
     assert text.rstrip().endswith("x")
+
+
+def test_report_marks_analyses_out_of_date_after_a_resume(tmp_path: Path) -> None:
+    # make mailguard-analyses on a partial run, resume C3, make mailguard-report.
+    harness, metrics, mailguard_dir = _amg_or_skip()
+    from evaluation.mailguard_bench.analyses import run_analyses
+    from evaluation.mailguard_bench.report import build_report
+
+    run = _run_folder(tmp_path, with_c0t=False)
+
+    def report() -> str:
+        return build_report(
+            run, harness=harness, metrics=metrics, prices=PRICES, mailguard_dir=mailguard_dir
+        ).read_text("utf-8")
+
+    report()
+    run_analyses(run, train_half=list, l1_rows=lambda source: [])
+    assert "## First catching layer" in report()  # the Makefile's report → analyses → report
+    with (run / "raw" / "C3.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(_raw("attack-llmail-b", "C3", None, blocked=True)) + "\n")
+
+    text = report()
+
+    assert "**C3 ASR ≤ 5 %: met — 0.0 % [0.0, 65.8] (0/2)**" in text
+    assert "analyses.md is out of date for this scoring" in text
+    assert "## First catching layer" not in text and "## Worked examples" not in text

@@ -149,3 +149,44 @@ def test_analyses_main_prints_fail_and_exits_1_for_a_weakened_run(
     assert code == 1
     assert "FAIL refusing to analyse a weakened guard run" in capsys.readouterr().err
     assert not (run / "analyses.md").exists()
+
+
+def _appended(run: Path) -> list[str]:
+    from types import ModuleType
+
+    from evaluation.mailguard_bench.report import analysis_inputs
+
+    _headline, sections = analysis_inputs(
+        run, {}, metrics=ModuleType("stub_metrics"), llmail_ids=set()
+    )
+    return sections
+
+
+def test_report_appends_analyses_built_from_the_current_scoring(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)
+    run_analyses(run, train_half=list, l1_rows=lambda source: [])
+    inputs = json.loads((run / "analysis" / "inputs.json").read_text("utf-8"))
+    assert set(inputs) >= {"ragemail__C0.jsonl", "ragemail__C3.jsonl"}
+    sections = _appended(run)
+    assert len(sections) == 1 and "## First catching layer" in sections[0]
+
+
+def test_report_drops_analyses_that_predate_a_rescoring(tmp_path: Path) -> None:
+    # Owner flow (spec § timing): analyses on a partial run, resume C3, report again.
+    run = _run_dir(tmp_path)
+    run_analyses(run, train_half=list, l1_rows=lambda source: [])
+    with (run / "ragemail__C3.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"case_id": "a2", "kind": "attack", "goal_achieved": False}))
+        handle.write("\n")
+    sections = _appended(run)
+    text = "\n".join(sections)
+    assert "analyses.md is out of date for this scoring" in text
+    assert "make mailguard-analyses RUN=r1" in text
+    assert "## First catching layer" not in text and "## Worked examples" not in text
+
+
+def test_report_drops_analyses_with_no_record_of_their_inputs(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)
+    run_analyses(run, train_half=list, l1_rows=lambda source: [])
+    (run / "analysis" / "inputs.json").unlink()
+    assert "analyses.md is out of date for this scoring" in "\n".join(_appended(run))
