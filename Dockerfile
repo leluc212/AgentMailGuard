@@ -20,6 +20,17 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
+# Layer 1b: bake the cross-encoder reranker into the image (R11.1, R11.5). The ai-worker loads it
+# from RETRIEVAL__RERANK_MODEL_DIR with local_files_only, so a container without network still
+# reranks. The build runs the same CrossEncoder load the worker does, so the cache layout cannot
+# drift from what it reads. It needs only the venv above and sits above the source COPYs, so a
+# code change does not download the model again. RERANK_MODEL defaults to the settings default
+# (RETRIEVAL__RERANK_MODEL); to bake another model, build with --build-arg RERANK_MODEL=<name>
+# and run with RETRIEVAL__RERANK_MODEL=<name>.
+ARG RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+ENV RETRIEVAL__RERANK_MODEL_DIR=/app/.cache/reranker
+RUN /app/.venv/bin/python -c "from sentence_transformers import CrossEncoder; CrossEncoder('${RERANK_MODEL}', cache_folder='${RETRIEVAL__RERANK_MODEL_DIR}')"
+
 # Layer 2: application source plus every file production code loads at runtime.
 # Config/prompt/schema/model paths resolve against CWD (/app); migrations resolve via
 # packages/db/migrator.py __file__.parents[2] (/app), so keep the editable install.
