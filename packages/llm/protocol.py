@@ -58,7 +58,11 @@ class LLMProvider(Protocol):
         temperature: float = 0.0,
         **params: Any,
     ) -> LLMResult:
-        """Execute a structured completion request against the selected model tier (R14.5)."""
+        """Execute a structured completion request against the selected model tier (R14.5).
+
+        A ``model`` in ``params`` names the concrete model in place of the tier's, and the
+        result's ``model`` is then that name: tokens and cost are recorded under it (R21.4).
+        """
         ...
 
 

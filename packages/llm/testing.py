@@ -144,6 +144,24 @@ class LLMProviderContractSuite(ABC):
             await self.aclose_provider(provider)
 
     @pytest.mark.asyncio
+    async def test_generate_model_param_names_the_model_used(self) -> None:
+        """Assert a ``model`` param replaces the tier's model and the result reports it (R14.5).
+
+        Tokens, cost and the inference log line are recorded under ``LLMResult.model``
+        (R21.4, R21.6), so a caller that overrides the model must see that model come back.
+        """
+        provider = self.create_provider()
+        try:
+            result = await provider.generate(
+                messages=[ChatMessage(role="user", content="Override the model")],
+                tier=ModelTier.FAST,
+                model="override-model-7b",
+            )
+            assert result.model == "override-model-7b"
+        finally:
+            await self.aclose_provider(provider)
+
+    @pytest.mark.asyncio
     async def test_generate_timeout_error_mapping(self) -> None:
         """Assert request timeouts map strictly to LLMTimeoutError."""
         provider = self.create_failing_provider("timeout")

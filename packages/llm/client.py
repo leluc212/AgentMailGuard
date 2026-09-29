@@ -87,7 +87,9 @@ class HttpLLMProvider(LLMProvider):
     ) -> LLMResult:
         """Execute a structured completion request against an OpenAI-compatible API."""
         start_time = time.perf_counter()
-        model = self.resolve_model(tier)
+        # A ``model`` param replaces the tier's model (the summarizer's, R8.3). Taken out of
+        # ``params`` so the payload and ``LLMResult.model`` cannot name different models.
+        model: str = params.pop("model", None) or self.resolve_model(tier)
 
         formatted_messages = [{"role": m.role, "content": m.content} for m in messages]
         payload: dict[str, Any] = {
