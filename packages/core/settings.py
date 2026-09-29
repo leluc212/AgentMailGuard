@@ -348,7 +348,7 @@ class RetrievalSettings(BaseModel):
         default=0.70, ge=0.0, le=1.0, description="Minimum rerank relevance score"
     )
     retrieval_timeout_ms: int = Field(
-        default=500, ge=10, description="Retrieval SLA timeout in milliseconds"
+        default=3000, ge=10, description="Retrieval SLA timeout in milliseconds"
     )
 
 
