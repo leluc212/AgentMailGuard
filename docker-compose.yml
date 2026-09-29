@@ -33,11 +33,31 @@ x-app-env: &app-env
   EMBEDDING__BASE_URL: ${EMBEDDING__BASE_URL:-https://api.openai.com/v1}
   EMBEDDING__API_KEY: ${EMBEDDING__API_KEY:-}
   # Per-branch retrieval budget; the vector branch spends it on query embedding + ANN (R10.9).
-  RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-500}
+  # 3000 ms leaves room for a hosted embedding call; with 500 ms it could run out and degrade
+  # retrieval to lexical (task 7.20).
+  RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-3000}
+  # Optional settings of the live benchmark (task 7.20, demo-runbook section 9.9): forwarded only
+  # when the host .env, the stack env (.env.stack) or the shell sets them. Compose drops a
+  # value-less key that nothing resolves (Compose spec, `environment`), so the settings default or
+  # the image's own value applies. A blank forward would override both: the image sets
+  # RETRIEVAL__RERANK_MODEL_DIR (the reranker model is baked in at build time), and a blank
+  # SUMMARIZATION__SUMMARIZER_MODEL is not a model name. Keep these out of .env as `NAME=`.
+  LLM__TIMEOUT_S:
+  SUMMARIZATION__SUMMARIZER_MODEL:
+  EMBEDDING__DIMENSION:
+  RETRIEVAL__RERANK_ENABLED:
+  RETRIEVAL__RERANK_MODEL:
+  RETRIEVAL__RERANK_MODEL_DIR:
+  RETRIEVAL__RERANK_TIMEOUT_MS:
   # Business-data lookup deadline (also the Postgres statement_timeout) and snapshot sizes (R13.7).
   BUSINESS_DATA__TIMEOUT_MS: ${BUSINESS_DATA__TIMEOUT_MS:-500}
   BUSINESS_DATA__SNAPSHOT_ORDERS: ${BUSINESS_DATA__SNAPSHOT_ORDERS:-3}
   BUSINESS_DATA__SNAPSHOT_TICKETS: ${BUSINESS_DATA__SNAPSHOT_TICKETS:-3}
+
+# The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
+# Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).
+x-model-hosts: &model-hosts
+  - "host.docker.internal:host-gateway"
 
 x-app-build: &app-build
   context: .
@@ -177,6 +197,7 @@ services:
     command: ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:8000:8000"   # local only: the review UI and API have no login (ADR-0009)
+    extra_hosts: *model-hosts
     environment:
       <<: *app-env
       SERVICE_NAME: api
@@ -234,6 +255,7 @@ services:
     build: *app-build
     restart: unless-stopped
     command: ["python", "-m", "services.triage_worker.main"]
+    extra_hosts: *model-hosts
     stop_grace_period: 30s
     expose:
       - "8003"
@@ -253,6 +275,7 @@ services:
     build: *app-build
     restart: unless-stopped
     command: ["python", "-m", "services.knowledge_worker.main"]
+    extra_hosts: *model-hosts
     stop_grace_period: 30s
     expose:
       - "8005"
@@ -273,6 +296,7 @@ services:
     build: *app-build
     restart: unless-stopped
     command: ["python", "-m", "services.ai_worker.main"]
+    extra_hosts: *model-hosts
     stop_grace_period: 45s
     expose:
       - "8004"

@@ -68,6 +68,7 @@ All configuration in `rag-email` is read from environment variables (or local `.
 | `OBJECT_STORAGE__BUCKET_RAW_MIME` | `string` | `raw-mime` | Bucket naming | Target bucket for immutable raw MIME payloads |
 | `OBJECT_STORAGE__BUCKET_ATTACHMENTS` | `string` | `attachments` | Bucket naming | Target bucket for extracted file attachments |
 | `OBJECT_STORAGE__BUCKET_KNOWLEDGE` | `string` | `knowledge-docs`| Bucket naming | Target bucket for raw uploaded knowledge files |
+| `OBJECT_STORAGE__BUCKET_HTML` | `string` | `html` | Bucket naming | Target bucket for the HTML part of a message (R4.1). `python -m packages.core.storage_cli bootstrap` creates it with the others. Docker Compose forwards no bucket names, so the containers use the default |
 | `OBJECT_STORAGE__SECURE` | `boolean` | `false` | `true/false` | Use TLS/HTTPS for object store operations |
 | `OBJECT_STORAGE__REGION` | `string` | `us-east-1` | Non-empty | S3 region identifier |
 
@@ -89,7 +90,7 @@ All configuration in `rag-email` is read from environment variables (or local `.
 ### 2.5 Embedding Model & Dimension (`EMBEDDING__*`)
 *Semantic indexing parameters and vector width enforcement (R5.10).*
 
-The ai-worker and the API embed retrieval queries with this model; the knowledge worker embeds the corpus with it. Every service must use the same `EMBEDDING__MODEL_NAME` and `EMBEDDING__DIMENSION` (R5.10; the ai-worker and knowledge worker refuse to start on a dimension mismatch). Under Docker Compose, `EMBEDDING__MOCK`, `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY` and `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` are forwarded into the app containers. A hosted embedder may need a larger `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` than the 500 ms default: the vector branch spends that budget on the embedding call plus the ANN search, and a branch that runs out degrades retrieval to lexical. The ai-worker's query tokens and the knowledge worker's ingestion tokens are counted in `embedding_tokens_total{model}` (R9.11); `/v1/search/debug` queries are counted only with a real embedder.
+The ai-worker and the API embed retrieval queries with this model; the knowledge worker embeds the corpus with it. Every service must use the same `EMBEDDING__MODEL_NAME` and `EMBEDDING__DIMENSION` (R5.10; the ai-worker and knowledge worker refuse to start on a dimension mismatch). Under Docker Compose, `EMBEDDING__MOCK`, `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY` and `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` are forwarded into the app containers, and `EMBEDDING__DIMENSION` when it is set. A hosted embedder needs more than the old 500 ms retrieval budget, so the default is now 3000 ms (§2.7): the vector branch spends that budget on the embedding call plus the ANN search, and a branch that runs out degrades retrieval to lexical. The ai-worker's query tokens and the knowledge worker's ingestion tokens are counted in `embedding_tokens_total{model}` (R9.11); `/v1/search/debug` queries are counted only with a real embedder.
 
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
@@ -107,6 +108,22 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 > **Startup Dimension Assertion (R5.10):**
 > On service startup, `assert_embedding_dimension(configured, db_column)` validates that `EMBEDDING__DIMENSION` matches the PostgreSQL `embedding_record.embedding VECTOR(n)` column definition. If there is any discrepancy, the service aborts immediately.
 
+#### Gemini embeddings for the live benchmark (task 7.20)
+
+The live v2 benchmark embeds the case knowledge and the retrieval queries with Google's `gemini-embedding-001` through its OpenAI-compatible endpoint, at 1536 dimensions, the same for every run (ADR-0011):
+
+```dotenv
+EMBEDDING__MOCK=false
+EMBEDDING__MODEL_NAME=gemini-embedding-001
+EMBEDDING__DIMENSION=1536
+EMBEDDING__BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+EMBEDDING__API_KEY=<Gemini API key from Google AI Studio>
+```
+
+- **Dimension.** `gemini-embedding-001` returns 3072 numbers unless asked for fewer (Google documents 128 to 3072). The embedder sends `dimensions: 1536` with every request, which is the width of the vector column. Google notes that a caller must normalise vectors of any size other than 3072; retrieval ranks by cosine distance (`vector_cosine_ops`), which ignores vector length, so no normalisation step is added.
+- **Response shape.** Google's endpoint may omit `index` on the items and `usage` on the response; the embedder keeps the response order and counts no tokens in that case.
+- **Where the settings live.** Host tools (the guard-worker, the live runner) read these lines from `.env`. The containers get them from `.env.stack`, rendered per model by `stack_env` (§2.22), with the key read at run time from `.env`'s `LLM__OPENAI_API_KEY`: the Gemini key, which is not the LLM key of a profile such as GPT-4o-mini. Google AI Studio shows the request limits of `gemini-embedding-001` for the project.
+
 ### 2.6 LLM Providers, Tiers & Price Table (`LLM__*`)
 *Model routing, provider configuration, and inference cost accounting (R14.5, R14.7, R15.1, R21.6, R24.5).*
 
@@ -117,7 +134,7 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 | `LLM__STRONG_MODEL` | `string` | `gpt-4o` | Blank = default | Tier 2 (high-capability) model for escalated drafts (R15.1) |
 | `LLM__FALLBACK_MODEL` | `string` | `claude-3-haiku`| Blank = default | Tier 3 model for retry recovery |
 | `LLM__FORCE_SINGLE_TIER` | `boolean` | `false` | `true/false` | Force strong model only (ablation study R15.6) |
-| `LLM__TIMEOUT_S` | `float` | `15.0` | $\ge 0.1$ | Request timeout for LLM inference calls in seconds |
+| `LLM__TIMEOUT_S` | `float` | `15.0` | $\ge 0.1$ | Request timeout for LLM inference calls in seconds. Docker Compose forwards it when set; the live benchmark's stack env (§2.22) gives the containers 60, the timeout the v1 benchmark used |
 | `LLM__OPENAI_API_KEY` | `string` | `null` | Optional | OpenAI API secret key |
 | `LLM__OPENAI_BASE_URL` | `string` | `https://api.openai.com/v1` | URL; blank = default | Base URL of any OpenAI-compatible `/chat/completions` endpoint, e.g. the Gemini API. With `LLM__PROVIDER=openai`, a Gemini/Gemma model on this default fails startup validation (R14.7, R20.6) |
 | `LLM__ANTHROPIC_API_KEY` | `string` | `null` | Optional | Anthropic Claude API key |
@@ -155,7 +172,7 @@ LLM__PRICE_TABLE={"gemma-4-26b-a4b-it":{"input_per_m":0,"output_per_m":0},"gemma
 
 - **Prices.** Gemma is free of charge (free tier only); `gemini-3.1-flash-lite` costs $0.25 / $1.50 per 1M input / output tokens (Google pricing page, updated 2026-09-24). Because `LLM__PRICE_TABLE` replaces the whole table, keep every model you route to in it, or its cost is recorded as unknown.
 - **Fail-fast check.** With `LLM__PROVIDER=openai`, settings validation refuses a Gemini or Gemma model name while `LLM__OPENAI_BASE_URL` is still `https://api.openai.com/v1` (with or without a trailing slash), so the key is never sent to the wrong host.
-- **Docker Compose.** `LLM__PROVIDER`, `LLM__OPENAI_API_KEY`, `LLM__OPENAI_BASE_URL`, `LLM__FAST_MODEL`, `LLM__STRONG_MODEL`, `LLM__FALLBACK_MODEL` and `LLM__PRICE_TABLE` are forwarded from the host `.env` into every service that uses the shared `x-app-env` block (init, api, mail-connector, email-worker, triage-worker, knowledge-worker, ai-worker). An unset host value arrives blank, and a blank value means "use the default" for the base URL, the three model names and the price table.
+- **Docker Compose.** `LLM__PROVIDER`, `LLM__OPENAI_API_KEY`, `LLM__OPENAI_BASE_URL`, `LLM__FAST_MODEL`, `LLM__STRONG_MODEL`, `LLM__FALLBACK_MODEL` and `LLM__PRICE_TABLE` are forwarded from the host `.env` into every service that uses the shared `x-app-env` block (init, api, mail-connector, email-worker, triage-worker, knowledge-worker, ai-worker). An unset host value arrives blank, and a blank value means "use the default" for the base URL, the three model names and the price table. `LLM__TIMEOUT_S` is forwarded only when it is set (§2.22).
 - **Live smoke check.** `make llm-smoke` sends one triage request and one draft request through the configured provider and reports, per request, whether the response parsed and validated, the `finish_reason` and the token counts. It never prints the key. It is run by hand and is not part of CI (R24.5); tests always run on the fake provider.
 
 ### 2.7 Hybrid Retrieval Parameters (`RETRIEVAL__*`)
@@ -166,9 +183,14 @@ LLM__PRICE_TABLE={"gemma-4-26b-a4b-it":{"input_per_m":0,"output_per_m":0},"gemma
 | `RETRIEVAL__TOP_N` | `integer` | `20` | 1–100 | Candidates retrieved per search branch |
 | `RETRIEVAL__RRF_K` | `integer` | `60` | $\ge 1$ | Reciprocal Rank Fusion constant ($k$) |
 | `RETRIEVAL__TOP_K` | `integer` | `5` | 1–50 | Final chunk count passed to LLM context |
-| `RETRIEVAL__RERANK_ENABLED` | `boolean` | `true` | `true/false` | Enable cross-encoder reranker stage |
+| `RETRIEVAL__RERANK_ENABLED` | `boolean` | `true` | `true/false` | Enable the cross-encoder reranker stage. Honoured by the ai-worker's context builder (R11.2); off keeps the RRF order |
+| `RETRIEVAL__RERANK_MODEL` | `string` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Non-empty | Cross-encoder that reranks the fused candidates (R11.1) |
+| `RETRIEVAL__RERANK_MODEL_DIR` | `string` | empty | Directory, or empty | Where the cross-encoder's files are read from. Empty means the Hugging Face cache (a host run). The runtime image downloads the model at build time into a path it sets here itself, so there is no network access at runtime; Docker Compose forwards this key only when it is set, so a blank value never overrides the image |
+| `RETRIEVAL__RERANK_TIMEOUT_MS` | `integer` | `1000` | $\ge 10$ | Deadline for one rerank call in milliseconds. A reranker that is unavailable or slower keeps the RRF order and records the fallback (R11.5) |
 | `RETRIEVAL__RELEVANCE_FLOOR` | `float` | `0.70` | 0.0–1.0 | Minimum reranker relevance score |
-| `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` | `integer` | `500` | $\ge 10$ | Per-branch retrieval timeout in milliseconds (R10.9). The vector branch's budget covers query embedding plus the ANN search; a branch that exceeds it is dropped and retrieval continues on the other branch (`retrieval_degraded=true`, R10.6). Used by the ai-worker and `/v1/search/debug`. |
+| `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` | `integer` | `3000` | $\ge 10$ | Per-branch retrieval timeout in milliseconds (R10.9). The vector branch's budget covers query embedding plus the ANN search; a branch that exceeds it is dropped and retrieval continues on the other branch (`retrieval_degraded=true`, R10.6). 3000 leaves room for a hosted embedding call, which the earlier 500 ms default could not always fit. Used by the ai-worker and `/v1/search/debug`. |
+
+Under Docker Compose, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS` is forwarded with the 3000 default, and `RETRIEVAL__RERANK_ENABLED`, `RETRIEVAL__RERANK_MODEL`, `RETRIEVAL__RERANK_MODEL_DIR` and `RETRIEVAL__RERANK_TIMEOUT_MS` only when they are set (§2.22). The image carries the one model named by `RETRIEVAL__RERANK_MODEL`'s default: naming another model in a container makes the reranker unavailable there, which falls back to the RRF order.
 
 ### 2.8 Cascading Triage Thresholds (`TRIAGE__*`)
 *Three-stage triage cascade early exit rules (R6.1, R6.2, R6.11).*
@@ -193,7 +215,7 @@ LLM__PRICE_TABLE={"gemma-4-26b-a4b-it":{"input_per_m":0,"output_per_m":0},"gemma
 | `SUMMARIZATION__CONTEXT_TOKEN_THRESHOLD` | `integer` | `1500` | $\ge 100$ | Token threshold triggering summarization |
 | `SUMMARIZATION__KEEP_LATEST_MESSAGES` | `integer` | `2` | $\ge 1$ | Verbatim messages preserved with summary |
 | `SUMMARIZATION__RESUMMARIZE_LAG_MESSAGES` | `integer` | `2` | $\ge 0$ | An existing summary is refreshed only after more than this many new messages arrive (R8.4, design §5.4 LAG); `0` re-summarizes on every new message above the threshold |
-| `SUMMARIZATION__SUMMARIZER_MODEL` | `string` | `gpt-4o-mini` | Non-empty | Model used for generating summaries |
+| `SUMMARIZATION__SUMMARIZER_MODEL` | `string` | unset | Non-empty when set | Model that writes thread summaries (R8.3). Unset: the FAST tier model (`LLM__FAST_MODEL`) writes them. Honoured when set, so name only a model the configured `LLM__PROVIDER` endpoint serves; a model from another provider fails every summary. Docker Compose forwards it only when set; the live benchmark's stack env sets it to the benchmarked model (§2.22) |
 
 ### 2.10 Retry Ladder Intervals & Backoff (`RETRY__*`)
 *Exponential backoff with jitter and dead-lettering (R3.4, R19.5, R19.6).*
@@ -351,3 +373,27 @@ The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/
 |---|---|---|---|---|
 | `FRONTEND__API_BASE_URL` | `string` | `http://localhost:8000` | Starts with `http://` or `https://`; a trailing `/` is dropped | Base URL of the API the review UI calls; only `/v1` paths are used |
 | `FRONTEND__ORGANIZATION_ID` | `UUID` | unset | UUID, or blank for unset | Tenant whose drafts are reviewed, sent as `X-Organization-Id` (R23.6). `.env.example` sets the seeded demo tenant `00000000-0000-0000-0000-000000000001` |
+
+### 2.22 Live benchmark stack environment (`.env.stack`)
+*Per-model container settings of the live v2 benchmark (task 7.20, ADR-0011, `docs/demo-runbook.md` §9.9). Not part of the application's own settings: a generated file, read only by `docker compose`.*
+
+The v2 benchmark runs rag-email's own services for real, with one benchmarked model per run in every LLM role. `python -m evaluation.mailguard_bench.live.stack_env --model-profile <profile>` renders the settings the containers that call a model (`api`, `triage-worker`, `knowledge-worker`, `ai-worker`) need into `.env.stack`, and prints the command that applies them:
+
+```bash
+docker compose --env-file .env --env-file .env.stack up -d --no-deps api triage-worker knowledge-worker ai-worker
+```
+
+It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by it.
+
+| Setting | Value | Source |
+|---|---|---|
+| `LLM__PROVIDER`, `LLM__OPENAI_BASE_URL`, `LLM__OPENAI_API_KEY`, `LLM__FAST_MODEL`, `LLM__STRONG_MODEL`, `LLM__FALLBACK_MODEL`, `LLM__PRICE_TABLE` | the model profile (`evaluation/mailguard_bench/model_profiles.py`); an endpoint on `localhost` becomes `host.docker.internal` | the profile; its key is read from `.env` |
+| `LLM__TIMEOUT_S` | `60.0` (`--llm-timeout-s`) | the timeout the v1 benchmark used |
+| `SUMMARIZATION__SUMMARIZER_MODEL` | the profile's model | one model in every LLM role |
+| `EMBEDDING__MOCK`, `EMBEDDING__MODEL_NAME`, `EMBEDDING__DIMENSION`, `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY` | `false`, `gemini-embedding-001`, `1536`, Google's OpenAI-compatible endpoint, the Gemini key | the same for every run; the key is `.env`'s `LLM__OPENAI_API_KEY` |
+| `RETRIEVAL__RETRIEVAL_TIMEOUT_MS`, `RETRIEVAL__RERANK_ENABLED`, `RETRIEVAL__RERANK_MODEL`, `RETRIEVAL__RERANK_TIMEOUT_MS` | `3000`, `true`, `cross-encoder/ms-marco-MiniLM-L-6-v2`, `1000` | the same for every run |
+
+- **Keys.** The file holds API keys, so it is written owner-only (`0600`), only where git ignores the path (`.env.stack` is in `.gitignore`, and `.dockerignore` keeps it out of every build), and its keys are never printed. The tool refuses a path git could commit. Delete the file after the last run.
+- **Precedence.** Compose reads the files named by `--env-file` in order, the later one winning, and `--env-file` replaces the default `.env`, which is why the printed command names both. A variable exported in the shell wins over every file, so the tool refuses to write when the shell sets a rendered setting to another value (it names the setting, never the value); keep the keys in `.env` and out of the shell.
+- **Optional keys.** Compose forwards `LLM__TIMEOUT_S`, `SUMMARIZATION__SUMMARIZER_MODEL`, `EMBEDDING__DIMENSION` and the four `RETRIEVAL__RERANK_*` keys only when they are set: they are value-less in `docker-compose.yml`, which Compose drops when nothing resolves them, so the settings default or the image's own value applies. Do not write them into `.env` as `NAME=`: a blank value would be forwarded and would override that.
+- **Host alias.** `api`, `triage-worker`, `knowledge-worker` and `ai-worker` get `extra_hosts: ["host.docker.internal:host-gateway"]`. On Linux, Docker Engine resolves `host-gateway` to the host's address on the default bridge (`docker0`), so a local Ollama must listen there (`docs/demo-runbook.md` §9.9).

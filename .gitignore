@@ -59,6 +59,10 @@ cover/
 *.pem
 *.key
 
+# Container settings of the live v2 benchmark, rendered per model by
+# evaluation/mailguard_bench/live/stack_env.py; it holds API keys (task 7.20)
+.env.stack
+
 # IDEs and editors
 .idea/
 .vscode/

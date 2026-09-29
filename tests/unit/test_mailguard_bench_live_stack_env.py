@@ -6,6 +6,7 @@ compose file, .env.example and the configuration reference are read as text (R24
 
 from __future__ import annotations
 
+import fnmatch
 import io
 import json
 import re
@@ -16,10 +17,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import yaml
 from dotenv import dotenv_values
 
 from evaluation.mailguard_bench.live.stack_env import (
     APP_SERVICES,
+    DEFAULT_OUT,
     StackEnvError,
     compose_command,
     container_url,
@@ -405,3 +408,140 @@ def test_main_never_runs_docker(cli_repo: Path, monkeypatch: pytest.MonkeyPatch)
 def test_the_parser_refuses_an_unknown_profile() -> None:
     with pytest.raises(SystemExit):
         main(["--model-profile", "gpt-5"])
+
+
+# --- the config surface the stack env depends on ---------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# The keys package F documents (specs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md, F).
+V2_KEYS = (
+    "OBJECT_STORAGE__BUCKET_HTML",
+    "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+    "RETRIEVAL__RERANK_MODEL",
+    "RETRIEVAL__RERANK_MODEL_DIR",
+    "RETRIEVAL__RERANK_TIMEOUT_MS",
+    "RETRIEVAL__RERANK_ENABLED",
+    "SUMMARIZATION__SUMMARIZER_MODEL",
+    "EMBEDDING__MOCK",
+    "EMBEDDING__MODEL_NAME",
+    "EMBEDDING__BASE_URL",
+)
+
+
+def _compose() -> dict[str, Any]:
+    loaded = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    return cast(dict[str, Any], loaded)
+
+
+def _read(name: str) -> str:
+    return (REPO_ROOT / name).read_text(encoding="utf-8")
+
+
+def _git_ignores(name: str) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "check-ignore", "--quiet", "--", name],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 128:  # not a git checkout (an exported tree): read the file instead
+        return name in _read(".gitignore").splitlines()
+    return result.returncode == 0
+
+
+def test_the_default_stack_env_file_is_git_ignored() -> None:
+    assert _git_ignores(DEFAULT_OUT)
+
+
+def test_the_default_stack_env_file_never_enters_a_docker_build_context() -> None:
+    lines = _read(".dockerignore").splitlines()
+    patterns = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+    assert any(fnmatch.fnmatch(DEFAULT_OUT, pattern) for pattern in patterns)
+
+
+@pytest.mark.parametrize("service", APP_SERVICES)
+def test_the_model_services_carry_every_setting_the_stack_env_renders(service: str) -> None:
+    environment = _compose()["services"][service]["environment"]
+    for name in render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV):
+        assert name in environment, f"{service} does not forward {name}: the setting is cosmetic"
+        forwarded = environment[name]
+        assert forwarded is None or str(forwarded).startswith("${" + name), (service, name)
+
+
+def test_only_the_services_that_call_a_model_reach_the_host_by_name() -> None:
+    services = _compose()["services"]
+    holders = sorted(name for name, service in services.items() if "extra_hosts" in service)
+    assert holders == sorted(APP_SERVICES)
+    for name in holders:
+        assert services[name]["extra_hosts"] == ["host.docker.internal:host-gateway"]
+
+
+def test_the_command_names_application_services_only() -> None:
+    services = _compose()["services"]
+    assert set(APP_SERVICES) <= set(services)
+    assert not set(APP_SERVICES) & {
+        "postgres",
+        "rabbitmq",
+        "minio",
+        "prometheus",
+        "grafana",
+        "init",
+    }
+
+
+def test_settings_the_image_or_the_settings_default_own_are_forwarded_only_when_set() -> None:
+    # A blank forward would override the image's RETRIEVAL__RERANK_MODEL_DIR (a compose
+    # `environment` entry beats the image ENV) and would name an empty summarizer model. A
+    # value-less key is dropped by Compose when nothing resolves it (Compose spec, `environment`).
+    environment = _compose()["x-app-env"]
+    for name in ("RETRIEVAL__RERANK_MODEL_DIR", "SUMMARIZATION__SUMMARIZER_MODEL"):
+        assert name in environment and environment[name] is None, name
+
+
+def test_env_example_never_sets_an_optional_setting_to_blank() -> None:
+    # Compose resolves a value-less key from .env, so `NAME=` there would be forwarded blank.
+    values = dotenv_values(REPO_ROOT / ".env.example")
+    optional = [name for name, forwarded in _compose()["x-app-env"].items() if forwarded is None]
+    assert optional, "expected value-less (optional) settings in x-app-env"
+    for name in optional:
+        assert values.get(name) != "", name
+
+
+def test_the_retrieval_budget_is_3000_ms_in_compose_env_example_and_the_reference() -> None:
+    name = "RETRIEVAL__RETRIEVAL_TIMEOUT_MS"
+    assert _compose()["x-app-env"][name] == "${" + name + ":-3000}"
+    assert dotenv_values(REPO_ROOT / ".env.example")[name] == "3000"
+    assert _default_cell(name) == "`3000`"
+
+
+def _default_cell(name: str) -> str:
+    row = re.search(rf"^\| `{name}` \| [^|]+ \| ([^|]+) \|", _read("docs/configuration.md"), re.M)
+    assert row, f"{name} has no row in docs/configuration.md"
+    return row.group(1).strip()
+
+
+def test_the_configuration_reference_states_the_v2_defaults() -> None:
+    assert _default_cell("OBJECT_STORAGE__BUCKET_HTML") == "`html`"
+    assert _default_cell("RETRIEVAL__RERANK_MODEL") == "`cross-encoder/ms-marco-MiniLM-L-6-v2`"
+    assert _default_cell("RETRIEVAL__RERANK_TIMEOUT_MS") == "`1000`"
+    assert _default_cell("RETRIEVAL__RERANK_ENABLED") == "`true`"
+    # Honoured now: unset means the FAST tier model, so a copied .env.example must not name one.
+    assert _default_cell("SUMMARIZATION__SUMMARIZER_MODEL") == "unset"
+
+
+@pytest.mark.parametrize("key", V2_KEYS)
+def test_every_v2_key_is_in_env_example(key: str) -> None:
+    assert re.search(rf"^#?\s*{key}=", _read(".env.example"), re.M), key
+
+
+@pytest.mark.parametrize("key", V2_KEYS)
+def test_every_v2_key_is_in_the_configuration_reference(key: str) -> None:
+    assert f"`{key}`" in _read("docs/configuration.md"), key
+
+
+def test_the_gemini_embedding_example_matches_what_the_stack_env_renders() -> None:
+    example = dict(re.findall(r"^# (EMBEDDING__[A-Z_]+)=(\S+)$", _read(".env.example"), re.M))
+    rendered = render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV)
+    for name in ("EMBEDDING__MOCK", "EMBEDDING__MODEL_NAME", "EMBEDDING__BASE_URL"):
+        assert example[name] == rendered[name], name
+    # The key line is a <placeholder>, never a key.
+    assert re.search(r"^# EMBEDDING__API_KEY=<[^>]+>$", _read(".env.example"), re.M)
