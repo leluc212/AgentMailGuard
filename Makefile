@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test mailguard-report
 
 UV ?= uv
 
@@ -30,6 +30,7 @@ help:
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
 	@echo "  mailguard-bench RUN=... CONFIG=C0|C3|C0T|C1|C2 - Benchmark on the real rag-email path: C0 native rag-email, C3 all guard layers (required); C0T/C1/C2 optional. Owner-run, live Gemini (task 7.19; not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
+	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -173,3 +174,13 @@ mailguard-bench-test:
 	$(MAILGUARD_UV) python -m pytest \
 		tests/unit/test_mailguard_bench_guarded_reply.py \
 		tests/integration/test_mailguard_bench_guarded_run.py -v
+
+# AgentMailGuard benchmark (task 7.19): scoring and analyses make no model calls.
+# `python -m` from the repo root keeps rag-email's `evaluation`/`services` ahead of the
+# worktree's packages of the same name; --with-editable leaves pyproject.toml/uv.lock alone.
+MAILGUARD_RUN_DIR = evaluation/results/mailguard_bench/$(RUN)
+MAILGUARD_PY = $(MAILGUARD_UV) python
+
+mailguard-report:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
