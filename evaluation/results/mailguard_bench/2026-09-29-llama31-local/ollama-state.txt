@@ -1,0 +1,17 @@
+# recorded 2026-09-29T20:32:07+07:00 at the start of RUN 2026-09-29-llama31-local
+## ollama --version
+ollama version is 0.21.0
+Warning: client version is 0.18.2
+## ollama show llama3.1:8b --parameters (local override: num_ctx 16384; original digest 46e0c10c039e had no num_ctx)
+num_ctx                        16384
+stop                           "<|start_header_id|>"
+stop                           "<|end_header_id|>"
+stop                           "<|eot_id|>"
+## ollama list (llama3.1:8b)
+NAME                                                          ID              SIZE      MODIFIED           
+llama3.1:8b                                                   2b898909a7df    4.9 GB    About a minute ago    
+## ollama ps
+NAME           ID              SIZE      PROCESSOR    CONTEXT    UNTIL               
+llama3.1:8b    2b898909a7df    7.9 GB    100% GPU     16384      29 minutes from now    
+## ollama service environment
+Environment=PATH=/home/laz/.bun/bin:/home/laz/.local/bin:/home/laz/.opencode/bin:/home/laz/.nvm/versions/node/v24.13.0/bin:/home/laz/.local/bin:/home/laz/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_VRAM=12288 OLLAMA_CONTEXT_LENGTH=32768
