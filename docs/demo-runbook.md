@@ -430,12 +430,14 @@ git commit -m "docs(eval): AgentMailGuard benchmark results, run 2026-09-29-a [t
 Every run is live: real endpoints, real calls. One `RUN` folder per model; in each run the same model writes rag-email's reply and serves as the guard's L1/L2 judge.
 
 ```
-desktop, three runs in parallel
-  RUN=2026-09-29-gpt4omini  MODEL=gpt-4o-mini   ─▶ api.openai.com         key BENCH_OPENAI_API_KEY
-  RUN=2026-09-29-llama31    MODEL=llama-3.1-8b  ─▶ openrouter.ai          key BENCH_OPENROUTER_API_KEY
-  RUN=2026-09-29-qwen25     MODEL=qwen2.5-7b    ─▶ Ollama on this desktop (no key)
-  each: C0 → C3 → C0T → C1 → C2, then make mailguard-analyses
+desktop
+  RUN=2026-09-29-gpt4omini      MODEL=gpt-4o-mini         ─▶ api.openai.com           key BENCH_OPENAI_API_KEY   ┐ in parallel
+  RUN=2026-09-29-qwen25         MODEL=qwen2.5-7b          ─▶ Ollama on this desktop   (no key)                   ┘
+  RUN=2026-09-29-llama31-local  MODEL=llama-3.1-8b-local  ─▶ Ollama on this desktop   (no key)   after Qwen: one GPU
+  each: C0 → C3 → C0T → C1 → C2, a retry pass, then make mailguard-analyses
 ```
+
+**Owner decision update (2026-09-29, evening): Llama-3.1-8B runs only on the desktop's Ollama.** It was first run through OpenRouter, but the account behind the key had never bought credit: from 17:08 every call returned HTTP 402 ("Insufficient credits") and that run stopped partway. It is not a result: its partial folder, its preflight folder and its log were deleted, and its leftover throwaway organizations purged. The OpenRouter profile was then removed and its key deleted from `.env`. `MODEL=llama-3.1-8b-local` serves `llama3.1:8b`, the 4-bit Q4_K_M build (the same kind of build as Qwen's), so its numbers are for that local build. Every Llama step that touches the GPU (the `ollama run` check, the probe, the preflight and the run) waits until the Qwen `RUN` has finished, retry pass and report included: one 12 GB GPU cannot hold both models at a 32k context, and loading Llama mid-run would evict Qwen and add reload time to some of its emails.
 
 **1. Get the project onto the desktop.** On Windows, do everything below inside **WSL 2 (Ubuntu)** with Docker Desktop's WSL integration on; the Makefile needs bash. On Linux, run it directly.
 
@@ -451,41 +453,62 @@ make mailguard-cases           # must print the same sha256=c00dddca… as the l
 make mailguard-smoke
 ```
 
-**2. Ollama and Qwen (local model).** A GPU with 8 GB of VRAM is enough for the 4-bit `qwen2.5:7b-instruct`.
+**2. Ollama, Qwen and Llama (local models).** Use a GPU with 12 GB of VRAM: at the 32k context below Ollama plans about 7.6 GiB for the 4-bit `qwen2.5:7b-instruct`, and Llama-3.1-8B's cache is larger. Run the two local models one after the other.
 
 - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
 - Windows: install the Ollama app from https://ollama.com/download. From WSL, reach it at the Windows host: set `BENCH_OLLAMA_BASE_URL=http://<windows-host-ip>:11434/v1` in `.env` (`ip route | awk '/default/ {print $3}'` prints the host IP), and set the Windows environment variable `OLLAMA_HOST=0.0.0.0` before starting Ollama.
 
+Set two Ollama server settings before any run. With `OLLAMA_KEEP_ALIVE=0` Ollama unloads the model after every call, so each call pays about 1.5 s to reload it and the latency numbers include that; and Ollama's default context here is 4096 tokens, while Qwen2.5 and Llama-3.1 accept 32768. On Linux (systemd service):
+
+```bash
+sudo sed -i 's/OLLAMA_KEEP_ALIVE=0/OLLAMA_KEEP_ALIVE=30m/' /etc/systemd/system/ollama.service.d/override.conf
+echo 'Environment="OLLAMA_CONTEXT_LENGTH=32768"' | sudo tee -a /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+ollama ps                                           # after the model's first call: CONTEXT 32768, 100% GPU
+```
+
+(Without an override file, `sudo systemctl edit ollama` creates one; add both `Environment=` lines under `[Service]`. On Windows, set `OLLAMA_KEEP_ALIVE=30m` and `OLLAMA_CONTEXT_LENGTH=32768` as Windows environment variables, next to `OLLAMA_HOST`, and restart the Ollama app.)
+
+Record the server state in every local `RUN` folder, because the run's meta records the endpoint and model name but not these:
+
+```bash
+R=evaluation/results/mailguard_bench/<RUN>
+{ ollama --version; ollama show <model>; ollama ps; systemctl show ollama -p Environment; } > $R/ollama-state.txt
+```
+
+After the model's probe, `ollama ps` must show `100% GPU`; if it shows a CPU share, write that into the results, since that run's latency is then not comparable.
+
 ```bash
 ollama pull qwen2.5:7b-instruct
 ollama run qwen2.5:7b-instruct "Reply with OK"      # the model loads and answers
+ollama pull llama3.1:8b
+ollama run llama3.1:8b "Reply with OK"
 ```
 
 **3. Keys in `.env`** (never committed):
 
 ```bash
 BENCH_OPENAI_API_KEY=<your OpenAI key>              # GPT-4o-mini
-BENCH_OPENROUTER_API_KEY=<your OpenRouter key>      # Llama-3.1-8B
-# BENCH_OLLAMA_BASE_URL=http://<host>:11434/v1      # only when Ollama is not on localhost
+# BENCH_OLLAMA_BASE_URL=http://<host>:11434/v1      # only when Ollama is not on localhost (Qwen and Llama)
 ```
 
 **4. Probe each model once** (one live guard-judge call each; all three must print `ok live probe`):
 
 ```bash
 make mailguard-probe MODEL=gpt-4o-mini
-make mailguard-probe MODEL=llama-3.1-8b
 make mailguard-probe MODEL=qwen2.5-7b
+make mailguard-probe MODEL=llama-3.1-8b-local
 ```
 
 Then one email per config for each model, so a format problem shows before the full runs (Ollama's handling of the strict JSON-schema reply format is the one to watch):
 
 ```bash
-for m in gpt-4o-mini llama-3.1-8b qwen2.5-7b; do
+for m in gpt-4o-mini qwen2.5-7b llama-3.1-8b-local; do
   for c in C0 C0T C3; do make mailguard-bench RUN=preflight-$m CONFIG=$c MODEL=$m LIMIT=1; done
 done
 ```
 
-**5. The three runs, in parallel** (three terminals, or `&` as below). Local Qwen uses one worker, because one GPU answers one request at a time; the API models use two.
+**5. The three runs** (terminals, or `&` as below). GPT-4o-mini and Qwen run in parallel; Llama runs after Qwen, because one GPU answers one request at a time and holds one of the two local models at a 32k context. The local models use one worker, the API model two.
 
 ```bash
 run_model() {  # $1 profile  $2 RUN  $3 workers
@@ -494,14 +517,16 @@ run_model() {  # $1 profile  $2 RUN  $3 workers
   make mailguard-analyses RUN=$2
 }
 run_model gpt-4o-mini  2026-09-29-gpt4omini 2 > gpt.log   2>&1 &
-run_model llama-3.1-8b 2026-09-29-llama31   2 > llama.log 2>&1 &
 run_model qwen2.5-7b   2026-09-29-qwen25    1 > qwen.log  2>&1 &
 wait
+run_model llama-3.1-8b-local 2026-09-29-llama31-local 1 > llama-local.log 2>&1
 ```
 
 A stopped run resumes where it left off when you rerun the same command (§9.5). Every command of one `RUN` must use the same `MODEL`; the runner refuses a mix.
 
-**6. Results.** Each `RUN` gets its own `report.md`; keep them as in §9.7. The results page and slides compare the three runs side by side (plus the laptop's Gemma test run, `RUN=2026-09-29-a`).
+Do not commit to rag-email while any run is in progress: every config records the rag-email commit, and the report refuses a `RUN` whose configs ran on different commits.
+
+**6. Results.** Each `RUN` gets its own `report.md`; keep them as in §9.7. The results page and slides compare the three runs side by side (plus the laptop's Gemma test run, `RUN=2026-09-29-a`); with the owner decision update, the Llama column is `RUN=2026-09-29-llama31-local`.
 
 ---
 

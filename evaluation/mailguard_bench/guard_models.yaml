@@ -13,19 +13,21 @@ models:
     json_mode: json_object
     timeout_s: 60
   # Owner decision 2026-09-29: the benchmark's three models. Endpoints and keys come from the
-  # process env set by model_profiles.profile_env (OpenAI, OpenRouter, the desktop's Ollama).
+  # process env set by model_profiles.profile_env (OpenAI, the desktop's Ollama).
   gpt-4o-mini:
     backend: openai
     model: gpt-4o-mini
     json_mode: json_object
     timeout_s: 60
-  meta-llama/llama-3.1-8b-instruct:
-    backend: openai
-    model: meta-llama/llama-3.1-8b-instruct
-    json_mode: json_object
-    timeout_s: 60
   qwen2.5:7b-instruct:
     backend: openai
     model: qwen2.5:7b-instruct
+    json_mode: json_object
+    timeout_s: 120
+  # Owner decision 2026-09-29 (evening): Llama-3.1-8B runs on the desktop's Ollama (the
+  # OpenRouter entry was removed). Local like Qwen, so the same timeout.
+  llama3.1:8b:
+    backend: openai
+    model: llama3.1:8b
     json_mode: json_object
     timeout_s: 120

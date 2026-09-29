@@ -112,9 +112,10 @@ def test_fake_or_unpinned_models_are_refused() -> None:
     assert settings_problems("C3", fake_guard) == [
         "C3: guard model 'fake' is not the generation model 'gemma-4-26b-a4b-it'"
     ]
-    # Owner decision 2026-09-29: GPT-4o-mini, Llama-3.1-8B and Qwen2.5-7B are live benchmark
-    # models too; one model writes the reply and judges for the guard in a run.
-    for model in ("gpt-4o-mini", "meta-llama/llama-3.1-8b-instruct", "qwen2.5:7b-instruct"):
+    # Owner decision 2026-09-29: GPT-4o-mini, Llama-3.1-8B and Qwen2.5-7B (both on the desktop's
+    # Ollama) are live benchmark models too; one model writes the reply and judges for the guard
+    # in a run.
+    for model in ("gpt-4o-mini", "llama3.1:8b", "qwen2.5:7b-instruct"):
         meta = {**C3_META, "generation_model": model, "guard_models": model}
         assert settings_problems("C3", meta) == []
     mixed = {**C3_META, "generation_model": "gpt-4o-mini", "guard_models": "qwen2.5:7b-instruct"}

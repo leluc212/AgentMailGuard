@@ -4,10 +4,13 @@ One benchmark RUN uses one model, live, in both roles: rag-email's generation ca
 guard's L1/L2 judges. Every profile is an OpenAI-compatible endpoint, so rag-email's `openai`
 provider and the guard's `openai` backend reach it by base URL alone:
 
-    gpt-4o-mini   OpenAI                        key from BENCH_OPENAI_API_KEY
-    llama-3.1-8b  OpenRouter                    key from BENCH_OPENROUTER_API_KEY
-    qwen2.5-7b    Ollama on the owner's desktop no key (BENCH_OLLAMA_BASE_URL moves the host)
-    gemma-4-26b   Gemini API (the first test run) key from LLM__OPENAI_API_KEY
+    gpt-4o-mini         OpenAI                        key from BENCH_OPENAI_API_KEY
+    llama-3.1-8b-local  Ollama on the owner's desktop no key (4-bit build, like Qwen's)
+    qwen2.5-7b          Ollama on the owner's desktop no key (BENCH_OLLAMA_BASE_URL moves the host)
+    gemma-4-26b         Gemini API (the first test run) key from LLM__OPENAI_API_KEY
+
+Llama-3.1-8B runs only on the desktop's Ollama (owner decision 2026-09-29, evening): the
+OpenRouter profile was removed after its account had no credit.
 
 `profile_env` returns the rag-email settings for the process; keys are read from the
 environment or `.env` (the environment wins) and never written to a file.
@@ -61,12 +64,14 @@ PROFILES: dict[str, ModelProfile] = {
             output_per_m=0.60,
         ),
         ModelProfile(
-            name="llama-3.1-8b",
-            model="meta-llama/llama-3.1-8b-instruct",
-            base_url="https://openrouter.ai/api/v1",
-            api_key_env="BENCH_OPENROUTER_API_KEY",
-            input_per_m=0.05,
-            output_per_m=0.08,
+            name="llama-3.1-8b-local",
+            model="llama3.1:8b",
+            base_url="http://localhost:11434/v1",
+            api_key_env=None,
+            input_per_m=0.0,
+            output_per_m=0.0,
+            base_url_env="BENCH_OLLAMA_BASE_URL",
+            fixed_api_key="ollama",
         ),
         ModelProfile(
             name="qwen2.5-7b",
