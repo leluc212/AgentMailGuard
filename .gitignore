@@ -84,3 +84,6 @@ Thumbs.db
 # Local agent (Antigravity) workspace
 .agent/
 .agents
+
+# AgentMailGuard benchmark case bodies (attack text); manifest.json next to it is committed (task 7.19)
+evaluation/datasets/mailguard/cases.jsonl

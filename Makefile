@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-smoke mailguard-probe mailguard-test mailguard-cases
 
 UV ?= uv
 
@@ -27,6 +27,7 @@ help:
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
 	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
 	@echo "  mailguard-test - Guard-side unit tests under the AgentMailGuard overlay (fake models, no network)"
+	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -151,3 +152,6 @@ mailguard-probe:
 
 mailguard-test:
 	$(MAILGUARD_UV) python -m pytest tests/unit/test_mailguard_bench_guard.py -v
+
+mailguard-cases:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.build_cases

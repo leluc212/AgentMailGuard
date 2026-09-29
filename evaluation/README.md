@@ -29,9 +29,13 @@ evaluation/
 │   ├── classification/
 │   │   ├── train.jsonl                         # 252 labelled training emails (80%)
 │   │   └── test.jsonl                          # 64 labelled held-out test emails (20%)
+│   ├── mailguard/                              # AgentMailGuard benchmark cases (task 7.19)
+│   │   ├── manifest.json                       # committed: case ids per set, strata, seed, sha256
+│   │   └── cases.jsonl                         # git-ignored: rebuilt by `make mailguard-cases`
 │   └── retrieval/
 │       └── queries.jsonl                       # 109 search queries with gold chunk IDs
 ├── experiments/                                # Experiment runners (R22)
+├── mailguard_bench/                            # AgentMailGuard C0/C3 benchmark (task 7.19, ADR-0010)
 └── results/                                    # Versioned run manifests and metrics
 ```
 
@@ -124,3 +128,24 @@ print(f"Loaded {len(test_set)} test examples")
 queries = load_retrieval_dataset()
 print(f"Loaded {len(queries)} retrieval benchmark queries")
 ```
+
+---
+
+## AgentMailGuard benchmark cases (task 7.19, ADR-0010)
+
+AgentMailGuard runs from a pinned, detached git worktree outside this repo, overlaid per command
+with `uv run --with-editable` (see the `mailguard-*` Make targets). Nothing is installed in `.venv`
+and nothing runs in `make ci`.
+
+```bash
+make mailguard-worktree   # ../AgentMailGuard-bench at MAILGUARD_COMMIT
+make mailguard-prep       # one-time: guard datasets + L1 classifier (network, no API key)
+make mailguard-smoke      # offline wiring check
+make mailguard-cases      # build, or verify against manifest.json, the pinned case set
+```
+
+`manifest.json` pins 300 LLMail-Inject attacks (bench half of the guard's sha1 split, stratified by
+scenario), 150 of the 203 LLMail-Inject benign emails, 100 RAG-vector attacks (seed_rag +
+PoisonedRAG, stratified by source/dataset) and a 100-attack ablation subset of the 300, all with seed
+20260930. Load cases only through `evaluation.mailguard_bench.cases.load_case_set()`,
+which checks the file hash against the manifest.
