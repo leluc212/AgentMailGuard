@@ -7,8 +7,13 @@ profile is turned into process settings; they make no call.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+from collections.abc import Iterator
 from pathlib import Path
+from typing import NoReturn
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -108,3 +113,83 @@ def test_runner_and_probe_resolve_a_profile_the_same_way() -> None:
     assert model == "meta-llama/llama-3.1-8b-instruct"
     assert updates["LLM__OPENAI_BASE_URL"] == "https://openrouter.ai/api/v1"
     assert resolve_profile(None, {}, "gemma-4-26b-a4b-it") == ({}, "gemma-4-26b-a4b-it")
+
+
+# The owner keeps the keys in .env (demo-runbook §9.8 step 3) and `uv run` does not load it,
+# so the runner and the probe must read it themselves, the way AppSettings reads .env.
+PROFILE_SETTINGS = (
+    "LLM__PROVIDER",
+    "LLM__OPENAI_BASE_URL",
+    "LLM__OPENAI_API_KEY",
+    "LLM__FAST_MODEL",
+    "LLM__STRONG_MODEL",
+    "LLM__FALLBACK_MODEL",
+    "LLM__PRICE_TABLE",
+)
+
+
+class _StopAfterProfileError(Exception):
+    """Raised by a stand-in for the first step after the profile is applied."""
+
+
+def _stop_after_profile(*_args: object, **_kwargs: object) -> NoReturn:
+    raise _StopAfterProfileError
+
+
+@pytest.fixture
+def repo_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """The working directory of a run, with no OpenAI key in the process environment."""
+    monkeypatch.chdir(tmp_path)
+    with patch.dict(os.environ):  # the run writes its settings into os.environ; all undone
+        os.environ.pop("BENCH_OPENAI_API_KEY", None)
+        for name in PROFILE_SETTINGS:
+            os.environ.pop(name, None)
+        yield tmp_path
+
+
+def _run_runner_until_profile_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    from evaluation.mailguard_bench import runner
+
+    monkeypatch.setattr(runner, "guard_paths_from_env", _stop_after_profile)
+    args = runner.parse_args(["--config", "C3", "--run", "r", "--model-profile", "gpt-4o-mini"])
+    with pytest.raises(_StopAfterProfileError):
+        asyncio.run(runner.run(args))
+
+
+def test_the_runner_reads_a_key_kept_only_in_dot_env(
+    repo_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (repo_dir / ".env").write_text("BENCH_OPENAI_API_KEY=sk-from-dot-env\n", encoding="utf-8")
+    _run_runner_until_profile_applied(monkeypatch)
+    assert os.environ["LLM__OPENAI_API_KEY"] == "sk-from-dot-env"
+    assert os.environ["LLM__FAST_MODEL"] == "gpt-4o-mini"
+
+
+def test_the_probe_reads_a_key_kept_only_in_dot_env(
+    repo_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("mailguard")
+    from evaluation.mailguard_bench import guard_smoke
+
+    (repo_dir / ".env").write_text("BENCH_OPENAI_API_KEY=sk-from-dot-env\n", encoding="utf-8")
+    monkeypatch.setattr(guard_smoke, "guard_paths_from_env", _stop_after_profile)
+    with pytest.raises(_StopAfterProfileError):
+        guard_smoke.run(["--live-probe", "--model-profile", "gpt-4o-mini"])
+    assert os.environ["LLM__OPENAI_API_KEY"] == "sk-from-dot-env"
+
+
+def test_a_key_set_in_the_environment_wins_over_dot_env(
+    repo_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (repo_dir / ".env").write_text("BENCH_OPENAI_API_KEY=sk-from-dot-env\n", encoding="utf-8")
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-from-environment"
+    _run_runner_until_profile_applied(monkeypatch)
+    assert os.environ["LLM__OPENAI_API_KEY"] == "sk-from-environment"
+
+
+def test_without_dot_env_a_missing_key_still_names_the_variable(repo_dir: Path) -> None:
+    from evaluation.mailguard_bench import runner
+
+    args = runner.parse_args(["--config", "C3", "--run", "r", "--model-profile", "gpt-4o-mini"])
+    with pytest.raises(ModelProfileError, match="BENCH_OPENAI_API_KEY"):
+        asyncio.run(runner.run(args))

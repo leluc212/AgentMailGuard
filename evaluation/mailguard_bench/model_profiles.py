@@ -10,7 +10,7 @@ provider and the guard's `openai` backend reach it by base URL alone:
     gemma-4-26b   Gemini API (the first test run) key from LLM__OPENAI_API_KEY
 
 `profile_env` returns the rag-email settings for the process; keys are read from the
-environment and never written to a file.
+environment or `.env` (the environment wins) and never written to a file.
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import dotenv_values
 
 
 class ModelProfileError(ValueError):
@@ -120,6 +123,16 @@ def profile_env(profile: ModelProfile, environ: Mapping[str, str]) -> dict[str, 
         "LLM__FALLBACK_MODEL": profile.model,
         "LLM__PRICE_TABLE": json.dumps(price_table),
     }
+
+
+def with_dot_env(environ: Mapping[str, str], env_file: str | Path = ".env") -> dict[str, str]:
+    """The process environment over the `.env` file, the precedence AppSettings uses.
+
+    `uv run` does not load `.env`, so a key kept there (demo-runbook §9.8) reaches a profile
+    only through this merge; a variable set in the environment still wins.
+    """
+    from_file = dotenv_values(env_file, encoding="utf-8")
+    return {**{k: v for k, v in from_file.items() if v is not None}, **environ}
 
 
 def resolve_profile(

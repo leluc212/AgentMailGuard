@@ -68,7 +68,7 @@ from evaluation.mailguard_bench.guard_env import (
     sha256_file,
 )
 from evaluation.mailguard_bench.guarded_reply import CaseExecution, GuardedCaseExecutor
-from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile
+from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
@@ -487,7 +487,7 @@ def apply_model_profile(args: argparse.Namespace, environ: Mapping[str, str]) ->
 
 
 async def run(args: argparse.Namespace) -> int:
-    os.environ.update(apply_model_profile(args, os.environ))  # before AppSettings reads the env
+    os.environ.update(apply_model_profile(args, with_dot_env(os.environ)))  # before AppSettings
     paths = guard_paths_from_env(os.environ)
     require_pinned_worktree(paths.root, paths.commit)
     require_module_origins(REPO_ROOT, paths.root)
