@@ -677,3 +677,27 @@ def test_a_job_state_is_read_whatever_its_case() -> None:
 
     assert lower.ok and lower.pipeline is not None and lower.pipeline.job_state == "DRAFTED"
     assert not failed.ok  # a lower-case FAILED is still a job that did not finish
+
+
+@pytest.mark.parametrize(
+    ("row_kwargs", "want"),
+    [
+        ({"outcome": "early_exit"}, True),
+        ({"outcome": "template"}, True),
+        ({"outcome": "early_exit", "job_state": "QUEUED"}, True),  # a job no consumer claimed
+        ({"outcome": "drafted"}, False),
+        ({"outcome": "blocked_inbound"}, False),  # the guard-worker took it, and blocked it
+    ],
+)
+def test_a_live_row_the_drafting_step_never_took_is_stopped_before_drafting(
+    row_kwargs: dict[str, Any], want: bool
+) -> None:
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    record = RawRecord.from_dict(live_row("attack-llmail-a", **row_kwargs))
+
+    assert record.stopped_before_drafting is want
+
+
+def test_a_v1_row_has_no_step_to_be_stopped_before() -> None:
+    assert RawRecord.from_dict(raw()).stopped_before_drafting is False

@@ -292,6 +292,16 @@ class RawRecord:
         """True when the inbound or the outbound decision was BLOCK or QUARANTINE."""
         return self.blocked_inbound or self.blocked_outbound
 
+    @property
+    def stopped_before_drafting(self) -> bool:
+        """True for a live row whose email the drafting step never took.
+
+        Triage stopped it (early exit, template draft) or its job was left QUEUED, so neither the
+        model nor the guard saw it and nothing they did can explain its outcome. A v1 row has no
+        such step: it is always ``False``.
+        """
+        return self.pipeline is not None and not self.pipeline.reached_drafting
+
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> RawRecord:
         """Parse one JSONL line of ``raw/<config>.jsonl`` (runner rows are flattened first)."""

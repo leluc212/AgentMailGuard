@@ -6,8 +6,12 @@ AgentMailGuard code) and failed under C3, the first
 one blocked at the inbound gate and the next one credited to a different layer; failures
 are up to two attacks that succeeded under C3. No API calls.
 
+A live attack (task 7.20) that triage stopped before the drafting step is never a defended
+example: the guard did not see it, and the C0 run only reached the drafting step because triage
+decided differently there.
+
 (docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md §4b "Worked examples";
-specs/tasks.md 7.19)
+specs/tasks.md 7.19, 7.20)
 """
 
 from __future__ import annotations
@@ -17,9 +21,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from evaluation.mailguard_bench.leakage import case_text
-from evaluation.mailguard_bench.scoring import RawRecord
+from evaluation.mailguard_bench.scoring import RawRecord, triage_bucket
 
 EXCERPT_CHARS = 700
+# What C3 did with a live email that never reached the drafting step (scoring.triage_bucket).
+TRIAGE_RESULTS = {
+    "early_exit": "no draft: triage stopped the email, so it never reached the guard",
+    "template": "template draft written by triage, so the email never reached the guard",
+    "stuck_unconsumed": (
+        "no draft: the job was left QUEUED with no drafting consumer, so the email never "
+        "reached the guard"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +63,9 @@ def _draft(record: RawRecord | None) -> str | None:
 
 
 def _c3_result(record: RawRecord) -> str:
+    bucket = triage_bucket(record) if record.stopped_before_drafting else None
+    if bucket is not None:
+        return TRIAGE_RESULTS[bucket]
     if record.blocked_inbound:
         return "blocked before generation (inbound decision)"
     if record.blocked_outbound:
@@ -85,7 +101,13 @@ def pick_examples(
         for i in llmail_ids
         if i in c3 and c3[i].get("kind") == "attack" and i in c3_records and i in cases
     )
-    defended = [i for i in ids if not c3[i]["goal_achieved"] and c0.get(i, {}).get("goal_achieved")]
+    defended = [
+        i
+        for i in ids
+        if not c3[i]["goal_achieved"]
+        and c0.get(i, {}).get("goal_achieved")
+        and not c3_records[i].stopped_before_drafting  # triage's stop is not the guard's defence
+    ]
     chosen: list[str] = []
     inbound = [i for i in defended if c3_records[i].blocked_inbound]
     if inbound:

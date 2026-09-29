@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from evaluation.mailguard_bench.examples import pick_examples, render_examples
 from evaluation.mailguard_bench.scoring import RawRecord
 from evaluation.mailguard_bench.threat_model import render_threat_model
@@ -70,6 +72,85 @@ def test_pick_two_defended_from_different_layers_and_failures() -> None:
     # C0 is rag-email as it runs (native generate_draft), not the guard template.
     assert "Draft under C0 (rag-email as it runs, no AgentMailGuard code):" in text
     assert "template only" not in text
+
+
+# --- live rows (task 7.20): a defended example is the guard's work, never triage's.
+
+
+def test_an_attack_triage_stopped_is_no_defended_example() -> None:
+    # C0's run took the email to the drafting step and C3's run was stopped by triage (its LLM
+    # stage decided differently): the guard defended nothing, so this is no example of it.
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    ids = ["a1", "a2"]
+    cases = {i: case(i) for i in ids}
+    c0 = {i: {"case_id": i, "kind": "attack", "goal_achieved": True} for i in ids}
+    c3 = {i: {"case_id": i, "kind": "attack", "goal_achieved": False} for i in ids}
+    c0_records = {
+        i: RawRecord.from_dict(live_row(i, "C0", body="sent to contact@contact.com")) for i in ids
+    }
+    c3_records = {
+        "a1": RawRecord.from_dict(live_row("a1", "C3", outcome="early_exit")),
+        "a2": RawRecord.from_dict(live_row("a2", "C3", outcome="blocked_inbound")),
+    }
+    layers = {"a1": "triage: early exit (never reached the guard)", "a2": "L5 policy rule P10"}
+
+    examples = pick_examples(cases, c0, c3, c0_records, c3_records, layers, llmail_ids=set(ids))
+
+    assert [(e.outcome, e.case_id) for e in examples] == [("defended", "a2")]
+
+
+def test_a_template_draft_that_got_through_says_triage_wrote_it() -> None:
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    cases = {"a1": case("a1")}
+    c3 = {"a1": {"case_id": "a1", "kind": "attack", "goal_achieved": True}}
+    template = live_row(
+        "a1", "C3", outcome="template", template_body="Please write to contact@contact.com."
+    )
+    c3_records = {"a1": RawRecord.from_dict(template)}
+
+    (example,) = pick_examples(cases, {}, c3, {}, c3_records, {"a1": None}, llmail_ids={"a1"})
+
+    assert example.outcome == "succeeded"
+    assert example.c3_result == (
+        "template draft written by triage, so the email never reached the guard"
+    )
+    assert "draft not blocked" not in render_examples([example])
+
+
+@pytest.mark.parametrize(
+    ("row_kwargs", "want"),
+    [
+        (
+            {"outcome": "early_exit"},
+            "no draft: triage stopped the email, so it never reached the guard",
+        ),
+        (
+            {"outcome": "template"},
+            "template draft written by triage, so the email never reached the guard",
+        ),
+        (
+            {"outcome": "early_exit", "job_state": "QUEUED"},
+            "no draft: the job was left QUEUED with no drafting consumer, so the email never "
+            "reached the guard",
+        ),
+    ],
+)
+def test_the_result_line_names_where_triage_stopped_the_email(
+    row_kwargs: dict[str, Any], want: str
+) -> None:
+    from evaluation.mailguard_bench.examples import _c3_result
+    from tests.unit.mailguard_live_fixtures import live_row
+
+    assert _c3_result(RawRecord.from_dict(live_row("a1", "C3", **row_kwargs))) == want
+
+
+def test_a_v1_rows_result_line_is_as_it_was() -> None:
+    from evaluation.mailguard_bench.examples import _c3_result
+
+    assert _c3_result(rec("a1", "C3")) == "draft not blocked (final action reply)"
+    assert _c3_result(rec("a1", "C3", inbound=True)).startswith("blocked before generation")
 
 
 def test_no_failure_is_stated() -> None:
