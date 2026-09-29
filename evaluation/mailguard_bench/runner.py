@@ -101,9 +101,10 @@ def build_record(
     attempts: int,
     error: dict[str, str] | None = None,
     result: dict[str, Any] | None = None,
+    schema: str = RESULT_SCHEMA,
 ) -> dict[str, Any]:
     return {
-        "schema": RESULT_SCHEMA,
+        "schema": schema,
         "run_id": run_id,
         "config": config_name,
         "case_id": case.case_id,
@@ -129,6 +130,7 @@ async def _run_one(
     policy: BackoffPolicy,
     sleep: Sleep,
     secrets: Sequence[str | None],
+    schema: str,
 ) -> dict[str, Any]:
     attempt = 0
     while True:
@@ -150,6 +152,7 @@ async def _run_one(
                     "kind": "rate_limited" if limited else type(exc).__name__,
                     "message": redact(str(exc), secrets)[:2000],
                 },
+                schema=schema,
             )
         guard_errors = [str(e) for e in result.get("guard_errors") or []]
         if guard_errors:
@@ -164,6 +167,7 @@ async def _run_one(
                     "message": redact("; ".join(guard_errors), secrets)[:2000],
                 },
                 result=result,
+                schema=schema,
             )
         return build_record(
             case,
@@ -172,6 +176,7 @@ async def _run_one(
             status="ok",
             attempts=attempt,
             result=result,
+            schema=schema,
         )
 
 
@@ -188,12 +193,14 @@ async def run_cases(
     sleep: Sleep = asyncio.sleep,
     secrets: Sequence[str | None] = (),
     on_record: Callable[[dict[str, Any]], None] | None = None,
+    schema: str = RESULT_SCHEMA,
 ) -> RunSummary:
     """Run every case not yet recorded; append each row as soon as it exists.
 
     Args:
         retry_errors: Also re-run cases whose latest row is an ``error`` row.
         concurrency: 1 or 2 cases in flight (spec §5).
+        schema: The ``schema`` value of every row (the live runner writes v3 rows).
 
     Raises:
         ValueError: If concurrency is outside 1..2.
@@ -221,6 +228,7 @@ async def run_cases(
                 policy=backoff,
                 sleep=sleep,
                 secrets=secrets,
+                schema=schema,
             )
             store.append(record)
             if record["status"] == "ok":
@@ -342,7 +350,7 @@ def config_case_ids(manifest: Mapping[str, Any], config_name: str) -> list[str]:
     return ids
 
 
-def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
@@ -376,7 +384,7 @@ def snapshot_case_set(loaded: LoadedCaseSet, run_dir: Path) -> Path:
                 "so that C0 and C3 are paired on the same cases"
             )
     else:
-        _write_json(path, wanted)
+        write_json(path, wanted)
     body = "".join(canonical_line(loaded.cases[cid]) + "\n" for cid in sorted(loaded.cases))
     (run_dir / "cases.jsonl").write_text(body, encoding="utf-8")
     return path
@@ -416,14 +424,42 @@ class RunSettingsMismatchError(ValueError):
     """A resume would mix rows produced under different settings into one config."""
 
 
-def settings_fingerprint(meta: Mapping[str, Any]) -> dict[str, Any]:
+class SupportsFetchval(Protocol):
+    """The one asyncpg connection method the run lock needs."""
+
+    async def fetchval(self, query: str, *args: Any) -> Any: ...
+
+
+def run_lock_key(run_id: str, config_name: str) -> str:
+    """The advisory-lock name of one RUN/CONFIG, the same for the v1 and the live runner."""
+    return f"mailguard-bench {run_id}/{config_name}"
+
+
+async def try_acquire_run_lock(conn: SupportsFetchval, run_id: str, config_name: str) -> bool:
+    """Take the session lock of one RUN/CONFIG on ``conn``; False when another runner holds it.
+
+    The lock lives as long as ``conn`` does, so the caller keeps one connection for the run.
+    """
+    return bool(
+        await conn.fetchval(
+            "SELECT pg_try_advisory_lock(hashtext($1))", run_lock_key(run_id, config_name)
+        )
+    )
+
+
+def settings_fingerprint(
+    meta: Mapping[str, Any], keys: Sequence[str] = FINGERPRINT_KEYS
+) -> dict[str, Any]:
     """The settings of one invocation that every row of a config must share.
+
+    Args:
+        keys: The meta keys that make up the fingerprint (the live runner adds its own).
 
     Returned in its JSON form (tuples become lists), the form the meta file stores, so a
     resume compares like with like.
     """
     fingerprint: dict[str, Any] = json.loads(
-        json.dumps({key: meta.get(key) for key in FINGERPRINT_KEYS}, default=str)
+        json.dumps({key: meta.get(key) for key in keys}, default=str)
     )
     return fingerprint
 
@@ -581,14 +617,14 @@ async def run(args: argparse.Namespace) -> int:
     result_path(run_dir, args.config).parent.mkdir(parents=True, exist_ok=True)
     store = ResultStore(result_path(run_dir, args.config))
     pool = await create_pool_from_settings(settings.database)
-    lock_key = f"mailguard-bench {args.run}/{args.config}"
+    lock_key = run_lock_key(args.run, args.config)
     # One runner per RUN/CONFIG: a second terminal on the same config would share its orgs
     # and rows. The session lock lives on a connection held for the whole run (an idle pool
     # connection could be recycled, silently dropping it); asyncpg's release resets the
     # connection with pg_advisory_unlock_all(). Another config's runner holds another key.
     lock_conn = await pool.acquire()
     try:
-        if not await lock_conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", lock_key):
+        if not await try_acquire_run_lock(lock_conn, args.run, args.config):
             print(f"FAIL {lock_key} is already running in another process", file=sys.stderr)
             return 1
         purged = await purge_stale_eval_orgs(pool, scope=f"{args.run}/{args.config}")
@@ -619,7 +655,7 @@ async def run(args: argparse.Namespace) -> int:
         }
         invocations.append(invocation)
         meta["invocations"] = invocations  # history: every resume is kept, never overwritten
-        _write_json(meta_file, meta)
+        write_json(meta_file, meta)
 
         def progress(record: dict[str, Any]) -> None:
             print(f"{record['status']:5} {record['case_id']} (attempts={record['attempts']})")
@@ -644,7 +680,7 @@ async def run(args: argparse.Namespace) -> int:
             "error": summary.error,
             "torn_lines_skipped": store.skipped_lines,
         }
-        _write_json(meta_file, meta)
+        write_json(meta_file, meta)
     finally:
         await pool.release(lock_conn)
         await pool.close()

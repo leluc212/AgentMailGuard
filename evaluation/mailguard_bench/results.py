@@ -16,6 +16,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 RESULT_SCHEMA = "mailguard-bench-result.v1"
+RESULT_SCHEMA_V3 = "mailguard-bench-result.v3"
+"""Rows of the live services-v2 runner (live/run.py, task 7.20): the v1 fields plus
+``result.pipeline``. A separate value, so a v1 reader never scores a v3 row as a v1 one."""
 
 
 class ResultStore:

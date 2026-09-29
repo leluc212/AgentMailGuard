@@ -462,3 +462,72 @@ def test_native_guard_facts_record_the_same_environment_as_a_guarded_run(
 
     paths.l1_model.write_bytes(b"classifier")
     assert native_guard_facts(paths)["l1_model_sha256"] == sha256_file(paths.l1_model)
+
+
+def test_live_rows_have_their_own_schema_and_v1_keeps_its_own() -> None:
+    """Task 7.20: the services-v2 rows are ``.v3``; a v1 reader never mistakes one for v1."""
+    from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3
+
+    assert RESULT_SCHEMA_V3 == "mailguard-bench-result.v3"
+    assert RESULT_SCHEMA == "mailguard-bench-result.v1"
+
+
+async def test_run_cases_stamps_every_row_kind_with_the_schema_it_is_given(
+    tmp_path: Path,
+) -> None:
+    from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3
+
+    store = ResultStore(tmp_path / "r.jsonl")
+    await run_cases(
+        [_case("ok"), _case("boom"), _case("guard")],
+        Scripted(
+            {
+                "ok": [OK],
+                "boom": [LLMResponseError("LLM request failed with status 400")],
+                "guard": [{"guard_errors": ["l1: timed out"]}],
+            }
+        ),
+        store,
+        config_name="C0",
+        run_id="r",
+        schema=RESULT_SCHEMA_V3,
+    )
+    rows = _rows(store.path)
+    assert [r["status"] for r in rows] == ["ok", "error", "error"]
+    assert {r["schema"] for r in rows} == {RESULT_SCHEMA_V3}
+
+
+def test_build_record_defaults_to_the_v1_schema() -> None:
+    from evaluation.mailguard_bench.runner import build_record
+
+    row = build_record(_case("a"), config_name="C3", run_id="r", status="ok", attempts=1)
+    assert row["schema"] == RESULT_SCHEMA
+
+
+def test_the_fingerprint_takes_extra_keys_and_v1_keeps_its_own() -> None:
+    from evaluation.mailguard_bench.runner import FINGERPRINT_KEYS, settings_fingerprint
+
+    meta = {"preset": "C3", "transport": "services-v2"}
+    assert "transport" not in settings_fingerprint(meta)
+    wider = settings_fingerprint(meta, keys=(*FINGERPRINT_KEYS, "transport"))
+    assert wider["transport"] == "services-v2"
+    assert set(FINGERPRINT_KEYS) < set(wider)
+
+
+async def test_one_advisory_lock_key_names_a_run_and_config_for_both_runners() -> None:
+    from evaluation.mailguard_bench.runner import run_lock_key, try_acquire_run_lock
+
+    class Conn:
+        def __init__(self, granted: bool) -> None:
+            self.granted = granted
+            self.calls: list[tuple[str, str]] = []
+
+        async def fetchval(self, query: str, key: str) -> bool:
+            self.calls.append((query, key))
+            return self.granted
+
+    assert run_lock_key("2026-09-29-qwen-live", "C3") == "mailguard-bench 2026-09-29-qwen-live/C3"
+    free, held = Conn(True), Conn(False)
+    assert await try_acquire_run_lock(free, "r", "C0") is True
+    assert await try_acquire_run_lock(held, "r", "C0") is False
+    assert free.calls == [("SELECT pg_try_advisory_lock(hashtext($1))", "mailguard-bench r/C0")]
