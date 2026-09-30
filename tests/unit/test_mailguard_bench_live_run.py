@@ -1013,7 +1013,7 @@ def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
         guard = GuardDescription(C3_FACTS, dict(C3_FACTS["live_stages"]), [])
     parts: dict[str, Any] = {
         "args": args,
-        "settings": AppSettings(),
+        "settings": AppSettings(_env_file=None),  # not the machine's own `.env`
         "cases_sha256": "s" * 64,
         "guard": guard,
         "rag_email_commit": "a" * 40,
@@ -1046,10 +1046,16 @@ def test_the_fingerprint_records_whether_retrieval_filters_by_category() -> None
     # a resume or a later config under the other setting is refused like any other change.
     from packages.core.settings import AppSettings, RetrievalSettings
 
-    on = _meta("C3")
-    off = _meta(
-        "C3", settings=AppSettings(retrieval=RetrievalSettings(category_filter_enabled=False))
-    )
+    # Both values are explicit: the benchmark's own `.env` sets RETRIEVAL__CATEGORY_FILTER_ENABLED
+    # =false (docs/BENCHMARK.md), and a test that took the default from the environment would fail
+    # on the machines that follow the guide.
+    def settings(enabled: bool) -> AppSettings:
+        return AppSettings(
+            _env_file=None, retrieval=RetrievalSettings(category_filter_enabled=enabled)
+        )
+
+    on = _meta("C3", settings=settings(True))
+    off = _meta("C3", settings=settings(False))
 
     assert on["fingerprint"]["retrieval"]["category_filter"] is True
     assert off["fingerprint"]["retrieval"]["category_filter"] is False
