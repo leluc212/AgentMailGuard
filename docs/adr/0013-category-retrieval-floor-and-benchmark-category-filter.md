@@ -1,11 +1,13 @@
 # ADR-0013: A category retrieval floor in the triage gate, and a benchmark switch for the retrieval category filter
 
-- **Status:** Proposed (awaiting the owner)
+- **Status:** Accepted (owner, 2026-10-01 00:42; ADR-0012 decision 12)
 - **Date:** 2026-10-01
-- **Decided by:** not yet decided. Prepared on branch `wp-rag-routing` (worktree `v2-rag-routing`,
-  based on `a199848`) for the owner's decision on 2026-10-01. Nothing here is merged or pushed.
+- **Decided by:** the owner, 2026-10-01 00:42, in ADR-0012 decision 12: both changes (A and B) are
+  taken, with the two sub-decisions recorded under "Decisions" below. Built on branch `wp-rag-routing`
+  (worktree `v2-rag-routing`, based on `a199848`) and merged with `v2-integration` at `f3f0ca1`; the two
+  feature commits cite `[task 7.20]`, which the task list renumbered to 7.28.
 - **Relates to:** R6.5, R6.6, R6.9, R6.12, R6.13, R6.14, R10.4, R12.4; `specs/design.md` §5.3 (the three
-  gates), §5.4, §5.5; task 7.20; ADR-0011, ADR-0012
+  gates), §5.4, §5.5; task 7.28; ADR-0011, ADR-0012
 
 ## Context
 
@@ -40,11 +42,11 @@ stage 1/2/3 ──▶ classification ──▶ gate ─────────�
                                                                                  category ◀── (B) the switch
 ```
 
-## Decisions proposed
+## Decisions
 
 The two changes are separate commits on the branch. Either can be taken alone, but the benchmark needs
 both to exercise the RAG path: the floor makes the retrieval happen, and the switch lets it find the
-documents.
+documents. The owner took both.
 
 ### A. Category retrieval floor (commit "Category retrieval floor")
 
@@ -60,10 +62,14 @@ stage's own answer **or** the category's `default_retrieval_required` from the t
   no retrieval) and R6.13 (template, no retrieval, no generation) are untouched by construction.**
 - **What it records:** the gate's `QUEUED` event payload always carries `retrieval_required_from_category`
   (true when the floor raised the flag), and the routed classification's `raw` carries it when true. A
-  structured `retrieval_floor_applied` log line names the category and the deciding stage.
+  structured `retrieval_floor_applied` log line names the category and the deciding stage, and the counter
+  `retrieval_floor_applied_total{organization,category,decided_by}` counts the jobs the floor raised, after the
+  `QUEUED` transition has committed (`docs/observability.md`), so the share of `rag` jobs the floor made can be
+  read from `/metrics`. The benchmark's raw rows carry the same fact as `triage.retrieval_floor`.
 - **What it does not rewrite:** the classification row the cascade persists (R6.7) keeps the stage's own
-  answer. The benchmark's `triage.retrieval_required` therefore shows what the stage said, and its
-  `gate_outcome` (read from the `QUEUED` event) shows what ran.
+  answer. The benchmark's `triage.retrieval_required` therefore shows what the stage said, its
+  `gate_outcome` (read from the `QUEUED` event) shows what ran, and `triage.retrieval_floor` (the `QUEUED`
+  event's marker; null when the gate recorded none) says whether the floor made the difference.
 - **Switch:** `TRIAGE__CATEGORY_RETRIEVAL_FLOOR` (default `true`; `false` restores each stage's own
   answer). Compose forwards it to the triage worker when set. The category defaults are per category in
   `config/categories.yaml`, so an operator changes one without code (R6.9).
@@ -88,7 +94,14 @@ The benchmark's `stack_env` writes `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` fo
 and its host check requires the host `.env` to say the same, so C0 (the containers) and the guarded
 configs (the host guard-worker) always run with the same filter. The run fingerprint records it
 (`retrieval.category_filter`), in the runner's meta and in the guard-worker's, which the runner compares
-key by key.
+key by key. The guard-worker's L3b echo check builds its own query, and it gets a builder made from the
+same retrieval settings (`guard_worker.build_guarded_components`), so the benchmark has one configuration.
+
+`stack_env` also writes `TRIAGE__CATEGORY_RETRIEVAL_FLOOR=true` for every profile: Compose forwards the
+floor from `.env` and a leftover `false` there would silently take the RAG path out of the run. Compose
+reads `.env.stack` after `.env`, and a shell value that differs is refused. Only the triage worker
+container reads it, so there is no host check. Runbook §9.9 step 5 prints `catfilter=` and `floor=` for
+every service; only the ai-worker's `catfilter` and the triage-worker's `floor` change what the run does.
 
 ## Alternatives considered
 
@@ -121,22 +134,25 @@ key by key.
   retrieval, whose knowledge base holds nothing relevant, now escalates where it used to draft without
   looking.
 - **Rules.** No shipped rule in `config/triage_rules.yaml` sets `retrieval_required: false` on a message
-  that needs a reply, so the floor changes nothing for them. A rule author who does write it for a
+  that needs a reply (every such rule also has `reply_required: false`, so it exits before the floor; a unit
+  test holds this), so the floor changes nothing for them. A rule author who does write it for a
   category that retrieves by default is overruled; the category's default is the place to change that.
 - **Four existing tests** used a default-retrieving category for their "no retrieval" case (three unit
-  tests and one integration test, which could not be run without containers). They now use `scheduling`,
+  tests and one integration test, `tests/integration/test_funnel_metrics_integration.py`, which could not be
+  run without containers and is still unrun: run it with `make test-integration` when the stack is free). They now use `scheduling`,
   the replying category whose default is not to retrieve; their assertions are unchanged.
 - **Benchmark runs.** A run started before the switch has no `retrieval.category_filter` in its
   fingerprint, so a resume across the change is refused, as intended.
 - **Not changed:** prompts, guard code, thresholds, cases, and anything under `evaluation/results`.
 
-## Decisions needed from the owner
+## Decisions the owner took (2026-10-01 00:42, ADR-0012 decision 12)
 
-- Take **A**, **B**, both, or neither. If only one is taken, edit this file to say so (the other
-  decision's status becomes Rejected).
-- Whether an explicit `retrieval_required: false` in a **rule** may be overruled by the floor (proposed:
-  yes, one rule for every stage). The shipped rules are unaffected.
-- Whether a category the taxonomy does not know should keep the stage's answer (proposed) or retrieve.
+- **A and B, both.** Accepted. (If one is later withdrawn, edit this file: its status becomes Rejected.)
+- **An explicit `retrieval_required: false` in a rule may be overruled by the floor:** yes, one rule for every
+  stage. The shipped rules are unaffected, and a unit test holds that: no rule in `config/triage_rules.yaml`
+  has `reply_required: true` with `retrieval_required: false`, so a rule edit that would be overruled fails
+  the test instead of being overruled unnoticed.
+- **A category the taxonomy does not know keeps the stage's answer**, not retrieval.
 
 ## Rollout and rollback
 

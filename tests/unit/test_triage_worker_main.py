@@ -97,7 +97,7 @@ def test_build_wires_components_from_settings(repo_cwd: Path) -> None:
 def test_build_reads_the_category_retrieval_floor_from_settings(
     repo_cwd: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """TRIAGE__CATEGORY_RETRIEVAL_FLOOR reaches the worker's gate (ADR-0013, proposed)."""
+    """TRIAGE__CATEGORY_RETRIEVAL_FLOOR reaches the worker's gate (ADR-0013, accepted)."""
     assert _build(_settings()).gate.category_retrieval_floor is True  # the default
 
     monkeypatch.setenv("TRIAGE__CATEGORY_RETRIEVAL_FLOOR", "false")

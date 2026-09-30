@@ -326,7 +326,7 @@ rules:
 - `workflow_hint == 'template'` → a deterministic approved-template reply is rendered and the job goes to `DRAFTED` without retrieval or generation (R6.12, R6.13). This is the ~20%.
 - `retrieval_required == false` → context is thread + business data only; hybrid RAG is not called (R6.6). For a reply that reaches AI generation this flag is the stage's own answer **or** its category's default (next paragraph).
 
-**The category retrieval floor (ADR-0013, proposed).** A triage stage can answer `retrieval_required=false` for a question only the knowledge base can answer: in the live v2 smoke of 2026-09-30 the stage-3 model did so for 9 of 9 company-policy questions (warranty period, refund fee, password reset, shipping redirect, discount, policy), so hybrid retrieval and the reranker never ran. `config/categories.yaml` already declares `default_retrieval_required` per category (true for support, sales, billing, administration and general_inquiry; false for scheduling and the no-reply categories), and nothing applied it to a stage's result. The gate applies it where a required reply is finally routed to AI generation, for every stage (rule, ML, LLM and the R6.11 safe default):
+**The category retrieval floor (ADR-0013, accepted).** A triage stage can answer `retrieval_required=false` for a question only the knowledge base can answer: in the live v2 smoke of 2026-09-30 the stage-3 model did so for 9 of 9 company-policy questions (warranty period, refund fee, password reset, shipping redirect, discount, policy), so hybrid retrieval and the reranker never ran. `config/categories.yaml` already declares `default_retrieval_required` per category (true for support, sales, billing, administration and general_inquiry; false for scheduling and the no-reply categories), and nothing applied it to a stage's result. The gate applies it where a required reply is finally routed to AI generation, for every stage (rule, ML, LLM and the R6.11 safe default):
 
 ```
 routed.retrieval_required = stage.retrieval_required  OR  category.default_retrieval_required
@@ -408,7 +408,7 @@ class RetrievalQuery:
 
 Built from `current email + thread summary + classification intent` — no extra LLM call in the default path (R12.5). Persisted with the job for replay (R12.6).
 
-The category filter is derived from the classification (R12.4) and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` switches it off; the organization and status filters always stay (R10.4). Production keeps it on. Only the live benchmark turns it off, because its knowledge documents are filed under the case's own category while live triage picks the query's (ADR-0013, proposed).
+The category filter is derived from the classification (R12.4) and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` switches it off; the organization and status filters always stay (R10.4). Production keeps it on. Only the live benchmark turns it off, because its knowledge documents are filed under the case's own category while live triage picks the query's (ADR-0013, accepted).
 
 **Business data (R13) — code-side fetch plan (ADR-0008):** the decision to fetch is made in code, before the one generation call, from signals the pipeline already has. The model never calls a lookup tool: a tool call needs a second model request, which breaks the one-generation budget (§5.7). An intent-only trigger is not enough, because the ML triage stage always emits `intent=None`.
 

@@ -1,4 +1,4 @@
-"""The retrieval category filter switch (task 7.20; R10.4, R12.4; design.md section 5.4).
+"""The retrieval category filter switch (task 7.28; R10.4, R12.4; design.md section 5.4).
 
 RETRIEVAL__CATEGORY_FILTER_ENABLED (default true, so production is unchanged) sets
 QueryBuilderConfig.category_filter_enabled. The live v2 benchmark turns it off: its case knowledge

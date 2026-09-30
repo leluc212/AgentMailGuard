@@ -949,7 +949,7 @@ def test_the_live_meta_keeps_the_v1_keys_and_adds_the_live_ones() -> None:
 
 
 def test_the_fingerprint_records_whether_retrieval_filters_by_category() -> None:
-    # RETRIEVAL__CATEGORY_FILTER_ENABLED changes what the run retrieves (ADR-0013, proposed), so
+    # RETRIEVAL__CATEGORY_FILTER_ENABLED changes what the run retrieves (ADR-0013, accepted), so
     # a resume or a later config under the other setting is refused like any other change.
     from packages.core.settings import AppSettings, RetrievalSettings
 

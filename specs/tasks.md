@@ -928,7 +928,7 @@
 - [~] **7.25 Teammate benchmark kit (Windows 11 Home, WSL2 first)**
   - Decision: ADR-0012 decision 9 (the teammate runs the full v2 benchmark from a fresh download, with their own keys; results come back as ours do).
   - Done: `evaluation/mailguard_bench/kit/campaign.py` (`setup`, `run`, `report`, `package`) automating runbook §9.9 steps 3 to 7 for one model, the default config list taken from `scheme.configs_for("v2")`; `make bench-setup`, `bench-run`, `bench-report`, `bench-package`; a Windows-safe guard-worker liveness check and stop (`live/process.py`).
-  - Left: the doctor, the pinned inputs and the WSL2 and native Windows guides (work package R6b, held for the owner's decision on redistributing the L1 classifier); a live run of the kit from a fresh download (ADR-0012 decision 1).
+  - Left: the doctor, the pinned inputs and the WSL2 and native Windows guides (work package R6b, held for the owner's decision on redistributing the L1 classifier; the guides' `.env` example must carry `RETRIEVAL__CATEGORY_FILTER_ENABLED=false`, which the host check requires since task 7.28); a live run of the kit from a fresh download (ADR-0012 decision 1).
   - Numbering: this task's commits say `[task 7.23]`; the number collided with 7.23 (v2 analyses) and was changed to 7.25 when the work packages were integrated.
   - _Requirements: R22.12, R24.5_
 
@@ -942,10 +942,15 @@
   - Build: every reply prompt whose task line does not say it drafts the reply email to the customer gets that wording as a new prompt version; the old versions stay for the v1 runs, whose recorded prompts and goldens do not change.
   - _Requirements: R14.6, R16.1_
 
-- [ ] **7.28 Category retrieval floor and the benchmark's category-filter switch**
-  - Decision: ADR-0012 decision 12 and ADR-0013 (owner, 2026-10-01). Found in the live smoke: no case reached retrieval (triage's model never asked for it, and case documents filed under `support` were filtered out by the live category).
-  - Build: `retrieval_required` raised to the category's `default_retrieval_required` for replies routed to AI (setting, on by default); a setting that disables the category filter (on by default), turned off by the v2 benchmark's stack env and host check, recorded in the fingerprint; design §5.3 updated.
-  - _Requirements: R6.6, R6.9, R12.4, R22.12_
+- [x] **7.28 Category retrieval floor and the benchmark's category-filter switch**
+  - Decision: ADR-0012 decision 12 and ADR-0013 (Accepted, owner, 2026-10-01 00:42). Found in the live smoke: no case reached retrieval (triage's model never asked for it, and case documents filed under `support` were filtered out by the live category).
+  - Build: `retrieval_required` raised to the category's `default_retrieval_required` for replies routed to AI (`TRIAGE__CATEGORY_RETRIEVAL_FLOOR`, on by default; `services/triage_worker/gate.py`, both the in-memory and the persisted path, after the no-reply exit and the matched-template reply, so R6.5 and R6.13 stand); `RETRIEVAL__CATEGORY_FILTER_ENABLED` (on by default) read by the ai-worker and, through `build_consumers`, by the host guard-worker, whose L3b echo check now builds its query from the same settings; the v2 benchmark's stack env writes the filter `false` and the floor `true` for every profile, its host check requires the filter `false`, the fingerprint records `retrieval.category_filter`, and runbook §9.9 steps 1, 3, 5 and 8 say so (step 5 prints `catfilter=` and `floor=`); design §5.3 and §5.4 updated.
+  - Observability (R21): `retrieval_floor_applied_total{organization,category,decided_by}` counted after the `QUEUED` transition commits, the `retrieval_floor_applied` log line, and `triage.retrieval_floor` in the benchmark's raw rows (the `QUEUED` event's marker), next to the stage's own `retrieval_required` and the `gate_outcome`.
+  - Tests: `test_category_retrieval_floor.py` (the gate, the real cascade, the triage consumer and the ai-worker's ContextBuilder end to end; the counter; the shipped rules never reply without retrieval), `test_category_filter_switch.py`, `test_mailguard_bench_live_stack_env.py`, `test_mailguard_bench_live_collect.py`, `test_mailguard_live_guard_worker.py`.
+  - Merge: `wp-rag-routing` merged with `v2-integration` at `f3f0ca1`; the kit's `HOST_ENV` fixtures gained `RETRIEVAL__CATEGORY_FILTER_ENABLED=false`, which the host check now requires (36 kit tests failed without it). The two feature commits cite `[task 7.20]`, from before the renumbering; history is not rewritten.
+  - Not run here (the owner's stack was in use): `make up`, `tests/integration/test_funnel_metrics_integration.py` (its "no retrieval" case now uses `scheduling`), and any live call. The live smoke is the check that cases now reach retrieval.
+  - Left for 7.25: the teammate guides must list the `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` line of the `.env` (runbook §9.9 step 1 has it).
+  - _Requirements: R6.6, R6.9, R12.4, R21.4, R22.12_
 
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
@@ -1028,7 +1033,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28 |
 | R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
 | R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24 |
