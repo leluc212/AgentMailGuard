@@ -21,7 +21,7 @@ Every layer consumes and produces typed contracts in `mailguard/contracts/`:
 | L3b `RetrievedDocumentScanner.scan` | `RetrievedChunk[]`, query | kept chunks + `ChunkVerdict[]` | exception -> chunk quarantined |
 | L3 `ChannelIsolation.build` | system/category/business + intent + email + chunks | `SecurePrompt` + `LayerVerdict` | forged markers -> MEDIUM finding |
 | L4 `OutputScanner.inspect` | `DraftCandidate`, allowed citations, protected texts, indicators | `OutputVerdict` (redacted text, redactions, compliance flags) | exception -> empty redacted text + HIGH |
-| L5 `PolicyEngine.decide` | `GuardReport`, stage, category, draft action | `PolicyDecision` (action, tier, rule, audit id) | layer error -> `human_approval` |
+| L5 `PolicyEngine.decide` | `GuardReport`, stage, category, draft action | `PolicyDecision` (action, tier, winning rule, matched rules, audit id) | layer error -> `human_approval`, unless a stricter rule also matches |
 
 `MailGuardPipeline` orchestrates them as inbound -> prompt -> outbound and stops before
 generation when the inbound decision is `block` or `quarantine`.
@@ -89,11 +89,19 @@ the conversation) and external links. Values already supplied by the customer ar
 treated as disclosures.
 
 ### L5 Email Policy Engine
-`configs/policy.yaml` rules evaluated in priority order over facts derived from the report
-(max severity, threat types, layer errors, quarantine ratio, removed ratio, compliance,
-citation mismatch, redactions, stage, category, draft action). `auto_send` is only possible
-for allow-listed categories with a clean outbound report. Decisions are deterministic and
-carry a stable `audit_id`; the JSONL audit log stores ids, scores and hashes only.
+`configs/policy.yaml` rules evaluated over facts derived from the report (max severity,
+threat types, layer errors, quarantine ratio, removed ratio, compliance, citation mismatch,
+redactions, stage, category, draft action). All matching rules are collected and the
+**strictest action wins** (`quarantine > block > human_approval > draft_only > auto_send`);
+equal actions go to the lowest priority number. So a layer error (`P00`, human approval) no
+longer hides a critical injection (`P01`, quarantine), and human-approval rules (`P04`/`P05`)
+no longer hide an unsafe forward (`P06`, block). A rule with an empty `when` (`P99-default`)
+is only the fallback for "nothing else matched", so it never out-ranks a specific rule such
+as the clean `auto_send`. The decision records the winning rule (`matched_rule_id`) and every
+matched rule (`matched_rule_ids`); the policy version is `2026.09-v2` (v1 was first-match by
+priority). `auto_send` is only possible for allow-listed categories with a clean outbound
+report. Decisions are deterministic and carry a stable `audit_id`; the JSONL audit log stores
+ids, scores, the winning and matched rule ids and hashes only.
 
 ## Ablation configurations
 

@@ -1,7 +1,10 @@
 # Layer 5 - Email Policy Engine: risk-tiered action gating.
 #
-# Rules are evaluated in ascending `priority` order; the first rule whose `when`
-# block fully matches decides the action. `when` supports:
+# Every rule whose `when` block fully matches is collected and the STRICTEST action
+# wins (quarantine > block > human_approval > draft_only > auto_send). Equal actions go
+# to the lowest `priority` number. A rule with an empty `when` is the catch-all fallback:
+# it applies only when no other rule matched. The decision records the winning rule and
+# all matched rule ids. `when` supports:
 #   max_severity_at_least:     none|low|medium|high|critical
 #   max_severity_at_most:      none|low|medium|high|critical
 #   threat_types_any:          [..ThreatType..]        (any finding across layers)
@@ -16,7 +19,7 @@
 #   category_in:               [..triage categories..]
 #   action_in:                 [reply|forward|escalate] (draft action)
 # Actions: auto_send | draft_only | human_approval | block | quarantine
-version: "2026.09-v1"
+version: "2026.09-v2"   # v2: strictest-match selection (was first-match by priority)
 default_action: draft_only
 auto_send_categories: [acknowledgement, scheduling]   # only ever auto-sent when clean
 

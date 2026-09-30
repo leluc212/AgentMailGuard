@@ -26,13 +26,13 @@ Knowledge base ──> RAG retrieval ──> L3b Retrieved Document Scanner ─�
 | L3 | `mailguard/layers/l3_channel_isolation` | Nonce-tagged channel markers, datamark/encode spotlighting, marker scrubbing, token budget | < 1 ms |
 | L3b | `mailguard/layers/l3b_document_scanner` | PoisonedRAG heuristics (answer-forcing, query-echo, "ignore other documents") + rules + ML per chunk | 1-3 ms/chunk |
 | L4 | `mailguard/layers/l4_output_scanner` | PII/secret redaction (Luhn), system-prompt leak (n-gram), citation integrity, injected-goal compliance, unsafe recipients/links | 1-5 ms |
-| L5 | `mailguard/layers/l5_policy_engine` | YAML risk-tiered gating (`quarantine > block > human_approval > draft_only > auto_send`), idempotent audit log | < 1 ms |
+| L5 | `mailguard/layers/l5_policy_engine` | YAML risk-tiered gating: all matching rules are collected and the strictest action wins (`quarantine > block > human_approval > draft_only > auto_send`, ties to the lowest priority number), idempotent audit log | < 1 ms |
 
 ## Quick start
 
 ```bash
 pip install -e ".[eval,dev]"          # core + datasets + tests
-python -m pytest tests/unit -q         # 68 unit tests, no network, no LLM
+python -m pytest tests/unit -q         # 125 unit tests, no network, no LLM
 
 # scan one email through the full stack (rules + ML only, no LLM required)
 python scripts/scan_email.py tests/fixtures/emails.json --pick attacks:0 --config C3 --kb datasets/seed/support_kb -v

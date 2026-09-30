@@ -1,7 +1,10 @@
 """Layer 5 - Email Policy Engine (risk-tiered action gating).
 
-Rules are declared in ``configs/policy.yaml`` and evaluated in priority order over
-*facts* derived from the ``GuardReport``. The engine is deterministic and
+Rules are declared in ``configs/policy.yaml`` and evaluated over *facts* derived from
+the ``GuardReport``. Every matching rule is collected and the STRICTEST action wins
+(``quarantine > block > human_approval > draft_only > auto_send``); ties go to the lowest
+priority number. A rule with an empty ``when`` is the catch-all fallback: it applies only
+when no other rule matched. The engine is deterministic and
 idempotent: the same report and stage always produce the same ``audit_id``, so a
 replayed job never creates a second decision. Every decision is appended to a
 JSONL audit log (no email content, only ids, scores, rule ids and hashes).
@@ -163,6 +166,23 @@ class PolicyEngine:
             "draft_action": draft_action,
         }
 
+    # ------------------------------------------------------------------ select
+    def select(self, facts: dict[str, Any]) -> tuple[PolicyRule | None, list[PolicyRule]]:
+        """Pick the winning rule and return it with every rule that took part.
+
+        Among all rules whose ``when`` matches, the strictest action wins; equal actions go
+        to the lowest priority number (``self.rules`` is sorted, so the first one). Catch-all
+        rules (empty ``when``) never compete: they are the fallback when nothing else
+        matched, so the default posture cannot out-rank a specific weaker rule such as
+        ``auto_send``.
+        """
+        matches = [r for r in self.rules if r.when and r.matches(facts)]
+        if not matches:
+            fallback = next((r for r in self.rules if not r.when), None)
+            return fallback, [fallback] if fallback is not None else []
+        winner = min(matches, key=lambda r: (-r.action.rank, r.priority))
+        return winner, matches
+
     # ------------------------------------------------------------------ decide
     def decide(
         self,
@@ -173,7 +193,7 @@ class PolicyEngine:
         draft_action: str | None = None,
     ) -> PolicyDecision:
         facts = self.facts(report, stage=stage, category=category, draft_action=draft_action)
-        matched: PolicyRule | None = next((r for r in self.rules if r.matches(facts)), None)
+        matched, all_matched = self.select(facts)
         if matched is None:
             action, rule_id, reason, requires_human = (
                 self.default_action,
@@ -219,6 +239,7 @@ class PolicyEngine:
             action=action,
             risk_tier=risk,
             matched_rule_id=rule_id,
+            matched_rule_ids=[r.id for r in all_matched],
             reasons=reasons[:12],
             requires_human=requires_human,
             redactions_applied=facts["redactions"],
@@ -251,6 +272,7 @@ class PolicyEngine:
                 "action": str(decision.action),
                 "risk_tier": str(decision.risk_tier),
                 "rule": decision.matched_rule_id,
+                "matched_rules": decision.matched_rule_ids,
                 "policy_version": decision.policy_version,
                 "requires_human": decision.requires_human,
                 "layers": {

@@ -75,7 +75,10 @@ class PolicyDecision(BaseModel):
     audit_id: str = Field(default_factory=lambda: uuid4().hex)
     action: PolicyAction
     risk_tier: RiskTier
-    matched_rule_id: str
+    matched_rule_id: str  # the winning rule: strictest action among all matches
+    matched_rule_ids: list[str] = Field(
+        default_factory=list, description="Every rule that matched (winner included), by priority"
+    )
     reasons: list[str] = Field(default_factory=list)
     requires_human: bool = False
     redactions_applied: int = 0
