@@ -42,6 +42,15 @@ FAIL_CLOSED_KIND = "fail_closed_validation"
 """The ``error.kind`` of a live row whose job was dead-lettered because its draft stayed invalid
 after the repair (Amendment 1, D.1(c)); the sensitivity line of the report counts them."""
 
+TRIAGE_STAGE_FAILURE_KIND = "triage_stage_failure"
+"""The ``error.kind`` of a live row whose triage fell back to its safe default after a stage failed
+with an error (Amendment 3, A); the report counts them per config."""
+RETRIEVAL_DEGRADED_KIND = "retrieval_degraded"
+"""The ``error.kind`` of a live row whose retrieval ran degraded, the ``context_built`` event's
+``retrieval_degraded`` true (Amendment 3, B); the report counts them per config."""
+SERVICE_FAILURE_KINDS = (TRIAGE_STAGE_FAILURE_KIND, RETRIEVAL_DEGRADED_KIND)
+"""The error kinds a live-service failure gives a row (ADR-0012 decision 13)."""
+
 RUNNER_SCHEMA = "mailguard-bench-result.v1"
 LIVE_SCHEMA = "mailguard-bench-result.v3"
 LIVE_TRANSPORT = "services-v2"

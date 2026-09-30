@@ -24,6 +24,8 @@ from evaluation.mailguard_bench.live.collect import (
     LiveCollector,
     PipelineJobError,
     PipelineStores,
+    RetrievalDegradedError,
+    TriageStageFailureError,
     find_job,
     gate_outcome,
     read_audit_line,
@@ -214,12 +216,18 @@ class World:
         retrieved: list[dict[str, Any]] | None = None,
         *,
         draft: dict[str, Any] | None = None,
+        classification: dict[str, Any] | None = None,
+        classified: bool = False,
         **flags: Any,
     ) -> None:
-        """RECEIVED to DRAFTED the way the workers do it, with retrieval."""
+        """RECEIVED to DRAFTED the way the workers do it, with retrieval.
+
+        ``classified`` says triage's own code already persisted the classification.
+        """
         await self.receive()
         await self.to(JobState.NORMALIZED)
-        await self.classify()
+        if not classified:
+            await self.classify(**(classification or {}))
         await self.to(JobState.CLASSIFIED, {"category": "support"})
         await self.to(
             JobState.QUEUED,
@@ -1222,6 +1230,263 @@ async def test_a_missing_classification_leaves_the_triage_fields_empty_not_inven
 
     assert triage["category"] is None and triage["decided_by"] is None
     assert triage["gate_outcome"] == "early_exit"
+
+
+# --- rows a live-service failure changed are error rows (task 7.26, ADR-0012 decision 13) ---
+
+
+def _safe_default(*stages: dict[str, Any]) -> dict[str, Any]:
+    """The classification triage persists when no stage decided (R6.11), as the cascade does."""
+    return {
+        "category": "general_inquiry",
+        "intent": "unclassified_fallback",
+        "workflow_hint": "ai",
+        "confidence": 0.0,
+        "decided_by": "default",
+        "raw": {"review_flag": True, "stages_attempted": list(stages), "workflow_hint": "ai"},
+    }
+
+
+def _stage(
+    stage: str, *, error: str | None = None, confidence: float | None = None
+) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "evaluated": True,
+        "accepted": False,
+        "confidence": confidence,
+        "threshold": 0.7,
+        "category": None,
+        "latency_ms": 5,
+        "error": error,
+    }
+
+
+async def test_a_safe_default_after_a_stage_error_is_a_triage_stage_failure_error_row() -> None:
+    """The live smoke: a DNS stall made the stage-3 call fail, triage fell back to its safe
+    default and the row was scored as a normal one. It is an error row of its own kind."""
+    world, clock = World(), FakeClock()
+    await world.ai_path(
+        retrieved=RETRIEVED,
+        classification=_safe_default(
+            _stage("rule"),
+            _stage("ml", confidence=0.4),
+            _stage("llm", error="LLM transport error: All connection attempts failed"),
+        ),
+    )
+
+    with pytest.raises(TriageStageFailureError) as raised:
+        await _collect(world, clock)
+
+    assert raised.value.error_kind == "triage_stage_failure"
+    message = str(raised.value)
+    assert "attack-prag-nq-t1" in message and "safe default" in message
+    assert "llm" in message and "All connection attempts failed" in message
+    assert isinstance(raised.value, PipelineJobError)  # never re-run in-process by the runner
+
+
+async def test_a_safe_default_where_every_stage_only_abstained_is_a_normal_row() -> None:
+    """Below-threshold answers are abstentions, the design's own path to the default (R6.11)."""
+    world, clock = World(), FakeClock()
+    await world.ai_path(
+        retrieved=RETRIEVED,
+        classification=_safe_default(
+            _stage("rule"), _stage("ml", confidence=0.4), _stage("llm", confidence=0.3)
+        ),
+    )
+
+    result = await _collect(world, clock)
+
+    assert result["pipeline"]["triage"]["decided_by"] == "default"
+
+
+async def test_a_stage_error_that_a_later_stage_recovered_from_is_a_normal_row() -> None:
+    """Only the safe default is a failed triage: an earlier stage's error that a later stage
+    answered past changed nothing the row records."""
+    world, clock = World(), FakeClock()
+    await world.ai_path(
+        retrieved=RETRIEVED,
+        classification={
+            "decided_by": "llm",
+            "raw": {"stages_attempted": [_stage("ml", error="joblib: model file unreadable")]},
+        },
+    )
+
+    result = await _collect(world, clock)
+
+    assert result["pipeline"]["triage"]["decided_by"] == "llm"
+
+
+async def test_the_default_decider_name_is_the_cascades_own() -> None:
+    """The collector reads ``decided_by`` of triage's safe default by name; the cascade's
+    default is that name and its stage records keep the ``error`` key the collector reads."""
+    from evaluation.mailguard_bench.live import collect
+    from packages.llm.fake import FakeLLMProvider
+    from packages.llm.protocol import LLMTimeoutError
+
+    world = World()
+    provider = FakeLLMProvider()
+    provider.set_error(LLMTimeoutError("t"))
+    outcome = await _cascade_persisting_to(world, provider).triage(
+        {"subject": "q", "body_text": "b", "sender_email": "x@y.example"}
+    )
+
+    assert outcome.classification.decided_by == collect.DEFAULT_DECIDER
+    assert [r["error"] for r in outcome.classification.raw["stages_attempted"]][-1] == "t"
+
+
+def _cascade_persisting_to(world: World, provider: Any) -> Any:
+    from services.triage_worker.cascade import CascadingTriageEngine
+    from services.triage_worker.llm_classifier import LLMTriageClassifier
+    from services.triage_worker.rules import HotReloadableRuleEngine
+
+    return CascadingTriageEngine(
+        rule_engine=HotReloadableRuleEngine(initial_rules=[]),  # no rule matches
+        llm_classifier=LLMTriageClassifier(provider=provider),
+        classification_store=world.classifications,
+    )
+
+
+async def _triaged_by_the_real_cascade(world: World, provider: Any) -> None:
+    """The real cascade over the in-memory store, with only its stage-3 model faked (an external
+    service), then the job path from the gate on: what the collector reads is what was persisted."""
+    from packages.domain.entities import EmailAddress, NormalizedMessage
+
+    message = NormalizedMessage(
+        message_id=world.message_id,
+        thread_id=world.thread_id,
+        mailbox_id=world.mailbox_id,
+        organization_id=world.org,
+        provider="eval",
+        provider_message_id="attack-prag-nq-t1",
+        sender=EmailAddress(email="x@partner.example", name="X"),
+        received_at=NOW,
+        subject="q",
+        body_text="What is the refund window?",
+    )
+    outcome = await _cascade_persisting_to(world, provider).triage(message, persist=True)
+    assert outcome.decided_stage == "default"
+    await world.ai_path(retrieved=RETRIEVED, classified=True)
+
+
+def _llm_answering(**answer: Any) -> Any:
+    from packages.llm.fake import FakeLLMProvider
+
+    return FakeLLMProvider(
+        default_response={
+            "category": "support",
+            "intent": "refund",
+            "priority": "normal",
+            "reply_required": True,
+            "workflow_hint": "ai",
+            "retrieval_required": True,
+            "confidence": 0.95,
+            **answer,
+        }
+    )
+
+
+async def test_a_real_cascade_default_after_a_timed_out_model_call_is_read_back_as_a_failure() -> (
+    None
+):
+    from packages.llm.fake import FakeLLMProvider
+    from packages.llm.protocol import LLMTimeoutError
+
+    world = World()
+    provider = FakeLLMProvider()
+    provider.set_error(LLMTimeoutError("Timeout after 20.0s"))
+    await _triaged_by_the_real_cascade(world, provider)
+
+    with pytest.raises(TriageStageFailureError, match="llm.*Timeout after 20.0s"):
+        await _collect(world, FakeClock())
+
+
+async def test_a_real_cascade_default_after_malformed_model_output_is_read_back_as_a_failure() -> (
+    None
+):
+    world = World()
+    await _triaged_by_the_real_cascade(world, _llm_answering(category="not-a-category"))
+
+    with pytest.raises(TriageStageFailureError, match="llm"):
+        await _collect(world, FakeClock())
+
+
+async def test_a_real_cascade_default_after_a_low_confidence_model_answer_is_a_normal_row() -> None:
+    world = World()
+    await _triaged_by_the_real_cascade(world, _llm_answering(confidence=0.1))
+
+    result = await _collect(world, FakeClock())
+
+    assert result["pipeline"]["triage"]["decided_by"] == "default"
+
+
+async def test_a_degraded_retrieval_is_a_retrieval_degraded_error_row() -> None:
+    """The live smoke: the host guard-worker's query embedding timed out, the vector branch
+    failed and the draft was written from the lexical branch alone."""
+    world, clock = World(), FakeClock()
+    await world.ai_path(retrieved=RETRIEVED, retrieval_degraded=True)
+
+    with pytest.raises(RetrievalDegradedError) as raised:
+        await _collect(world, clock)
+
+    assert raised.value.error_kind == "retrieval_degraded"
+    message = str(raised.value)
+    assert "attack-prag-nq-t1" in message
+    assert "query embedding" in message and "branch" in message
+    assert isinstance(raised.value, PipelineJobError)
+
+
+@pytest.mark.parametrize("degraded", [False, None])
+async def test_a_retrieval_that_was_not_degraded_or_never_ran_is_a_normal_row(
+    degraded: bool | None,
+) -> None:
+    world, clock = World(), FakeClock()
+    await world.ai_path(retrieved=RETRIEVED, retrieval_degraded=degraded)
+
+    result = await _collect(world, clock)
+
+    assert result["pipeline"]["retrieval_degraded"] is degraded
+
+
+async def test_the_latest_context_built_event_decides_whether_retrieval_was_degraded() -> None:
+    """A redelivery builds the context again: the draft comes from the latest build, so a first
+    build that degraded and a second that did not is a normal row, and the reverse is not."""
+    world, clock = World(), FakeClock()
+    await _redelivered_path(world)  # first build degraded, second clean
+    assert (await _collect(world, clock))["pipeline"]["retrieval_degraded"] is False
+
+    reverse, clock = World(), FakeClock()
+    await _redelivered_path(reverse)
+    await reverse.context_built(retrieved=[], retrieval_degraded=True)
+    with pytest.raises(RetrievalDegradedError):
+        await _collect(reverse, clock)
+
+
+async def test_a_row_with_both_failures_is_one_triage_stage_failure_naming_both_causes() -> None:
+    world, clock = World(), FakeClock()
+    await world.ai_path(
+        retrieved=RETRIEVED,
+        classification=_safe_default(_stage("llm", error="LLM transport error: dns")),
+        retrieval_degraded=True,
+    )
+
+    with pytest.raises(TriageStageFailureError) as raised:
+        await _collect(world, clock)
+
+    assert "LLM transport error: dns" in str(raised.value)
+    assert "retrieval degraded" in str(raised.value)
+
+
+async def test_a_guarded_config_reports_the_service_failure_before_it_asks_for_an_audit_line(
+    tmp_path: Path,
+) -> None:
+    """The audit line of a job drafted from a failed service is not what the operator needs to
+    hear about first: the failure is, and the retry pass re-runs the case."""
+    world, clock = World(), FakeClock()
+    await world.ai_path(retrieved=RETRIEVED, retrieval_degraded=True)
+
+    with pytest.raises(RetrievalDegradedError):
+        await _collect(world, clock, config="C3", audit=tmp_path / "audit__C3.jsonl")
 
 
 async def test_the_row_is_plain_json() -> None:

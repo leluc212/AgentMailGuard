@@ -1430,6 +1430,22 @@ class SimJobs(InMemoryJobStore):
         self._events.append(event)
 
 
+STAGE_FAILURE_RAW = {
+    "review_flag": True,
+    "stages_attempted": [
+        {"stage": "rule", "evaluated": True, "accepted": False, "error": None},
+        {
+            "stage": "llm",
+            "evaluated": True,
+            "accepted": False,
+            "error": "LLM transport error: All connection attempts failed (status 429 quota)",
+        },
+    ],
+}
+"""What the cascade persists after a stage-3 transport failure; the text mentions a 429 to show
+that a service failure is never mistaken for a rate limit worth running the case again."""
+
+
 class SimWorld:
     """The stack behind the runner: stores, object storage and the simulated services."""
 
@@ -1503,6 +1519,7 @@ class SimWorld:
             return  # a stalled stage: the job never leaves NORMALIZED
         early, template = scenario == "early_exit", scenario == "template"
         retrieval = scenario == "ai_poison"
+        stage_failure = scenario == "triage_stage_failure"
         await self.classifications.save_classification(
             org,
             message_id,
@@ -1512,8 +1529,9 @@ class SimWorld:
                 reply_required=not early,
                 retrieval_required=retrieval,
                 workflow_hint="none" if early else ("template" if template else "ai"),
-                decided_by="rule" if template else "ml",
+                decided_by="default" if stage_failure else ("rule" if template else "ml"),
                 latency_ms=3,
+                raw=STAGE_FAILURE_RAW if stage_failure else {},
             ),
         )
         await move(JobState.CLASSIFIED)
@@ -1556,7 +1574,7 @@ class SimWorld:
                 state_to=JobState.CONTEXT_READY.value,
                 payload={
                     "retrieved": retrieved,
-                    "retrieval_degraded": False,
+                    "retrieval_degraded": scenario == "retrieval_degraded",
                     "retrieval_underfilled": False,
                     "rerank_applied": True,
                     "summary_triggered": False,
@@ -2021,6 +2039,43 @@ async def test_a_job_the_pipeline_is_handling_a_429_for_is_one_error_row_and_not
     assert row["error"]["kind"] == kind and "status 429" in row["error"]["message"]
     assert len(pool.organizations("INSERT")) == 4  # one organization per case, none run again
     assert len(pool.organizations("DELETE")) == 4
+
+
+@pytest.mark.parametrize(
+    ("scenario", "kind", "cause"),
+    [
+        ("triage_stage_failure", "triage_stage_failure", "All connection attempts failed"),
+        ("retrieval_degraded", "retrieval_degraded", "query embedding"),
+    ],
+)
+async def test_a_row_a_live_service_failure_changed_is_an_error_row_the_retry_pass_runs_again(
+    live_env: Path, scenario: str, kind: str, cause: str
+) -> None:
+    """ADR-0012 decision 13: the smoke's DNS stall made triage fall back and the query embedding
+    time out, and both rows were recorded ok. Now each is an error row of its own kind, run once
+    (never re-run in-process, even when its text mentions a 429), and the retry pass re-runs it."""
+    from evaluation.mailguard_bench.resilience import BackoffPolicy
+
+    world, pool, deps = _new_run(
+        live_env, backoff=BackoffPolicy(max_attempts=6, base_s=0.0, cap_s=0.0)
+    )
+    world.scenarios = {**SCENARIOS, "attack-a1": scenario}
+
+    assert await run(_run_args(live_env), deps) == 0
+
+    row = _rows(live_env)["attack-a1"]
+    assert (row["status"], row["attempts"]) == ("error", 1)
+    assert row["error"]["kind"] == kind and cause in row["error"]["message"]
+    assert row["result"] is None  # nothing of it is scored, so nothing can count as defended
+    assert {r["status"] for cid, r in _rows(live_env).items() if cid != "attack-a1"} == {"ok"}
+    assert len(pool.organizations("INSERT")) == 4
+
+    world.scenarios["attack-a1"] = "ai"  # the service is back
+    retry_pool = RunPool()
+    retry = _run_args(live_env, "C0", "--retry-errors")
+    assert await run(retry, _live_deps(live_env, world, retry_pool)) == 0
+    assert _rows(live_env)["attack-a1"]["status"] == "ok"
+    assert len(retry_pool.organizations("INSERT")) == 1  # only that case ran again
 
 
 async def test_a_draft_that_failed_validation_twice_is_an_error_row_of_its_own_kind(
