@@ -232,7 +232,7 @@ def test_a_v1_schema_run_whose_meta_asks_for_the_strict_rule_gets_it(tmp_path: P
     # "Here are the numbers." is 21 characters: legacy utility yes, strict no.
     assert (c3["utility"]["successes"], c3["utility_legacy"]["successes"]) == (0, 1)
     assert "C3 benign utility (draft of at least 40 characters): 0.0 %" in text
-    assert summary["tables"]["llmail"]["C0"]["utility_legacy"] is None  # C0's meta has no rule
+    assert "utility_legacy" not in summary["tables"]["llmail"]["C0"]  # C0's meta has no rule
 
 
 # --- prices from the run's meta ----------------------------------------------------------------
