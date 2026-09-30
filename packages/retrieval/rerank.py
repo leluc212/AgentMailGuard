@@ -25,8 +25,9 @@ is cancelled never starts, and while an abandoned predict is still computing the
 falls back at once (``RerankerBusyError``, reason ``busy``) instead of waiting for the cores.
 
 The ai-worker shares one RerankService between every consumer, so jobs rerank at the same moment.
-The service lets one rerank run at a time and starts each job's budget (RETRIEVAL__RERANK_TIMEOUT_MS)
-when its own rerank does: time spent waiting for another job's predict is not charged to it.
+The service lets one rerank run at a time and starts each job's budget
+(RETRIEVAL__RERANK_TIMEOUT_MS) when its own rerank does: time spent waiting for another job's
+predict is not charged to it.
 """
 
 from __future__ import annotations

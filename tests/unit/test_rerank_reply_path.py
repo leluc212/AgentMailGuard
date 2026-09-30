@@ -362,7 +362,7 @@ class TestPredictWorker:
 
         assert not result.rerank_applied and "Timeout" in (result.fallback_reason or "")
 
-    async def test_jobs_queued_behind_an_over_budget_predict_fall_back_and_do_not_hang(self) -> None:
+    async def test_jobs_behind_an_over_budget_predict_fall_back_and_do_not_hang(self) -> None:
         """A predict that runs past the budget is abandoned, so the jobs behind it wait at most
         that budget and then fall back at once (busy): nobody waits on a stuck predict."""
         model = _PredictModel(blocked=True)
