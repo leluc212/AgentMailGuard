@@ -56,6 +56,12 @@ a first commit.
    ours do (run folders and the status page committed to a branch). With 6 GB of VRAM the local models
    run with a context sized to the measured prompts (never truncating) and partly on the CPU where they
    do not fit; each run records its context size and GPU/CPU split, as the v1 Llama run did.
+   **Superseded the same evening (owner, 23:01):** to save time, the teammate runs Qwen2.5-7B and
+   Llama-3.1-8B through OpenRouter's API, and gpt-4o-mini through OpenAI's, so no local GPU is used. Each
+   OpenRouter run pins one provider with fallbacks off and strict JSON-schema support required, and
+   records the provider that served every call; the pinned provider and its precision are chosen from
+   OpenRouter's current listing before the runs. v2's Qwen and Llama numbers are therefore not directly
+   comparable with the v1 local 4-bit runs, and reports say so. The local Ollama route stays supported.
 10. **Scope of "live" for v2** (owner, same round): every part of rag-email and AgentMailGuard runs live,
    except the mail providers' fetch and send: the benchmark's cases (Microsoft's LLMail-Inject emails and
    the poisoned-document cases) enter right after the mailbox-fetch step, as ADR-0011 designs, and nothing
