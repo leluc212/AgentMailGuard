@@ -463,14 +463,14 @@ def test_reranked_chunks_the_model_finds_irrelevant_still_escalate() -> None:
     assert decision.details["qualifying_chunks"] == 0
 
 
-def test_after_a_fallback_the_router_compares_rrf_scores_with_the_relevance_bar() -> None:
-    """Known gap, owner decision open (task 7.21): a fallback escalates the same job.
+def test_after_a_fallback_the_router_applies_only_the_chunk_count_check() -> None:
+    """Task 7.21, ADR-0012 decision 5(a): a fallback does not change the tier of the same job.
 
-    The chunks of a fallback carry only RRF scores, at most 2/61 (about 0.03), and trigger 3 of
-    the router compares the best score a chunk has with ROUTER_MIN_RELEVANCE_SCORE (0.50). So
-    the pool that stays on the routine tier when the cross-encoder answers in time goes to
-    high_capability when it does not. This pins today's behaviour so the gap is visible; when
-    7.21 decides what a fallback should do, change this test with it.
+    The chunks of a fallback carry only RRF scores, at most 2/61 (about 0.03), which are not
+    probabilities and never reach ROUTER_MIN_RELEVANCE_SCORE (0.50). The router applies that
+    relevance check only when the rerank really ran (``rerank_applied``); after a fallback only
+    the chunk-count check applies, so the pool that stays on the routine tier when the
+    cross-encoder answers in time stays there when it does not.
     """
     logits = [8.6, 5.5, 1.2]
     reranked, reranked_decision = _routed(_reranking_builder(logits))
@@ -488,6 +488,5 @@ def test_after_a_fallback_the_router_compares_rrf_scores_with_the_relevance_bar(
     assert all(c.rerank_score is None for c in fallback.retrieved_chunks)
     assert all(0 < (c.fused_score or 0) < 0.05 for c in fallback.retrieved_chunks)
     assert reranked_decision.tier is ModelTier.ROUTINE
-    assert fallback_decision.tier is ModelTier.HIGH_CAPABILITY
-    assert fallback_decision.escalation_reason is EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
-    assert fallback_decision.details["qualifying_chunks"] == 0
+    assert fallback_decision.tier is ModelTier.ROUTINE
+    assert fallback_decision.escalation_reason is EscalationReason.NONE

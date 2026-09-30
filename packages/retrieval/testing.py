@@ -106,6 +106,58 @@ class SearchBackendContractSuite(ABC):
         assert top.metadata.get("section") == "Policies"
 
     @pytest.mark.asyncio
+    async def test_lexical_matches_a_chunk_holding_only_some_of_a_long_query(self) -> None:
+        """A chunk with 2 of 8 query terms is a match, and more matching terms rank higher.
+
+        Guards against an AND-style lexical query, which matched nothing for a ~20-word email
+        query and left hybrid retrieval vector-only (Amendment 1 G.1, R10.1).
+        """
+        backend = self.create_backend()
+        org_id = str(uuid4())
+        doc_id = str(uuid4())
+        some, many, none = str(uuid4()), str(uuid4()), str(uuid4())
+        await self.seed_chunk(
+            backend,
+            some,
+            doc_id,
+            org_id,
+            "Enterprise subscription notes for the team.",
+        )
+        await self.seed_chunk(
+            backend,
+            many,
+            doc_id,
+            org_id,
+            "Enterprise subscription renewal refund: the invoice charge is reversed.",
+        )
+        await self.seed_chunk(
+            backend, none, doc_id, org_id, "Office opening hours and holiday calendar."
+        )
+
+        query = RetrievalQuery(
+            semantic_text="",
+            lexical_terms=[
+                "billed",
+                "twice",
+                "enterprise",
+                "subscription",
+                "renewal",
+                "refund",
+                "invoice",
+                "charge",
+            ],
+            filters={"organization_id": org_id, "status": "active"},
+        )
+
+        candidates = await backend.lexical(query, top_n=10)
+
+        assert [c.chunk_id for c in candidates] == [many, some]
+        assert [c.lexical_rank for c in candidates] == [1, 2]
+        top, second = candidates
+        assert top.lexical_score is not None and second.lexical_score is not None
+        assert top.lexical_score > second.lexical_score > 0
+
+    @pytest.mark.asyncio
     async def test_lexical_respects_top_n(self) -> None:
         """Assert lexical() respects the requested top_n limit."""
         backend = self.create_backend()

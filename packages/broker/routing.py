@@ -14,7 +14,7 @@ import fnmatch
 import logging
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -25,6 +25,9 @@ from packages.domain.taxonomy import (
     get_default_registry,
     normalize_category,
 )
+
+if TYPE_CHECKING:
+    from packages.core.settings import CategoryRoutingSettings
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +106,38 @@ def is_queue_consumed(queue_name: str, configured_consumers: list[str]) -> bool:
         if pattern == queue_name or fnmatch.fnmatch(queue_name, pattern):
             return True
     return False
+
+
+def declared_category_queues(
+    routing: CategoryRoutingSettings,
+    registry: TaxonomyRegistry | None = None,
+) -> list[str]:
+    """Every category lane queue the topology declares: ``email.<category>.<lane>`` (R7.1, R7.4).
+
+    The categories are the registry's (the canonical nine plus those loaded from
+    ``routing.categories_config_path``), the lanes are ``routing.priority_lanes``.
+    """
+    target = registry or get_default_registry()
+    lanes = routing.priority_lanes or list(CANONICAL_LANES)
+    return [f"email.{category}.{lane}" for category in target.all_categories() for lane in lanes]
+
+
+def resolve_configured_consumers(
+    routing: CategoryRoutingSettings,
+    registry: TaxonomyRegistry | None = None,
+) -> list[str]:
+    """The queues or patterns that have a consumer (R7.6, v2 Amendment 1, G.2).
+
+    ``routing.configured_consumers`` set explicitly (even to ``[]``) is used as it is. Unset, the
+    default is derived from the category taxonomy: every declared category on every lane. Triage
+    can route any category with ``reply_required`` (a rule or the model may set it on one whose
+    default is no reply), so no lane is left without a consumer, and a category added by
+    configuration (R7.4) is consumed at once. The ai-worker container, the guard-worker and the
+    topology check call this on the same registry, so they agree.
+    """
+    if routing.configured_consumers is not None:
+        return list(routing.configured_consumers)
+    return declared_category_queues(routing, registry)
 
 
 def load_categories_from_yaml(

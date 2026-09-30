@@ -300,7 +300,7 @@ Any task that appears to require one of the above SHALL be stopped and raised ra
 |---|---|
 | R15.1 | THE SYSTEM SHALL define at least two model tiers (`routine`, `high_capability`) bound to concrete models by configuration. |
 | R15.2 | THE SYSTEM SHALL route to the routine tier by default. |
-| R15.3 | THE SYSTEM SHALL escalate to the high-capability tier when any configured criterion holds: low classification confidence, complex/long thread, insufficient retrieval evidence, multiple requested actions, or context length above threshold. |
+| R15.3 | THE SYSTEM SHALL escalate to the high-capability tier when any configured criterion holds: low classification confidence, complex/long thread, insufficient retrieval evidence (fewer retrieved chunks than the configured minimum; when the cross-encoder rerank ran, also fewer chunks than that minimum reaching the relevance threshold, a check that does not apply to chunks that kept their RRF order, nor when the rerank state is unknown, as for a hand-built context package), multiple requested actions, or context length above threshold. |
 | R15.4 | THE SYSTEM SHALL record the tier used, the escalation reason (or `none`), and token usage on every draft. |
 | R15.5 | THE SYSTEM SHALL cap escalations per job (default 1) to prevent unbounded retry-escalate loops. |
 | R15.6 | THE SYSTEM SHALL expose a configuration switch forcing single-tier operation, so the cascade can be A/B measured against a single model (H4). |

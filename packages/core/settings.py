@@ -621,22 +621,14 @@ class CategoryRoutingSettings(BaseModel):
         default_factory=lambda: ["normal", "priority"],
         description="Declared priority routing lanes (R7.2)",
     )
-    configured_consumers: list[str] = Field(
-        default_factory=lambda: [
-            "email.support.normal",
-            "email.support.priority",
-            "email.billing.normal",
-            "email.billing.priority",
-            "email.sales.normal",
-            "email.sales.priority",
-            "email.general_inquiry.normal",
-            "email.general_inquiry.priority",
-            "email.administration.normal",
-            "email.administration.priority",
-            "email.scheduling.normal",
-            "email.scheduling.priority",
-        ],
-        description="Queues or patterns that have active consumers configured (R7.6)",
+    configured_consumers: list[str] | None = Field(
+        default=None,
+        description=(
+            "Queues or glob patterns that have active consumers (R7.6). Unset (the default) "
+            "derives them from the category taxonomy: every category on every lane, so no lane "
+            "is left without a consumer (v2 Amendment 1, G.2). A value, even [], is used as is. "
+            "Read it with packages.broker.routing.resolve_configured_consumers"
+        ),
     )
 
 
@@ -781,7 +773,10 @@ class ComplexityRouterSettings(BaseModel):
         default=0.50,
         ge=0.0,
         le=1.0,
-        description="Minimum relevance score threshold for retrieved chunks (R15.3)",
+        description=(
+            "Minimum relevance score (a probability) a reranked chunk must reach; applies only "
+            "when the cross-encoder rerank ran, never to RRF-ordered chunks (R15.3, task 7.21)"
+        ),
     )
     multiple_actions_threshold: int = Field(
         default=2,

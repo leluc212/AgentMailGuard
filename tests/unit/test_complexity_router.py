@@ -178,6 +178,7 @@ def _make_sample_context(
     thread_summary: str | None = None,
     agent_instructions: str = "You are an enterprise AI assistant.",
     category_instructions: str = "Provide general support.",
+    rerank_applied: bool | None = None,
 ) -> ContextPackage:
     return ContextPackage(
         agent_instructions=agent_instructions,
@@ -186,6 +187,7 @@ def _make_sample_context(
         thread_summary=thread_summary,
         recent_messages=recent_messages or [],
         retrieved_chunks=retrieved_chunks or [],
+        rerank_applied=rerank_applied,
     )
 
 
@@ -295,7 +297,7 @@ def test_escalation_trigger_insufficient_retrieval_low_score() -> None:
         content="Irrelevant info",
         rerank_score=0.30,
     )
-    context = _make_sample_context(retrieved_chunks=[low_chunk])
+    context = _make_sample_context(retrieved_chunks=[low_chunk], rerank_applied=True)
     classification = Classification(
         category="billing",
         confidence=0.90,
@@ -307,6 +309,72 @@ def test_escalation_trigger_insufficient_retrieval_low_score() -> None:
     assert decision.tier == ModelTier.HIGH_CAPABILITY
     assert decision.is_escalated is True
     assert decision.escalation_reason == EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
+    assert decision.details["qualifying_chunks"] == 0
+    assert decision.details["min_relevance_score"] == 0.50
+
+
+def test_reranked_chunks_all_below_the_bar_escalate_even_when_numerous() -> None:
+    """The relevance check stays in force when the cross-encoder ordered the chunks (R15.3)."""
+    router = ComplexityRouter()
+    chunks = [
+        Candidate(chunk_id=f"c{i}", document_id=f"d{i}", content="x", rerank_score=0.10)
+        for i in range(5)
+    ]
+    context = _make_sample_context(retrieved_chunks=chunks, rerank_applied=True)
+    classification = Classification(category="billing", confidence=0.90, retrieval_required=True)
+
+    decision = router.route(context, classification=classification)
+
+    assert decision.escalation_reason == EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
+
+
+@pytest.mark.parametrize("rerank_applied", [False, None])
+def test_without_a_rerank_the_relevance_bar_is_not_applied(rerank_applied: bool | None) -> None:
+    """Task 7.21: RRF fused scores (at most 2/61) are not probabilities; do not compare them.
+
+    Chunks that were not reranked carry only a fused score far below ROUTER_MIN_RELEVANCE_SCORE.
+    With enough chunks the routine tier keeps the job, as it does when the rerank answered.
+    """
+    router = ComplexityRouter()
+    chunks = [
+        Candidate(chunk_id=f"c{i}", document_id=f"d{i}", content="x", fused_score=0.03 - i * 0.001)
+        for i in range(3)
+    ]
+    context = _make_sample_context(retrieved_chunks=chunks, rerank_applied=rerank_applied)
+    classification = Classification(category="billing", confidence=0.90, retrieval_required=True)
+
+    decision = router.route(context, classification=classification)
+
+    assert decision.tier == ModelTier.ROUTINE
+    assert decision.is_escalated is False
+    assert decision.escalation_reason == EscalationReason.NONE
+
+
+@pytest.mark.parametrize("rerank_applied", [False, None])
+def test_without_a_rerank_too_few_chunks_still_escalate(rerank_applied: bool | None) -> None:
+    """Task 7.21: the chunk-count check (ROUTER_MIN_RETRIEVED_CHUNKS) still applies."""
+    router = ComplexityRouter()
+    one = Candidate(chunk_id="c1", document_id="d1", content="x", fused_score=0.03)
+    context = _make_sample_context(retrieved_chunks=[one], rerank_applied=rerank_applied)
+    classification = Classification(category="billing", confidence=0.90, retrieval_required=True)
+
+    decision = router.route(context, classification=classification)
+
+    assert decision.tier == ModelTier.HIGH_CAPABILITY
+    assert decision.escalation_reason == EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
+    assert decision.details["qualifying_chunks"] == 1
+    assert decision.details["min_required"] == 2
+    assert "min_relevance_score" not in decision.details
+
+
+def test_without_a_rerank_no_chunks_still_escalate() -> None:
+    router = ComplexityRouter()
+    context = _make_sample_context(retrieved_chunks=[], rerank_applied=False)
+    classification = Classification(category="billing", confidence=0.90, retrieval_required=True)
+
+    decision = router.route(context, classification=classification)
+
+    assert decision.escalation_reason == EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
 
 
 def test_retrieval_sufficient_does_not_escalate() -> None:
@@ -314,7 +382,7 @@ def test_retrieval_sufficient_does_not_escalate() -> None:
     router = ComplexityRouter()
     chunk1 = Candidate(chunk_id="c1", document_id="d1", content="KB 1", rerank_score=0.85)
     chunk2 = Candidate(chunk_id="c2", document_id="d2", content="KB 2", rerank_score=0.90)
-    context = _make_sample_context(retrieved_chunks=[chunk1, chunk2])
+    context = _make_sample_context(retrieved_chunks=[chunk1, chunk2], rerank_applied=True)
     classification = Classification(
         category="billing",
         confidence=0.90,

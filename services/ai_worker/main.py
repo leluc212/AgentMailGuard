@@ -14,7 +14,12 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from packages.broker.routing import is_queue_consumed, load_categories_from_yaml
+from packages.broker.routing import (
+    declared_category_queues,
+    is_queue_consumed,
+    load_categories_from_yaml,
+    resolve_configured_consumers,
+)
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.business.postgres import PostgresBusinessDataProvider
 from packages.context.assembly import ThreadContextAssembler
@@ -47,7 +52,7 @@ PRIORITY_LANE_SUFFIX = ".priority"
 
 
 def resolve_lane_queues(settings: AppSettings) -> list[str]:
-    """Declared category lane queues that ``routing.configured_consumers`` claims (R7.6).
+    """Declared category lane queues that the configured consumers claim (R7.6, G.2).
 
     Globs such as ``email.*.priority`` are expanded; configured names that are not declared
     are ignored, because a passive declare of them would fail at start.
@@ -55,13 +60,10 @@ def resolve_lane_queues(settings: AppSettings) -> list[str]:
     routing = settings.routing
     if routing.categories_config_path:
         load_categories_from_yaml(routing.categories_config_path)
-    lanes = routing.priority_lanes or ["normal", "priority"]
-    declared = [
-        f"email.{category}.{lane}"
-        for category in get_default_registry().all_categories()
-        for lane in lanes
-    ]
-    return [q for q in declared if is_queue_consumed(q, routing.configured_consumers)]
+    registry = get_default_registry()
+    declared = declared_category_queues(routing, registry)
+    consumers = resolve_configured_consumers(routing, registry)
+    return [q for q in declared if is_queue_consumed(q, consumers)]
 
 
 def lane_prefetch(settings: AppSettings, queue_name: str) -> int:
