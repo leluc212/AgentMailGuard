@@ -124,11 +124,13 @@ def test_early_exit_gate_metrics_emission_all_outcomes(
     dec_3 = gate.evaluate_decision(job=job_3, classification=cls_3)
     assert dec_3.action == GateAction.PROCEED_RAG
 
-    # 4. AI Generation without RAG (Outcome 3b: ~30% of AI)
+    # 4. AI Generation without RAG (Outcome 3b: ~30% of AI). scheduling is the replying category
+    # whose default is not to retrieve; a stage's false for a category that retrieves by default
+    # is raised by the category retrieval floor (tests/unit/test_category_retrieval_floor.py).
     job_4 = Job(id=uuid4(), organization_id=org_id, state=JobState.NORMALIZED)
     cls_4 = Classification(
-        category="general_inquiry",
-        intent="greeting",
+        category="scheduling",
+        intent="availability",
         priority="low",
         reply_required=True,
         workflow_hint="ai",

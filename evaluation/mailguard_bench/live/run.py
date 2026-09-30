@@ -435,11 +435,17 @@ def embedding_facts(embedding: EmbeddingSettings) -> dict[str, Any]:
 
 
 def retrieval_facts(retrieval: RetrievalSettings) -> dict[str, Any]:
-    """The retrieval settings of the run (the guard-worker's meta has the same block)."""
+    """The retrieval settings of the run (the guard-worker's meta has the same block).
+
+    ``category_filter`` is whether retrieval filters by the category triage assigned
+    (``RETRIEVAL__CATEGORY_FILTER_ENABLED``); the benchmark runs with it off, and a run or a
+    resume under the other value is another fingerprint.
+    """
     return {
         "top_k": retrieval.top_k,
         "top_n": retrieval.top_n,
         "timeout_ms": retrieval.retrieval_timeout_ms,
+        "category_filter": retrieval.category_filter_enabled,
     }
 
 

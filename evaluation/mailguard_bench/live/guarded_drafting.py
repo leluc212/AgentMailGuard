@@ -173,7 +173,9 @@ class GuardedDraftingService(DraftingService):
 
     Takes DraftingService's keyword arguments plus the guard (a ``GuardBuild``, whose
     ``config`` names the audit lines), the audit file and, optionally, the generation token limit
-    and the query builder the L3b echo check should see (default: the ContextBuilder's own).
+    and the query builder the L3b echo check builds its query with (default: a builder with the
+    code's default configuration, not the ContextBuilder's own; the guard-worker passes one built
+    from the worker's retrieval settings, so the two agree).
     """
 
     def __init__(

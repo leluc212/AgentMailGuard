@@ -26,7 +26,17 @@ What the file holds, the same for every run apart from the model:
 - Gemini ``gemini-embedding-001`` at 1536 dimensions for every run. Its key is the Gemini key
   kept in .env as LLM__OPENAI_API_KEY, which is not the LLM key of a profile such as
   GPT-4o-mini; it is read at run time and never written to a tracked file.
-- The retrieval budget for a hosted embedding call, and the reranker settings.
+- The retrieval budget for a hosted embedding call, the reranker settings, and the retrieval
+  category filter switched off. The case knowledge documents are uploaded under the case's own
+  category while live triage chooses the category retrieval filters by, so with the filter on a
+  document filed under another category is never found (ADR-0013, accepted). Only the category
+  filter goes; the tenant filter stays, and every case runs in its own organization.
+- The category retrieval floor (``TRIAGE__CATEGORY_RETRIEVAL_FLOOR``) switched on. It is what
+  makes a reply routed to AI retrieve when its category does (ADR-0013). Only the triage
+  worker container reads it, so there is no host check; but Compose forwards it from .env, and
+  a leftover ``false`` there would silently take the RAG path out of the run, so it is pinned
+  here like the filter (Compose reads .env.stack after .env, and a shell value that differs is
+  refused).
 
 The file holds API keys, so it is written owner-only and only where git ignores it, and the
 keys are never printed. ``uv run`` does not load .env, so like the runner this reads it with
@@ -70,6 +80,8 @@ EMBEDDING_KEY_ENV = "LLM__OPENAI_API_KEY"
 # Not SUMMARIZATION__SUMMARIZER_MODEL: docker-compose.yml maps this name to it (see above).
 SUMMARIZER_MODEL_ENV = "BENCH_SUMMARIZER_MODEL"
 RETRIEVAL_TIMEOUT_MS = 3000
+CATEGORY_FILTER_ENABLED = "false"  # RETRIEVAL__CATEGORY_FILTER_ENABLED for every model profile
+CATEGORY_RETRIEVAL_FLOOR = "true"  # TRIAGE__CATEGORY_RETRIEVAL_FLOOR, the code default, pinned
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 RERANK_TIMEOUT_MS = 1000
 DEFAULT_LLM_TIMEOUT_S = 60.0
@@ -90,6 +102,7 @@ HOST_MUST_SET = (
     "EMBEDDING__API_KEY",
     "LLM__TIMEOUT_S",
     "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+    "RETRIEVAL__CATEGORY_FILTER_ENABLED",  # the code default, true, filters by category
 )
 # The code default is the container's value (design contract, packages A and B): unset is fine.
 HOST_MAY_OMIT = (
@@ -103,7 +116,9 @@ HOST_MAY_OMIT = (
 HOST_MUST_NOT_SET = ("ROUTING__CONFIGURED_CONSUMERS",)
 SUMMARIZER_MODEL_SETTING = "SUMMARIZATION__SUMMARIZER_MODEL"
 _SECRET_SETTINGS = frozenset({"EMBEDDING__API_KEY"})
-_FLAG_SETTINGS = frozenset({"EMBEDDING__MOCK", "RETRIEVAL__RERANK_ENABLED"})
+_FLAG_SETTINGS = frozenset(
+    {"EMBEDDING__MOCK", "RETRIEVAL__RERANK_ENABLED", "RETRIEVAL__CATEGORY_FILTER_ENABLED"}
+)
 _NUMBER_SETTINGS = frozenset(
     {
         "EMBEDDING__DIMENSION",
@@ -180,6 +195,8 @@ def render_stack_env(
         "EMBEDDING__BASE_URL": GEMINI_OPENAI_BASE_URL,
         "EMBEDDING__API_KEY": embedding_key,
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": str(RETRIEVAL_TIMEOUT_MS),
+        "RETRIEVAL__CATEGORY_FILTER_ENABLED": CATEGORY_FILTER_ENABLED,
+        "TRIAGE__CATEGORY_RETRIEVAL_FLOOR": CATEGORY_RETRIEVAL_FLOOR,
         "RETRIEVAL__RERANK_ENABLED": "true",
         "RETRIEVAL__RERANK_MODEL": RERANK_MODEL,
         "RETRIEVAL__RERANK_TIMEOUT_MS": str(RERANK_TIMEOUT_MS),
@@ -473,8 +490,16 @@ def run(argv: Sequence[str] | None = None) -> None:
         f"reranker {values['RETRIEVAL__RERANK_MODEL']}"
     )
     print(
+        "   retrieval category filter off (RETRIEVAL__CATEGORY_FILTER_ENABLED=false): the case "
+        "documents are filed under the case's own category, live triage picks the query's"
+    )
+    print(
+        "   category retrieval floor on (TRIAGE__CATEGORY_RETRIEVAL_FLOOR=true): a reply routed "
+        "to AI retrieves when its category does, whatever triage's model answered"
+    )
+    print(
         f"   host      {args.env_file} agrees, so the guard-worker and the runner read "
-        "the same embedding, retrieval budget, LLM timeout, summarizer and lanes"
+        "the same embedding, retrieval budget, category filter, LLM timeout, summarizer and lanes"
     )
     print(
         f"apply it to {', '.join(APP_SERVICES)} "

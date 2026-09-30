@@ -270,11 +270,13 @@ async def test_three_outcomes_are_mutually_exclusive_and_exhaustive(
             GateAction.PROCEED_RAG,
             JobState.QUEUED,
         ),
-        # Case 6: AI without retrieval -> Actionable AI Generation (Outcome 3)
+        # Case 6: AI without retrieval -> Actionable AI Generation (Outcome 3). scheduling is the
+        # replying category whose default is not to retrieve; for one that retrieves by default
+        # the category retrieval floor raises a stage's false (test_category_retrieval_floor.py).
         (
             Classification(
-                category="sales",
-                intent="followup",
+                category="scheduling",
+                intent="availability",
                 reply_required=True,
                 workflow_hint="ai",
                 retrieval_required=False,

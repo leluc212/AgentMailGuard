@@ -381,6 +381,14 @@ class RetrievalSettings(BaseModel):
     retrieval_timeout_ms: int = Field(
         default=3000, ge=10, description="Retrieval SLA timeout in milliseconds"
     )
+    category_filter_enabled: bool = Field(
+        default=True,
+        description=(
+            "Filter retrieval by the category triage assigned (R10.4, R12.4). False searches "
+            "every active document of the tenant whatever its category; the organization and "
+            "status filters stay. Only the live benchmark turns it off"
+        ),
+    )
 
 
 class BusinessDataSettings(BaseModel):
@@ -464,6 +472,14 @@ class TriageSettings(BaseModel):
     templates_path: str = Field(
         default="config/templates.yaml",
         description="Path to declarative response templates YAML (R6.13, R6.14)",
+    )
+    category_retrieval_floor: bool = Field(
+        default=True,
+        description=(
+            "A required reply routed to AI generation retrieves when its category's "
+            "default_retrieval_required (config/categories.yaml) is true, whatever the triage "
+            "stage said; false keeps each stage's own retrieval_required (R6.6, R12.4)"
+        ),
     )
 
     @model_validator(mode="after")

@@ -32,8 +32,9 @@ from evaluation.mailguard_bench.guard_build import GuardBuild
 from evaluation.mailguard_bench.guard_env import GuardEnvError, GuardPaths, WorktreeInfo
 from evaluation.mailguard_bench.live import guard_worker
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
-from packages.core.settings import AIWorkerSettings
+from packages.core.settings import AIWorkerSettings, RetrievalSettings
 from packages.llm import SinglePassGenerator
+from packages.retrieval.query_builder import QueryBuilderConfig
 from services.ai_worker import main as ai_main
 from services.ai_worker.consumer import AIWorkerConsumer
 from tests.stubs.worker_resources import fake_worker_resources
@@ -428,6 +429,7 @@ def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
         ("LLM__TIMEOUT_S", "60", "15", "llm_timeout_s"),
         ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", "3000", "500", "retrieval"),
         ("RETRIEVAL__RERANK_ENABLED", "true", "false", "reranker"),
+        ("RETRIEVAL__CATEGORY_FILTER_ENABLED", "false", "true", "retrieval"),
         (
             "EMBEDDING__BASE_URL",
             V2_EMBEDDING_ENV["EMBEDDING__BASE_URL"],
@@ -475,7 +477,17 @@ def test_the_meta_records_the_settings_the_worker_drafts_with(rig: Rig) -> None:
     }
     assert set(meta["reranker"]) == {"enabled", "model"}
     assert meta["reranker"]["enabled"] is True  # the setting's default: rerank when it can
-    assert meta["retrieval"] == {"top_k": 5, "top_n": 20, "timeout_ms": 3000}
+    assert meta["retrieval"] == {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": True,  # the setting's default: production filters by category
+    }
+    # The runner compares this block key by key with its own (live.run.retrieval_facts).
+    from evaluation.mailguard_bench.live.run import retrieval_facts
+    from packages.core.settings import AppSettings
+
+    assert meta["retrieval"] == retrieval_facts(AppSettings().retrieval)
     assert meta["llm_timeout_s"] == 60.0
     for fact in ("embedding", "reranker", "retrieval", "llm_timeout_s"):
         assert meta["fingerprint"][fact] == meta[fact]
@@ -673,6 +685,48 @@ async def test_the_components_are_the_ai_workers_with_the_guarded_drafting_facto
     await res.shutdown.trigger_shutdown("TEST")  # the HTTP clients close once the lanes drained
     assert provider.closed is True
     assert guard.guard_llm.inner.closed is True
+
+
+async def test_the_echo_check_builds_its_query_with_the_same_retrieval_settings_as_the_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The benchmark switches the category filter off (ADR-0013). The L3b echo check builds its
+    # own query from the drafting service, and its builder must carry the worker's retrieval
+    # settings like the ContextBuilder's (ai_worker.main) does: one configuration, so a later
+    # change that reads the query's filters cannot diverge between the two silently.
+    settings = AIWorkerSettings(
+        _env_file=None, retrieval=RetrievalSettings(category_filter_enabled=False)
+    )
+    res = fake_worker_resources(settings)
+
+    async def verify(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
+    monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
+    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: "the-counter")
+    seen: dict[str, Any] = {}
+
+    def build_consumers(_res: Any, **kwargs: Any) -> list[_Consumer]:
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(ai_main, "build_consumers", build_consumers)
+
+    await guard_worker.build_guarded_components(
+        res, guard=_stub_guard("C3"), audit_path=tmp_path / "audit__C3.jsonl"
+    )
+
+    service = seen["drafting_factory"](
+        generator=object(),
+        job_store=object(),
+        persistence=object(),
+        price_table={},
+        metrics=res.metrics,
+    )
+    assert service.query_builder.config == QueryBuilderConfig.from_settings(settings.retrieval)
+    assert service.query_builder.config.category_filter_enabled is False
+    await res.shutdown.trigger_shutdown("TEST")
 
 
 @NEEDS_DRAFTING_FACTORY

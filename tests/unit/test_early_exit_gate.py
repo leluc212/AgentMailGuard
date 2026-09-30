@@ -254,18 +254,25 @@ class TestReplyRequiredIsNeverDropped:
     """
 
     @pytest.mark.parametrize(
-        ("retrieval_required", "expected"),
-        [(True, GateAction.PROCEED_RAG), (False, GateAction.PROCEED_NO_RAG)],
+        ("category", "retrieval_required", "expected"),
+        [
+            ("general_inquiry", True, GateAction.PROCEED_RAG),
+            # scheduling's default is not to retrieve, so the stage's false stands; for
+            # general_inquiry the category retrieval floor would raise it
+            # (tests/unit/test_category_retrieval_floor.py).
+            ("scheduling", False, GateAction.PROCEED_NO_RAG),
+        ],
     )
     def test_none_hint_with_reply_required_goes_to_ai_generation(
         self,
         gate: EarlyExitGate,
         sample_job: Job,
+        category: str,
         retrieval_required: bool,
         expected: GateAction,
     ) -> None:
         classification = Classification(
-            category="general_inquiry",
+            category=category,
             intent="warranty_question",
             reply_required=True,
             retrieval_required=retrieval_required,

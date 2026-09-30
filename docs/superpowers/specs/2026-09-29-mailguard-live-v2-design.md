@@ -129,7 +129,7 @@ list below). Commit in your own worktree: `<type>(<scope>): <what> [task 7.20] [
   fields (from `generated_draft`, or from the guard audit line for guarded configs) plus
   `result.pipeline = {"transport": "services-v2", "job_state", "triage": {"decided_by",
   "category", "intent", "priority", "reply_required", "retrieval_required", "model_name",
-  "latency_ms", "gate_outcome"}, "reached_drafting", "summary_triggered", "rerank_applied",
+  "latency_ms", "gate_outcome", "retrieval_floor"}, "reached_drafting", "summary_triggered", "rerank_applied",
   "retrieval_degraded", "retrieval_underfilled", "timings_ms"}`. No draft (early exit) →
   `final_body=""`, `final_action="none"`, `reached_drafting=false`. `poison_retrieved` comes from the
   `context_built` event's chunk ids matched to the case's poisoned KB docs.

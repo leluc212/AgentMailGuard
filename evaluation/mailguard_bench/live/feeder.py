@@ -195,7 +195,9 @@ def kb_category(case: EvalCase) -> str:
 
     Retrieval filters ``d.category`` by the live triage category (RetrievalQueryBuilder), and
     triage emits canonical taxonomy names. v1's fixed classification made the case category
-    match by construction; live triage may still disagree, which shows in the triage table.
+    match by construction; live triage may still disagree, which shows in the triage table. The
+    live benchmark therefore runs with ``RETRIEVAL__CATEGORY_FILTER_ENABLED=false``
+    (stack_env.py), so a disagreement does not hide the documents.
     """
     return normalize_category(classification_for(case).category)
 

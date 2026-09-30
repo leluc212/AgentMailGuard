@@ -85,6 +85,7 @@ class PipelineMetrics:
     emails_classified_total: Counter
     emails_early_exit_total: Counter
     emails_templated_total: Counter
+    retrieval_floor_applied_total: Counter
     emails_generated_total: Counter
     triage_funnel_outcomes_total: Counter
     failed_jobs_total: Counter
@@ -169,6 +170,13 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
             "emails_templated_total",
             "Total emails resolved via deterministic template (zero LLM)",
             ["organization", "template_id"],
+            registry=reg,
+        ),
+        retrieval_floor_applied_total=Counter(
+            "retrieval_floor_applied_total",
+            "Replies routed to AI whose retrieval_required the category retrieval floor raised "
+            "(the stage said false, the category's default is true; ADR-0013)",
+            ["organization", "category", "decided_by"],
             registry=reg,
         ),
         emails_generated_total=Counter(

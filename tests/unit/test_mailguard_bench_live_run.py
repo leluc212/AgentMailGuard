@@ -942,10 +942,25 @@ def test_the_live_meta_keeps_the_v1_keys_and_adds_the_live_ones() -> None:
     assert meta["guard_preset"] == "C3" and meta["mailguard_commit"] == "c" * 40
     assert meta["rag_email_commit"] == "a" * 40 and meta["cases_sha256"] == "s" * 64
     assert meta["guard_models"] == "qwen2.5:7b-instruct" and meta["degraded_allowed"] is False
-    assert set(meta["retrieval"]) == {"top_k", "top_n", "timeout_ms"}
+    assert set(meta["retrieval"]) == {"top_k", "top_n", "timeout_ms", "category_filter"}
     assert meta["generation"]["model"] == meta["generation_model"]
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
     assert set(meta["fingerprint"]) == {*FINGERPRINT_KEYS, *LIVE_KEYS}
+
+
+def test_the_fingerprint_records_whether_retrieval_filters_by_category() -> None:
+    # RETRIEVAL__CATEGORY_FILTER_ENABLED changes what the run retrieves (ADR-0013, accepted), so
+    # a resume or a later config under the other setting is refused like any other change.
+    from packages.core.settings import AppSettings, RetrievalSettings
+
+    on = _meta("C3")
+    off = _meta(
+        "C3", settings=AppSettings(retrieval=RetrievalSettings(category_filter_enabled=False))
+    )
+
+    assert on["fingerprint"]["retrieval"]["category_filter"] is True
+    assert off["fingerprint"]["retrieval"]["category_filter"] is False
+    assert on["fingerprint"] != off["fingerprint"]
 
 
 def test_the_live_meta_records_the_prices_and_the_utility_rule_outside_the_fingerprint() -> None:
@@ -1156,6 +1171,19 @@ def test_a_guard_worker_that_runs_another_setup_than_the_runner_is_refused(
 
     with pytest.raises(LiveRunError, match=rf"{key}: the guard-worker has"):
         describe_guard("C3", **_worker_setup(tmp_path, overrides={key: other}))
+
+
+def test_a_guard_worker_with_another_category_filter_than_the_runner_is_refused(
+    tmp_path: Path,
+) -> None:
+    from evaluation.mailguard_bench.live.run import LiveRunError, describe_guard, retrieval_facts
+    from packages.core.settings import AppSettings
+
+    other = dict(retrieval_facts(AppSettings().retrieval))
+    other["category_filter"] = not other["category_filter"]
+
+    with pytest.raises(LiveRunError, match=r"retrieval: the guard-worker has"):
+        describe_guard("C3", **_worker_setup(tmp_path, overrides={"retrieval": other}))
 
 
 def test_every_difference_is_reported_at_once(tmp_path: Path) -> None:

@@ -31,6 +31,7 @@ HOST_ENV = {
     "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
     "EMBEDDING__API_KEY": GEMINI_KEY,
     "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
+    "RETRIEVAL__CATEGORY_FILTER_ENABLED": "false",
     "LLM__TIMEOUT_S": "60",
 }
 RUN = "r1"

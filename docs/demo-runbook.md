@@ -618,7 +618,7 @@ Run the models in that order, each one completely (all its configs, the retry pa
 
 **1. Once.** Do §9.8 step 1 (repo, `make up`, worktree, `make mailguard-prep`, `make mailguard-cases`, `make mailguard-smoke`), then `make up` again once the v2 code is on the branch: it rebuilds the images. That first build is slow and needs the network, because the CPU-only torch and the cross-encoder model are downloaded into the image; the containers never download them at runtime, and step 4 copies the model out of the image for the guard-worker, which is a host process. Then set the keys and the host-side settings in `.env` (never committed).
 
-The guard-worker and the runner are host processes: they read `.env` (and the shell), never `.env.stack`, while the containers get their settings from the stack env (step 3). `.env` must therefore say what the containers get. The corpus and the queries must use one embedding model, and C0 and the guarded configs one retrieval budget, one LLM timeout and one set of lane queues; otherwise the guarded configs run on other settings than C0 and nothing reports it. Step 3 refuses to write while `.env` disagrees, and step 5 prints both sides:
+The guard-worker and the runner are host processes: they read `.env` (and the shell), never `.env.stack`, while the containers get their settings from the stack env (step 3). `.env` must therefore say what the containers get. The corpus and the queries must use one embedding model, and C0 and the guarded configs one retrieval budget, one category-filter setting, one LLM timeout and one set of lane queues; otherwise the guarded configs run on other settings than C0 and nothing reports it. `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` is the one line whose value is not the default: each case's knowledge documents are uploaded under the case's own category while live triage picks the category retrieval filters by, so with the filter on a document filed under another category is never found (the live smoke of 2026-09-30 retrieved 0 documents for cases routed to retrieval). Only the category filter goes; every case runs in its own organization, so the tenant filter still isolates it (`docs/adr/0013-category-retrieval-floor-and-benchmark-category-filter.md`, accepted). Step 3 refuses to write while `.env` disagrees, and step 5 prints both sides:
 
 ```dotenv
 BENCH_OPENAI_API_KEY=<your OpenAI key>          # GPT-4o-mini only
@@ -629,6 +629,7 @@ EMBEDDING__DIMENSION=1536
 EMBEDDING__BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 EMBEDDING__API_KEY=<the same Gemini key>
 RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000            # the .env.example of before task 7.20 says 500: change it
+RETRIEVAL__CATEGORY_FILTER_ENABLED=false        # the .env.example says true (production): the case documents would be filtered out; the containers get false from the stack env
 LLM__TIMEOUT_S=60                               # the guard-worker's per-call timeout; the containers get 60 from the stack env
 ```
 
@@ -674,11 +675,11 @@ docker compose --env-file .env --env-file .env.stack up -d --no-deps api triage-
 docker compose ps api triage-worker knowledge-worker ai-worker     # wait until all four are healthy
 ```
 
-`.env.stack` gives those four containers the model's LLM settings (an endpoint on `localhost` becomes `host.docker.internal`), the same model as the summarizer (written as `BENCH_SUMMARIZER_MODEL`, which Compose maps to the containers' `SUMMARIZATION__SUMMARIZER_MODEL`, so a line of that name left in `.env` never reaches a container), Gemini `gemini-embedding-001` at 1536 dimensions with the Gemini key read from `.env`'s `LLM__OPENAI_API_KEY`, a 3000 ms retrieval budget, the reranker settings and a 60 s LLM timeout (`docs/configuration.md` §2.22). `--no-deps` and the service list keep Postgres, RabbitMQ and MinIO running, so no data is lost; the other app containers (mail-connector, email-worker, dispatch-worker, frontend) call no model and keep running as they are. Rules:
+`.env.stack` gives those four containers the model's LLM settings (an endpoint on `localhost` becomes `host.docker.internal`), the same model as the summarizer (written as `BENCH_SUMMARIZER_MODEL`, which Compose maps to the containers' `SUMMARIZATION__SUMMARIZER_MODEL`, so a line of that name left in `.env` never reaches a container), Gemini `gemini-embedding-001` at 1536 dimensions with the Gemini key read from `.env`'s `LLM__OPENAI_API_KEY`, a 3000 ms retrieval budget, the reranker settings, the retrieval category filter off and a 60 s LLM timeout (`docs/configuration.md` §2.22). `--no-deps` and the service list keep Postgres, RabbitMQ and MinIO running, so no data is lost; the other app containers (mail-connector, email-worker, dispatch-worker, frontend) call no model and keep running as they are. Rules:
 
 - The file holds API keys: it is git-ignored, written owner-only and never printed. Delete it after the last run (step 8).
 - `FAIL the shell sets ...` means a variable exported in your shell would win over the file (step 1). Unset it and run again; the message names the setting, never its value.
-- `FAIL the guard-worker and the runner are host processes ...` means `.env` (or the shell) would give them other settings than the containers get: it lists each setting and what it must be (a 500 ms retrieval budget from an old `.env`, a summarizer model, a `ROUTING__CONFIGURED_CONSUMERS` list, a missing embedding line). Fix `.env` as in step 1 and run again; nothing is written until it agrees.
+- `FAIL the guard-worker and the runner are host processes ...` means `.env` (or the shell) would give them other settings than the containers get: it lists each setting and what it must be (a 500 ms retrieval budget from an old `.env`, a summarizer model, a `ROUTING__CONFIGURED_CONSUMERS` list, a missing embedding line, a missing or `true` `RETRIEVAL__CATEGORY_FILTER_ENABLED`). Fix `.env` as in step 1 and run again; nothing is written until it agrees.
 - **Never run `make up`, or `docker compose up` without both `--env-file` flags, between two configs of one `RUN`.** It recreates the app containers from `.env` alone and drops this model's settings. `docker compose stop` and `docker compose start` keep a container's settings, and step 4 uses only those.
 - The next model gets its own `stack_env` run and command before its preflight; that recreates the four containers.
 
@@ -760,16 +761,16 @@ By hand, the switch is `docker compose stop ai-worker` before a guarded config, 
 
 ```bash
 for s in api triage-worker knowledge-worker ai-worker; do
-  docker compose exec -T $s sh -c 'echo "$SERVICE_NAME: llm=$LLM__FAST_MODEL summarizer=$SUMMARIZATION__SUMMARIZER_MODEL embedding=$EMBEDDING__MODEL_NAME/$EMBEDDING__DIMENSION mock=$EMBEDDING__MOCK budget=${RETRIEVAL__RETRIEVAL_TIMEOUT_MS}ms timeout=${LLM__TIMEOUT_S}s"'
+  docker compose exec -T $s sh -c 'echo "$SERVICE_NAME: llm=$LLM__FAST_MODEL summarizer=$SUMMARIZATION__SUMMARIZER_MODEL embedding=$EMBEDDING__MODEL_NAME/$EMBEDDING__DIMENSION mock=$EMBEDDING__MOCK budget=${RETRIEVAL__RETRIEVAL_TIMEOUT_MS}ms catfilter=${RETRIEVAL__CATEGORY_FILTER_ENABLED} floor=${TRIAGE__CATEGORY_RETRIEVAL_FLOOR} timeout=${LLM__TIMEOUT_S}s"'
 done
 docker compose exec -T ai-worker sh -c 'ls "$RETRIEVAL__RERANK_MODEL_DIR"'
 docker compose exec -T ai-worker sh -c 'curl -sS "${LLM__OPENAI_BASE_URL%/v1}/api/version"'   # local models only
 make mailguard-probe MODEL=$M                                                   # ONE guard-judge call; must print `ok live probe`
 ```
 
-Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms` and `timeout=60.0s`; the Ollama call prints its version as JSON. The `ls` of the reranker folder must list `models--cross-encoder--ms-marco-MiniLM-L-6-v2`, and the host's copy of it (step 4) must load with no network: the `uv run python -c ...` line of step 4 prints `ok reranker model loads offline`.
+Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms`, `catfilter=false`, `floor=true` and `timeout=60.0s`; the Ollama call prints its version as JSON. Every service prints the forwarded value, but only the `ai-worker`'s `catfilter` (it builds the retrieval query) and only the `triage-worker`'s `floor` (it runs the gate) change what the run does: the other lines are not evidence of behaviour there (the `api`'s `/v1/search/debug` ignores the switch on purpose, ADR-0013). The `ls` of the reranker folder must list `models--cross-encoder--ms-marco-MiniLM-L-6-v2`, and the host's copy of it (step 4) must load with no network: the `uv run python -c ...` line of step 4 prints `ok reranker model loads offline`.
 
-That checks C0 only: the guard-worker, a host process, reads `.env` and not `.env.stack`. Check that it would run on the settings the ai-worker container runs on. The probe below prints the model, the timeout, the summarizer model, the embedding, the retrieval budget and the lane queues the ai-worker consumes. It runs in the container, and on the host with the model profile applied first, as the guard-worker does; `diff` must print nothing. (The ai-worker container must be running for it: `docker compose start ai-worker` if a guarded config stopped it.)
+That checks C0 only: the guard-worker, a host process, reads `.env` and not `.env.stack`. Check that it would run on the settings the ai-worker container runs on. The probe below prints the model, the timeout, the summarizer model, the embedding, the retrieval budget, whether retrieval filters by category and the lane queues the ai-worker consumes. It runs in the container, and on the host with the model profile applied first, as the guard-worker does; `diff` must print nothing. (The ai-worker container must be running for it: `docker compose start ai-worker` if a guarded config stopped it.)
 
 ```bash
 PROBE=$(cat <<'PY'
@@ -785,13 +786,14 @@ print("llm:", s.llm.fast_model, "timeout", s.llm.timeout_s)
 print("summarizer:", (m.summarizer_model if "summarizer_model" in m.model_fields_set else None) or s.llm.fast_model)
 print("embedding:", s.embedding.model_name, s.embedding.dimension, "mock", s.embedding.mock, s.embedding.base_url)
 print("retrieval budget:", s.retrieval.retrieval_timeout_ms, "ms")
+print("category filter:", s.retrieval.category_filter_enabled)
 print("lane queues:", *sorted(resolve_lane_queues(s)))
 PY
 )
 diff <(docker compose exec -T ai-worker python -c "$PROBE") <(mg python -c "$PROBE" "$M") && echo "the guard-worker and the ai-worker container read the same settings"
 ```
 
-A line that differs names the setting: `retrieval budget:` 500 against 3000, `summarizer:` `gpt-4o-mini` against the run's model, `lane queues:` without `email.administration.priority`. Fix `.env` as in step 1 (step 3 refuses the same disagreements) and run the probe again. Then run the first five cases of **every config** (C0 to C7: v2 is done when every config is shown working live) on a throwaway `RUN`, and print what each case did:
+A line that differs names the setting: `retrieval budget:` 500 against 3000, `category filter:` True against False, `summarizer:` `gpt-4o-mini` against the run's model, `lane queues:` without `email.administration.priority`. Fix `.env` as in step 1 (step 3 refuses the same disagreements) and run the probe again. Then run the first five cases of **every config** (C0 to C7: v2 is done when every config is shown working live) on a throwaway `RUN`, and print what each case did:
 
 ```bash
 (   # a subshell: the throwaway RUN does not replace the real one
@@ -853,7 +855,7 @@ rm .env.stack      # it holds API keys
 make up            # recreates the app containers from .env alone
 ```
 
-`make up` gives the app containers `.env`'s own settings, and Compose forwards two groups of the lines you set in step 1: the Gemini embedding lines (`EMBEDDING__*`) and `LLM__TIMEOUT_S=60`. Comment out the embedding lines for the offline defaults (fake LLM, mock embedder) and set `LLM__TIMEOUT_S` back to `15.0` (or delete it), or every LLM call of the normal stack keeps the benchmark's 60 s timeout. `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` is the default now and may stay. Commit the results as in §9.7 (`analysis/` now also holds the `meaning__<config>.jsonl` files; a scheme-v2 `RUN` has no `analyses.md`, so leave it out of the `git add`). If you set up the Ollama bridge only for this benchmark, undo it as in step 2. When a run misbehaves:
+`make up` gives the app containers `.env`'s own settings, and Compose forwards three groups of the lines you set in step 1: the Gemini embedding lines (`EMBEDDING__*`), `LLM__TIMEOUT_S=60` and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false`. Comment out the embedding lines for the offline defaults (fake LLM, mock embedder), set `LLM__TIMEOUT_S` back to `15.0` (or delete it), or every LLM call of the normal stack keeps the benchmark's 60 s timeout, and set `RETRIEVAL__CATEGORY_FILTER_ENABLED` back to `true` (or delete the line), or the normal stack keeps searching without the category filter. `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` is the default now and may stay. Commit the results as in §9.7 (`analysis/` now also holds the `meaning__<config>.jsonl` files; a scheme-v2 `RUN` has no `analyses.md`, so leave it out of the `git add`). If you set up the Ollama bridge only for this benchmark, undo it as in step 2. When a run misbehaves:
 
 - **The runner refuses to start** and names a missing or extra drafting consumer: switch as in step 4.
 - **The guard-worker downloads the reranker model** (its log shows a Hugging Face download, or a case that retrieved shows `rerank: False` in a guarded config only): `RETRIEVAL__RERANK_MODEL_DIR` did not reach it, or `.cache/reranker` is missing or from an older image. Copy it again and start the guard-worker as in step 4 (the kit does both, and stops with a `FAIL` when it cannot copy).
