@@ -1,6 +1,7 @@
 """AgentMailGuard benchmark runner hosted by rag-email (task 7.19; spec §4, §4b, §5; ADR-0010).
 
     make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 [LIMIT=n]
 
 Owner-run live evaluation (real Gemini calls). It is never part of ``make ci`` (R24.5).
 For each case it opens a throwaway organization, ingests the case KB and builds the real
@@ -12,6 +13,8 @@ ContextPackage. Then (owner decision 2026-09-29, plan BINDING section):
   ``generate_from_messages`` call.
 - ``C0T`` (the guard template, ``preset("C0")``), ``C1``, ``C2``: the same guarded path with
   fewer layers; C1/C2 run the ablation subset.
+- ``C3-L1`` ... ``C3-L5`` (layer ablation, task 7.22): the guard's own "C3 minus one layer"
+  preset of the same name, on the full case set exactly like C3.
 
 Rows are appended per case, recorded case ids are skipped on resume, HTTP 429 backs off,
 and a failure is an ``error`` row, never a defence.
@@ -50,6 +53,7 @@ from evaluation.mailguard_bench.cases import (
     load_case_set,
 )
 from evaluation.mailguard_bench.guard_build import (
+    ABLATION_CONFIGS,
     BENCH_PRESETS,
     NATIVE_CONFIG,
     GuardBuild,
@@ -255,6 +259,8 @@ def filter_cases(
 RESULTS_ROOT = REPO_ROOT / "evaluation" / "results" / "mailguard_bench"
 # C0 = native rag-email; C0T/C1/C2/C3 = AgentMailGuard (guard_build.GUARDED_CONFIGS)
 BENCH_CONFIGS = (NATIVE_CONFIG, *BENCH_PRESETS)
+# Every config the CLI runs: the v1 configs plus the layer ablation (C3 minus one layer).
+RUNNABLE_CONFIGS = (*BENCH_CONFIGS, *ABLATION_CONFIGS)
 FULL_RUN_SETS = ("llmail_attack", "llmail_benign", "rag_attack")
 ABLATION_SETS = ("ablation_attack", "llmail_benign")  # spec §4b D2: C1/C2 subset + same benign
 RUN_CASES_SCHEMA = "mailguard-bench-run-cases/v1"
@@ -329,7 +335,7 @@ class HostCaseExecutor:
 
 
 def config_case_ids(manifest: Mapping[str, Any], config_name: str) -> list[str]:
-    """Case ids one config runs: C0/C0T/C3 every pinned case, C1/C2 the ablation subset."""
+    """Case ids one config runs: C0/C0T/C3 and C3-L* every pinned case, C1/C2 the subset."""
     sets: Mapping[str, list[str]] = manifest["sets"]
     names = ABLATION_SETS if config_name in ("C1", "C2") else FULL_RUN_SETS
     seen: set[str] = set()
@@ -457,7 +463,7 @@ def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[s
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-    parser.add_argument("--config", required=True, choices=BENCH_CONFIGS)
+    parser.add_argument("--config", required=True, choices=RUNNABLE_CONFIGS)
     parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
     parser.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIR)
     parser.add_argument("--limit", type=int, default=None, help="first N selected cases (smoke)")
