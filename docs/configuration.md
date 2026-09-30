@@ -349,7 +349,7 @@ Under Docker Compose only `ROUTER_FORCE_SINGLE_TIER` and `ROUTER_CONFIDENCE_THRE
 | `ROUTER_THREAD_MESSAGES_THRESHOLD` | `integer` | `5` | $\ge 1$ | Thread message count threshold triggering escalation (R15.3) |
 | `ROUTER_THREAD_TOKENS_THRESHOLD` | `integer` | `2000` | $\ge 1$ | Thread token estimate threshold triggering escalation (R15.3) |
 | `ROUTER_MIN_RETRIEVED_CHUNKS` | `integer` | `2` | $\ge 0$ | Minimum relevant chunks required to avoid escalation (R15.3) |
-| `ROUTER_MIN_RELEVANCE_SCORE` | `float` | `0.50` | 0.0–1.0 | Minimum relevance score threshold for retrieved chunks (R15.3) |
+| `ROUTER_MIN_RELEVANCE_SCORE` | `float` | `0.50` | 0.0–1.0 | Minimum relevance score (a probability) a reranked chunk must reach to count as evidence (R15.3). Applied only when the cross-encoder rerank ran (`ContextPackage.rerank_applied`); chunks that kept their RRF order are only counted against `ROUTER_MIN_RETRIEVED_CHUNKS`, because an RRF score (at most 2/61) is not a probability (task 7.21) |
 | `ROUTER_MULTIPLE_ACTIONS_THRESHOLD` | `integer` | `2` | $\ge 1$ | Count of detected requested actions triggering escalation (R15.3) |
 | `ROUTER_CONTEXT_TOKENS_THRESHOLD` | `integer` | `3500` | $\ge 1$ | Total context token estimate triggering escalation (R15.3) |
 | `ROUTER_MAX_ESCALATIONS_PER_JOB` | `integer` | `1` | $\ge 0$ | Maximum allowed escalations per job to prevent retry loops (R15.5) |

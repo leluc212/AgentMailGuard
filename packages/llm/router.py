@@ -353,25 +353,36 @@ class ComplexityRouter:
                     },
                 )
 
-            qualifying_chunks = sum(
-                1
-                for c in context.retrieved_chunks
-                if self._extract_chunk_score(c) >= self.settings.min_relevance_score
-            )
+            # The relevance bar is a probability; only a cross-encoder rerank produces one. A
+            # chunk that was not reranked carries an RRF fused score (at most 2/61), which never
+            # reaches the bar, so without a rerank only the chunk count is checked (R15.3,
+            # ADR-0012 decision 5, task 7.21).
+            relevance_applies = context.rerank_applied is True
+            if relevance_applies:
+                qualifying_chunks = sum(
+                    1
+                    for c in context.retrieved_chunks
+                    if self._extract_chunk_score(c) >= self.settings.min_relevance_score
+                )
+            else:
+                qualifying_chunks = len(context.retrieved_chunks)
             if qualifying_chunks < self.settings.min_retrieved_chunks:
                 reason = EscalationReason.INSUFFICIENT_RETRIEVAL_EVIDENCE
                 self._record_escalation_metric(reason, escalated_tier)
+                details: dict[str, Any] = {
+                    "trigger": "insufficient_retrieval_evidence",
+                    "qualifying_chunks": qualifying_chunks,
+                    "min_required": self.settings.min_retrieved_chunks,
+                    "rerank_applied": relevance_applies,
+                }
+                if relevance_applies:
+                    details["min_relevance_score"] = self.settings.min_relevance_score
                 return RoutingDecision(
                     tier=escalated_tier,
                     model=self._resolve_model(escalated_tier),
                     is_escalated=True,
                     escalation_reason=reason,
-                    details={
-                        "trigger": "insufficient_retrieval_evidence",
-                        "qualifying_chunks": qualifying_chunks,
-                        "min_required": self.settings.min_retrieved_chunks,
-                        "min_relevance_score": self.settings.min_relevance_score,
-                    },
+                    details=details,
                 )
 
         # Trigger 4: Multiple requested actions

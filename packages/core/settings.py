@@ -781,7 +781,10 @@ class ComplexityRouterSettings(BaseModel):
         default=0.50,
         ge=0.0,
         le=1.0,
-        description="Minimum relevance score threshold for retrieved chunks (R15.3)",
+        description=(
+            "Minimum relevance score (a probability) a reranked chunk must reach; applies only "
+            "when the cross-encoder rerank ran, never to RRF-ordered chunks (R15.3, task 7.21)"
+        ),
     )
     multiple_actions_threshold: int = Field(
         default=2,
