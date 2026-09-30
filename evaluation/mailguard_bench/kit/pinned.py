@@ -1,9 +1,12 @@
-"""The benchmark inputs that ship in git, and their verification (task 7.23; R22.12).
+"""The pinned benchmark inputs and their verification (task 7.25; R22.12).
 
 The teammate does not rebuild the 550 benchmark cases (``make mailguard-cases``) or train the L1
-classifier (``make mailguard-prep``): both are committed, byte for byte, and pinned here by sha256.
-``verify`` names everything wrong with a checkout; ``check_scikit_learn`` covers the one thing a
-byte-identical classifier still depends on, the scikit-learn version it was pickled with.
+classifier (``make mailguard-prep``): both are pinned here by sha256. The case set and its
+companions are committed. The classifier is **not**: ADR-0012 decision 15 keeps it out of git
+(42 % of its training rows come from a dataset that declares no license), so the owner sends the
+file privately and the teammate puts it in ``pinned/``. ``verify`` names everything wrong with a
+checkout, a missing or different classifier included; ``check_scikit_learn`` covers the one thing
+a byte-identical classifier still depends on, the scikit-learn version it was pickled with.
 
 This module never imports the guard or scikit-learn (CI imports it and does not install the guard).
 """
@@ -68,15 +71,30 @@ def parse_sha256sums(text: str) -> dict[str, str]:
     return entries
 
 
-def _hash_problem(root: Path, pinned: PinnedFile) -> str | None:
-    """Why ``pinned`` is not what the repository pins (None when it is)."""
+def classifier_fix(spec: PinnedSpec = PINNED) -> str:
+    """What to do about a classifier that is missing or is another file (ADR-0012 decision 15)."""
+    classifier = spec.classifier
+    return (
+        f"ask the owner for {classifier.path.name} (it is not in git, see NOTICE.md), "
+        f"put it in {classifier.path.parent.as_posix()}/; its sha256 must be {classifier.sha256}"
+    )
+
+
+def _hash_problem(root: Path, pinned: PinnedFile, *, restore: str | None = None) -> str | None:
+    """Why ``pinned`` is not what the repository pins (None when it is).
+
+    ``restore`` is what to do about a missing or different file; the default is for files in git.
+    """
     path = root / pinned.path
+    fix = restore or f"it ships in git, run `git checkout -- {pinned.path}`"
     if not path.is_file():
-        return f"{pinned.path} is missing; it ships in git, run `git checkout -- {pinned.path}`"
+        return f"{pinned.path} is missing; {fix}"
     found = sha256_file(path)
     if found == pinned.sha256:
         return None
     message = f"{pinned.path} has sha256 {found}, the pinned one is {pinned.sha256}"
+    if restore is not None:
+        return f"{message}; {restore}"
     if b"\r\n" in path.read_bytes()[: 1 << 20] and path.suffix in {".jsonl", ".json"}:
         message += (
             "; the file has CRLF line endings, so git converted it on checkout: run "
@@ -106,9 +124,12 @@ def _sums_problems(root: Path, spec: PinnedSpec) -> list[str]:
                 f"{spec.sums} lists {digest or 'nothing'} for {path.name}, "
                 f"the pinned sha256 is {expected}"
             )
+    classifier_path = (root / spec.classifier.path).resolve()
     for name, digest in entries.items():
         target = base / name
         if not target.is_file():
+            if target.resolve() == classifier_path:
+                continue  # not in git: classifier_problem reports its absence, with the fix
             problems.append(f"{spec.sums} names {name}, which is missing")
         elif sha256_file(target) != digest:
             problems.append(f"{name} does not match its line in {spec.sums}")
@@ -131,17 +152,30 @@ def _manifest_problems(root: Path, spec: PinnedSpec) -> list[str]:
     return []
 
 
-def verify(root: Path = REPO_ROOT, spec: PinnedSpec = PINNED) -> list[str]:
-    """Everything wrong with the shipped inputs of the checkout at ``root`` (empty when none)."""
+def classifier_problem(root: Path = REPO_ROOT, spec: PinnedSpec = PINNED) -> str | None:
+    """Why the owner-supplied L1 classifier is not usable (None when it is the pinned file)."""
+    return _hash_problem(root, spec.classifier, restore=classifier_fix(spec))
+
+
+def verify_committed(root: Path = REPO_ROOT, spec: PinnedSpec = PINNED) -> list[str]:
+    """Everything wrong with the inputs that ship in git (every pinned file but the classifier)."""
     problems: list[str] = []
-    for pinned in (spec.cases, spec.classifier):
-        problem = _hash_problem(root, pinned)
-        if problem:
-            problems.append(problem)
+    cases = _hash_problem(root, spec.cases)
+    if cases:
+        problems.append(cases)
     if not (root / spec.metrics).is_file():
         problems.append(f"{spec.metrics} is missing; it ships in git")
     problems.extend(_manifest_problems(root, spec))
     problems.extend(_sums_problems(root, spec))
+    return problems
+
+
+def verify(root: Path = REPO_ROOT, spec: PinnedSpec = PINNED) -> list[str]:
+    """Everything wrong with the pinned inputs of the checkout at ``root`` (empty when none)."""
+    problems = verify_committed(root, spec)
+    classifier = classifier_problem(root, spec)
+    if classifier:
+        problems.append(classifier)
     return problems
 
 
@@ -173,7 +207,10 @@ __all__ = [
     "PinnedFile",
     "PinnedSpec",
     "check_scikit_learn",
+    "classifier_fix",
+    "classifier_problem",
     "installed_scikit_learn",
     "parse_sha256sums",
     "verify",
+    "verify_committed",
 ]

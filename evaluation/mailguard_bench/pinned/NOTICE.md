@@ -1,16 +1,18 @@
 # Pinned benchmark inputs: sources and licenses
 
-These files are committed so that nobody has to rebuild them (`make mailguard-prep` and
-`make mailguard-cases` are not needed to run the v2 benchmark). `SHA256SUMS` lists every
-file below; `cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS` checks them, and
-`make bench-doctor` does the same.
+The case file, its manifest and the classifier's metrics are committed, so nobody has to rebuild
+them (`make mailguard-cases` is not needed to run the v2 benchmark). **The L1 classifier is not in
+git and is not redistributed** (see "Why the classifier is not in git" below): the owner sends it to
+the teammate privately, and it goes in this folder. `SHA256SUMS` lists every file below, the
+classifier included; `cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS` checks them
+once the classifier is here, and `make bench-doctor` does the same and names what is missing.
 
-| File | What it is |
-|---|---|
-| `evaluation/datasets/mailguard/cases.jsonl` | The 550 benchmark cases (300 LLMail-Inject attack emails, 150 benign emails and 100 RAG-poisoning cases), seed 20260930. |
-| `evaluation/datasets/mailguard/manifest.json` | Which case ids make up each set, and how they were drawn. |
-| `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib` | The Layer-1 injection classifier (TF-IDF word and character n-grams into a calibrated logistic regression), built with scikit-learn 1.9.1. |
-| `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.metrics.json` | Its validation and test metrics, written by the training script. |
+| File | In git | What it is |
+|---|---|---|
+| `evaluation/datasets/mailguard/cases.jsonl` | yes | The 550 benchmark cases (300 LLMail-Inject attack emails, 150 benign emails and 100 RAG-poisoning cases), seed 20260930. sha256 `c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19`. |
+| `evaluation/datasets/mailguard/manifest.json` | yes | Which case ids make up each set, and how they were drawn. |
+| `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib` | **no** (git-ignored) | The Layer-1 injection classifier (TF-IDF word and character n-grams into a calibrated logistic regression), built with scikit-learn 1.9.1. Its sha256 must be `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103`; the kit refuses a file with any other. |
+| `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.metrics.json` | yes | Its validation and test metrics, written by the training script (numbers only, no training text). |
 
 ## Where the benchmark cases come from
 
@@ -18,7 +20,7 @@ All case text is taken from the public datasets below by the guard's own builder
 (`mailguard.datasets.build_email_benchmark`, `build_rag_poison`, selected by
 `evaluation/mailguard_bench/build_cases.py`); the licenses are those recorded in the guard's
 dataset registry (`mailguard/datasets/sources.py`, `SOURCES`); the first two were checked against
-their pages on 2026-09-30.
+their pages on 2026-09-30 and their license files were read again on 2026-10-01 (next section).
 
 | Source | Used for | License | Link |
 |---|---|---|---|
@@ -32,7 +34,7 @@ for measuring a defense and are never sent anywhere (the benchmark only drafts r
 `manifest.json` records `mailguard_commit` 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0: the guard
 commit whose builder drew the cases (the v1 guard). The case set is the same for v1 and v2.
 
-## The L1 classifier
+## The L1 classifier (not in git)
 
 Trained by the guard's `training.train_l1_classifier` from the corpus that
 `mailguard.datasets.build_l1_corpus` builds (24,382 texts; 19,463 train rows). It was built on
@@ -60,11 +62,92 @@ Training corpus sources (from the guard's registry):
 | SetFit/enron_spam (ham half; Enron corpus) | public domain (FERC release) | https://huggingface.co/datasets/SetFit/enron_spam |
 | Bitext customer-support dataset | CDLA-Sharing-1.0 | https://huggingface.co/datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset |
 
+## Why the classifier is not in git
+
 **xTRam1/safe-guard-prompt-injection declares no license** (checked 2026-09-30); its 10,127 rows
 are 42% of the training corpus. The guard's registry says it is "used for training only, not
-redistributed". The training texts are not shipped here; the classifier is a statistical model
-whose vocabulary was learned partly from them. Whether shipping that model is acceptable is the
-owner's decision, not something this file settles.
+redistributed". The training texts are not shipped here, and the classifier is a statistical model
+whose vocabulary was learned partly from them. ADR-0012 decision 15 (2026-10-01) therefore keeps
+the classifier out of git and **not redistributed**: no commit, branch, release or public link holds
+it. The owner sends `l1_injection_clf_v1.joblib` to the teammate privately; the teammate puts it in
+`evaluation/mailguard_bench/pinned/` (the path is git-ignored, so `git add .` cannot pick it up).
+This repository records only its sha256 (above and in `SHA256SUMS`), and `kit/pinned.py`, the
+doctor and `make bench-setup` refuse a missing file or a file with another sha256.
 
 The raw datasets are not needed at run time: the benchmark reads only `cases.jsonl` and the
 classifier (see the guide, "What the run needs").
+
+## License notices of the committed case file
+
+`cases.jsonl` is committed. Its attack and benign emails come from Microsoft's LLMail-Inject
+challenge data and its RAG-poisoning cases from PoisonedRAG; both are MIT-licensed, and MIT asks that
+the copyright and permission notice be included with copies. Both texts below were fetched from the
+repositories' `LICENSE` files on 2026-10-01 and are reproduced verbatim (only the code-block
+indentation of this Markdown is added).
+
+### LLMail-Inject challenge (Microsoft)
+
+Source of the text: https://github.com/microsoft/llmail-inject-challenge/blob/main/LICENSE (file
+`LICENSE` of the `main` branch, git blob `9e841e7a26e4eb057b24511e7b92d42b257a80e5`). The attack
+and benign emails themselves are read from the dataset
+https://huggingface.co/datasets/microsoft/llmail-inject-challenge; its card declares `license: mit`
+in its metadata and carries no copyright line of its own (the card points to the challenge
+repository above as the accompanying code), so the repository's notice is the only one that exists
+for it.
+
+```text
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+```
+
+### PoisonedRAG (Zou et al.; repository of Runpeng Geng)
+
+Source of the text: https://github.com/sleeepeer/PoisonedRAG/blob/main/LICENSE (file `LICENSE` of the
+`main` branch, git blob `445b053a0e2c2827732eb8ea8f16cbde4f92f597`). The poisoned passages come from
+that repository's `results/adv_targeted_results/` files.
+
+```text
+MIT License
+
+Copyright (c) 2024 Runpeng Geng
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The third source, the AgentMailGuard seed knowledge base and poison templates, was written for this
+project (MIT, AgentMailGuard's `pyproject.toml`).
