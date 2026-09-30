@@ -225,6 +225,46 @@ def test_the_classifier_is_git_ignored_so_that_it_is_never_committed() -> None:
     assert result.returncode == 0, "add the classifier's exact path to .gitignore"
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "l1_injection_clf_v1 (1).joblib",  # a browser-renamed download
+        "l1_injection_clf_v1.joblib.bak.joblib",
+        "backup-l1.joblib",
+    ],
+)
+def test_any_joblib_dropped_in_pinned_is_git_ignored(name: str) -> None:
+    """A renamed copy of the classifier must not be stageable by `git add .` either."""
+    path = pinned.PINNED_DIR / name
+    result = _git("check-ignore", str(path))
+    assert result.returncode == 0, f"{path} would be staged by git add -A"
+
+
+def test_the_notice_names_the_question_datasets_behind_the_poisoned_cases() -> None:
+    """The 89 PoisonedRAG cases carry question text from HotpotQA, NQ and MS MARCO."""
+    notice = (pinned.REPO_ROOT / pinned.PINNED_DIR / "NOTICE.md").read_text(encoding="utf-8")
+    assert "CC BY-SA 4.0" in notice and "https://hotpotqa.github.io/" in notice
+    assert "CC BY-SA 3.0" in notice and "natural_questions" in notice
+    assert "non-commercial research purposes only" in notice
+    assert "https://microsoft.github.io/msmarco/" in notice
+    assert "attack-prag-hotpotqa-" in notice and "attack-prag-nq-" in notice
+    assert "attack-prag-msmarco-" in notice
+    assert "owner" in notice.lower() and "decide" in notice.lower()
+
+
+def test_the_case_file_really_has_the_three_question_dataset_prefixes() -> None:
+    """The NOTICE counts (30, 29, 30) must match what is committed."""
+    counts = {"hotpotqa": 0, "nq": 0, "msmarco": 0}
+    with (pinned.REPO_ROOT / pinned.PINNED.cases.path).open(encoding="utf-8", newline="\n") as fh:
+        lines = [line for line in fh if line.strip()]
+    for line in lines:
+        case_id = json.loads(line)["case_id"]
+        for name in counts:
+            if case_id.startswith(f"attack-prag-{name}-"):
+                counts[name] += 1
+    assert counts == {"hotpotqa": 30, "nq": 29, "msmarco": 30}
+
+
 def test_the_classifier_is_not_tracked_by_git() -> None:
     result = _git("ls-files", "--", str(pinned.PINNED.classifier.path))
     assert result.returncode == 0 and result.stdout == ""

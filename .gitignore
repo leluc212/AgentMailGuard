@@ -103,5 +103,6 @@ Thumbs.db
 # evaluation/datasets/mailguard/cases.jsonl + manifest.json and evaluation/mailguard_bench/pinned/
 # (metrics, SHA256SUMS, NOTICE.md) are committed, so nothing to list for them; a test checks they
 # are tracked. The L1 classifier is NOT redistributed (ADR-0012 decision 15): the owner sends it
-# privately and it sits in pinned/ untracked; this exact path keeps it out of every commit.
-evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib
+# privately and it sits in pinned/ untracked; every .joblib in that folder is ignored, so a
+# browser-renamed copy ("l1_injection_clf_v1 (1).joblib") cannot be staged by `git add .` either.
+evaluation/mailguard_bench/pinned/*.joblib

@@ -25,7 +25,7 @@ their pages on 2026-09-30 and their license files were read again on 2026-10-01 
 | Source | Used for | License | Link |
 |---|---|---|---|
 | LLMail-Inject challenge, phase 2 (Microsoft; Abdelnabi et al., 2025) | 300 attack emails, 150 benign emails | MIT | https://huggingface.co/datasets/microsoft/llmail-inject-challenge |
-| PoisonedRAG (Zou et al., USENIX Security 2025) | 89 poisoned-passage cases | MIT | https://github.com/sleeepeer/PoisonedRAG |
+| PoisonedRAG (Zou et al., USENIX Security 2025) | 89 poisoned-passage cases | MIT for the attack passages; the questions inside them come from HotpotQA (CC BY-SA 4.0), Natural Questions (CC BY-SA 3.0) and MS MARCO (non-commercial research only), see "The question text" below | https://github.com/sleeepeer/PoisonedRAG |
 | AgentMailGuard seed knowledge base and poison templates (written for this project) | 11 cases | the project's own (AgentMailGuard `pyproject.toml`: MIT) | https://github.com/leluc212/AgentMailGuard |
 
 The attack emails are the attacks that Microsoft's challenge participants submitted; they are data
@@ -80,7 +80,8 @@ classifier (see the guide, "What the run needs").
 ## License notices of the committed case file
 
 `cases.jsonl` is committed. Its attack and benign emails come from Microsoft's LLMail-Inject
-challenge data and its RAG-poisoning cases from PoisonedRAG; both are MIT-licensed, and MIT asks that
+challenge data and its RAG-poisoning cases from PoisonedRAG; both are MIT-licensed (the question
+text in the poisoning cases has its own terms, see the section after the two notices), and MIT asks that
 the copyright and permission notice be included with copies. Both texts below were fetched from the
 repositories' `LICENSE` files on 2026-10-01 and are reproduced verbatim (only the code-block
 indentation of this Markdown is added).
@@ -148,6 +149,32 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### The question text inside the 89 PoisonedRAG cases (HotpotQA, Natural Questions, MS MARCO)
+
+PoisonedRAG builds its poisoned passages for questions taken from three public question-answering
+datasets, and every one of the 89 committed cases carries that question: the case ids are
+`attack-prag-hotpotqa-*` (30 cases), `attack-prag-nq-*` (29) and `attack-prag-msmarco-*` (30), and
+each poisoned passage in them starts with the question text (for example "what day is groundhog's
+day?"). The PoisonedRAG MIT license above covers the attack passages; it does not cover the question
+text, which keeps the terms of its own dataset. Read on 2026-10-01 from the datasets' own pages:
+
+| Dataset | Questions in the cases | Terms | Where read |
+|---|---|---|---|
+| HotpotQA (Yang et al., EMNLP 2018) | 30 | CC BY-SA 4.0: "HotpotQA is distributed under a CC BY-SA 4.0 License." Attribution: cite Yang et al. (2018), *HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering*, EMNLP 2018. | https://hotpotqa.github.io/ |
+| Natural Questions (Kwiatkowski et al., TACL 2019) | 29 | CC BY-SA 3.0 (the Hugging Face dataset card's Licensing Information: "Creative Commons Attribution-ShareAlike 3.0 Unported"; the Google code repository itself is Apache-2.0, which covers the code and not the data). Attribution: cite Kwiatkowski et al. (2019), *Natural Questions: a Benchmark for Question Answering Research*, TACL. | https://huggingface.co/datasets/google-research-datasets/natural_questions |
+| MS MARCO (Microsoft) | 30 | Non-commercial research only: "The MS MARCO datasets are intended for non-commercial research purposes only to promote advancement in the field of artificial intelligence and related areas, and is made available free of charge without extending any license or other intellectual property rights." | https://microsoft.github.io/msmarco/ |
+
+What this means for the repository: the CC BY-SA terms ask for attribution (above) and, if the text
+is redistributed in an adapted form, for the same license on the adaptation; the MS MARCO terms
+allow non-commercial research use only. This benchmark is a research measurement, which is the use
+MS MARCO's terms allow, but **a public repository, or any use beyond research, is not covered by
+what was read**. The cases are short questions plus generated passages, not the datasets' documents,
+but this notice does not assess whether that is a substantial part of the source. **The owner has to
+decide** whether the 89 cases stay in a repository that may become public; if they do not, the
+owner ships them in the private bundle like the classifier and the kit's case check is pointed at
+that file (recorded as an open item in `specs/tasks.md`, task 7.25). Until then they stay committed
+as before, for research use by the owner's team.
 
 The third source, the AgentMailGuard seed knowledge base and poison templates, was written for this
 project (MIT, AgentMailGuard's `pyproject.toml`).
