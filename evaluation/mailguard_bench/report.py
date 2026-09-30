@@ -52,6 +52,7 @@ from evaluation.mailguard_bench.artifacts import (
     metrics_rows,
     partial_note,
     render_report,
+    scheme_v2_rows,
     sha256_file,
     summarize_config,
     summarize_fallbacks,
@@ -62,6 +63,7 @@ from evaluation.mailguard_bench.artifacts import (
 )
 from evaluation.mailguard_bench.first_layer import Attribution, attribute_attacks
 from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, LAYER_ABLATIONS
+from evaluation.mailguard_bench.guard_env import guard_layout
 from evaluation.mailguard_bench.meaning import (
     PROMPT_SHA256,
     RUBRIC_VERSION,
@@ -72,6 +74,27 @@ from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.runmeta import prices_from_meta, strict_utility_from_meta
+from evaluation.mailguard_bench.scheme import (
+    SCHEME_KEY,
+    SCHEME_V1,
+    SCHEME_V2,
+    V2_LAYERS,
+    V2_TARGET_CONFIG,
+    configs_for,
+    folder_scheme,
+    scheme_of_meta,
+    target_config,
+    v2_ai_layer_names,
+    v2_guard_name,
+    v2_required_stages,
+)
+from evaluation.mailguard_bench.scheme_report import (
+    VECTOR_LLMAIL,
+    VECTOR_RAG,
+    SchemeV2Section,
+    build_control,
+    build_pairs,
+)
 from evaluation.mailguard_bench.scoring import (
     FAIL_CLOSED_KIND,
     LIVE_TRANSPORT,
@@ -99,8 +122,10 @@ FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
 # preset, guard, live_layers, guard_models and degraded_allowed differ by design. transport,
 # reranker and triage are the live pipeline's (task 7.20); a v1 meta has none of them, so they
 # are equal (None) across the configs of a v1 run. guarded_prompt_version is the prompt of the
-# guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix.
+# guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix. scheme
+# is the config scheme (scheme.py): a meta without it is v1, so old and new v1 metas agree.
 SHARED_SETTINGS = (
+    "scheme",
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",
@@ -117,8 +142,56 @@ SHARED_SETTINGS = (
 )
 
 
-def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[str]:
+def _v2_degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[str]:
+    """``degradation_problems`` for a scheme-v2 config: exactly its layers, and its guard config.
+
+    C0 is rag-email's native path (no guard at all); C0T runs the guard's template with no layer;
+    C1 to C7 must be the guard config built from that config's explicit layer flags
+    (``scheme.V2_LAYERS``, named ``v2-<config>``), with every stage the config needs live.
+    """
+    if meta is None:
+        return (
+            [f"{config}: raw/{config}.meta.json is missing"] if config == V2_TARGET_CONFIG else []
+        )
+    guard = meta.get("guard") or {}
+    active = tuple(guard.get("active_layers") or ())
+    problems: list[str] = []
+    if config == "C0":
+        if meta.get("guard_preset") is not None:
+            problems.append(
+                f"C0: guard preset {meta.get('guard_preset')!r} ran, but C0 is rag-email's "
+                "native path"
+            )
+        if active:
+            problems.append(f"C0: active layers {list(active)} are not []")
+        return problems
+    name = v2_guard_name(config)
+    if meta.get("guard_preset") != name:
+        problems.append(f"{config}: guard preset {meta.get('guard_preset')!r} is not {name!r}")
+    if active != V2_LAYERS[config]:
+        problems.append(f"{config}: active layers {list(active)} are not {list(V2_LAYERS[config])}")
+    missing = list(guard.get("missing_live_stages") or [])
+    recorded = guard.get("live_stages") or {}
+    # A stage the config needs is live only if live_stages says so: a meta that records none
+    # (hand-made or truncated) verifies nothing, so it is not a pass (Amendment 2).
+    off = [stage for stage in v2_required_stages(config) if not recorded.get(stage)]
+    not_live = [*missing, *(stage for stage in off if stage not in missing)]
+    if not_live:
+        unrecorded = " (no live_stages recorded)" if off and not recorded else ""
+        problems.append(f"{config}: guard stages not live: {', '.join(not_live)}{unrecorded}")
+    if meta.get("degraded_allowed"):
+        problems.append(f"{config}: started with --allow-degraded")
+    return problems
+
+
+def degradation_problems(
+    config: str, meta: Mapping[str, Any] | None, *, scheme: str | None = None
+) -> list[str]:
     """Why a guarded run would describe a weaker guard than its preset (empty when none).
+
+    ``scheme`` is the config scheme of the run folder (``scheme.py``); by default it is the one
+    the meta records, and a meta without one is v1. A scheme-v2 config is checked against its own
+    layer flags (``_v2_degradation_problems``); the rest of this docstring is scheme v1.
 
     C0 is rag-email's native path: it must have run no guard preset and no layer
     (settings_problems requires its meta). C0T is a guarded config (the guard's template,
@@ -127,6 +200,8 @@ def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[st
     A layer-ablation config C3-L<n> must be the guard's preset of that name, with every layer
     active except L<n>, and no missing stage.
     """
+    if (scheme or scheme_of_meta(meta)) == SCHEME_V2:
+        return _v2_degradation_problems(config, meta)
     if meta is None:
         return [f"{config}: raw/{config}.meta.json is missing"] if config == "C3" else []
     guard = meta.get("guard") or {}
@@ -204,13 +279,17 @@ def consistency_problems(
     """
     problems: list[str] = []
     for key in SHARED_SETTINGS:
+
+        def shared(meta: Mapping[str, Any], key: str = key) -> Any:
+            return scheme_of_meta(meta) if key == SCHEME_KEY else meta.get(key)
+
         values = {
-            c: json.dumps(m.get(key), sort_keys=True, default=str) for c, m in run_meta.items()
+            c: json.dumps(shared(m), sort_keys=True, default=str) for c, m in run_meta.items()
         }
         if len(set(values.values())) > 1:
             problems.append(
                 f"configs ran with different {key}: "
-                + ", ".join(f"{c}={run_meta[c].get(key)!r}" for c in values)
+                + ", ".join(f"{c}={shared(run_meta[c])!r}" for c in values)
             )
     for config, rows in records.items():
         want = (run_meta.get(config) or {}).get("generation_model")
@@ -549,7 +628,11 @@ def build_report(
     ablation_ids = set(case_manifest.get("ablation_attack_ids") or []) | set(
         case_manifest["benign_ids"]
     )
-    configs = [c for c in ALL_CONFIGS if (run_dir / "raw" / f"{c}.jsonl").exists()]
+    # The config scheme decides what the names mean (scheme.py): a meta without one is v1, and a
+    # folder that mixes the two is refused here, before anything is scored or written.
+    scheme = folder_scheme(run_dir) or SCHEME_V1
+    v2 = scheme == SCHEME_V2
+    configs = [c for c in configs_for(scheme) if (run_dir / "raw" / f"{c}.jsonl").exists()]
     if not configs:
         raise FileNotFoundError(f"no raw/<config>.jsonl under {run_dir}")
 
@@ -574,7 +657,7 @@ def build_report(
         with (run_dir / f"{AGENT}__{config}.jsonl").open("w", encoding="utf-8") as handle:
             for result in scored[config]:
                 handle.write(json.dumps(result.to_dict(), ensure_ascii=False) + "\n")
-    problems = [p for c in configs for p in degradation_problems(c, run_meta.get(c))]
+    problems = [p for c in configs for p in degradation_problems(c, run_meta.get(c), scheme=scheme)]
     if problems:
         raise ValueError("refusing to score a weakened guard run: " + "; ".join(problems))
     problems = [p for c in configs for p in settings_problems(c, run_meta.get(c))]
@@ -629,34 +712,52 @@ def build_report(
             for c in names
         }
 
-    main_configs = [c for c in MAIN_CONFIGS if c in configs]
+    # v1 runs C1/C2 on a subset, so only C0, C0T and C3 share the full table; v2 runs every config
+    # on every case, so every config that ran is in it.
+    main_configs = [c for c in (configs_for(SCHEME_V2) if v2 else MAIN_CONFIGS) if c in configs]
     llmail = table(llmail_ids, main_configs)
     rag = table(rag_ids, main_configs) if rag_ids else {}
     retrieved_ids = poison_retrieved_ids(records, main_configs, rag_ids)
     rag_retrieved = table(retrieved_ids, main_configs) if retrieved_ids else {}
     all_cases = table(set(cases), main_configs)
-    has_ablation = any(c in configs for c in ("C1", "C2"))
+    has_ablation = not v2 and any(c in configs for c in ("C1", "C2"))
     ablation = (
         table(ablation_ids, [c for c in configs if c in CONFIG_ORDER]) if has_ablation else {}
     )
 
     paired: dict[str, dict[str, Any]] = {}
-    # Headline: C0 vs C3. C0T vs C3 is added whenever the C0T run exists.
-    for base in BASELINES:
-        if base not in configs or "C3" not in configs:
-            continue
-        paired[f"LLMail-Inject {base} vs C3"] = metrics.paired_comparison(
-            _subset(scored[base], llmail_ids), _subset(scored["C3"], llmail_ids)
+    section: SchemeV2Section | None = None
+    if v2:
+        # Scheme v2 reads the run as one experiment (scheme_report.py): each of C1..C6 against C0T
+        # (what the layer adds on its own), C7 against C0, and the C6 control.
+        vectors = {
+            VECTOR_LLMAIL: set(case_manifest["llmail_attack_ids"]),
+            VECTOR_RAG: rag_ids,
+        }
+        pairs = build_pairs(scored, vectors, metrics=metrics)
+        section = SchemeV2Section(
+            configs_run=tuple(main_configs),
+            pairs=tuple(pairs),
+            control=build_control(scored, vectors, metrics=metrics),
         )
-        if rag_ids:
-            paired[f"RAG vector {base} vs C3"] = metrics.paired_comparison(
-                _subset(scored[base], rag_ids), _subset(scored["C3"], rag_ids)
+        paired = section.pairs_by_name()
+    else:
+        # Headline: C0 vs C3. C0T vs C3 is added whenever the C0T run exists.
+        for base in BASELINES:
+            if base not in configs or "C3" not in configs:
+                continue
+            paired[f"LLMail-Inject {base} vs C3"] = metrics.paired_comparison(
+                _subset(scored[base], llmail_ids), _subset(scored["C3"], llmail_ids)
             )
-    for config in ("C1", "C2"):
-        if config in configs and "C3" in configs:
-            paired[f"Ablation {config} vs C3"] = metrics.paired_comparison(
-                _subset(scored[config], ablation_ids), _subset(scored["C3"], ablation_ids)
-            )
+            if rag_ids:
+                paired[f"RAG vector {base} vs C3"] = metrics.paired_comparison(
+                    _subset(scored[base], rag_ids), _subset(scored["C3"], rag_ids)
+                )
+        for config in ("C1", "C2"):
+            if config in configs and "C3" in configs:
+                paired[f"Ablation {config} vs C3"] = metrics.paired_comparison(
+                    _subset(scored[config], ablation_ids), _subset(scored["C3"], ablation_ids)
+                )
 
     triage = {
         c: counts for c in configs if (counts := summarize_triage(scored[c])) is not None
@@ -664,7 +765,15 @@ def build_report(
     fallbacks = {
         c: fallback_table
         for c in configs
-        if (fallback_table := summarize_fallbacks(records[c], metrics=metrics)) is not None
+        # scheme v2: only the AI steps the config runs are listed, and a config with none has
+        # nothing to fall back (the report says so)
+        if not (v2 and not v2_ai_layer_names(c))
+        if (
+            fallback_table := summarize_fallbacks(
+                records[c], metrics=metrics, only=v2_ai_layer_names(c) if v2 else None
+            )
+        )
+        is not None
     }  # rows of a guard that records its failed AI steps only
     template_wins = {c: template_successes(scored[c]) for c in triage}
     layer = layer_ablation(
@@ -689,14 +798,19 @@ def build_report(
         )
         for c in configs
     }
-    headline_extra, extra_sections = analysis_inputs(
-        run_dir,
-        scored,
-        metrics=metrics,
-        llmail_ids=llmail_ids,
-        planned_attacks=len(case_manifest["llmail_attack_ids"]),
-        planned_benign=len(case_manifest["benign_ids"]),
-        errored_ids=frozenset(e.case_id for e in errors.get("C3", [])),
+    # The no-API analyses are written for v1's C3 (scheme v2 has none yet, see analyses.py).
+    headline_extra, extra_sections = (
+        ([], [])
+        if v2
+        else analysis_inputs(
+            run_dir,
+            scored,
+            metrics=metrics,
+            llmail_ids=llmail_ids,
+            planned_attacks=len(case_manifest["llmail_attack_ids"]),
+            planned_benign=len(case_manifest["benign_ids"]),
+            errored_ids=frozenset(e.case_id for e in errors.get("C3", [])),
+        )
     )
     attack_sets = {
         "llmail": set(case_manifest["llmail_attack_ids"]),
@@ -726,6 +840,9 @@ def build_report(
         layer_ablation=layer.summary if layer else None,
         fallbacks=fallbacks,
         template_successes=template_wins,
+        scheme=scheme,
+        target_config=target_config(scheme),
+        scheme_v2=section,
     )
     tables = {
         "llmail": llmail,
@@ -741,7 +858,10 @@ def build_report(
         tables, overheads, {**paired, **layer_pairs}, triage, fallbacks=fallbacks
     )
     write_metrics_csv(
-        run_dir / "metrics.csv", csv_rows + (layer_ablation_rows(layer.summary) if layer else [])
+        run_dir / "metrics.csv",
+        csv_rows
+        + (layer_ablation_rows(layer.summary) if layer else [])
+        + (scheme_v2_rows(section) if section is not None else []),
     )
     summary = {
         name: {c: summary_entry(s) for c, s in by_config.items()}
@@ -753,6 +873,8 @@ def build_report(
         payload["template_successes"] = {c: list(ids) for c, ids in template_wins.items()}
     if fallbacks:
         payload["fallbacks"] = {c: asdict(t) for c, t in fallbacks.items()}
+    if section is not None:
+        payload = {"scheme": scheme, **payload, "scheme_v2": section.summary()}
     if layer:
         payload["layer_ablation"] = {
             "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()},
@@ -782,6 +904,7 @@ def build_report(
         },
         mailguard={
             **_commit_of(run_meta, "mailguard_commit"),
+            "layout": guard_layout(mailguard_dir),
             "at_report_time": git_head(mailguard_dir),
         },
         case_manifest_sha256=sha256_file(manifest_path),
@@ -792,6 +915,7 @@ def build_report(
             for c in configs
         },
         task="7.20" if live_run else "7.19",
+        scheme=scheme if v2 else None,
         meaning=(
             {
                 "rubric": RUBRIC_VERSION,

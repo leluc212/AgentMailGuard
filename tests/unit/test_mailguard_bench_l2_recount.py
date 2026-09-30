@@ -244,3 +244,31 @@ def test_the_command_takes_the_config_and_fails_plainly_on_a_missing_file(
 
     assert code == 1
     assert "FAIL" in capsys.readouterr().err
+
+
+def test_the_command_refuses_a_v2_folder_and_names_the_report(tmp_path: Path, capsys: Any) -> None:
+    # The recount is for the v1 guard, which cannot mark a failed L2 answer, and it defaults to
+    # C3, which in scheme v2 is channel isolation with no L2. A v2 report counts fallbacks exactly.
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "C3.jsonl").write_text(json.dumps(v1_row("a", l2())) + "\n", "utf-8")
+    (raw / "C3.meta.json").write_text(json.dumps({"scheme": "v2"}), "utf-8")
+
+    code = main(["--run-dir", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert code == 1 and captured.out == ""
+    assert "FAIL" in captured.err and "scheme v2" in captured.err
+    assert "make mailguard-report" in captured.err
+
+
+def test_the_command_still_reads_a_v1_folder_that_records_its_scheme(
+    tmp_path: Path, capsys: Any
+) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "C3.jsonl").write_text(json.dumps(v1_row("a", l2())) + "\n", "utf-8")
+    (raw / "C3.meta.json").write_text(json.dumps({"scheme": "v1"}), "utf-8")
+
+    assert main(["--run-dir", str(tmp_path)]) == 0
+    assert "C3: 1 rows" in capsys.readouterr().out

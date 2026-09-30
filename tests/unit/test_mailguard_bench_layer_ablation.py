@@ -69,10 +69,13 @@ def test_ablation_configs_are_the_six_guard_presets_and_the_old_configs_are_unch
 
     assert tuple(LAYER_OF) == ABLATION_CONFIGS
     assert BENCH_CONFIGS == ("C0", "C0T", "C1", "C2", "C3")
+    # the ablation configs are scheme v1 only (ADR-0012 decision 11), and v2 is the default
     for config in (*BENCH_CONFIGS, *LAYER_OF):
-        assert parse_args(["--config", config, "--run", "r"]).config == config
+        assert parse_args(["--config", config, "--run", "r", "--scheme", "v1"]).config == config
     with pytest.raises(SystemExit):
-        parse_args(["--config", "C3-L6", "--run", "r"])
+        parse_args(["--config", "C3-L6", "--run", "r", "--scheme", "v1"])
+    with pytest.raises(SystemExit):
+        parse_args(["--config", "C3-L1", "--run", "r"])
 
 
 @pytest.mark.parametrize("config", sorted(LAYER_OF))

@@ -15,7 +15,10 @@
 
 # Not needed at runtime (artifacts/models IS needed)
 artifacts/superpowers
+# evaluation/ holds the benchmark and the pinned L1 joblib (evaluation/mailguard_bench/pinned);
+# agentmailguard/ is the guard subtree (task 7.24). No container imports either.
 evaluation
+agentmailguard
 docs
 tests
 scripts

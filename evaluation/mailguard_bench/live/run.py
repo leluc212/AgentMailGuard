@@ -1,11 +1,11 @@
 """Live benchmark runner: every rag-email service runs for real (task 7.20; ADR-0011; R22.12).
 
-    python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3 --run RUN \\
-        --model-profile M [--limit n] [--concurrency 1|2] [--case-timeout-s 300]
+    python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3|C4|C5|C6|C7 --run RUN \\
+        --model-profile M [--scheme v2|v1] [--limit n] [--concurrency 1|2] [--case-timeout-s 300]
 
     per case:  live_organization ─▶ feeder.feed ─▶ (the running services) ─▶ collector.collect
                  org + MinIO cleanup    KB via API,      triage · lane · ai-worker (C0)     row v3
-                 in a finally           e-mail via the   or guard-worker (C0T/C1/C2/C3)
+                 in a finally           e-mail via the   or guard-worker (every guarded config)
                                         mail-connector's hand-off
 
 The runner calls no model. The services do, one benchmarked model per run in every LLM role
@@ -16,8 +16,13 @@ result store are v1's (``runner.py``), so a live run resumes and pairs exactly a
 does. Rows are ``mailguard-bench-result.v3``, and live runs use their own RUN names and the
 fingerprint key ``transport: services-v2``, so they never mix with v1 rows.
 
+The config names have two meanings (``scheme.py``, ADR-0012 decision 11). A run records its scheme
+(``--scheme``, default v2) in its meta and fingerprint, refuses a folder that holds the other one,
+and in scheme v2 runs every config on all pinned cases; scheme v1 keeps the published meanings and
+case selection.
+
 Exactly one drafting consumer must be active, and the runner refuses to start otherwise:
-C0 is drafted by the ai-worker container, C0T/C1/C2/C3 by the guard-worker host process,
+C0 is drafted by the ai-worker container, every guarded config by the guard-worker host process,
 which the ai-worker container must then not compete with. The guard a row was drafted under
 is described by that guard-worker's own meta (``raw/guard_worker.<config>.meta.json``), which
 the runner checks against its own view of the run and refuses on any difference: it never
@@ -63,6 +68,7 @@ from evaluation.mailguard_bench.guard_env import (
     sha256_file,
 )
 from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
+from evaluation.mailguard_bench.live import process
 from evaluation.mailguard_bench.live.cleanup import (
     CleanupOutcome,
     MinioObjectAdmin,
@@ -102,13 +108,11 @@ from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.runner import (
-    ABLATION_SETS,
-    BENCH_CONFIGS,
     FINGERPRINT_KEYS,
-    FULL_RUN_SETS,
     RESULTS_ROOT,
     RUN_META_SCHEMA,
     apply_model_profile,
+    case_set_names,
     check_resume,
     config_case_ids,
     filter_cases,
@@ -121,6 +125,13 @@ from evaluation.mailguard_bench.runner import (
     snapshot_case_set,
     try_acquire_run_lock,
     write_json,
+)
+from evaluation.mailguard_bench.scheme import (
+    DEFAULT_SCHEME,
+    SCHEME_KEY,
+    SCHEMES,
+    require_folder_scheme,
+    require_live_config,
 )
 from packages.broker.publisher import MessagePublisher
 from packages.broker.routing import load_categories_from_yaml
@@ -193,7 +204,14 @@ class LiveRunError(RuntimeError):
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-    parser.add_argument("--config", required=True, choices=BENCH_CONFIGS)
+    parser.add_argument("--config", required=True, help="a guarded or native config of the scheme")
+    parser.add_argument(
+        "--scheme",
+        choices=SCHEMES,
+        default=DEFAULT_SCHEME,
+        help="what the config names mean (ADR-0012 decision 11); new runs are v2. A run folder "
+        "never mixes the two",
+    )
     parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
     parser.add_argument(
         "--model-profile",
@@ -221,7 +239,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     # runner.apply_model_profile points the guard judges at the profile's model through this
     parser.set_defaults(guard_model=DEFAULT_GUARD_MODEL)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        require_live_config(args.scheme, args.config)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 @dataclass(frozen=True)
@@ -243,12 +266,8 @@ def is_guard_worker_process(pid: int) -> bool:
     A pid file outlives a crashed worker, and its pid may since belong to another program;
     the command line tells them apart. Without /proc the liveness check is all there is.
     """
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+    if not process.process_is_alive(pid):  # never os.kill(pid, 0): that ends a process on Windows
         return False
-    except PermissionError:
-        pass  # alive, another user's
     try:
         return GUARD_WORKER_MARKER.encode() in Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
@@ -281,6 +300,7 @@ def drafting_consumer_problems(
     workers: Sequence[GuardWorker],
     consumers: Mapping[str, int | None],
     lane_queues: Sequence[str],
+    scheme: str = DEFAULT_SCHEME,
 ) -> list[str]:
     """Why the stack is not in the state ``config`` needs; empty when it is.
 
@@ -297,8 +317,8 @@ def drafting_consumer_problems(
     if guarded and not ours:
         problems.append(
             f"no live guard-worker for {config} in run {run_id}: start `python -m "
-            f"evaluation.mailguard_bench.live.guard_worker --config {config} --run {run_id} "
-            "--model-profile ...` and wait until it consumes"
+            f"evaluation.mailguard_bench.live.guard_worker --config {config} --scheme {scheme} "
+            f"--run {run_id} --model-profile ...` and wait until it consumes"
         )
     problems.extend(
         f"{worker.describe()} is alive and would draft {config}'s e-mails; stop it ({worker.path})"
@@ -617,6 +637,7 @@ def guard_worker_expectations(
     return {
         "run_id": args.run,
         "config": args.config,
+        SCHEME_KEY: args.scheme,
         "model_profile": args.model_profile,
         "guard_model": args.guard_model,
         "mailguard_commit": paths.commit,
@@ -757,11 +778,12 @@ def build_live_meta(
         "schema": RUN_META_SCHEMA,
         "run_id": args.run,
         "config": args.config,
+        SCHEME_KEY: args.scheme,  # what the config names mean; a folder never mixes the schemes
         "preset": args.config,
         "guard_preset": guard.facts["preset"],  # AgentMailGuard preset; None for native C0
         "case_dir": str(args.case_dir),
         "cases_sha256": cases_sha256,
-        "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
+        "case_sets": list(case_set_names(args.config, args.scheme)),
         "rag_email_commit": rag_email_commit,
         "mailguard_commit": guard.facts["mailguard_commit"],
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,  # C0 too: see runner.run
@@ -983,7 +1005,13 @@ def guard_worker_is_attaching(
 
 
 async def check_drafting_consumers(
-    *, live: LiveDeps, settings: AppSettings, config: str, run_id: str, lanes: Sequence[str]
+    *,
+    live: LiveDeps,
+    settings: AppSettings,
+    config: str,
+    run_id: str,
+    lanes: Sequence[str],
+    scheme: str = DEFAULT_SCHEME,
 ) -> list[str]:
     """``drafting_consumer_problems``, given the time a starting guard-worker needs.
 
@@ -1004,6 +1032,7 @@ async def check_drafting_consumers(
             workers=workers,
             consumers=consumers,
             lane_queues=lanes,
+            scheme=scheme,
         )
         if (
             not problems
@@ -1030,6 +1059,8 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     killed run purged, and the cases run.
     """
     live = deps or LiveDeps()
+    # Before any setting is read or file written: a folder holds one config scheme.
+    require_folder_scheme(live.results_root / args.run, args.scheme)
     environ = with_dot_env(os.environ)  # the environment over `.env`, as AppSettings reads it
     os.environ.update(apply_model_profile(args, environ))  # before AppSettings
     paths = guard_paths_from_env(os.environ)
@@ -1041,13 +1072,18 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     loaded = load_case_set(args.case_dir)
     cases = filter_cases(
         [EvalCase.from_dict(case) for case in loaded.cases.values()],
-        case_ids=config_case_ids(loaded.manifest, args.config),
+        case_ids=config_case_ids(loaded.manifest, args.config, args.scheme),
         limit=args.limit,
     )
     run_dir = live.results_root / args.run
     lanes = live.resolve_lanes(settings)
     problems = await check_drafting_consumers(
-        live=live, settings=settings, config=args.config, run_id=args.run, lanes=lanes
+        live=live,
+        settings=settings,
+        config=args.config,
+        run_id=args.run,
+        lanes=lanes,
+        scheme=args.scheme,
     )
     if problems:
         for problem in problems:

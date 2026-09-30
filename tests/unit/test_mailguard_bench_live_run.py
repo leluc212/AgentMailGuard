@@ -219,6 +219,21 @@ def test_a_guarded_config_refuses_to_start_without_its_guard_worker() -> None:
     assert "no live guard-worker for C3" in problem and "r1" in problem
 
 
+def test_the_missing_worker_hint_carries_the_scheme_of_the_run() -> None:
+    # A v1 run told to start a worker without --scheme would get a v2 worker (the default),
+    # which the runner then refuses as a mismatch.
+    for scheme in ("v1", "v2"):
+        (problem,) = drafting_consumer_problems(
+            config="C3",
+            run_id="r1",
+            workers=[],
+            consumers=dict.fromkeys(LANES, 1),
+            lane_queues=LANES,
+            scheme=scheme,
+        )
+        assert f"--scheme {scheme}" in problem
+
+
 def test_a_guarded_config_refuses_another_configs_guard_worker() -> None:
     problems = _problems("C3", [_worker(config="C1", pid=555)], dict.fromkeys(LANES, 1))
 
@@ -870,6 +885,7 @@ def _worker_meta(
         "schema": "mailguard-guard-worker.v1",
         "run_id": "r1",
         "config": config,
+        "scheme": "v1",  # the published meanings of C0..C3, which these tests describe
         "pid": pid,
         "started_at": "2026-09-30T08:00:00+00:00",
         "model_profile": "qwen2.5-7b",
@@ -896,7 +912,9 @@ def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
     from evaluation.mailguard_bench.live.run import GuardDescription, build_live_meta
     from packages.core.settings import AppSettings
 
-    args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args = parse_args(
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+    )
     args.guard_model = "qwen2.5:7b-instruct"
     if config == "C0":
         guard = GuardDescription({**C3_FACTS, "preset": None, "live_layers": None}, {}, [])
@@ -1064,7 +1082,9 @@ def _worker_setup(
         json.dumps(_worker_meta(config, pid=pid, run_dir=run_dir, overrides=overrides, **kwargs)),
         encoding="utf-8",
     )
-    args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args = parse_args(
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+    )
     args.guard_model = GUARD_MODEL  # what apply_model_profile makes of the profile
     return {
         "meta_file": meta_file,
@@ -1836,6 +1856,7 @@ def _run_args(tmp_path: Path, config: str = "C0", *extra: str) -> Any:
     return parse_args(
         [
             *("--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"),
+            *("--scheme", "v1"),  # these runs use the published C0/C3 meanings; extra may override
             *("--case-dir", str(case_dir), "--case-timeout-s", "5"),
             *extra,
         ]

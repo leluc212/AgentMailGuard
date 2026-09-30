@@ -10,6 +10,8 @@ It writes them to a git-ignored file (.env.stack) and prints the ``docker compos
 --no-deps`` command that applies them to those four services. Postgres, RabbitMQ and MinIO are
 never part of it. This module never runs docker: the owner runs the printed command
 (docs/demo-runbook.md section 9.9).
+``prepare_stack`` does the same without the printing, for the benchmark kit
+(evaluation/mailguard_bench/kit, task 7.23), which runs the returned command itself.
 
 What the file holds, the same for every run apart from the model:
 
@@ -51,6 +53,7 @@ import shlex
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -266,7 +269,9 @@ def write_env_file(path: Path, values: Mapping[str, str], *, header: str = "") -
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-        os.fchmod(handle.fileno(), 0o600)  # a file that already existed keeps its old mode
+        fchmod = getattr(os, "fchmod", None)  # Python 3.12 on Windows has none (the kit runs there)
+        if fchmod is not None:
+            fchmod(handle.fileno(), 0o600)  # a file that already existed keeps its old mode
         handle.write(text)
 
 
@@ -383,12 +388,43 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run(argv: Sequence[str] | None = None) -> None:
-    args = parse_args(argv)
-    profile = get_profile(args.model_profile)
-    environ = with_dot_env(os.environ, args.env_file)
-    values = render_stack_env(profile, environ, llm_timeout_s=args.llm_timeout_s)
-    shadowed = shell_conflicts(values, os.environ)
+@dataclass(frozen=True)
+class StackPlan:
+    """What ``prepare_stack`` rendered and wrote, and the command that applies it."""
+
+    profile: ModelProfile
+    values: dict[str, str]
+    env_file: Path
+    out: Path
+    env_files: list[Path]  # the files the compose command names, the later one winning
+    command: list[str]
+
+
+def prepare_stack(
+    model_profile: str,
+    *,
+    env_file: Path = Path(DEFAULT_ENV_FILE),
+    out: Path = Path(DEFAULT_OUT),
+    llm_timeout_s: float = DEFAULT_LLM_TIMEOUT_S,
+    process_env: Mapping[str, str] | None = None,
+) -> StackPlan:
+    """Render the stack env for one model, refuse what must be refused, and write the file.
+
+    The steps of the command line below, without the printing, so that the benchmark kit
+    (evaluation/mailguard_bench/kit, task 7.23) calls them in-process and runs the returned
+    compose command itself. ``process_env`` is the shell (default: ``os.environ``). Nothing is
+    written while any refusal applies.
+
+    Raises:
+        StackEnvError: If the shell or .env disagrees with the rendered settings, a value cannot
+            be written literally, or git could commit the output path.
+        ModelProfileError: If the profile is unknown or needs a key that is not set.
+    """
+    shell = os.environ if process_env is None else process_env
+    profile = get_profile(model_profile)
+    environ = with_dot_env(shell, env_file)
+    values = render_stack_env(profile, environ, llm_timeout_s=llm_timeout_s)
+    shadowed = shell_conflicts(values, shell)
     if shadowed:
         raise StackEnvError(
             f"the shell sets {', '.join(shadowed)} to other values; docker compose lets the "
@@ -398,13 +434,13 @@ def run(argv: Sequence[str] | None = None) -> None:
     disagreements = host_env_problems(values, environ)
     if disagreements:
         raise StackEnvError(
-            f"the guard-worker and the runner are host processes: they read {args.env_file} "
+            f"the guard-worker and the runner are host processes: they read {env_file} "
             "and the shell, never .env.stack, so they would run on other settings than the "
-            f"containers: {'; '.join(disagreements)}. Fix {args.env_file} as "
+            f"containers: {'; '.join(disagreements)}. Fix {env_file} as "
             "docs/demo-runbook.md section 9.9 step 1 says and run this again"
         )
     write_env_file(
-        args.out,
+        out,
         values,
         header=(
             f"Container settings of the live v2 benchmark, model profile {profile.name}.\n"
@@ -412,7 +448,26 @@ def run(argv: Sequence[str] | None = None) -> None:
             "Holds API keys: git-ignored, never commit it."
         ),
     )
-    env_files = [args.env_file] if args.env_file.is_file() else []
+    env_files = [env_file] if env_file.is_file() else []
+    return StackPlan(
+        profile=profile,
+        values=values,
+        env_file=env_file,
+        out=out,
+        env_files=[*env_files, out],
+        command=compose_command([*env_files, out]),
+    )
+
+
+def run(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    plan = prepare_stack(
+        args.model_profile,
+        env_file=args.env_file,
+        out=args.out,
+        llm_timeout_s=args.llm_timeout_s,
+    )
+    profile, values = plan.profile, plan.values
     print(
         f"ok stack env for {profile.name} written to {args.out} "
         f"({len(values)} settings; git-ignored, owner-only, keys not shown)"
@@ -438,7 +493,7 @@ def run(argv: Sequence[str] | None = None) -> None:
         f"apply it to {', '.join(APP_SERVICES)} "
         "(Postgres, RabbitMQ and MinIO stay up; this command is not run for you):"
     )
-    print(shlex.join(compose_command([*env_files, args.out])))
+    print(shlex.join(plan.command))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
