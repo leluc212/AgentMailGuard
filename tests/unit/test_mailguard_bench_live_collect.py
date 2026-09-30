@@ -1382,6 +1382,43 @@ async def test_guard_layer_errors_in_the_audit_line_make_the_row_an_error_row(
     assert result["guard_errors"] == ["guard_llm: LLMTimeoutError: timed out"]
 
 
+async def test_the_audits_ai_step_fallbacks_reach_the_row_and_do_not_make_it_an_error(
+    tmp_path: Path,
+) -> None:
+    # ADR-0012 decision 4: a fallback is recorded and the case is scored like any other.
+    fallbacks = [{"layer": "l2_intent_extractor", "reason": "non_json", "error": "prose"}]
+    audit = {**GUARDED_AUDIT, "guard_fallbacks": fallbacks, "l2_llm_schema_fallback": True}
+    world, path = await _guarded_world(tmp_path, audit)
+
+    result = await _collect(world, FakeClock(), config="C3", audit=path)
+
+    assert result["guard_fallbacks"] == fallbacks
+    assert result["l2_llm_schema_fallback"] is True
+    assert result["guard_errors"] == []
+    from evaluation.mailguard_bench.scoring import RawRecord
+
+    row = {
+        "schema": "mailguard-bench-result.v3",
+        "config": "C3",
+        "case_id": "c1",
+        "status": "ok",
+        "error": None,
+        "result": result,
+    }
+    record = RawRecord.from_dict(row)
+    assert record.ok and record.l2_schema_fallback is True
+
+
+async def test_a_row_of_an_audit_without_fallback_keys_says_nothing_about_them(
+    tmp_path: Path,
+) -> None:
+    world, path = await _guarded_world(tmp_path, GUARDED_AUDIT)  # a guard that cannot record them
+
+    result = await _collect(world, FakeClock(), config="C3", audit=path)
+
+    assert "guard_fallbacks" not in result  # "not recorded", never an empty list
+
+
 async def test_the_persisted_draft_decides_the_final_body_and_action_not_the_audit_line(
     tmp_path: Path,
 ) -> None:
