@@ -63,7 +63,7 @@ async def test_sends_exactly_the_given_messages_once_with_the_profile_schema(
         registry.resolve_profile("support")
     )
     assert result.content == REPLY
-    assert result.prompt_version == "support.v2"
+    assert result.prompt_version == "support.v3"
     assert result.budget_tracker.count(CallKind.GENERATE) == 1
     assert result.citation_mismatch is False
 

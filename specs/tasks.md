@@ -939,9 +939,11 @@
   - Not run: `tests/integration` and `tests/e2e` (the owner's stack is in use); the unit tests cover the collector, the runner's retry pass over a simulated stack and the report.
   - _Requirements: R6.11, R10.9, R22.12_
 
-- [ ] **7.27 Reply prompts say they draft the reply to the customer**
+- [x] **7.27 Reply prompts say they draft the reply to the customer**
   - Decision: ADR-0012 decision 14 (owner, 2026-10-01). Found in the live smoke: Llama-3.1-8B answered the general prompt's "concise response" with "Your email draft is ready.".
   - Build: every reply prompt whose task line does not say it drafts the reply email to the customer gets that wording as a new prompt version; the old versions stay for the v1 runs, whose recorded prompts and goldens do not change.
+  - Done: the rule is that the task line (first numbered line under `Instructions:`) begins with "Draft" and names its output "the reply email to the customer". All four templates failed it (general "concise response", billing and sales "reply", support "draft response to the customer"), so `prompts/{support,billing,sales,general}.v3.j2` are new files that change that one line and nothing else; `config/agent_profiles.yaml` points at them (`*.v3`). The `*.v1.j2` and `*.v2.j2` files are pinned by sha256 and the v2 goldens by `test_native_prompt_golden.py`; the v3 goldens are `tests/unit/golden/native_prompt_v3/`. `tests/unit/test_reply_prompt_task_line.py` checks the rule, that every profile's template exists and its `prompt_version` is its file name, and that a v3 prompt differs from v2 in the task line only.
+  - Guarded prompt: `guarded.v2` did not move. The guarded prompt (C0T to C7) is AgentMailGuard's L3 template with `guarded_system_instructions` (agent instructions plus the shared reply-format rules) and the category instructions; the profile template, and with it the task line, is not part of it (its task line is the guard's `[TASK]`). Only C0 is affected, and each C0 row records `prompt_version` `*.v3`.
   - _Requirements: R14.6, R16.1_
 
 - [x] **7.28 Category retrieval floor and the benchmark's category-filter switch**

@@ -103,11 +103,11 @@ def _package(business: BusinessContext | None) -> ContextPackage:
 
 
 @pytest.mark.parametrize(("profile_name", "stem"), PROFILES.items())
-def test_every_profile_uses_its_v2_template_and_version(profile_name: str, stem: str) -> None:
+def test_every_profile_uses_its_current_template_and_version(profile_name: str, stem: str) -> None:
     profile = AgentProfileRegistry.from_yaml(REGISTRY_PATH).get_profile(profile_name)
     assert profile is not None
-    assert profile.prompt_template == f"prompts/{stem}.v2.j2"
-    assert profile.prompt_version == f"{stem}.v2"
+    assert profile.prompt_template == f"prompts/{stem}.v3.j2"
+    assert profile.prompt_version == f"{stem}.v3"
     source = Path(profile.prompt_template).read_text(encoding="utf-8")
     assert "business_data.render()" in source
     assert ".items()" not in source

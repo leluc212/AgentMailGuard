@@ -1,7 +1,7 @@
 """C0: one case through rag-email's native reply path, no AgentMailGuard code (task 7.19).
 
     ContextPackage ─▶ SinglePassGenerator.generate_draft ── ONE reply.v1 call
-                        (rag-email's own profile template, prompts/*.v2.j2)
+                        (rag-email's own profile template, prompts/*.v3.j2)
                           ▼
                      final draft (nothing blocks, nothing is rewritten)
 

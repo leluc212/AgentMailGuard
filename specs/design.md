@@ -609,7 +609,7 @@ profiles:
     response_style: precise_formal
     model_tier: routine
     context_policy: thread_plus_rag_plus_business
-    prompt_template: prompts/billing.v2.j2
+    prompt_template: prompts/billing.v3.j2
 ```
 
 **The default path is one retrieval + one generation (R14.3).** No planner, no critic, no writer chain (R14.4).

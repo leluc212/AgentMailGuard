@@ -1,0 +1,39 @@
+You are an enterprise AI assistant for customer email correspondence. Provide professional, concise, and helpful responses grounded in the provided thread history and reference knowledge. Order, ticket and invoice status, dates and amounts come only from [BUSINESS DATA]; if a fact is NOT_FOUND or UNAVAILABLE, say so; knowledge chunks explain procedure only.
+
+Answer inquiries accurately and provide polite, helpful assistance.
+
+--- Thread Summary ---
+The customer asked about an order last week.
+
+--- Prior Messages in Thread ---
+From: Alice Smith <alice.smith@clientcorp.com>
+Subject: Order
+Received: 2026-09-28 12:00:00+00:00
+Body:
+Earlier question about shipping.
+---
+
+--- Current Inbound Email ---
+From: Alice Smith <alice.smith@clientcorp.com>
+Subject: Order status
+Received: 2026-09-28 12:00:00+00:00
+Body:
+What is the status of order 82915?
+
+--- Relevant Knowledge Base Context ---
+[CITATION: KB-ORDERS-01]
+Order status is visible online.
+[CITATION: chunk-2]
+Refunds take 5 days.
+
+[BUSINESS DATA] source=business_db as_of=2026-09-28T12:00:00+00:00
+customer_status: FOUND
+customer.name: Alice Smith
+customer.tier: enterprise
+order ORD-82915: FOUND | status=shipped
+
+Instructions:
+1. Draft the reply email to the customer, polite, helpful, and concise, answering the inquiry accurately.
+2. Ground all factual assertions in the provided context; take order, ticket and invoice facts only from [BUSINESS DATA].
+3. Every cited chunk must be included in `knowledge_chunks` with its exact citation ID.
+4. Output must strictly conform to the required JSON schema.

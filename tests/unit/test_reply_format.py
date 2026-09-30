@@ -17,7 +17,7 @@ from packages.llm import reply_format
 from packages.llm.profile import AgentProfileRegistry
 from tests.unit.test_native_prompt_golden import PROFILES, REGISTRY_PATH, package
 
-TEMPLATES = sorted(Path("prompts").glob("*.v2.j2"))
+TEMPLATES = sorted(Path("prompts").glob("*.v[23].j2"))
 
 
 def test_the_shared_rules_are_the_two_the_native_templates_always_had() -> None:
@@ -34,8 +34,8 @@ def test_numbered_rules_continue_the_callers_numbering() -> None:
     )
 
 
-def test_there_is_a_native_template_per_profile() -> None:
-    assert len(TEMPLATES) == 4
+def test_there_is_a_native_template_per_profile_and_version() -> None:
+    assert len(TEMPLATES) == 8  # four profiles, prompt versions v2 and v3
 
 
 @pytest.mark.parametrize("template", TEMPLATES, ids=lambda p: p.name)
