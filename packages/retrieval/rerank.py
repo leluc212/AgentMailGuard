@@ -23,6 +23,10 @@ awaits it, so a rerank that ran past its budget leaves its predict computing. Th
 predict on one thread of its own: predicts never overlap, a predict still queued when its rerank
 is cancelled never starts, and while an abandoned predict is still computing the next rerank
 falls back at once (``RerankerBusyError``, reason ``busy``) instead of waiting for the cores.
+
+The ai-worker shares one RerankService between every consumer, so jobs rerank at the same moment.
+The service lets one rerank run at a time and starts each job's budget (RETRIEVAL__RERANK_TIMEOUT_MS)
+when its own rerank does: time spent waiting for another job's predict is not charged to it.
 """
 
 from __future__ import annotations
@@ -436,6 +440,9 @@ class RerankService:
         self._model_ready = False
         # Concurrent first reranks queue here instead of each holding a worker thread.
         self._load_lock = asyncio.Lock()
+        # One rerank at a time: predicts run one after another on the reranker's thread anyway, so
+        # a job that waits here waits for that thread, and the wait is not charged to its budget.
+        self._turn = asyncio.Semaphore(1)
 
     async def warm_up(self) -> None:
         """Load a WarmableReranker's model before the rerank clock starts (R11.1, R11.6).
@@ -506,11 +513,15 @@ class RerankService:
 
         try:
             await self.warm_up()
-            start_time = time.perf_counter()  # the one-time model load is not rerank latency
-            reranked = await asyncio.wait_for(
-                self.reranker.rerank(query, candidates, top_k=k),
-                timeout=to,
-            )
+            async with self._turn:
+                # Neither the one-time model load nor a wait for another job's predict is rerank
+                # latency: the clock and the budget start when this job's own rerank does. A
+                # holder is bounded by its own budget, so a stuck predict cannot hold the turn.
+                start_time = time.perf_counter()
+                reranked = await asyncio.wait_for(
+                    self.reranker.rerank(query, candidates, top_k=k),
+                    timeout=to,
+                )
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
             # Record rerank latency histogram (R11.6, R21.4)
