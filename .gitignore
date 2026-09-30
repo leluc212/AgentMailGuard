@@ -99,5 +99,6 @@ Thumbs.db
 .agent/
 .agents
 
-# AgentMailGuard benchmark case bodies (attack text); manifest.json next to it is committed (task 7.19)
-evaluation/datasets/mailguard/cases.jsonl
+# The pinned AgentMailGuard benchmark inputs are committed, not ignored (task 7.23): the case set
+# evaluation/datasets/mailguard/cases.jsonl + manifest.json and evaluation/mailguard_bench/pinned/
+# (classifier, metrics, SHA256SUMS, NOTICE.md). Nothing to list here; a test checks they are tracked.
