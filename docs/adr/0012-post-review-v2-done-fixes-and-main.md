@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10; decisions 12 to 16
-  on 2026-10-01 at 00:42, after the first live v2 smoke runs)
+  on 2026-10-01 at 00:42, after the first live v2 smoke runs; decision 17 at 06:02)
 - **Relates to:** ADR-0010 (its clause "the branches are not merged, and nothing goes to `main`" is
   superseded when decision 6 is carried out), ADR-0011, `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`,
   `STATUS-desktop.md` footnote 4, tasks 7.20, 7.21, 7.22
@@ -123,6 +123,17 @@ a first commit.
    is Docker Engine installed inside WSL2 Ubuntu from Docker's apt repository; Docker Desktop with WSL
    integration stays an option on the listed editions. This amends decision 9's "Docker Desktop with WSL
    integration".
+
+17. **Publishing, license and main** (owner, 2026-10-01 06:02, after the final audit). The committed
+   case file is published, including the question text from HotpotQA and Natural Questions (CC BY-SA)
+   and MS MARCO (non-commercial research only) in its 89 PoisonedRAG cases, with the attribution in
+   `evaluation/mailguard_bench/pinned/NOTICE.md`; the classifier's metrics file (numbers only) is
+   published with it, the classifier itself stays private (decision 15). The repository is licensed
+   under MIT (a root `LICENSE`, "The rag-email and AgentMailGuard authors"; nothing is added under
+   `agentmailguard/`, whose tree must stay the pinned commit's). Decision 6 is carried out: backup tags
+   mark `RAG_Email_System`, `desktop-live` and `feature/mailguard-defense-stack`, which are kept, and
+   `main` receives the single repository by a merge that keeps its first commit, so no history is
+   rewritten. The local branch that held the classifier file (`wp-r6b`, never pushed) is deleted.
 
 ## Consequences
 

@@ -175,13 +175,11 @@ text, which keeps the terms of its own dataset. Read on 2026-10-01 from the data
 What this means for the repository: the CC BY-SA terms ask for attribution (above) and, if the text
 is redistributed in an adapted form, for the same license on the adaptation; the MS MARCO terms
 allow non-commercial research use only. This benchmark is a research measurement, which is the use
-MS MARCO's terms allow, but **a public repository, or any use beyond research, is not covered by
-what was read**. The cases are short questions plus generated passages, not the datasets' documents,
-but this notice does not assess whether that is a substantial part of the source. **The owner has to
-decide** whether the 89 cases stay in a repository that may become public; if they do not, the
-owner ships them in the private bundle like the classifier and the kit's case check is pointed at
-that file (recorded as an open item in `specs/tasks.md`, task 7.25). Until then they stay committed
-as before, for research use by the owner's team.
+MS MARCO's terms allow; a public repository beyond that use is not covered by what was read. The
+cases are short questions plus generated passages, not the datasets' documents, and the same text is
+already public in the PoisonedRAG repository. The owner decided on 2026-10-01 that the 89 cases are
+published in this repository, with the attribution above, for non-commercial research use
+(ADR-0012 decision 17); the classifier's metrics file, numbers only, is published with them.
 
 The third source, the AgentMailGuard seed knowledge base and poison templates, was written for this
 project (MIT, AgentMailGuard's `pyproject.toml`).

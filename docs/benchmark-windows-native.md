@@ -82,7 +82,7 @@ In PowerShell. Keep the repository on a normal local drive, in a short path (for
 mkdir C:\work; cd C:\work
 git clone https://github.com/leluc212/AgentMailGuard.git rag-email
 cd rag-email
-git checkout <BRANCH>          # the owner gives you the branch name; after the merge it is main
+git checkout main              # the benchmark lives on main
 Copy-Item .env.example .env
 notepad .env
 ```

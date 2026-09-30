@@ -307,5 +307,11 @@ Key settings groups:
 
 ## 9. License & Status
 
+Licensed under the MIT License: see [`LICENSE`](LICENSE). It covers this repository, including the
+AgentMailGuard code under `agentmailguard/` (whose `pyproject.toml` also declares MIT). Third-party
+benchmark data keeps its own terms and attribution, listed in
+[`evaluation/mailguard_bench/pinned/NOTICE.md`](evaluation/mailguard_bench/pinned/NOTICE.md); the L1
+classifier file is not redistributed (ADR-0012 decision 15).
+
 Developed under the **Enterprise RAG-Based Intelligent Email Management and Response System** specification.
 Architectural compliance: Clean Architecture, Domain-Driven Design, strict tenant data isolation, zero mock-only stubs.
