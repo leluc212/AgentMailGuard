@@ -384,6 +384,15 @@ class TestLexicalOrTsquery:
             "'refund' | 'customer' | 'invoice'"
         )
 
+    def test_a_number_with_a_thousands_separator_is_kept_whole(self) -> None:
+        # PostgreSQL tokenizes "1,000" as '1' <-> '000'. Splitting it here left the bare, noisy
+        # term '000' (the one-digit part is dropped) that matches any chunk holding "000".
+        assert build_or_tsquery("charged 1,000 twice") == "'charged' | '1,000' | 'twice'"
+        assert build_or_tsquery("total 12,345.67 due") == "'total' | '12,345.67' | 'due'"
+
+    def test_a_comma_between_words_is_still_a_separator(self) -> None:
+        assert build_or_tsquery("refund,invoice") == "'refund' | 'invoice'"
+
     def test_only_stop_words_gives_an_empty_string(self) -> None:
         assert build_or_tsquery("the and of to") == ""
         assert build_or_tsquery("   ") == ""

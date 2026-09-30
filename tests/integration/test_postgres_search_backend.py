@@ -391,10 +391,12 @@ async def test_lexical_ranking_prefers_the_chunk_with_more_matching_terms(
 ) -> None:
     backend = PostgresSearchBackend(db_pool)
     org_id = str(uuid4())
+    # Four, two and one of the query's terms: ts_rank_cd gives strictly different scores
+    # (0.4 > 0.2 > 0.1 on PostgreSQL 16), so the expected order never depends on tie order.
     one = await _seed_one(db_pool, org_id, "Enterprise server maintenance guidelines.")
-    two = await _seed_one(db_pool, org_id, "Refund of the enterprise subscription after a renewal.")
-    three = await _seed_one(
-        db_pool, org_id, "Enterprise subscription renewal: how a duplicate charge is refunded."
+    two = await _seed_one(db_pool, org_id, "Enterprise subscription notes for the team.")
+    four = await _seed_one(
+        db_pool, org_id, "Refund of the enterprise subscription after a renewal."
     )
 
     q = RetrievalQuery(
@@ -404,10 +406,10 @@ async def test_lexical_ranking_prefers_the_chunk_with_more_matching_terms(
     )
     found = await backend.lexical(q, top_n=10)
 
-    assert [c.chunk_id for c in found] == [three, two, one]
+    assert [c.chunk_id for c in found] == [four, two, one]
     assert [c.lexical_rank for c in found] == [1, 2, 3]
     scores = [c.lexical_score or 0.0 for c in found]
-    assert scores == sorted(scores, reverse=True) and scores[0] > scores[-1]
+    assert scores[0] > scores[1] > scores[2]
 
 
 @pytest.mark.asyncio

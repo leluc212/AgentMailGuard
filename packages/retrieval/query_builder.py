@@ -222,7 +222,10 @@ DEFAULT_STOPWORDS: set[str] = {
 # One term is a run of letters and digits, optionally joined by "-", "_", "." or an apostrophe
 # ("INV-2026-01829", "v2.1", "don't"). Nothing else can reach the tsquery text, so the terms need
 # no escaping and a query that holds tsquery syntax ("&", "|", "!", "(", "'") stays plain words.
-_TSQUERY_TERM_RE = re.compile(r"[^\W_]+(?:['\u2019._-][^\W_]+)*")
+_TSQUERY_TERM_RE = re.compile(
+    r"\d+(?:,\d{3})+(?:\.\d+)?"  # 1,000 and 12,345.67 stay whole: PostgreSQL phrases them
+    r"|[^\W_]+(?:['\u2019._-][^\W_]+)*"
+)
 
 # A full email is ~20 words after keyword extraction, but the semantic fallback can be ~2000
 # characters: cap the OR so PostgreSQL ranks a bounded set of terms.

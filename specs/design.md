@@ -501,7 +501,7 @@ WITH lexical AS (
          ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.content_tsv, q.query) DESC) AS rnk
   FROM knowledge_chunk c
   JOIN knowledge_document d ON d.id = c.document_id
-  CROSS JOIN websearch_to_tsquery('english', :lexical_text) AS q(query)
+  CROSS JOIN to_tsquery('english', :or_tsquery) AS q(query)
   WHERE c.organization_id = :org
     AND d.status = 'active'
     AND (:category IS NULL OR d.category = :category)
@@ -527,6 +527,8 @@ FROM lexical l FULL OUTER JOIN vector v USING (chunk_id)
 ORDER BY fused_score DESC
 LIMIT :fuse_limit;
 ```
+
+`:or_tsquery` is built by `build_or_tsquery` (`packages/retrieval/query_builder.py`): the query's terms joined by OR (a chunk that holds any term matches; `ts_rank_cd` ranks the chunks with more matching terms higher), stop words and one-character terms removed, each term single-quoted so it cannot inject tsquery syntax, at most 64 terms. An empty result skips the lexical branch and hybrid retrieval is vector-only. `websearch_to_tsquery` was used before Amendment 1 G.1 and is not used any more: it ANDs every word, so a ~20-word email query matched almost no chunk.
 
 Identifiers from `RetrievalQuery.identifiers` are injected into the lexical branch verbatim — this is why exact-match cases like `INV-2026-01829` work where vector-only retrieval fails (R12.3).
 
