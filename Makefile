@@ -142,7 +142,8 @@ MAILGUARD_DIR ?= $(CURDIR)/agentmailguard
 else
 MAILGUARD_DIR ?= $(abspath $(CURDIR)/../AgentMailGuard-bench)
 endif
-# The L1 classifier: the copy pinned in git when it is there, else what `make mailguard-prep` trains.
+# The L1 classifier: the owner's copy in evaluation/mailguard_bench/pinned/ when it is there (it is not
+# in git, ADR-0012 decision 15; the kit checks its sha256), else what `make mailguard-prep` trains.
 ifneq ($(wildcard $(CURDIR)/evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib),)
 MAILGUARD_ARTIFACTS ?= $(CURDIR)/evaluation/mailguard_bench/pinned
 else

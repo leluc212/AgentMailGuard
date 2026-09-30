@@ -1,0 +1,4 @@
+c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19  ../../datasets/mailguard/cases.jsonl
+a274962771fbbbf35c0b697cd6f1e24409b01b4cf3be1a7e1011f70a0e894344  ../../datasets/mailguard/manifest.json
+8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103  l1_injection_clf_v1.joblib
+502054150385ace40b0d3bc74aa26d1717d7f8d4816e97a6e89cb22535a60224  l1_injection_clf_v1.metrics.json

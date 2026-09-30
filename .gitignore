@@ -106,5 +106,10 @@ Thumbs.db
 .agent/
 .agents
 
-# AgentMailGuard benchmark case bodies (attack text); manifest.json next to it is committed (task 7.19)
-evaluation/datasets/mailguard/cases.jsonl
+# The pinned AgentMailGuard benchmark inputs (task 7.25): the case set
+# evaluation/datasets/mailguard/cases.jsonl + manifest.json and evaluation/mailguard_bench/pinned/
+# (metrics, SHA256SUMS, NOTICE.md) are committed, so nothing to list for them; a test checks they
+# are tracked. The L1 classifier is NOT redistributed (ADR-0012 decision 15): the owner sends it
+# privately and it sits in pinned/ untracked; every .joblib in that folder is ignored, so a
+# browser-renamed copy ("l1_injection_clf_v1 (1).joblib") cannot be staged by `git add .` either.
+evaluation/mailguard_bench/pinned/*.joblib
