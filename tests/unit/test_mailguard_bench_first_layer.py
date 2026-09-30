@@ -131,3 +131,63 @@ def test_the_chart_says_what_the_triage_rows_are() -> None:
     assert triage in with_triage
     assert "never reached the guard" in with_triage.split("```")[-1]  # explained under the chart
     assert "never reached the guard" not in without  # a run with no triage keeps its text
+
+
+# --- per-config attribution for the layer ablation (task 7.22)
+
+
+def _scored(case_id: str, *, goal: bool, pre_l4: bool = False) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        case_id=case_id, kind="attack", goal_achieved=goal, extra={"goal_pre_l4": pre_l4}
+    )
+
+
+def test_attribute_attacks_counts_first_catching_and_every_flagging_layer() -> None:
+    from evaluation.mailguard_bench.first_layer import attribute_attacks
+
+    blocked_l1_l2 = {"l1": {"severity": "high"}, "l2": {"severity": "medium"}}
+    records = [
+        rec(case_id="a", blocked_inbound=True, report=blocked_l1_l2),
+        rec(case_id="b", blocked_outbound=True, report={"l4": {"severity": "high"}}),
+        rec(case_id="c", blocked_inbound=True, report={"decision": {"matched_rule_id": "P10"}}),
+        rec(case_id="d", report={"l2": {"severity": "critical"}}),  # flagged, still succeeded
+        rec(case_id="e"),  # unblocked, model did not follow the injection
+        rec(case_id="f", status="error"),  # not scored
+        rec(case_id="z", blocked_inbound=True, report=blocked_l1_l2),  # outside the id set
+    ]
+    scored = [
+        _scored("a", goal=False),
+        _scored("b", goal=False),
+        _scored("c", goal=False),
+        _scored("d", goal=True),
+        _scored("e", goal=False),
+    ]
+
+    got = attribute_attacks(scored, records, {"a", "b", "c", "d", "e", "f"})
+
+    assert (got.attacks, got.succeeded) == (5, 1)
+    assert got.first_catching == {
+        "L1 injection scanner": 1,
+        "L4 output scanner": 1,
+        "L5 policy rule P10": 1,
+        NO_LAYER: 1,
+    }
+    assert got.flagged == {
+        "L2 intent extractor": 2,  # a (also flagged by L1) and d
+        "L1 injection scanner": 1,
+        "L4 output scanner": 1,
+    }
+    assert list(got.flagged) == [  # largest first, ties by label
+        "L2 intent extractor",
+        "L1 injection scanner",
+        "L4 output scanner",
+    ]
+
+
+def test_attribute_attacks_of_nothing_is_empty() -> None:
+    from evaluation.mailguard_bench.first_layer import attribute_attacks
+
+    got = attribute_attacks([], [], {"a"})
+    assert (got.attacks, got.succeeded, got.first_catching, got.flagged) == (0, 0, {}, {})

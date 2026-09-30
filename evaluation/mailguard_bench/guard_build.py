@@ -13,7 +13,8 @@ imported lazily, so this module imports in CI where AgentMailGuard is not instal
 Configs (owner decision 2026-09-29, plan BINDING section): ``C0`` is rag-email's native
 path and runs no AgentMailGuard code, so it has no guard to build here; ``C0T`` is the
 guard's template with ``GuardConfig.preset("C0")`` (no layer active); ``C1``/``C2``/``C3``
-are the presets of the same name.
+are the presets of the same name. The layer ablation (task 7.22, pre-registration
+2026-09-30) adds ``C3-L1`` ... ``C3-L5``: the guard's own "C3 minus one layer" presets.
 """
 
 from __future__ import annotations
@@ -27,9 +28,25 @@ from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, sha256_file
 
 NATIVE_CONFIG = "C0"
+# The layer each ablation config removes from the full guard (GuardConfig.preset "C3-<L>").
+LAYER_ABLATIONS: dict[str, str] = {
+    "C3-L1": "l1",
+    "C3-L2": "l2",
+    "C3-L3": "l3",
+    "C3-L3B": "l3b",
+    "C3-L4": "l4",
+    "C3-L5": "l5",
+}
+ABLATION_CONFIGS = tuple(LAYER_ABLATIONS)
 # benchmark config -> AgentMailGuard GuardConfig preset
-GUARDED_CONFIGS: dict[str, str] = {"C0T": "C0", "C1": "C1", "C2": "C2", "C3": "C3"}
-BENCH_PRESETS = tuple(GUARDED_CONFIGS)
+GUARDED_CONFIGS: dict[str, str] = {
+    "C0T": "C0",
+    "C1": "C1",
+    "C2": "C2",
+    "C3": "C3",
+    **{config: config for config in ABLATION_CONFIGS},
+}
+BENCH_PRESETS = ("C0T", "C1", "C2", "C3")  # the v1 guarded configs; the ablation adds more
 FULL_GUARD_CONFIG = "C3"
 """The config that runs the whole guard: the live v2 benchmark also gives it the LLM stages."""
 
@@ -65,15 +82,21 @@ class GuardBuild:
         }
 
     def missing_live_stages(self) -> list[str]:
-        """Stages the preset needs that are not live (a C3 that would silently be weaker)."""
+        """Stages the preset needs that are not live (a C3 that would silently be weaker).
+
+        Only stages of layers the preset runs count: C3-L1 has no L1 judge, C3-L2 no L2 LLM
+        step. The trained classifier is needed wherever a layer that reads it runs: L1, and
+        also L2 and L3b, which the pipeline hands L1's classifier (a C3-L1 without it would
+        be a weaker guard than the preset).
+        """
         config = self.pipeline.config
         settings = self.pipeline.settings
         live = self.live_stages()
         required: list[str] = []
-        if config.l1:
+        if config.l1 or config.l2 or config.l3b:
             required.append("l1.classifier")
-            if settings.l1.llm_enabled:
-                required.append("l1.judge")
+        if config.l1 and settings.l1.llm_enabled:
+            required.append("l1.judge")
         if config.l2 and settings.l2.llm_enabled:
             required.append("l2.llm")
         if config.l3b and settings.l3b.llm_enabled:
@@ -128,14 +151,15 @@ def build_guard(
     l3b_llm: bool = False,
     l4_llm: bool = False,
 ) -> GuardBuild:
-    """MailGuardPipeline for C0T|C1|C2|C3 with the guard's LLM stages on ``model_name``.
+    """MailGuardPipeline for C0T|C1|C2|C3|C3-L1..C3-L5, its LLM stages on ``model_name``.
 
     The L1 judge and the L2 extractor always run on the model. L3b's document check and L4's
     output check are off unless asked for: v1 runs (task 7.19) keep them off, and the live v2
     benchmark (task 7.20, ADR-0011) turns both on for C3 (``live_guard_llm_stages``).
 
     Args:
-        preset: The benchmark config; ``C0T`` builds ``GuardConfig.preset("C0")``.
+        preset: The benchmark config; ``C0T`` builds ``GuardConfig.preset("C0")``, the
+            ablation configs the guard's "C3 minus one layer" preset of the same name.
         l3b_llm: Also run L3b's LLM poisoned-document check on ``model_name``.
         l4_llm: Also run L4's LLM output check on ``model_name``.
 
@@ -151,7 +175,9 @@ def build_guard(
             "no guard to build; C0T is the guard template with no layer active"
         )
     if key not in GUARDED_CONFIGS:
-        raise ValueError(f"benchmark preset must be one of {BENCH_PRESETS}, got {preset!r}")
+        raise ValueError(
+            f"benchmark preset must be one of {tuple(GUARDED_CONFIGS)}, got {preset!r}"
+        )
     guard_preset = GUARDED_CONFIGS[key]
     from mailguard.llm.registry import ModelRegistry
     from mailguard.pipeline import GuardConfig, MailGuardPipeline

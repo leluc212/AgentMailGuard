@@ -89,3 +89,44 @@ def test_the_worker_count_reaches_the_runner_as_an_argument_only() -> None:
     assert leaked == ""
     dry_run = _make("-n", "mailguard-bench", "RUN=r", "CONFIG=C0", "CONCURRENCY=2")
     assert "--concurrency 2" in dry_run
+
+
+ABLATION_CONFIGS = ("C3-L1", "C3-L2", "C3-L3", "C3-L3B", "C3-L4", "C3-L5")
+
+
+def test_the_bench_target_accepts_the_layer_ablation_configs() -> None:
+    for config in ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS):
+        dry_run = _make("-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "MODEL=gpt-4o-mini")
+        assert f"--config {config} " in dry_run
+        assert "--model-profile gpt-4o-mini" in dry_run
+
+
+def _config_check_exit(config: str) -> int:
+    """Exit code of the recipe's first line (the CONFIG check), run alone; no run starts."""
+    first = recipe("mailguard-bench").splitlines()[0].lstrip("@\t ")
+    return subprocess.run(
+        ["bash", "-c", first.replace("$(CONFIG)", config)], capture_output=True, check=False
+    ).returncode
+
+
+def test_the_config_check_lets_the_layer_ablation_configs_through() -> None:
+    for config in ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS):
+        assert _config_check_exit(config) == 0, config
+    for config in ("C3-L6", "C3-l1", "C3-", "C4", ""):
+        assert _config_check_exit(config) == 2, config
+
+
+def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config() -> None:
+    result = subprocess.run(
+        ["make", "--no-print-directory", "mailguard-bench", "RUN=x", "CONFIG=C3-L6"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    usage = result.stdout + result.stderr
+    assert usage.startswith("usage: make mailguard-bench")
+    for config in ("C0", "C3", "C0T", "C1", "C2", *ABLATION_CONFIGS):
+        assert config in usage
+    assert "python -m evaluation" not in usage  # rejected before anything runs

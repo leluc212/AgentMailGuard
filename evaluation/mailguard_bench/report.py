@@ -25,8 +25,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -38,6 +38,9 @@ from evaluation.mailguard_bench.amg import (
 )
 from evaluation.mailguard_bench.artifacts import (
     ConfigSummary,
+    LayerAblation,
+    LayerAblationRow,
+    LayerPair,
     MeaningOutcome,
     MeaningSummary,
     RateCI,
@@ -45,7 +48,9 @@ from evaluation.mailguard_bench.artifacts import (
     build_manifest,
     git_head,
     guard_escalated,
+    layer_ablation_rows,
     metrics_rows,
+    partial_note,
     render_report,
     sha256_file,
     summarize_config,
@@ -53,6 +58,8 @@ from evaluation.mailguard_bench.artifacts import (
     summarize_triage,
     write_metrics_csv,
 )
+from evaluation.mailguard_bench.first_layer import Attribution, attribute_attacks
+from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, LAYER_ABLATIONS
 from evaluation.mailguard_bench.meaning import (
     PROMPT_SHA256,
     RUBRIC_VERSION,
@@ -62,7 +69,13 @@ from evaluation.mailguard_bench.meaning import (
 from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.results import ResultStore
-from evaluation.mailguard_bench.scoring import LIVE_TRANSPORT, RawRecord, read_raw, score_records
+from evaluation.mailguard_bench.scoring import (
+    LIVE_TRANSPORT,
+    RawRecord,
+    read_raw,
+    real_benign_drafts,
+    score_records,
+)
 from packages.core.settings import AppSettings, ModelPricing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -70,6 +83,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # C0 and C0T are required baselines (B1 = a, b); a missing one is stated in the report, never
 # refused. C1 and C2 are optional ablation extras.
 CONFIG_ORDER = ("C0", "C0T", "C1", "C2", "C3")
+# The layer ablation (task 7.22) adds C3-L1..C3-L5: the full guard minus one layer, full case set.
+ALL_CONFIGS = (*CONFIG_ORDER, *ABLATION_CONFIGS)
+# Same-run reference rows of the layer-ablation table, and what each removes from the guard.
+REFERENCE_REMOVED = {"C0": "all", "C3": "none"}
 MAIN_CONFIGS = ("C0", "C0T", "C3")  # full case set; C1/C2 run only the ablation subset
 BASELINES = ("C0", "C0T")  # each is paired against C3 with McNemar when both ran
 AGENT = "ragemail"
@@ -101,6 +118,8 @@ def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[st
     (settings_problems requires its meta). C0T is a guarded config (the guard's template,
     preset "C0", no layer active) and is checked like C1/C2. A C3 run must have its run meta,
     all six layers active and every LLM stage it needs live; C1/C2 must have no missing stage.
+    A layer-ablation config C3-L<n> must be the guard's preset of that name, with every layer
+    active except L<n>, and no missing stage.
     """
     if meta is None:
         return [f"{config}: raw/{config}.meta.json is missing"] if config == "C3" else []
@@ -116,6 +135,15 @@ def degradation_problems(config: str, meta: Mapping[str, Any] | None) -> list[st
         if active:
             problems.append(f"C0: active layers {list(active)} are not []")
         return problems
+    if config in LAYER_ABLATIONS:
+        # The preset must be the guard's own "C3 minus one layer": exactly that layer off.
+        expected = [layer for layer in FULL_LAYERS if layer != LAYER_ABLATIONS[config]]
+        if meta.get("guard_preset") != config:
+            problems.append(
+                f"{config}: guard preset {meta.get('guard_preset')!r} is not {config!r}"
+            )
+        if list(active) != expected:
+            problems.append(f"{config}: active layers {list(active)} are not {expected}")
     if config == "C0T":
         if meta.get("guard_preset") != "C0":
             problems.append(f"C0T: guard preset {meta.get('guard_preset')!r} is not 'C0'")
@@ -336,6 +364,134 @@ def analysis_inputs(
     return headline, sections
 
 
+@dataclass(frozen=True)
+class LayerAblationResult:
+    """The layer-ablation numbers of a run: the report section and the summary tables."""
+
+    summary: LayerAblation
+    tables: dict[str, dict[str, ConfigSummary]]
+
+
+def layer_ablation(
+    layer_configs: Sequence[str],
+    *,
+    scored: Mapping[str, list[Any]],
+    records: Mapping[str, Sequence[RawRecord]],
+    errors: Mapping[str, Sequence[RawRecord]],
+    llmail: Mapping[str, ConfigSummary],
+    rag: Mapping[str, ConfigSummary],
+    table: Callable[[set[str], Sequence[str]], dict[str, ConfigSummary]],
+    metrics: ModuleType,
+    manifest: Mapping[str, Any],
+) -> LayerAblationResult | None:
+    """Per-config ASR, FPR, real benign drafts and McNemar against the same-run C3.
+
+    Returns ``None`` when no ``C3-L<n>`` config ran. The C3 row and the paired tests use the
+    same-run C3 only (``c3_ran`` is False without it); the paired tests compare the same
+    case ids of one vector, the ablation config as A and C3 as B.
+    """
+    if not layer_configs:
+        return None
+    llmail_attacks = set(manifest["llmail_attack_ids"])
+    benign = set(manifest["benign_ids"])
+    rag_ids = set(manifest.get("rag_attack_ids") or [])
+    llmail_ids = llmail_attacks | benign
+    c3_ran = "C3" in scored
+    llmail_table = table(llmail_ids, layer_configs)
+    rag_table = table(rag_ids, layer_configs) if rag_ids else {}
+    empty = RateCI(0, 0, 0.0, 0.0)
+
+    def row(config: str, llmail_s: ConfigSummary, rag_s: ConfigSummary | None) -> LayerAblationRow:
+        real, total = real_benign_drafts(records[config], benign)
+        return LayerAblationRow(
+            config=config,
+            removed=REFERENCE_REMOVED.get(config) or LAYER_ABLATIONS[config].upper(),
+            llmail_asr=llmail_s.asr,
+            rag_asr=rag_s.asr if rag_s is not None else empty,
+            benign_fpr=llmail_s.fpr,
+            real_drafts=RateCI.of(metrics.Proportion(real, total)),
+        )
+
+    # Same-run reference rows: C0 (no guard) and C3 (the full guard), when they ran.
+    rows = [
+        row(ref, llmail[ref], rag.get(ref))
+        for ref in REFERENCE_REMOVED
+        if ref in scored and ref in llmail
+    ]
+    attribution: dict[tuple[str, str], Attribution] = {}
+    vectors = (
+        ("LLMail-Inject", llmail_attacks),
+        ("RAG vector", rag_ids),
+    )
+    for config in (*(["C3"] if c3_ran else []), *layer_configs):
+        for label, attack_ids in vectors:
+            if attack_ids:
+                attribution[(config, label)] = attribute_attacks(
+                    scored[config], records[config], attack_ids
+                )
+    pairs: list[LayerPair] = []
+    notes: list[str] = []
+    for config in layer_configs:
+        rows.append(row(config, llmail_table[config], rag_table.get(config)))
+        for label, ids, planned_ids, what, by_config in (
+            ("LLMail-Inject", llmail_ids, llmail_attacks, "LLMail attacks", llmail_table),
+            ("RAG vector", rag_ids, rag_ids, "RAG attacks", rag_table),
+        ):
+            if not ids:
+                continue
+            attack_asr = by_config[config].asr
+            if attack_asr.total < len(planned_ids):
+                notes.append(
+                    f"{config}: "
+                    + partial_note(
+                        attack_asr.total,
+                        len(planned_ids),
+                        _errors_in(errors[config], planned_ids),
+                        what=what,
+                    )
+                )
+            if c3_ran:
+                pairs.append(
+                    LayerPair(
+                        config,
+                        label,
+                        metrics.paired_comparison(
+                            _subset(scored[config], ids), _subset(scored["C3"], ids)
+                        ),
+                    )
+                )
+        benign_scored = real_benign_drafts(records[config], benign)[1]
+        if benign_scored < len(benign):
+            notes.append(
+                f"{config}: "
+                + partial_note(
+                    benign_scored,
+                    len(benign),
+                    _errors_in(errors[config], benign),
+                    what="benign emails",
+                )
+            )
+    tables = {"layer_ablation_llmail": llmail_table}
+    if rag_table:
+        tables["layer_ablation_rag"] = rag_table
+    return LayerAblationResult(
+        LayerAblation(
+            rows=rows, pairs=pairs, c3_ran=c3_ran, partial_notes=notes, attribution=attribution
+        ),
+        tables,
+    )
+
+
+def _attribution_summary(
+    attribution: Mapping[tuple[str, str], Attribution],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """``{config: {vector: {attacks, succeeded, first_catching, flagged}}}`` for summary.json."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for (config, vector), att in attribution.items():
+        out.setdefault(config, {})[vector] = asdict(att)
+    return out
+
+
 def build_report(
     run_dir: Path,
     *,
@@ -360,7 +516,7 @@ def build_report(
     ablation_ids = set(case_manifest.get("ablation_attack_ids") or []) | set(
         case_manifest["benign_ids"]
     )
-    configs = [c for c in CONFIG_ORDER if (run_dir / "raw" / f"{c}.jsonl").exists()]
+    configs = [c for c in ALL_CONFIGS if (run_dir / "raw" / f"{c}.jsonl").exists()]
     if not configs:
         raise FileNotFoundError(f"no raw/<config>.jsonl under {run_dir}")
 
@@ -440,7 +596,9 @@ def build_report(
     rag_retrieved = table(retrieved_ids, main_configs) if retrieved_ids else {}
     all_cases = table(set(cases), main_configs)
     has_ablation = any(c in configs for c in ("C1", "C2"))
-    ablation = table(ablation_ids, configs) if has_ablation else {}
+    ablation = (
+        table(ablation_ids, [c for c in configs if c in CONFIG_ORDER]) if has_ablation else {}
+    )
 
     paired: dict[str, dict[str, Any]] = {}
     # Headline: C0 vs C3. C0T vs C3 is added whenever the C0T run exists.
@@ -463,6 +621,17 @@ def build_report(
     triage = {
         c: counts for c in configs if (counts := summarize_triage(scored[c])) is not None
     }  # live rows only
+    layer = layer_ablation(
+        [c for c in ABLATION_CONFIGS if c in configs],
+        scored=scored,
+        records=records,
+        errors=errors,
+        llmail=llmail,
+        rag=rag,
+        table=table,
+        metrics=metrics,
+        manifest=case_manifest,
+    )
     # Overhead is the drafting step's: a live email that triage stopped (early exit, template)
     # takes no drafting time, tokens or guard calls, and its zeros would understate the cost.
     overheads: dict[str, Overhead] = {
@@ -505,6 +674,7 @@ def build_report(
         extra_sections=extra_sections,
         rag_retrieved=rag_retrieved,
         triage=triage,
+        layer_ablation=layer.summary if layer else None,
     )
     tables = {
         "llmail": llmail,
@@ -513,13 +683,25 @@ def build_report(
         "all": all_cases,
         "ablation": ablation,
     }
-    write_metrics_csv(run_dir / "metrics.csv", metrics_rows(tables, overheads, paired, triage))
+    layer_pairs = layer.summary.paired_by_name() if layer else {}
+    if layer:
+        tables.update(layer.tables)
+    csv_rows = metrics_rows(tables, overheads, {**paired, **layer_pairs}, triage)
+    write_metrics_csv(
+        run_dir / "metrics.csv", csv_rows + (layer_ablation_rows(layer.summary) if layer else [])
+    )
     summary = {
         name: {c: asdict(s) for c, s in by_config.items()} for name, by_config in tables.items()
     }
-    payload: dict[str, Any] = {"tables": summary, "paired": paired}
+    payload: dict[str, Any] = {"tables": summary, "paired": {**paired, **layer_pairs}}
     if triage:
         payload["triage"] = {c: asdict(t) for c, t in triage.items()}
+    if layer:
+        payload["layer_ablation"] = {
+            "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()},
+            "raises_asr_p05": {pair.name: pair.raises_asr for pair in layer.summary.pairs},
+            "attribution": _attribution_summary(layer.summary.attribution),
+        }
     (run_dir / "summary.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
     )

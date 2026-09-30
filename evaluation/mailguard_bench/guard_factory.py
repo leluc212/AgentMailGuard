@@ -50,7 +50,7 @@ def guard_settings(
 
 
 def build_guard_pipeline(preset: str, settings: MailGuardSettings) -> MailGuardPipeline:
-    """A pipeline for one GuardConfig preset (C0, C1, C2, C3), audit log off."""
+    """A pipeline for one GuardConfig preset (C0, C1, C2, C3, C3-L1..C3-L5), audit log off."""
     return MailGuardPipeline(
         settings, GuardConfig.preset(preset), registry=ModelRegistry(settings), audit=False
     )
@@ -102,13 +102,26 @@ def require_live(
     MailGuardPipeline turns a stage off with only a warning when its model is unknown, and a
     missing L1 artifact only logs a warning, so without this check a mis-set model name or
     a skipped prep step would report a weaker C3 than the real guard.
+
+    Only the layers the preset runs are checked (``layers.active_layers``): C3-L1 has no
+    L1 judge, C3-L2 no L2 LLM step, and the pipeline builds every layer's provider whether
+    or not the preset runs the layer, so a stage of a removed layer is neither wanted nor
+    "expected off". The classifier is needed wherever L1, L2 or L3b runs.
     """
     expected = f"OpenAIProvider:{model_name}"
+    active = set(layers.active_layers)
     problems: list[str] = []
-    if not layers.l1_classifier:
+    if active & {"l1", "l2", "l3b"} and not layers.l1_classifier:
         problems.append(f"L1 classifier not loaded ({PREP_HINT})")
-    wanted = {"l1_judge": True, "l2_llm": True, "l3b_llm": l3b_llm, "l4_llm": l4_llm}
-    for field_name, on in wanted.items():
+    wanted = {
+        "l1_judge": ("l1", True),
+        "l2_llm": ("l2", True),
+        "l3b_llm": ("l3b", l3b_llm),
+        "l4_llm": ("l4", l4_llm),
+    }
+    for field_name, (layer, on) in wanted.items():
+        if layer not in active:
+            continue
         got = getattr(layers, field_name)
         if on and got != expected:
             problems.append(f"{field_name} is {got}, expected {expected}")
