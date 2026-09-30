@@ -24,9 +24,10 @@ This guide is for the teammate who runs the benchmark on a Windows 11 laptop. Yo
 
 - **An OpenAI API key** with credit on the account (for `gpt-4o-mini`). It goes in `.env` as `BENCH_OPENAI_API_KEY`.
 - **A Gemini API key** from Google AI Studio (https://aistudio.google.com/app/apikey). Every run uses it for embeddings, whichever model is under test. It goes in `.env` twice (see part C).
+- **The Layer-1 classifier file, `l1_injection_clf_v1.joblib`, from the owner.** It is **not in git** (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed, see `evaluation/mailguard_bench/pinned/NOTICE.md`). The owner sends it to you privately. It is 28 MB. Do not put it in a public link, a chat group or the repository. You place it in step D1.
 - **Disk:** about 63 GB free on this laptop. The doctor warns below 25 GB: the Docker images, the two Ollama models (several GB each) and the run folders are the big parts.
 - **A charger and a laptop that stays awake** for the whole run (part A, last step).
-- **Time:** there are **no measured durations for this laptop**. Nobody has run the kit on it yet. The kit writes `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl`, one JSON line per finished step with its times. After your first model, the lines of that file are the real estimate for the next two; please send it back with the results (part F).
+- **Time:** a full model is 9 configs x 550 cases = 4,950 case runs. The owner measured a 7-case smoke run on his desktop (an RTX 3060 with 12 GB): about 3 s per case and config for `gpt-4o-mini` at concurrency 2, about 10 s for Qwen2.5-7B and about 9 s for Llama-3.1-8B at concurrency 1. That makes roughly **4 to 6 hours for `gpt-4o-mini`** and **12 to 15 hours for each local model** on that desktop, about 28 to 36 hours for the three. **This is an estimate from a 7-case smoke run, not a measurement of a full run**, and your laptop's GPU has 6 GB (part E), so the two local models will take longer here. The kit writes `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl`, one JSON line per finished step with its times. After your first model, the lines of that file are the real estimate for the next two; please send it back with the results (part F). A stopped run resumes where it stopped (D5), so the hours do not need to be in one sitting.
 - **A decision from the owner:** which git branch to check out (part B) until the code is on `main`.
 - **A decision from you:** the reader model of the "meaning" column (part C). Write it down before the first run.
 
@@ -38,7 +39,7 @@ A rule for the whole guide: **never paste the contents of `.env` anywhere**, not
 
 ### A1. Install WSL2 with Ubuntu
 
-Docker Desktop's installation page lists Windows 11 Enterprise, Pro or Education (23H2 or newer) for its WSL 2 backend, and does not list Home. Your laptop runs Home, so this guide does **not** use Docker Desktop: it installs Docker Engine inside Ubuntu instead. (If you ever move to a Pro laptop, the native-Windows guide `docs/benchmark-windows-native.md` has the Docker Desktop route.)
+Docker Desktop's installation page lists Windows 11 Enterprise, Pro or Education (23H2 or newer) for its WSL 2 backend, and does not list Home. Your laptop runs Home, so this guide does **not** use Docker Desktop: it installs Docker Engine inside Ubuntu instead (ADR-0012 decision 16: Docker Engine inside WSL2 Ubuntu is this kit's primary route, and Docker Desktop with WSL integration stays an option only on the editions its page lists). (If you ever move to a Pro laptop, the native-Windows guide `docs/benchmark-windows-native.md` has the Docker Desktop route.)
 
 In PowerShell, opened with "Run as administrator":
 
@@ -165,12 +166,11 @@ git checkout <BRANCH>        # the owner tells you the branch name; after the me
 
 `core.autocrlf input` means: never convert line endings when files are checked out. The repository also has a `.gitattributes` file that keeps every text file LF on every machine. If the repository is private, the owner has to give your GitHub account access, and GitHub asks you to sign in on `git clone`.
 
-The pinned benchmark inputs come with the clone, so you do **not** run `make mailguard-prep` or `make mailguard-cases`:
+The 550 benchmark cases come with the clone, so you do **not** run `make mailguard-cases`, and you never run `make mailguard-prep` (the classifier is the owner's file, step D1):
 
-- `evaluation/datasets/mailguard/cases.jsonl` and `manifest.json`: the 550 benchmark cases;
-- `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib`: the trained Layer-1 classifier.
+- `evaluation/datasets/mailguard/cases.jsonl` and `manifest.json`: the 550 benchmark cases (committed, with their license notices in `evaluation/mailguard_bench/pinned/NOTICE.md`).
 
-`evaluation/mailguard_bench/pinned/SHA256SUMS` lists their fingerprints, and `NOTICE.md` next to it says where the data came from and under which licenses. You can check them yourself: `cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS && cd ../../..`.
+The Layer-1 classifier, `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib`, is **not in git**: you get it from the owner and place it in step D1. `evaluation/mailguard_bench/pinned/SHA256SUMS` lists the fingerprints of all of them, the classifier's included, and `NOTICE.md` next to it says where the data came from, under which licenses, and why the classifier is not in git.
 
 ---
 
@@ -234,12 +234,18 @@ The reader is reached through the `LLM__*` settings of the process that runs it.
 
 ```bash
 make mailguard-worktree
-export MAILGUARD_ARTIFACTS="$PWD/evaluation/mailguard_bench/pinned"
 ```
 
 `make mailguard-worktree` puts the guard (AgentMailGuard) next to the repository, in `../AgentMailGuard-bench`, at the exact commit the benchmark pins (`1a3ef62b7368703c22c3f90111abdde0678d5617`); it does nothing if the folder is already there at that commit. After the owner merges everything into one repository, the guard is inside it (`agentmailguard/`) and this line is no longer needed. `make bench-setup` (D3) only checks the guard, it does not create it, and the doctor (D2) fails on a missing guard.
 
-`MAILGUARD_ARTIFACTS` is the folder the runs load the Layer-1 classifier from. Point it at the copy that came with the clone. The variable lasts only for this window: run the `export` again in a new one, or append it to `~/.bashrc` once with `echo "export MAILGUARD_ARTIFACTS=\"$PWD/evaluation/mailguard_bench/pinned\"" >> ~/.bashrc` (run from the repository folder). Once the Makefile's own default is the pinned folder the `export` changes nothing; the doctor prints the folder it found and fails if the classifier there is not the pinned one.
+Now the classifier. The owner sends you `l1_injection_clf_v1.joblib` privately (it is not in git, see "What you need"). Save it on Windows, for example in Downloads, copy it into the repository folder (replace `<your Windows name>`), and check its fingerprint:
+
+```bash
+cp /mnt/c/Users/<your Windows name>/Downloads/l1_injection_clf_v1.joblib evaluation/mailguard_bench/pinned/
+sha256sum evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib
+```
+
+The second command must print `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103`; any other number means this is not the pinned file, so ask the owner again (the doctor refuses it too). The file stays in that folder: git ignores that exact path, so `git status` does not show it and a commit cannot pick it up. **Never commit, push or share it.** Once the file is there, the Makefile reads the classifier from that folder by itself (`MAILGUARD_ARTIFACTS` defaults to it), so you export nothing. If you ever exported `MAILGUARD_ARTIFACTS` yourself, unset it; the doctor prints the folder it found.
 
 ### D2. The doctor
 
@@ -247,9 +253,9 @@ export MAILGUARD_ARTIFACTS="$PWD/evaluation/mailguard_bench/pinned"
 make bench-doctor
 ```
 
-It prints one line per check, `ok`, `WARN` or `FAIL`, and under every WARN and FAIL a line that starts with `fix:`. Fix every `FAIL`, then run it again until it exits cleanly. It checks, among other things: that you are in WSL2 and not under `/mnt/c`, that no file has Windows line endings, Docker (command, daemon, Compose v2, 8 GB of memory), disk space (inside Ubuntu, and on the Windows C: drive that holds Ubuntu's virtual disk), `uv`, Python 3.12, that `.env` has each key (by name), that nothing is exported in the shell, the pinned guard and inputs, the folder `MAILGUARD_ARTIFACTS` names, scikit-learn 1.9.1 (the classifier was made with it), that the ports the stack needs are free, and the reader model.
+It prints one line per check, `ok`, `WARN` or `FAIL`, and under every WARN and FAIL a line that starts with `fix:`. Fix every `FAIL`, then run it again until it exits cleanly. It checks, among other things: that you are in WSL2 and not under `/mnt/c`, that no file has Windows line endings, Docker (command, daemon, Compose v2, 8 GB of memory), disk space (inside Ubuntu, and on the Windows C: drive that holds Ubuntu's virtual disk), `uv`, Python 3.12, that `.env` has each key (by name), that nothing is exported in the shell, the pinned guard and the inputs in git, the classifier you placed (its sha256; a missing file is a `FAIL` that says to ask the owner) and the folder the runs will read it from, scikit-learn 1.9.1 (the classifier was made with it), that the ports the stack needs are free, and the reader model.
 
-For a model you are about to run, name it, and the doctor also adds that model's key and, for a local model, the Ollama and GPU checks (part E):
+For a model you are about to run, name it, and the doctor also adds that model's key and, for a local model, the Ollama checks (it answers, it has the model, the containers can reach it, the model is loaded) and the GPU check (part E):
 
 ```bash
 uv run python -m evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b --reader <your reader model>
@@ -263,7 +269,7 @@ The doctor changes nothing. It runs only read-only Docker commands.
 make bench-setup
 ```
 
-`make bench-setup` checks the guard is at the pinned commit, checks the pinned inputs, runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything.
+`make bench-setup` checks the guard is at the pinned commit, checks the pinned inputs (the classifier included), runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything.
 
 ### D4. One model at a time
 
@@ -279,7 +285,7 @@ A `RUN` is the name of the results folder. Use one name per model, with today's 
 make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live CONCURRENCY=2
 ```
 
-`CONCURRENCY=2` is for the API model; give the two local models `CONCURRENCY=1` (one GPU answers one request at a time). The configs default to the v2 list `C0, C0T, C1` to `C7` (`C0` is rag-email alone; `C0T` the guard's reply template with no layer active; `C1` to `C5` one detection layer each (L1, L2, L3, L3b, L4) together with the policy layer L5; `C6` the policy layer alone; `C7` the full guard); `CONFIGS=C0,C7` runs only those, and `LIMIT=5` runs only the first five cases of each config.
+`CONCURRENCY=2` is for the API model; give the two local models `CONCURRENCY=1` (one GPU answers one request at a time). **Before each local-model run, load the model** (`ollama run <model> "Reply with OK"`, part E5): the runner refuses a model that Ollama has not loaded. The configs default to the v2 list `C0, C0T, C1` to `C7` (`C0` is rag-email alone; `C0T` the guard's reply template with no layer active; `C1` to `C5` one detection layer each (L1, L2, L3, L3b, L4) together with the policy layer L5; `C6` the policy layer alone; `C7` the full guard); `CONFIGS=C0,C7` runs only those, and `LIMIT=5` runs only the first five cases of each config.
 
 **Do a small trial first**, under a throwaway name, and read what it says:
 
@@ -362,7 +368,9 @@ Then `sudo systemctl daemon-reload && sudo systemctl restart ollama`. The owner 
 
 ### E4. Make Ollama reachable from the containers (runbook section 9.9, step 2)
 
-Inside a container, `localhost` is the container itself, so the containers reach the laptop's Ollama through the Docker bridge address, which Ollama must listen on. This step applies unchanged inside WSL with Docker Engine. The `sudo` lines are yours to run. **Docker must be up first**, because the bridge address only exists when Docker runs:
+Ollama listens on `127.0.0.1` only. Inside a container `localhost` is the container itself, so the containers reach the laptop's Ollama through the name `host.docker.internal`, which Docker Engine resolves to the **docker0 address** (the Docker bridge, normally `172.17.0.1`). Nothing listens there yet, and **the bridge address only exists while Docker runs**, so start Docker first. There are two ways to fix it. Use **one** of them: route 1 if you have `sudo` and want it permanent, route 2 if you prefer to leave Ollama alone. The doctor's `ollama` check tells you whether the containers can now reach it.
+
+**Route 1: the systemd override (runbook 9.9 step 2; needs `sudo`).** Ollama listens on the bridge address, and only there:
 
 ```bash
 BRIDGE_IP=$(ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1)   # 172.17.0.1 normally
@@ -379,21 +387,39 @@ Then two more things:
 1. In `.env`, add `BENCH_OLLAMA_BASE_URL=http://<the bridge ip>:11434/v1` (the address `echo $BRIDGE_IP` prints).
 2. The `ollama` command finds the server through the same address. In every Ubuntu window where you use `ollama pull`, `ollama run`, `ollama ps` or `ollama show`, first run `export OLLAMA_HOST="$BRIDGE_IP:11434"` (set `BRIDGE_IP` first as above, or type the address).
 
-`localhost:11434` no longer answers after this. That is intended: the guard-worker, the runner and the containers all use the bridge address. To undo it later: `sudo rm /etc/systemd/system/ollama.service.d/bridge.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama`, then remove `BENCH_OLLAMA_BASE_URL` from `.env`.
+`localhost:11434` no longer answers after this. That is intended: the guard-worker, the runner and the containers all use the bridge address. To undo it later: `sudo rm /etc/systemd/system/ollama.service.d/bridge.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama`, then remove `BENCH_OLLAMA_BASE_URL` from `.env` and `unset OLLAMA_HOST`.
 
-### E5. Pull and test the models
+**Route 2: a forwarder bound to the docker0 address only (no changes to Ollama).** `socat` copies what arrives on the docker0 address to Ollama on `127.0.0.1`. Ollama, the `ollama` command and `localhost:11434` stay exactly as they are, and you leave `BENCH_OLLAMA_BASE_URL` unset (the kit's stack settings turn `localhost` into `host.docker.internal` for the containers). Install it once, then start it **after Docker is up**:
+
+```bash
+sudo apt install -y socat
+BRIDGE_IP=$(ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1)
+nohup socat TCP-LISTEN:11434,bind=$BRIDGE_IP,reuseaddr,fork TCP:127.0.0.1:11434 >/dev/null 2>&1 &
+curl -s "http://$BRIDGE_IP:11434/api/version"
+```
+
+The general form is `socat TCP-LISTEN:11434,bind=<docker0 address>,reuseaddr,fork TCP:127.0.0.1:11434`: the forwarder is bound to the docker0 address only, so it is not open on your other network interfaces. It must keep running for the whole run: it dies when Ubuntu shuts down (`wsl --shutdown`, a restart), so start it again before resuming, and stop it when you are done with `pkill -f 'socat TCP-LISTEN:11434'`.
+
+### E5. Pull the models, and load the one you are about to run
 
 ```bash
 ollama pull qwen2.5:7b-instruct
+ollama pull llama3.1:8b
+```
+
+**Before each local-model run, load the model**, in the shell where the `ollama` command reaches the server (route 1: with `OLLAMA_HOST` exported as in E4):
+
+```bash
 ollama run qwen2.5:7b-instruct "Reply with OK"
 ollama ps
 ```
 
-`ollama ps` shows, in the `PROCESSOR` column, where the loaded model sits: `100% GPU`, `100% CPU`, or a split such as `48%/52% CPU/GPU`. On 6 GB expect a split. **Write the split down with the run**: a CPU share means the run's latencies are not comparable with the desktop's. Do the same for `llama3.1:8b`, **after** the Qwen run is finished (one 6 GB GPU cannot hold both):
+The live runner **refuses a model that Ollama has not loaded** (`<model> is not loaded on the Ollama at ...`): it reads the model's real context length from the loaded model and records it with the run. The keep-alive of E3 keeps the model loaded for 30 minutes after the last call; if you stop for longer, or start a different model, load it again before the run or the resume. The doctor's `ollama model loaded` line warns when it is not.
+
+`ollama ps` shows, in the `PROCESSOR` column, where the loaded model sits: `100% GPU`, `100% CPU`, or a split such as `48%/52% CPU/GPU`. On 6 GB expect a split. **Write the split down with the run**: a CPU share means the run's latencies are not comparable with the desktop's. Run Llama **after** the Qwen run is finished (one 6 GB GPU cannot hold both): stop Qwen, then load Llama:
 
 ```bash
 ollama stop qwen2.5:7b-instruct
-ollama pull llama3.1:8b
 ollama run llama3.1:8b "Reply with OK"
 ollama ps
 ```
@@ -409,18 +435,22 @@ R=evaluation/results/mailguard_bench/<RUN>
 
 Run it after the model has answered its first call, so `ollama ps` shows the model.
 
-Then check the machine for that model and start the run:
+Then load the model, check the machine for it, and start the run:
 
 ```bash
+ollama run qwen2.5:7b-instruct "Reply with OK"
 uv run python -m evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b --reader <your reader model>
 make bench-run MODEL=qwen2.5-7b RUN=2026-10-02-qwen25-live CONCURRENCY=1
 ```
 
-and, when it is completely done:
+and, when it is completely done, the same for Llama (load it first):
 
 ```bash
+ollama run llama3.1:8b "Reply with OK"
 make bench-run MODEL=llama-3.1-8b-local RUN=2026-10-02-llama31-local-live CONCURRENCY=1
 ```
+
+Do a small trial first for each local model too (D4), after loading it: `make bench-run MODEL=qwen2.5-7b RUN=trial-qwen CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1`. A local model answers slowly (about 10 s per case on the owner's desktop), so the trial is a few minutes, not seconds.
 
 ---
 
@@ -460,7 +490,10 @@ Include in your message: which model each run used, the reader model you chose a
 | `429` from OpenAI | OpenAI shows your limits under Settings, Organization, Limits. Retrying with waits is what the runner does; run the same command again to retry error rows. An account with no credit also fails on every call: check your balance. |
 | Many rows with `retrieval_degraded` true | The Gemini embedding call ran out of its 3000 ms budget or quota. Check the Gemini limits, then rerun. |
 | The laptop slept or the lid closed | The run stopped. Part A6, then run the same command again. If Docker looks stuck, `wsl --shutdown` in PowerShell, open Ubuntu, `docker ps`, and run the command again. |
-| A container cannot reach Ollama (`connection refused`) | Ollama is not listening on the bridge address: `systemctl show ollama -p Environment`, and Docker must have started before Ollama (E4). A timeout means a firewall drops traffic from Docker's network to port 11434. |
+| A container cannot reach Ollama (`connection refused`) | Nothing listens on the docker0 address. Route 1 of E4: `systemctl show ollama -p Environment`, and Docker must have started before Ollama. Route 2: the `socat` forwarder is not running (it stops when Ubuntu restarts), start it again. A timeout means a firewall drops traffic from Docker's network to port 11434. |
+| The runner says `<model> is not loaded on the Ollama at ...` | Ollama has not loaded that model (it unloaded it after the keep-alive, or you started another one). Run `ollama run <model> "Reply with OK"` (E5), then the same `make bench-run` command again. |
+| Doctor: `L1 classifier: ... is missing` or `has sha256 ...` | The classifier file is not in `evaluation/mailguard_bench/pinned/`, or it is another file. It is not in git, so `git checkout` cannot bring it back: ask the owner for `l1_injection_clf_v1.joblib` and place it as in D1. |
+| Doctor: `ollama: ... it does not answer` for the docker0 address | The containers cannot reach your Ollama yet: do route 1 or route 2 of E4. |
 | `the shell sets ...` or `.env` problems named by setting | Part C: unset the exported variable, or fix the `.env` line. The messages name the setting, never its value. |
 | The runner refuses to start and names a missing or extra drafting consumer | A process is on when it should be off (`ai-worker` versus the guard-worker). Do not start things by hand; run the same `make bench-run` command again. |
 | `make: command not found`, `uv: command not found` | Part A5, then open a new window. |
@@ -486,5 +519,7 @@ External facts in this guide come from these pages, all read on 2026-09-30:
 - `core.autocrlf`: https://git-scm.com/docs/git-config (text read in https://github.com/git/git/blob/master/Documentation/config/core.adoc)
 - Gemini rate limits: https://ai.google.dev/gemini-api/docs/rate-limits
 - OpenAI rate limits: https://developers.openai.com/api/docs/guides/rate-limits
+
+The run times in "What you need" are the owner's own, from a 7-case smoke run on 2026-09-30/10-01 on his desktop (RTX 3060, 12 GB); they are not from a page. The decisions cited are in `docs/adr/0012-post-review-v2-done-fixes-and-main.md` (15: the classifier is not redistributed; 16: Docker Engine inside WSL2 is the primary route). `socat`'s option syntax (`TCP-LISTEN`, `bind=`, `reuseaddr`, `fork`): its manual page, `man socat`, after `sudo apt install socat`.
 
 The procedure itself is the owner's runbook, `docs/demo-runbook.md` section 9.9 (and 9.8 for the local models); this guide is the same steps, run by the kit.

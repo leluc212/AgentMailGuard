@@ -2,12 +2,16 @@
 
 **Read this first.** Docker Desktop's installation page (https://docs.docker.com/desktop/setup/install/windows-install/, read 2026-09-30) lists, for every backend, Windows 11 **Enterprise, Pro or Education**, version 23H2 or newer (Windows 10 22H2 for the same three editions). Windows **Home is not listed**. A note further down the same page says "Windows Home or Education editions only allow you to run Linux containers", which contradicts the lists, so this project does not rely on Home with Docker Desktop.
 
-- **On Windows 11 Home, use the WSL2 route in `docs/BENCHMARK.md`.** It installs Docker Engine inside Ubuntu and needs no Docker Desktop. It is the route this kit was designed for.
+- **On Windows 11 Home, use the WSL2 route in `docs/BENCHMARK.md`.** It installs Docker Engine inside Ubuntu and needs no Docker Desktop. It is the kit's primary route (ADR-0012 decision 16); this guide is the alternative for the editions Docker Desktop lists.
 - **On Windows 11 Pro, Enterprise or Education**, you may follow this guide instead: Docker Desktop, and everything typed in PowerShell.
 
 **What was not exercised on Windows.** The kit and this guide were written and tested on Linux. Nothing below has been run on Windows by the author. The commands are taken from the tools' own documentation, which is cited for each one. Where I am guessing, the text says so. The list of what to watch is at the end.
 
 The steps of the benchmark itself, and what the kit does in each, are the same as in `docs/BENCHMARK.md` (parts C to F); this guide only replaces the setup (its part A and B) and the way to start the commands.
+
+**The Layer-1 classifier is not in git.** You need the file `l1_injection_clf_v1.joblib` from the owner (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed; `evaluation/mailguard_bench/pinned/NOTICE.md` says why). The owner sends it to you privately, never by a public link, and you place it in section 2. Never commit, push or share it.
+
+**How long it takes** (an estimate from the owner's 7-case smoke run on his desktop, an RTX 3060 with 12 GB, not a measurement of a full run): a full model is 9 configs x 550 cases; about 3 s per case and config for `gpt-4o-mini`, 10 s for Qwen2.5-7B and 9 s for Llama-3.1-8B, so roughly 4 to 6 hours for `gpt-4o-mini` and 12 to 15 hours for each local model on that desktop, and longer on a 6 GB laptop GPU. See "What you need" in `docs/BENCHMARK.md`.
 
 ---
 
@@ -57,7 +61,7 @@ The Makefile's `bench-*` targets need `make`. On Windows, `winget install ezwinp
 
 ### Ollama (only for the two local models)
 
-Install Ollama for Windows from https://ollama.com/download. Its documentation lists Windows 10 22H2 or newer, Home or Pro, and NVIDIA driver 551.61 or newer if you have an NVIDIA card (https://github.com/ollama/ollama/blob/main/docs/windows.mdx, read 2026-09-30). Ollama serves on `http://localhost:11434` and the `ollama` command works in PowerShell. Your RTX 4050 has 6 GB, so a 7B or 8B model partly runs on the CPU; see part E of `docs/BENCHMARK.md` for what to write down.
+Install Ollama for Windows from https://ollama.com/download. Its documentation lists Windows 10 22H2 or newer, Home or Pro, and NVIDIA driver 551.61 or newer if you have an NVIDIA card (https://github.com/ollama/ollama/blob/main/docs/windows.mdx, read 2026-09-30). Ollama serves on `http://localhost:11434` and the `ollama` command works in PowerShell. Your RTX 4050 has 6 GB, so a 7B or 8B model partly runs on the CPU; see part E of `docs/BENCHMARK.md` for what to write down. Pull the two models once (`ollama pull qwen2.5:7b-instruct`, `ollama pull llama3.1:8b`). **Before each local-model run, load the model** (`ollama run qwen2.5:7b-instruct "Reply with OK"`): the runner refuses a model that Ollama has not loaded, and the keep-alive below keeps it loaded for 30 minutes after the last call.
 
 Set Ollama's settings as Windows environment variables, as Ollama's FAQ describes (quit Ollama from the taskbar; in Settings search for "environment variables", choose "Edit environment variables for your account"; add the variables; start Ollama again from the Start menu):
 
@@ -101,6 +105,15 @@ Select-String -Path .env -Pattern '^(SUMMARIZATION__SUMMARIZER_MODEL|ROUTING__CO
 
 No output means you are clear. Choose and write down the reader model as in part C of `docs/BENCHMARK.md`.
 
+Now the classifier the owner sent you. Save it, for example, in Downloads, copy it into the repository, and check its fingerprint:
+
+```powershell
+Copy-Item "$env:USERPROFILE\Downloads\l1_injection_clf_v1.joblib" evaluation\mailguard_bench\pinned\
+(Get-FileHash evaluation\mailguard_bench\pinned\l1_injection_clf_v1.joblib -Algorithm SHA256).Hash
+```
+
+The hash must be `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103` (PowerShell prints the letters in upper case; that is the same number). Any other value means it is not the pinned file: ask the owner again. Git ignores that exact path, so a commit cannot pick it up. (Get-FileHash uses SHA256 by default: https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/get-filehash, read 2026-10-01.)
+
 ---
 
 ## 3. The commands, without `make`
@@ -129,12 +142,14 @@ Then, in the same window (the variables last only for this window: set them agai
 # the doctor: fix every FAIL it prints (add --model-profile qwen2.5-7b for a local model)
 uv @mg evaluation.mailguard_bench.kit.doctor --model-profile gpt-4o-mini --reader <your reader model>
 
-# once: checks the guard and the pinned inputs, runs the guard smoke, brings the stack up (slow the first time)
+# once: checks the guard and the pinned inputs (the classifier too), runs the guard smoke, brings the stack up (slow the first time)
 uv @mg evaluation.mailguard_bench.kit.campaign setup
 
 # one model, completely, then the next (gpt-4o-mini, then qwen2.5-7b, then llama-3.1-8b-local)
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run 2026-10-02-gpt4omini-live --concurrency 2
+ollama run qwen2.5:7b-instruct "Reply with OK"
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b --run 2026-10-02-qwen25-live --concurrency 1
+ollama run llama3.1:8b "Reply with OK"
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile llama-3.1-8b-local --run 2026-10-02-llama31-local-live --concurrency 1
 
 # a small trial first, under a throwaway name (then delete its folder)
@@ -175,13 +190,13 @@ git push -u origin bench/2026-10-02-gpt4omini-live
 - Containers reaching Ollama on the Windows host (above), and the `OLLAMA_HOST=0.0.0.0` fallback.
 - `make` from `ezwinports.make` with this Makefile's shell constructs.
 - Path handling: run folders and the `uv --with-editable` overlay with Windows paths.
-- Durations: there are no measured times for this laptop; `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl` will show them.
+- Durations: there are no measured times for this laptop (the estimate at the top is from the owner's desktop); `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl` will show them.
 
 If something fails here and works in the WSL2 route, the WSL2 route is the reference. Send the owner the doctor's output and the last lines of `kit-log.jsonl` (never `.env`).
 
 ---
 
-## Sources (all read 2026-09-30)
+## Sources (read 2026-09-30, except where a line says 2026-10-01)
 
 - Docker Desktop for Windows, system requirements and install: https://docs.docker.com/desktop/setup/install/windows-install/ (source file: https://raw.githubusercontent.com/docker/docs/main/content/manuals/desktop/setup/install/windows-install.md)
 - Docker Desktop networking, `host.docker.internal`: https://docs.docker.com/desktop/features/networking/networking-how-tos/ (source file in github.com/docker/docs, `content/manuals/desktop/features/networking/networking-how-tos.md`)
@@ -189,5 +204,6 @@ If something fails here and works in the WSL2 route, the WSL2 route is the refer
 - Git for Windows: https://gitforwindows.org/ ; `core.autocrlf`: https://git-scm.com/docs/git-config
 - uv: https://docs.astral.sh/uv/getting-started/installation/
 - `ezwinports.make` (winget package): https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/ezwinports/make
+- PowerShell `Get-FileHash`: https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/get-filehash (source file read 2026-10-01 in github.com/MicrosoftDocs/PowerShell-Docs)
 - Ollama for Windows and its FAQ: https://github.com/ollama/ollama/blob/main/docs/windows.mdx and https://github.com/ollama/ollama/blob/main/docs/faq.mdx
 - `powercfg /change`: https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/powercfg-command-line-options

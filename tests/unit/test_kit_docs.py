@@ -8,15 +8,14 @@ the profile table, the ports with the compose file, the doctor's flags with its 
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import re
 import shlex
 from collections.abc import Sequence
 
-import pytest
-
 from evaluation.mailguard_bench.guard_env import REPO_ROOT, V2_MAILGUARD_COMMIT, GuardEnvError
 from evaluation.mailguard_bench.kit import doctor, pinned
+from evaluation.mailguard_bench.kit.doctor import HttpResult
 from evaluation.mailguard_bench.live import stack_env
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT
 from evaluation.mailguard_bench.model_profiles import PROFILES
@@ -105,13 +104,11 @@ def test_every_repository_path_the_guides_name_exists() -> None:
     missing = {p for p in paths if not (REPO_ROOT / p).exists() and "<" not in p}
     # the run folder and result files are created by a run, and docs/BENCHMARK.md names itself
     missing = {p for p in missing if "results/" not in p and "kit-log" not in p}
+    # the classifier is the owner's file, not in git (ADR-0012 decision 15): absent on a clone
+    missing.discard(pinned.PINNED.classifier.path.as_posix())
     assert missing == set(), missing
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("evaluation.mailguard_bench.kit.campaign") is None,
-    reason="kit/campaign.py arrives with work package R6a; this runs once it is merged",
-)
 def test_the_campaign_commands_of_the_native_guide_parse() -> None:
     campaign = importlib.import_module("evaluation.mailguard_bench.kit.campaign")
 
@@ -152,16 +149,130 @@ def test_the_guards_fix_is_in_the_guide_before_the_first_doctor_run() -> None:
     assert native_fix < _first_block_with(NATIVE, ["kit.doctor"])
 
 
-def test_the_guide_points_the_runners_at_the_pinned_classifier_before_the_first_doctor_run() -> (
-    None
-):
+def test_the_guide_places_the_classifier_before_the_first_doctor_run() -> None:
+    """D1: the owner sends the file (not in git); it goes in pinned/ and its sha256 is checked."""
+    folder = pinned.PINNED.classifier.path.parent.as_posix()
+    name = pinned.PINNED.classifier.path.name
+    blocks = _blocks(GUIDE)
+    place = next(i for i, b in enumerate(blocks) if name in b and folder in b and "cp " in b)
+    assert "sha256sum" in blocks[place] or "sha256sum" in blocks[place + 1]
+    assert place < _first_block_with(GUIDE, ["bench-doctor", "kit.doctor"])
+    assert pinned.PINNED.classifier.sha256 in GUIDE
+
+
+def test_the_native_guide_points_the_runners_at_the_placed_classifier_before_the_doctor() -> None:
     folder = pinned.PINNED.classifier.path.parent.as_posix()
     want = re.compile(rf"{doctor.ARTIFACTS_ENV}\s*=")
+    blocks = _blocks(NATIVE)
+    position = next(i for i, b in enumerate(blocks) if want.search(b))
+    assert folder.replace("/", "\\") in blocks[position] or folder in blocks[position]
+    assert position < _first_block_with(NATIVE, ["kit.doctor"])
+    assert pinned.PINNED.classifier.sha256 in NATIVE
+    assert any(
+        pinned.PINNED.classifier.path.name in b and "Copy-Item" in b for b in _blocks(NATIVE)
+    )
+
+
+def test_both_guides_say_the_classifier_is_not_in_git_and_the_owner_sends_it() -> None:
     for text in (GUIDE, NATIVE):
-        blocks = _blocks(text)
-        position = next(i for i, b in enumerate(blocks) if want.search(b))
-        assert folder.replace("/", "\\") in blocks[position] or folder in blocks[position]
-        assert position < _first_block_with(text, ["bench-doctor", "kit.doctor"])
+        assert "not in git" in text, "the guide must say the classifier is not in git"
+        assert "ask the owner" in text or "sends you" in text or "sends it" in text
+        assert "NOTICE.md" in text
+        assert "decision 15" in text
+    # the doctor's own fix is the wording the guide uses
+    fix = pinned.classifier_fix()
+    assert "it is not in git, see NOTICE.md" in fix
+    assert pinned.PINNED.classifier.path.name in fix
+
+
+def test_the_guides_do_not_say_the_classifier_comes_with_the_clone() -> None:
+    for text in (GUIDE, NATIVE):
+        for line in text.splitlines():
+            if pinned.PINNED.classifier.path.name in line:
+                assert "come with the clone" not in line and "came with the clone" not in line
+                assert "shipped in git" not in line and "committed" not in line
+
+
+def test_the_primary_route_is_docker_engine_inside_wsl2_and_the_guide_cites_decision_16() -> None:
+    assert "decision 16" in GUIDE
+    assert "Docker Engine" in GUIDE and "WSL2" in GUIDE
+    assert GUIDE.index("A4. Install Docker Engine inside Ubuntu") > GUIDE.index("A1. Install WSL2")
+    assert "Docker Desktop" in NATIVE and "Pro, Enterprise or Education" in NATIVE
+
+
+LOAD_COMMAND = 'ollama run {model} "Reply with OK"'
+
+
+def test_each_local_run_is_preceded_by_loading_its_model() -> None:
+    """The live runner refuses a model that Ollama has not loaded (live/run.py)."""
+    for profile_name in ("qwen2.5-7b", "llama-3.1-8b-local"):
+        model = PROFILES[profile_name].model
+        load = LOAD_COMMAND.format(model=model)
+        doctor_hint = doctor.check_model_loaded(
+            PROFILES[profile_name], {}, lambda url: HttpResult(200, '{"models": []}')
+        )
+        assert doctor_hint is not None and doctor_hint.hint == load
+        for text, run_marker in (
+            (GUIDE, f"make bench-run MODEL={profile_name}"),
+            (NATIVE, f"campaign run --model-profile {profile_name}"),
+        ):
+            block = next(b for b in _blocks(text) if run_marker in b)
+            assert load in block, f"{profile_name}: load the model in the same block as its run"
+            assert block.index(load) < block.index(run_marker)
+
+
+def test_the_guide_explains_the_refusal_of_an_unloaded_model() -> None:
+    assert "is not loaded" in GUIDE and "refuses" in GUIDE
+
+
+SOCAT = "socat TCP-LISTEN:11434,bind=<docker0 address>,reuseaddr,fork TCP:127.0.0.1:11434"
+
+
+def test_the_guide_gives_both_routes_from_the_containers_to_a_loopback_ollama() -> None:
+    assert "bridge.conf" in GUIDE and "sudo tee" in GUIDE
+    assert SOCAT in GUIDE
+    # the doctor's hint names the same forwarder
+    hint = doctor.check_ollama(
+        PROFILES["qwen2.5-7b"],
+        {},
+        "wsl2",
+        lambda url: (
+            HttpResult(200, '{"version":"1","models":[{"name":"qwen2.5:7b-instruct"}]}')
+            if "11434/api/" in url and "172." not in url
+            else None
+        ),
+        bridge_ip="172.17.0.1",
+    )
+    assert hint is not None and SOCAT in hint.hint
+    assert "sudo apt install" in GUIDE and "socat" in GUIDE
+    assert "bound to the docker0" in GUIDE or "docker0 address only" in GUIDE
+
+
+# measured on the owner's desktop (RTX 3060 12 GB, 7-case smoke), seconds per case and config
+SMOKE_SECONDS_PER_CASE = {"gpt-4o-mini": 3, "qwen2.5-7b": 10, "llama-3.1-8b-local": 9}
+STATED_HOURS = {"gpt-4o-mini": (4, 6), "qwen2.5-7b": (12, 15), "llama-3.1-8b-local": (12, 15)}
+
+
+def test_the_stated_run_times_follow_from_the_smoke_measurements() -> None:
+    from evaluation.mailguard_bench.scheme import configs_for
+
+    cases = sum(1 for _ in (REPO_ROOT / pinned.PINNED.cases.path).open(encoding="utf-8"))
+    configs = len(configs_for("v2"))
+    assert (configs, cases) == (9, 550)
+    for profile, seconds in SMOKE_SECONDS_PER_CASE.items():
+        hours = configs * cases * seconds / 3600
+        low, high = STATED_HOURS[profile]
+        assert low <= hours <= high, (profile, hours)
+    for text in ("4 to 6 hours", "12 to 15 hours", "estimate", "7-case smoke", "RTX 3060"):
+        assert text in GUIDE, text
+    assert "about 3 s" in GUIDE and "10 s" in GUIDE and "9 s" in GUIDE
+
+
+def test_every_make_target_the_guides_name_exists() -> None:
+    targets = set(re.findall(r"^([a-z][a-z0-9\-]*)\s*:", MAKEFILE, flags=re.MULTILINE))
+    name = r"\bmake ((?:bench|mailguard)-[a-z0-9\-]*[a-z0-9])(?![a-z0-9\-*])"
+    named = set(re.findall(name, GUIDE + NATIVE))
+    assert named and named <= targets, named - targets
 
 
 def make_problems(guide: str, makefile: str) -> list[str]:
@@ -197,9 +308,5 @@ def test_the_guides_name_make_targets_at_all() -> None:
 MAKEFILE = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(
-    not re.search(r"^bench-doctor\s*:", MAKEFILE, flags=re.MULTILINE),
-    reason="the bench-* Make targets arrive with work packages R6a and R7; this runs once merged",
-)
 def test_every_make_target_and_variable_the_guides_name_is_in_the_makefile() -> None:
     assert make_problems(GUIDE + NATIVE, MAKEFILE) == []
