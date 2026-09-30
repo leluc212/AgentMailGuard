@@ -7,6 +7,7 @@ R6b module ``kit.pinned`` is faked at its import boundary (it is written in anot
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import types
@@ -27,6 +28,7 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
     GEMINI_KEY,
     OPENAI_KEY,
     REPORTS,
+    REPORTS_V1,
     RUN,
     Bench,
     bench_fixture,
@@ -191,9 +193,12 @@ def test_setup_fails_when_a_one_shot_container_exited_with_an_error(
 # --- report -----------------------------------------------------------------------------------
 
 
-def _finished_run(bench: Bench) -> Path:
+def _finished_run(bench: Bench, scheme: str | None = "v2") -> Path:
+    """A run folder whose config meta records ``scheme`` (None: a v1 meta, which has no key)."""
     run_dir = bench.results_root / RUN
     (run_dir / "raw").mkdir(parents=True)
+    meta = {"invocations": []} if scheme is None else {"scheme": scheme, "invocations": []}
+    (run_dir / "raw" / "C0.meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return run_dir
 
 
@@ -217,8 +222,22 @@ def test_report_refuses_a_benchmarked_reader_and_a_missing_run(bench: Bench) -> 
     assert bench.host.events == []
 
 
+def test_report_of_a_v1_run_keeps_report_analyses_report(bench: Bench) -> None:
+    _finished_run(bench, scheme=None)
+    assert run_reports(bench.ctx, RUN) == 0
+    assert sequence(bench.host) == REPORTS_V1
+
+
+def test_report_of_a_v2_run_never_calls_the_v1_only_analyses(bench: Bench) -> None:
+    """The kit smoke of 2026-10-01 stopped here: analyses refuses a scheme v2 folder."""
+    _finished_run(bench, scheme="v2")
+    assert run_reports(bench.ctx, RUN, "gemini-2.5-flash") == 0
+    assert "analyses" not in sequence(bench.host)
+    assert sequence(bench.host) == ["report", "meaning", "report"]
+
+
 def test_report_stops_at_the_first_failing_step(bench: Bench) -> None:
-    _finished_run(bench)
+    _finished_run(bench, scheme=None)
     bench.host.exits["analyses"] = 1
     assert run_reports(bench.ctx, RUN) == 1
     assert sequence(bench.host) == ["report", "analyses"]

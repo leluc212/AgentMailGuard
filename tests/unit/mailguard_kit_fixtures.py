@@ -209,6 +209,7 @@ def write_meta(
     path = results_root / run / "raw" / f"{config}.meta.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     meta = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"invocations": []}
+    meta.setdefault("scheme", "v2")  # what live.run records under its default scheme (a kit run)
     meta["invocations"].append(
         {
             "started_at": datetime.now(UTC).isoformat(),
@@ -297,4 +298,7 @@ def pid_file(bench: Bench, config: str, run: str = RUN) -> Path:
 
 
 STACK_UP = "docker compose up"
-REPORTS = ["report", "analyses", "report"]
+# A kit run is scheme v2: the report alone, since the no-API analyses read C3 as the full guard
+# (C7 in v2) and refuse a v2 folder until task 7.23. A v1 folder keeps report, analyses, report.
+REPORTS = ["report"]
+REPORTS_V1 = ["report", "analyses", "report"]

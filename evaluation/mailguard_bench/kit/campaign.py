@@ -18,8 +18,9 @@ rag-email's environment, which every subprocess inherits (``sys.executable -m ..
                                     ─▶ wait: pid file newer than the start AND /readyz answers
                                     ─▶ live.run ─▶ stop it and confirm it exited
           one retry pass over the configs that failed or left error rows
-          reports: report, analyses, report (the meaning column is ``report --reader``: its
-                   LLM__* settings may not be exported during a run, so it is not part of one)
+          reports: the report (a v1 folder: report, analyses, report); the meaning column is
+                   ``report --reader``: its LLM__* settings may not be exported during a run, so
+                   it is not part of one
 
 It is pure Python: no bash, so it runs natively on Windows as well (the stop signal of the
 guard-worker is chosen by ``kit/system.py``). It never starts a model call of its own; the
@@ -66,7 +67,13 @@ from evaluation.mailguard_bench.live import stack_env
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT, HOST, pid_path
 from evaluation.mailguard_bench.meaning import reader_model_problems
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, meta_path
-from evaluation.mailguard_bench.scheme import SCHEME_V2, configs_for
+from evaluation.mailguard_bench.scheme import (
+    SCHEME_V1,
+    SCHEME_V2,
+    SchemeMixError,
+    configs_for,
+    folder_scheme,
+)
 
 # The configs of Friday's v2 run: the scheme's own list (ADR-0012 decision 11), never a copy. The
 # kit accepts any list (--configs); live.run and guard_worker validate the names.
@@ -173,16 +180,28 @@ def resume_commands(options: RunOptions) -> list[str]:
 
 
 def report_commands(ctx: KitContext, run_dir: Path, reader: str | None) -> list[list[str]]:
-    """Runbook step 7: report, analyses, report; with a reader the meaning column, then again."""
+    """Runbook step 7; with a reader the meaning column, then the reports again.
+
+    A scheme v2 folder (every kit run, and one with no meta yet) gets the report alone: the no-API
+    analyses read C3 as the full guard, which is C7 in v2, and refuse a v2 folder until task 7.23,
+    as `make mailguard-analyses` does. A scheme v1 folder keeps report, analyses, report. A folder
+    that mixes schemes gets the report, which refuses it and says why.
+    """
     guard_dir = ctx.environ.get("MAILGUARD_DIR")
     guard = ["--mailguard-dir", guard_dir] if guard_dir else []
-    scored = [
-        module_command(ctx, "evaluation.mailguard_bench.report", "--run-dir", str(run_dir), *guard),
-        module_command(
+    report = module_command(
+        ctx, "evaluation.mailguard_bench.report", "--run-dir", str(run_dir), *guard
+    )
+    try:
+        scheme = folder_scheme(run_dir) or SCHEME_V2
+    except SchemeMixError:
+        scheme = SCHEME_V2
+    scored = [report]
+    if scheme == SCHEME_V1:
+        analyses = module_command(
             ctx, "evaluation.mailguard_bench.analyses", "--run-dir", str(run_dir), *guard
-        ),
-        module_command(ctx, "evaluation.mailguard_bench.report", "--run-dir", str(run_dir), *guard),
-    ]
+        )
+        scored = [report, analyses, report]
     if not reader:
         return scored
     meaning = module_command(

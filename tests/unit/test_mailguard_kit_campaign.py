@@ -388,7 +388,7 @@ def test_c0_fails_without_running_the_runner_when_the_container_never_gets_healt
 # --- reports ----------------------------------------------------------------------------------
 
 
-def test_the_reports_are_report_analyses_report_with_the_run_folder(bench: Bench) -> None:
+def test_the_reports_of_a_v2_run_are_the_report_alone_with_the_run_folder(bench: Bench) -> None:
     bench.runner_outcomes({})
     run_campaign(bench.ctx, opts(configs=("C0",)))
     report_cmds = [
@@ -594,10 +594,11 @@ def test_dry_run_prints_every_command_and_touches_nothing(bench: Bench) -> None:
         "evaluation.mailguard_bench.live.guard_worker --config C3",
         "evaluation.mailguard_bench.live.run --config C3",
         "evaluation.mailguard_bench.report",
-        "evaluation.mailguard_bench.analyses",
         "http://127.0.0.1:8014/readyz",
     ):
         assert needle in printed, needle
+    # A kit run is scheme v2, and the no-API analyses refuse a v2 folder (task 7.23).
+    assert "evaluation.mailguard_bench.analyses" not in printed
     assert GEMINI_KEY not in printed and OPENAI_KEY not in printed
     assert "WARN" not in printed  # nothing ran, so there are no error rows to warn about
 
