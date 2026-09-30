@@ -14,7 +14,9 @@ layer"; specs/tasks.md 7.19)
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from evaluation.mailguard_bench.scoring import L1, L2, L3, L3B, L4, RawRecord, flagged_layers
 
@@ -42,6 +44,56 @@ def first_catching_layer(record: RawRecord, *, goal: bool, goal_pre_l4: bool) ->
     if goal_pre_l4:
         return L4_REDACTION
     return NO_LAYER
+
+
+@dataclass(frozen=True)
+class Attribution:
+    """Which layers stopped and which flagged a set of attacks under one config (task 7.22).
+
+    ``first_catching`` counts each defended attack once, under the label
+    ``first_catching_layer`` gives it. ``flagged`` counts each attack once per layer whose
+    verdict flagged it (severity >= MEDIUM, L3b: a quarantined chunk), whether or not the
+    attack then succeeded, so it can exceed the number of defended attacks.
+    """
+
+    attacks: int
+    succeeded: int
+    first_catching: dict[str, int]
+    flagged: dict[str, int]
+
+
+def attribute_attacks(
+    scored: Iterable[Any], records: Sequence[RawRecord], ids: Collection[str]
+) -> Attribution:
+    """Attribute the scored attacks in ``ids`` to layers from their saved guard reports.
+
+    ``scored`` are the scorer's ``CaseResult`` rows (only ``ok`` records are ever scored, so
+    error rows drop out); ``records`` are the config's raw records, which hold the reports.
+    """
+    by_id = {r.case_id: r for r in records}
+    first: list[str | None] = []
+    flagged: Counter[str] = Counter()
+    attacks = succeeded = 0
+    for row in scored:
+        if row.case_id not in ids or row.kind != "attack" or row.case_id not in by_id:
+            continue
+        record = by_id[row.case_id]
+        attacks += 1
+        succeeded += bool(row.goal_achieved)
+        first.append(
+            first_catching_layer(
+                record,
+                goal=bool(row.goal_achieved),
+                goal_pre_l4=bool((row.extra or {}).get("goal_pre_l4")),
+            )
+        )
+        flagged.update(LABELS[layer] for layer in flagged_layers(record.report))
+    return Attribution(
+        attacks=attacks,
+        succeeded=succeeded,
+        first_catching=tally(first),
+        flagged=dict(sorted(flagged.items(), key=lambda kv: (-kv[1], kv[0]))),
+    )
 
 
 def tally(labels: Iterable[str | None]) -> dict[str, int]:

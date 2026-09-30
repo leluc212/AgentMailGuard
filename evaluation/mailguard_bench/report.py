@@ -47,6 +47,7 @@ from evaluation.mailguard_bench.artifacts import (
     summarize_config,
     write_metrics_csv,
 )
+from evaluation.mailguard_bench.first_layer import Attribution, attribute_attacks
 from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, LAYER_ABLATIONS
 from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
@@ -65,6 +66,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ORDER = ("C0", "C0T", "C1", "C2", "C3")
 # The layer ablation (task 7.22) adds C3-L1..C3-L5: the full guard minus one layer, full case set.
 ALL_CONFIGS = (*CONFIG_ORDER, *ABLATION_CONFIGS)
+# Same-run reference rows of the layer-ablation table, and what each removes from the guard.
+REFERENCE_REMOVED = {"C0": "all", "C3": "none"}
 MAIN_CONFIGS = ("C0", "C0T", "C3")  # full case set; C1/C2 run only the ablation subset
 BASELINES = ("C0", "C0T")  # each is paired against C3 with McNemar when both ran
 AGENT = "ragemail"
@@ -342,14 +345,30 @@ def layer_ablation(
         real, total = real_benign_drafts(records[config], benign)
         return LayerAblationRow(
             config=config,
-            removed="none" if config == "C3" else LAYER_ABLATIONS[config].upper(),
+            removed=REFERENCE_REMOVED.get(config) or LAYER_ABLATIONS[config].upper(),
             llmail_asr=llmail_s.asr,
             rag_asr=rag_s.asr if rag_s is not None else empty,
             benign_fpr=llmail_s.fpr,
             real_drafts=RateCI.of(metrics.Proportion(real, total)),
         )
 
-    rows = [row("C3", llmail["C3"], rag.get("C3"))] if c3_ran and "C3" in llmail else []
+    # Same-run reference rows: C0 (no guard) and C3 (the full guard), when they ran.
+    rows = [
+        row(ref, llmail[ref], rag.get(ref))
+        for ref in REFERENCE_REMOVED
+        if ref in scored and ref in llmail
+    ]
+    attribution: dict[tuple[str, str], Attribution] = {}
+    vectors = (
+        ("LLMail-Inject", llmail_attacks),
+        ("RAG vector", rag_ids),
+    )
+    for config in (*(["C3"] if c3_ran else []), *layer_configs):
+        for label, attack_ids in vectors:
+            if attack_ids:
+                attribution[(config, label)] = attribute_attacks(
+                    scored[config], records[config], attack_ids
+                )
     pairs: list[LayerPair] = []
     notes: list[str] = []
     for config in layer_configs:
@@ -396,8 +415,21 @@ def layer_ablation(
     if rag_table:
         tables["layer_ablation_rag"] = rag_table
     return LayerAblationResult(
-        LayerAblation(rows=rows, pairs=pairs, c3_ran=c3_ran, partial_notes=notes), tables
+        LayerAblation(
+            rows=rows, pairs=pairs, c3_ran=c3_ran, partial_notes=notes, attribution=attribution
+        ),
+        tables,
     )
+
+
+def _attribution_summary(
+    attribution: Mapping[tuple[str, str], Attribution],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """``{config: {vector: {attacks, succeeded, first_catching, flagged}}}`` for summary.json."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for (config, vector), att in attribution.items():
+        out.setdefault(config, {})[vector] = asdict(att)
+    return out
 
 
 def build_report(
@@ -560,7 +592,9 @@ def build_report(
     }
     if layer:
         summary["layer_ablation"] = {
-            "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()}
+            "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()},
+            "raises_asr_p05": {pair.name: pair.raises_asr for pair in layer.summary.pairs},
+            "attribution": _attribution_summary(layer.summary.attribution),
         }
     (run_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8"

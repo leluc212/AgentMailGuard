@@ -887,6 +887,13 @@
   - Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`. Code is unit-tested on the fake provider; live runs are owner-run (`make mailguard-bench`, runbook §9) and never in `make ci`.
   - _Requirements: R22.12, R21.5, R21.6, R24.5, SC4, SC5, SC9_
 
+- [~] **7.22 AgentMailGuard layer ablation (C3 minus one layer)**
+  - Pre-registration: `docs/superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md`. Extends 7.19: `C3-L1` ... `C3-L5` run the guard's own "C3 minus one layer" presets over the same 550 pinned cases, with same-run C0 and C3 as baselines. rag-email adds no defence logic (CLAUDE.md §6); this is evaluation code only.
+  - Scorecard: ASR per vector with Wilson 95 % intervals, FPR, benign drafts of at least 40 characters that were not blocked, exact McNemar of each config against the same-run C3 with the pre-registered necessity test ("removing the layer raises the ASR, p < 0.05"), and per config which layer first stopped and which layers flagged each attack.
+  - Done: runner, guard build, report and tests (unit-tested on fakes, runbook §9.6a).
+  - Left: the live runs (owner-run, gpt-4o-mini) and the write-up of the results, including null results.
+  - _Requirements: R22.12_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -969,7 +976,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.22 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
 | R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
