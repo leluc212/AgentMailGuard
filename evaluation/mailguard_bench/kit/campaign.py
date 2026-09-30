@@ -979,7 +979,8 @@ def run_setup(ctx: KitContext) -> int:
     """``setup``: once per machine, after ``make bench-doctor`` passes.
 
     The cheap checks first (the guard worktree, the pinned inputs, the offline guard smoke), the
-    slow one last: ``docker compose up -d --build`` and the wait for every container.
+    slow one last: ``docker compose build`` (labelled with the checkout's commit), ``up -d`` and the
+    wait for every container.
     """
     try:
         paths = guard_paths_from_env(ctx.environ)
@@ -1003,10 +1004,23 @@ def run_setup(ctx: KitContext) -> int:
     if ctx.host.run(smoke, cwd=ctx.repo_root) != 0:
         ctx.err("FAIL the offline guard smoke failed (output above)")
         return 1
-    up = ["docker", "compose", "up", "-d", "--build"]
-    if ctx.host.run(up, cwd=ctx.repo_root) != 0:
-        ctx.err(f"FAIL {_join(up)} failed (output above)")
+    # The images carry the commit they were built from (org.opencontainers.image.revision), and
+    # `make bench-run` refuses containers that are not this checkout's commit, so the build
+    # names it and `up` then starts what was just built.
+    head = ctx.host.capture(["git", "rev-parse", "HEAD"], cwd=ctx.repo_root)
+    commit = head.stdout.strip()
+    if head.returncode != 0 or not commit:
+        ctx.err(
+            f"FAIL cannot read this checkout's commit (`git rev-parse HEAD` exited "
+            f"{head.returncode}); the images must be built from a commit"
+        )
         return 1
+    build = ["docker", "compose", "build", "--build-arg", f"GIT_COMMIT={commit}"]
+    up = ["docker", "compose", "up", "-d"]
+    for command in (build, up):
+        if ctx.host.run(command, cwd=ctx.repo_root) != 0:
+            ctx.err(f"FAIL {_join(command)} failed (output above)")
+            return 1
     deadline = ctx.host.monotonic() + DEFAULT_STACK_WAIT_S
     while True:
         waiting = _container_problems(ctx, ())

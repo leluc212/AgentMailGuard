@@ -55,7 +55,7 @@ from aio_pika.exceptions import ChannelNotFoundEntity
 
 from evaluation.mailguard_bench.case_adapter import EvalCase
 from evaluation.mailguard_bench.cases import DEFAULT_CASE_DIR, load_case_set
-from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG, git_head
+from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
 from evaluation.mailguard_bench.guard_env import (
     DEFAULT_GUARD_MODEL,
     REPO_ROOT,
@@ -188,6 +188,8 @@ LIVE_ONLY_KEYS = (
     "triage",
     "guard_llm_stages",
     "service_images",
+    "service_revisions",
+    "rag_email_dirty",
     "ollama",
 )
 """The fingerprint keys a live run adds to v1's; none of them may be None (R22.12)."""
@@ -233,6 +235,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--allow-degraded",
         action="store_true",
         help="run even when a guard stage the preset needs is not live (the report refuses it)",
+    )
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="run although a tracked file of this checkout is modified (the meta records it)",
     )
     parser.add_argument(
         "--api-url", default=None, help="the running API (default: FRONTEND__API_BASE_URL)"
@@ -487,6 +494,81 @@ def service_images(run: CommandRunner, *, config: str) -> dict[str, str]:
                 "stop the other stack"
             )
     return {service: next(iter(found[service])) for service in sorted(found)}
+
+
+IMAGE_REVISION_LABEL = "org.opencontainers.image.revision"
+"""The image label the Dockerfile sets from the GIT_COMMIT build argument (``make bench-setup``)."""
+NO_REVISION = ("", "unknown", "<no value>")
+"""What the label reads for an image built without a commit (the build argument's default)."""
+
+
+def image_revisions(run: CommandRunner, images: Mapping[str, str]) -> dict[str, str]:
+    """The commit each service's image was built from, read from its revision label.
+
+    ``images`` maps a service to its image id (``service_images``). An image with no label reads
+    as an empty string.
+
+    Raises:
+        LiveRunError: If docker cannot inspect the images or answers for fewer than were asked.
+    """
+    ids = sorted(set(images.values()))
+    template = f'{{{{.Id}}}} {{{{index .Config.Labels "{IMAGE_REVISION_LABEL}"}}}}'
+    revision_of: dict[str, str] = {}
+    for line in run(["docker", "image", "inspect", "--format", template, *ids]).splitlines():
+        image, _, revision = line.strip().partition(" ")
+        if image:
+            revision_of[image] = revision.strip()
+    unread = [service for service, image in images.items() if image not in revision_of]
+    if unread:
+        raise LiveRunError(f"no revision label could be read for: {', '.join(sorted(unread))}")
+    return {service: revision_of[image] for service, image in sorted(images.items())}
+
+
+def require_current_images(revisions: Mapping[str, str], *, head: str) -> None:
+    """Refuse containers that were not built from the commit this checkout is at.
+
+    The containers draft C0 and run triage, knowledge and the API; the runner and the
+    guard-worker run this checkout. After a ``git pull`` without a rebuild they would be two
+    different programs under the one commit the meta names, and C7 against C0 would compare them.
+
+    Raises:
+        LiveRunError: Naming each service whose image is from another commit, or from none.
+    """
+    stale = {service: rev for service, rev in revisions.items() if rev != head}
+    if not stale:
+        return
+    described = ", ".join(
+        f"{service} ({'built without a commit' if rev in NO_REVISION else rev[:12]})"
+        for service, rev in sorted(stale.items())
+    )
+    raise LiveRunError(
+        f"container image(s) not built from this checkout's commit {head[:12]}: {described}. "
+        "Rebuild them with `make bench-setup` (after every `git pull`); a run under other code "
+        "than its meta names would compare different programs"
+    )
+
+
+def checkout_is_dirty(run: CommandRunner, repo_root: Path) -> bool:
+    """Whether a tracked file of the checkout is modified (untracked files, such as the run's own
+    result folders, are not code and are not counted).
+
+    Raises:
+        LiveRunError: If git cannot be run.
+    """
+    status = run(["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=no"])
+    return bool(status.strip())
+
+
+def checkout_head(run: CommandRunner, repo_root: Path) -> str:
+    """The commit the checkout is at.
+
+    Raises:
+        LiveRunError: If git cannot be run or the checkout has no commit.
+    """
+    head = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).strip()
+    if not head:
+        raise LiveRunError(f"{repo_root} has no commit: a run must name the code it ran")
+    return head
 
 
 def systemd_environment(output: str) -> dict[str, str]:
@@ -763,6 +845,8 @@ def build_live_meta(
     rag_email_commit: str | None,
     triage: Mapping[str, Any],
     service_images: Mapping[str, str],
+    service_revisions: Mapping[str, str],
+    rag_email_dirty: bool,
     ollama: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The run meta of one invocation, with its settings fingerprint.
@@ -785,6 +869,7 @@ def build_live_meta(
         "cases_sha256": cases_sha256,
         "case_sets": list(case_set_names(args.config, args.scheme)),
         "rag_email_commit": rag_email_commit,
+        "rag_email_dirty": rag_email_dirty,  # a tracked file was modified: the commit is not it
         "mailguard_commit": guard.facts["mailguard_commit"],
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,  # C0 too: see runner.run
         **generation_meta(settings.llm),
@@ -803,6 +888,7 @@ def build_live_meta(
         "triage": dict(triage),
         "guard_llm_stages": dict(guard.live_stages),
         "service_images": dict(service_images),
+        "service_revisions": dict(service_revisions),  # the commit each image was built from
         "ollama": dict(ollama),
     }
     meta["fingerprint"] = settings_fingerprint(meta, keys=LIVE_FINGERPRINT_KEYS)
@@ -1115,14 +1201,28 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    # The code that ran must be the code the meta names: the containers are built from a commit
+    # and the runner and guard-worker run this checkout, so they must be one commit, unmodified.
+    head = checkout_head(live.run_command, live.repo_root)
+    dirty = checkout_is_dirty(live.run_command, live.repo_root)
+    if dirty and not args.allow_dirty:
+        raise LiveRunError(
+            "uncommitted changes to tracked files: the meta would name a commit that is not the "
+            "code that runs. Commit or stash them (or pass --allow-dirty for a smoke run)"
+        )
+    images = service_images(live.run_command, config=args.config)
+    revisions = image_revisions(live.run_command, images)
+    require_current_images(revisions, head=head)
     meta = build_live_meta(
         args=args,
         settings=settings,
         cases_sha256=loaded.manifest["cases_sha256"],
         guard=guard,
-        rag_email_commit=git_head(REPO_ROOT),
+        rag_email_commit=head,
         triage=triage_facts(settings.triage, live.repo_root),
-        service_images=service_images(live.run_command, config=args.config),
+        service_images=images,
+        service_revisions=revisions,
+        rag_email_dirty=dirty,
         ollama=ollama_facts(
             get_profile(args.model_profile),
             base_url=llm.openai_base_url,

@@ -40,7 +40,7 @@ help:
 
 up:
 	@if [ -f docker-compose.yml ]; then \
-		docker compose up -d --build; \
+		GIT_COMMIT=$$(git rev-parse HEAD 2>/dev/null || echo unknown) docker compose up -d --build; \
 	else \
 		echo "[INFO] docker-compose.yml will be created in Task 0.3."; \
 	fi
