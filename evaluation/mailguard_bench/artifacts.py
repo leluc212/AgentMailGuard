@@ -1115,10 +1115,17 @@ def _fallback_section(
             )
     out.append("")
     for config, table in fallbacks.items():
+        # The L2 clause measures L2: a v2 config that does not run L2 lists no L2 layer, and a
+        # zero there would read as a measurement of a layer that never ran.
+        runs_l2 = AI_LAYERS[1] in table.layers or table.l2_schema > 0
+        l2_clause = (
+            f"; L2 schema fallbacks (the model's answer carried no schema): {table.l2_schema}"
+            if runs_l2
+            else ""
+        )
         out.append(
             f"{config}: {table.any_fallback.successes} of {table.scored} scored emails had at "
-            "least one AI-step fallback; L2 schema fallbacks (the model's answer carried no "
-            f"schema): {table.l2_schema}."
+            f"least one AI-step fallback{l2_clause}."
         )
     return out + [""] + list(note)
 

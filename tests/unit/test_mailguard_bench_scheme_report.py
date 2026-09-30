@@ -467,6 +467,11 @@ def test_the_fallback_table_of_a_v2_config_lists_only_the_layers_that_config_run
     assert "C0, C0T, C3 and C6 run no guard AI step, so they have no fallbacks to report" in table
     assert "C1: 1 of 11 scored emails had at least one AI-step fallback" in table
     assert "C7: 1 of 11 scored emails" in table
+    # the L2 schema clause is a measurement of L2: only the configs that run L2 print it
+    summary_lines = {line.split(":")[0]: line for line in table.splitlines() if " scored emails" in line}
+    assert "L2 schema fallbacks" not in summary_lines["C1"]
+    assert "L2 schema fallbacks" in summary_lines["C2"]
+    assert "L2 schema fallbacks" in summary_lines["C7"]
 
 
 def test_the_sensitivity_and_template_sections_cover_every_v2_config(tmp_path: Path) -> None:
