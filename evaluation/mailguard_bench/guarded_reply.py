@@ -34,8 +34,27 @@ from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.resilience import RateLimitedError, text_is_rate_limited
 from packages.llm.generator import GenerationResult, SinglePassGenerator
 from packages.llm.protocol import ChatMessage
+from packages.llm.reply_format import render_reply_format_rules
 
 L3B_LAYER = "l3b_document_scanner"
+GUARDED_PROMPT_VERSION = "guarded.v2"
+"""The version of the guarded prompt (C0T, C1, C2, C3), recorded in every run meta and settings
+fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a); a v1
+guarded run and a v2 one are never mixed."""
+
+
+def guarded_system_instructions(agent_instructions: str | None) -> str:
+    """The TRUSTED system instructions of the guarded prompt: the profile's, then the reply format.
+
+    rag-email's own prompt tells the model how to answer (cite the chunks, follow the JSON schema);
+    the guard's template did not, and Llama then answered with a greeting only. The rules come from
+    the shared source (``packages/llm/reply_format.py``) the native templates render from. Only the
+    profile's own instructions go in besides them: never an email, a thread or a chunk, which the
+    guard puts in its untrusted channels. The guard appends its own preamble after this text.
+    """
+    rules = "Reply format rules:\n" + render_reply_format_rules(start=1)
+    base = (agent_instructions or "").strip()
+    return f"{base}\n\n{rules}" if base else rules
 
 
 def _value(obj: Any) -> str:
@@ -180,7 +199,7 @@ class GuardedCaseExecutor:
             guarded_email_from_context(context),
             chunks_from_context(context),
             draft_factory,
-            system_instructions=context.agent_instructions,
+            system_instructions=guarded_system_instructions(context.agent_instructions),
             category_instructions=context.category_instructions,
             thread_summary=context.thread_summary,
             recent_messages=recent_messages_from_context(context),
@@ -226,6 +245,7 @@ class GuardedCaseExecutor:
         record = {
             **outcome,
             "system_instructions": context.agent_instructions or "",
+            "guarded_prompt_version": GUARDED_PROMPT_VERSION,
             "guard_llm": {
                 k: guard_calls[k] for k in ("model", "calls", "input_tokens", "output_tokens")
             },

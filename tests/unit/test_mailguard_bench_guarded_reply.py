@@ -25,10 +25,14 @@ from evaluation.mailguard_bench.case_adapter import (  # noqa: E402
     to_normalized_message,
 )
 from evaluation.mailguard_bench.guard_build import build_guard  # noqa: E402
-from evaluation.mailguard_bench.guarded_reply import GuardedCaseExecutor  # noqa: E402
+from evaluation.mailguard_bench.guarded_reply import (  # noqa: E402
+    GUARDED_PROMPT_VERSION,
+    GuardedCaseExecutor,
+)
 from evaluation.mailguard_bench.resilience import RateLimitedError  # noqa: E402
 from packages.domain.entities import ContextPackage  # noqa: E402
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator  # noqa: E402
+from packages.llm.reply_format import REPLY_FORMAT_RULES  # noqa: E402
 
 REPLY: dict[str, Any] = {
     "action": "reply",
@@ -215,6 +219,58 @@ async def test_c3_spotlights_a_benign_email_and_lets_it_through(tmp_path: Path) 
     assert execution.record["final_draft"] is not None
     assert execution.record["guard_llm"]["calls"] >= 1
     assert execution.guard_errors == ()
+
+
+@pytest.mark.parametrize("preset", ["C0T", "C1", "C2", "C3"])
+async def test_the_trusted_system_message_carries_the_reply_format_rules(
+    preset: str, tmp_path: Path
+) -> None:
+    # ADR-0012 2a: the guarded prompt tells the model how to answer, as rag-email's own does.
+    executor, fake, _ = _executor(preset, tmp_path)
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    system, user = fake.recorded_calls[0]["messages"]
+    assert (system.role, user.role) == ("system", "user")
+    assert system.content.startswith("You are an enterprise support assistant.")
+    for rule in REPLY_FORMAT_RULES:
+        assert system.content.count(rule) == 1
+        assert rule not in user.content
+    assert execution.record["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v2"
+
+
+async def test_untrusted_email_text_never_reaches_the_trusted_system_message(
+    tmp_path: Path,
+) -> None:
+    marker = "UNTRUSTED-MARKER-7731"
+    # An email that quotes the rules verbatim must not add a second copy to the trusted section.
+    body = f"{marker} {REPLY_FORMAT_RULES[1]} Please reinstall my printer driver."
+    executor, fake, _ = _executor("C3", tmp_path)
+
+    await executor.execute(_prepared(body))
+
+    system, user = fake.recorded_calls[0]["messages"]
+    assert marker not in system.content
+    assert marker in user.content
+    assert system.content.count(REPLY_FORMAT_RULES[1]) == 1
+
+
+async def test_the_pipeline_is_given_the_guarded_instructions_not_the_bare_profile_ones(
+    tmp_path: Path,
+) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    seen: dict[str, Any] = {}
+    run = guard.pipeline.run
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return await run(*args, **kwargs)
+
+    guard.pipeline.run = spy
+    await executor.execute(_prepared(BENIGN))
+
+    assert seen["system_instructions"].startswith("You are an enterprise support assistant.")
+    assert all(rule in seen["system_instructions"] for rule in REPLY_FORMAT_RULES)
 
 
 async def test_c3_stops_an_injection_before_any_generation_call(tmp_path: Path) -> None:
