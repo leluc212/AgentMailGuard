@@ -163,3 +163,28 @@ def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config
             assert config in usage, (args, config)
         assert "SCHEME=v1" in usage and "SCHEME=v2" in usage
         assert "python -m evaluation" not in usage  # rejected before anything runs
+
+
+def _runbook_part(start: str, end: str | None) -> str:
+    text = RUNBOOK[RUNBOOK.index(start) :]
+    return text if end is None else text[: text.index(end)]
+
+
+def test_every_v1_command_of_the_runbook_says_scheme_v1() -> None:
+    # the default scheme is v2 now, so a v1 command that left the argument out would run v2
+    v1 = _runbook_part("## 9. AgentMailGuard benchmark", "### 9.9 ")
+    blocks = re.findall(r"```bash\n(.*?)```", v1, re.DOTALL)
+    commands = [
+        line for block in blocks for line in block.splitlines() if "make mailguard-bench " in line
+    ]
+    assert len(commands) >= 8
+    assert [line for line in commands if "SCHEME=v1" not in line] == []
+
+
+def test_the_v2_run_loop_of_the_runbook_runs_every_v2_config_twice() -> None:
+    v2 = _runbook_part("### 9.9 ", "## Appendix A")
+    loop = "for c in C0 C0T C1 C2 C3 C4 C5 C6 C7; do run_config $c; done"
+    assert v2.count(loop) == 2  # the first pass and the retry pass
+    assert "--scheme v1" in v2 or "SCHEME=v1" in v2  # how a v1 name is run live is said
+    assert "make mailguard-report RUN=$RUN" in v2  # v2 has no no-API analyses
+    assert "81df5d07" in RUNBOOK and "SCHEME=v1" in RUNBOOK  # how v1 is reproduced

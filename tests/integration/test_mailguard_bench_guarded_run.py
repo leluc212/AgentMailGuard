@@ -43,9 +43,22 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool[Any], None]:
         await pool.close()
 
 
-@pytest.mark.parametrize("config", ["C0", "C0T", "C3"])
+@pytest.mark.parametrize(
+    ("config", "scheme"),
+    [
+        ("C0", "v1"),
+        ("C0T", "v1"),
+        ("C3", "v1"),
+        # scheme v2 (ADR-0012 decision 11): the guard is built from explicit layer flags
+        ("C0T", "v2"),
+        ("C3", "v2"),  # channel isolation + L5
+        ("C4", "v2"),  # L3b + L5
+        ("C6", "v2"),  # L5 alone
+        ("C7", "v2"),
+    ],
+)
 async def test_rag_case_runs_end_to_end_and_leaves_no_tenant_behind(
-    db_pool: asyncpg.Pool[Any], tmp_path: Path, config: str
+    db_pool: asyncpg.Pool[Any], tmp_path: Path, config: str, scheme: str
 ) -> None:
     registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
     host = EvalHost.create(
@@ -58,6 +71,7 @@ async def test_rag_case_runs_end_to_end_and_leaves_no_tenant_behind(
             model_name="fake",
             audit_log_path=tmp_path / "audit.jsonl",
             l1_model_path=tmp_path / "clf.joblib",
+            scheme=scheme,
         )
         guard.guard_llm.inner = guard_fake()  # schema-valid guard answers (guarded_reply tests)
     fake = FakeLLMProvider(default_response=REPLY)
