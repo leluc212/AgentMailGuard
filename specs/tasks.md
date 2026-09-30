@@ -925,6 +925,13 @@
   - Left: the final merge itself (owner decision, ADR-0012 decision 6), and then removing the worktree layout text once no machine uses it.
   - _Requirements: R22.12, R24.5_
 
+- [~] **7.25 Teammate benchmark kit (Windows 11 Home, WSL2 first)**
+  - Decision: ADR-0012 decision 9 (the teammate runs the full v2 benchmark from a fresh download, with their own keys; results come back as ours do).
+  - Done: `evaluation/mailguard_bench/kit/campaign.py` (`setup`, `run`, `report`, `package`) automating runbook §9.9 steps 3 to 7 for one model, the default config list taken from `scheme.configs_for("v2")`; `make bench-setup`, `bench-run`, `bench-report`, `bench-package`; a Windows-safe guard-worker liveness check and stop (`live/process.py`).
+  - Left: the doctor, the pinned inputs and the WSL2 and native Windows guides (work package R6b, held for the owner's decision on redistributing the L1 classifier); a live run of the kit from a fresh download (ADR-0012 decision 1).
+  - Numbering: this task's commits say `[task 7.23]`; the number collided with 7.23 (v2 analyses) and was changed to 7.25 when the work packages were integrated.
+  - _Requirements: R22.12, R24.5_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -1007,7 +1014,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
 | R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |

@@ -63,6 +63,9 @@ cover/
 # evaluation/mailguard_bench/live/stack_env.py; it holds API keys (task 7.20)
 .env.stack
 
+# make bench-package: the kit's results zip holds raw/ (full attack emails and drafts) (task 7.23)
+bench-results-*.zip
+
 # IDEs and editors
 .idea/
 .vscode/

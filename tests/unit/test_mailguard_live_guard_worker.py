@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -263,7 +264,19 @@ def test_the_pid_file_goes_away_when_the_worker_fails(tmp_path: Path) -> None:
 
 
 def _sleeper(*argv: str) -> subprocess.Popen[bytes]:
-    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", *argv])
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", *argv])
+    # Popen returns as soon as the exec closed its error pipe, and /proc/<pid>/cmdline is empty
+    # or still the parent's for a moment after that (about 4 starts in 5 on Linux 7.1): wait for
+    # the program's own command line, as the `child` fixture of test_mailguard_bench_live_run does.
+    cmdline = Path(f"/proc/{proc.pid}/cmdline")
+    deadline = time.monotonic() + 5
+    while cmdline.exists() and b"time.sleep" not in cmdline.read_bytes():
+        if time.monotonic() > deadline:
+            proc.kill()
+            proc.wait()
+            raise AssertionError("the child never exec'd")
+        time.sleep(0.01)
+    return proc
 
 
 def _dead_pid() -> int:
