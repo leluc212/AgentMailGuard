@@ -312,6 +312,41 @@ async def test_a_429_seen_only_in_llm_error_metadata_is_rate_limited(tmp_path: P
         await executor.execute(_prepared(BENIGN))
 
 
+async def test_a_layer_crash_whose_text_says_429_is_retried_not_an_error_row(
+    tmp_path: Path,
+) -> None:
+    # v1 behaviour change, pinned: the crash text (the verdict's ``error``) feeds the 429 check
+    # too, so a layer that let a rate-limit error escape is retried by the ladder like any 429.
+    executor, _, _ = _executor("C3", tmp_path)
+    report_hook = executor.pipeline.run
+
+    async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
+        report, draft, bundle = await report_hook(*args, **kwargs)
+        report.l1.error = "HTTPStatusError: HTTP 429 Too Many Requests"
+        return report, draft, bundle
+
+    executor.pipeline.run = run_then_crash
+
+    with pytest.raises(RateLimitedError):
+        await executor.execute(_prepared(BENIGN))
+
+
+async def test_a_layer_crash_without_429_stays_a_guard_error(tmp_path: Path) -> None:
+    executor, _, _ = _executor("C3", tmp_path)
+    report_hook = executor.pipeline.run
+
+    async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
+        report, draft, bundle = await report_hook(*args, **kwargs)
+        report.l1.error = "ValueError: boom"
+        return report, draft, bundle
+
+    executor.pipeline.run = run_then_crash
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert any(e.startswith("l1_injection_scanner: ValueError") for e in execution.guard_errors)
+
+
 @V1_GUARD_ONLY
 async def test_the_v1_guard_leaves_no_fallback_facts_in_the_record(tmp_path: Path) -> None:
     executor, _, _ = _executor("C3", tmp_path)
