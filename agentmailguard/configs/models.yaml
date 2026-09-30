@@ -1,0 +1,23 @@
+# Registered guard models. Names are referenced from .env (GUARD_MODELS__*),
+# training/configs/*.yaml and evaluation/run_benchmark.py --model.
+# The three models compared in the paper (paper/outline.md, Section 5):
+models:
+  qwen2.5-7b-instruct:
+    backend: ollama
+    tag: qwen2.5:7b-instruct           # ollama pull qwen2.5:7b-instruct
+    num_ctx: 8192
+    timeout_s: 90
+    # After LoRA fine-tuning (training/finetune_llm_judge.py) register the merged
+    # GGUF as e.g. mailguard-qwen2.5-7b:v1 and point `tag` at it.
+  llama-3.1-8b-instruct:
+    backend: ollama
+    tag: llama3.1:8b-instruct-q4_K_M   # ollama pull llama3.1:8b-instruct-q4_K_M
+    num_ctx: 8192
+    timeout_s: 90
+  gpt-4o-mini:
+    backend: openai
+    model: gpt-4o-mini
+    json_mode: json_object             # json_object | json_schema
+    timeout_s: 30
+  fake:
+    backend: fake                      # offline CI double
