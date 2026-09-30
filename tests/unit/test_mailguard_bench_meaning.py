@@ -557,6 +557,53 @@ def test_the_reader_must_not_be_a_benchmarked_or_run_model() -> None:
     assert reader_model_problems("gemini-2.5-flash", meta) == []
 
 
+# The tooling that runs the reader refuses a benchmarked model however it is spelled
+# (ADR-0012 decision 7): a tag, a date, a quantisation, a provider prefix or a profile name of a
+# model under test is that model. The doctor is advisory and runs only when asked.
+BENCHMARKED_VARIANTS = [
+    "qwen2.5:7b",
+    "Qwen2.5-7B-Instruct",
+    "qwen2.5:7b-instruct-q4_K_M",
+    "llama3.1:8b-instruct-q4_K_M",
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "gpt-4o-mini-2024-07-18",
+    "openai/gpt-4o-mini",
+    "google/gemma-4-26b-a4b-it",
+    # the profile names of `make bench-run MODEL=...`
+    "qwen2.5-7b",
+    "llama-3.1-8b-local",
+    "gemma-4-26b",
+    "GPT-4o-Mini",
+]
+
+
+@pytest.mark.parametrize("variant", BENCHMARKED_VARIANTS)
+def test_a_variant_of_a_benchmarked_model_may_not_read_where_the_reader_runs(
+    variant: str,
+) -> None:
+    from evaluation.mailguard_bench.kit.campaign import reader_problems
+
+    (problem,) = reader_model_problems(variant, {})
+    assert "benchmarked model" in problem
+    assert reader_problems(variant), "`make bench-report READER=` refuses it too"
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["gpt-4o", "gpt-4.1-mini", "qwen2.5:14b", "llama3.1:70b", "llama3.2:3b", "gemini-2.5-flash"],
+)
+def test_a_different_model_may_read(other: str) -> None:
+    assert reader_model_problems(other, {}) == []
+
+
+def test_a_variant_of_a_generation_model_of_the_run_may_not_read() -> None:
+    meta = {"C3": {"generation_model": "custom-run-model:7b-instruct"}}
+
+    (problem,) = reader_model_problems("Custom-Run-Model-7B", meta)
+
+    assert "generation model of this run" in problem
+
+
 def write_live_run(tmp_path: Path) -> Path:
     run = tmp_path / "run"
     (run / "raw").mkdir(parents=True)
