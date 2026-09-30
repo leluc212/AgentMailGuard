@@ -44,6 +44,7 @@ from evaluation.mailguard_bench.report import (
     load_cases,
     settings_problems,
 )
+from evaluation.mailguard_bench.scheme import SCHEME_V2, folder_scheme
 from evaluation.mailguard_bench.scoring import LIVE_TRANSPORT, RawRecord, read_raw
 from evaluation.mailguard_bench.threat_model import render_threat_model
 
@@ -152,8 +153,17 @@ def run_analyses(
 
     Raises:
         FileNotFoundError: If the run has no scored C3 results yet.
-        ValueError: If the report would refuse the run (weakened guard or off-pin settings).
+        ValueError: If the report would refuse the run (weakened guard or off-pin settings), or
+            the run is scheme v2: these analyses read C3 as the full guard, which in v2 is C7
+            (C3 is channel isolation there), so a v2 folder is refused instead of misread.
     """
+    if folder_scheme(run_dir) == SCHEME_V2:
+        raise ValueError(
+            f"{run_dir} is a scheme v2 run: the no-API analyses (leakage, first catching layer, "
+            "worked examples) read C3 as the full guard, which is C7 in v2, and are not adapted "
+            "to it yet (specs/tasks.md 7.20). Its report has no analyses.md: use "
+            "`make mailguard-report RUN=<run>`"
+        )
     cases = load_cases(run_dir / "cases.jsonl")
     manifest = json.loads((run_dir / "case_manifest.json").read_text(encoding="utf-8"))
     llmail_ids = set(manifest["llmail_attack_ids"]) | set(manifest["benign_ids"])

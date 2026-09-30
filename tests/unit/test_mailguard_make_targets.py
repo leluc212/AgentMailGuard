@@ -92,41 +92,74 @@ def test_the_worker_count_reaches_the_runner_as_an_argument_only() -> None:
 
 
 ABLATION_CONFIGS = ("C3-L1", "C3-L2", "C3-L3", "C3-L3B", "C3-L4", "C3-L5")
+V1_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS)
+V2_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C4", "C5", "C6", "C7")
 
 
-def test_the_bench_target_accepts_the_layer_ablation_configs() -> None:
-    for config in ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS):
-        dry_run = _make("-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "MODEL=gpt-4o-mini")
+def test_the_bench_target_accepts_the_v1_configs_under_scheme_v1() -> None:
+    # the layer ablation exists only in scheme v1, the published one (ADR-0012 decision 11)
+    for config in V1_CONFIGS:
+        dry_run = _make(
+            "-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "SCHEME=v1", "MODEL=gpt-4o-mini"
+        )
         assert f"--config {config} " in dry_run
+        assert "--scheme v1" in dry_run
         assert "--model-profile gpt-4o-mini" in dry_run
 
 
-def _config_check_exit(config: str) -> int:
+def test_the_bench_target_defaults_to_scheme_v2_and_accepts_its_configs() -> None:
+    for config in V2_CONFIGS:
+        dry_run = _make("-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "MODEL=gpt-4o-mini")
+        assert f"--config {config} " in dry_run
+        assert "--scheme v2" in dry_run
+        assert "--model-profile gpt-4o-mini" in dry_run
+
+
+def test_the_scheme_reaches_the_runner_as_an_argument_only() -> None:
+    # like CONCURRENCY: Make would export a command-line SCHEME to every recipe
+    leaked = _make(
+        "-s", "--eval", 'print-env: ; @env | grep "^SCHEME=" || true', "print-env", "SCHEME=v1"
+    )
+    assert leaked == ""
+
+
+def _config_check_exit(config: str, scheme: str = "v2") -> int:
     """Exit code of the recipe's first line (the CONFIG check), run alone; no run starts."""
     first = recipe("mailguard-bench").splitlines()[0].lstrip("@\t ")
-    return subprocess.run(
-        ["bash", "-c", first.replace("$(CONFIG)", config)], capture_output=True, check=False
-    ).returncode
+    command = first.replace("$(CONFIG)", config).replace("$(SCHEME)", scheme)
+    return subprocess.run(["bash", "-c", command], capture_output=True, check=False).returncode
 
 
-def test_the_config_check_lets_the_layer_ablation_configs_through() -> None:
-    for config in ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS):
-        assert _config_check_exit(config) == 0, config
-    for config in ("C3-L6", "C3-l1", "C3-", "C4", ""):
-        assert _config_check_exit(config) == 2, config
+def test_the_config_check_lets_each_schemes_configs_through_and_only_those() -> None:
+    for config in V2_CONFIGS:
+        assert _config_check_exit(config, "v2") == 0, config
+    for config in ("C3-L1", "C3-L6", "C3-l1", "C3-", "C8", "C0t", ""):
+        assert _config_check_exit(config, "v2") == 2, config
+    for config in V1_CONFIGS:
+        assert _config_check_exit(config, "v1") == 0, config
+    for config in ("C3-L6", "C3-l1", "C3-", "C4", "C5", "C6", "C7", ""):
+        assert _config_check_exit(config, "v1") == 2, config
+    for scheme in ("v3", "", "V2"):
+        assert _config_check_exit("C0", scheme) == 2, scheme
 
 
-def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config() -> None:
+def _usage(*args: str) -> str:
     result = subprocess.run(
-        ["make", "--no-print-directory", "mailguard-bench", "RUN=x", "CONFIG=C3-L6"],
+        ["make", "--no-print-directory", "mailguard-bench", "RUN=x", *args],
         cwd=REPO,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 2
-    usage = result.stdout + result.stderr
-    assert usage.startswith("usage: make mailguard-bench")
-    for config in ("C0", "C3", "C0T", "C1", "C2", *ABLATION_CONFIGS):
-        assert config in usage
-    assert "python -m evaluation" not in usage  # rejected before anything runs
+    return result.stdout + result.stderr
+
+
+def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config() -> None:
+    for args in (["CONFIG=C3-L1"], ["CONFIG=C4", "SCHEME=v1"], ["CONFIG=C8"], ["SCHEME=v3"]):
+        usage = _usage(*args)
+        assert usage.startswith("usage: make mailguard-bench")
+        for config in (*V2_CONFIGS, *ABLATION_CONFIGS):
+            assert config in usage, (args, config)
+        assert "SCHEME=v1" in usage and "SCHEME=v2" in usage
+        assert "python -m evaluation" not in usage  # rejected before anything runs
