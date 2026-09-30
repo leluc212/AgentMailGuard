@@ -19,10 +19,11 @@ a first commit.
 
 1. **v2 is done** when every service, feature and function of rag-email is configured on and shown
    working live — in the owner's words, "everything is configured to turn on and actually has all
-   functions, features and services working" — and the v2 benchmark runs through all of them for the
-   three models, with every reported number independently re-verified. Numbers are reported as they
-   come out; v2 being done does not depend on the guard meeting a target. The checklist lives in the v2
-   design.
+   functions, features and services working" — shown on this desktop by live smoke runs through every
+   config and every model route. **The full v2 benchmark is run by the owner's teammate** with the
+   benchmark kit (decision 9), so the kit itself must be proven end to end from a fresh download. Numbers
+   are reported as they come out; v2 being done does not depend on the guard meeting a target. The
+   checklist lives in the v2 design.
 2. **Fixes before any v2 run.** Bug fixes only, each with a failing test first, and no detection tuning:
    (a) the guarded prompt carries rag-email's reply-format instruction (the cause of Llama's
    greeting-only drafts); (b) a failed AI step in L2 is never silent; (c) a layer error never weakens a
