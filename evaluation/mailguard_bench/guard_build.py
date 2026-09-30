@@ -50,13 +50,14 @@ FULL_GUARD_CONFIG = "C3"
 """The config that runs the whole guard: the live v2 benchmark also gives it the LLM stages."""
 
 
-def git_head(path: Path) -> str | None:
+def git_head(path: Path, expected_commit: str | None = None) -> str | None:
     """HEAD of the checkout at ``path``, or None outside git.
 
-    For a guard subtree (task 7.24) the pinned commit whose tree it holds instead, None if none:
+    For a guard subtree (task 7.24) the pinned commit whose tree it holds instead (see
+    ``guard_env.checkout_commit``: ``expected_commit``, else ``MAILGUARD_COMMIT``), None if none:
     the enclosing repository's HEAD is not the guard's commit.
     """
-    return checkout_commit(path)
+    return checkout_commit(path, expected_commit)
 
 
 @dataclass

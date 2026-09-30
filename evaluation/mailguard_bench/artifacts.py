@@ -36,7 +36,7 @@ from types import ModuleType
 from typing import Any, NamedTuple, Protocol
 
 from evaluation.mailguard_bench.first_layer import Attribution
-from evaluation.mailguard_bench.guard_env import GuardEnvError, guard_layout, worktree_info
+from evaluation.mailguard_bench.guard_env import checkout_commit, guard_layout
 from evaluation.mailguard_bench.overhead import SC4_TYPICAL_MS, SC5_P95_MS, Overhead
 from evaluation.mailguard_bench.scoring import MIN_DRAFT_CHARS, TRIAGE_BUCKETS, RawRecord
 
@@ -764,19 +764,36 @@ def sha256_json(value: object) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def git_head(repo: Path) -> dict[str, Any]:
+def git_head(repo: Path, expected_commit: str | None = None) -> dict[str, Any]:
     """``{"sha": ..., "dirty": ...}`` of a checkout; ``sha`` is ``None`` outside git.
 
+    ``dirty`` is tracked changes only, in both layouts (the pin check,
+    ``guard_env.require_pinned_worktree``, is stricter and also refuses untracked files).
     A guard subtree (a subdirectory of another repository, task 7.24) reports the pinned guard
-    commit whose tree it holds, ``None`` when it holds none, and whether files under it differ:
-    never the enclosing repository's HEAD.
+    commit whose tree it holds (``expected_commit``, else ``MAILGUARD_COMMIT``, else the v2 and v1
+    pins), ``None`` when it holds none: never the enclosing repository's HEAD.
     """
     if guard_layout(repo) == "subtree":
+        sha = checkout_commit(repo, expected_commit)
         try:
-            info = worktree_info(repo)
-        except GuardEnvError:
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=no",
+                    "--",
+                    ".",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
             return {"sha": None, "dirty": None}
-        return {"sha": info.commit or None, "dirty": not info.clean}
+        return {"sha": sha, "dirty": bool(status.strip())}
     try:
         sha = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "HEAD"],

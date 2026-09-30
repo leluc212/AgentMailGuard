@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from evaluation.mailguard_bench.amg import DEFAULT_MAILGUARD_DIR, resolve_mailguard_dir
-from evaluation.mailguard_bench.guard_env import REPO_ROOT
+from evaluation.mailguard_bench.amg import resolve_mailguard_dir
+from evaluation.mailguard_bench.guard_env import REPO_ROOT, default_guard_dir
 
 
 def test_resolve_prefers_the_make_variable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("MAILGUARD_DIR", str(tmp_path))
     assert resolve_mailguard_dir() == tmp_path.resolve()
     monkeypatch.delenv("MAILGUARD_DIR")
-    assert resolve_mailguard_dir() == DEFAULT_MAILGUARD_DIR.resolve()
+    assert resolve_mailguard_dir() == default_guard_dir(REPO_ROOT).resolve()
 
 
 def test_harness_and_metrics_share_one_case_result_and_leave_rag_email_alone() -> None:

@@ -17,16 +17,16 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from evaluation.mailguard_bench.guard_env import REPO_ROOT
+from evaluation.mailguard_bench.guard_env import REPO_ROOT, default_guard_dir
 
-DEFAULT_MAILGUARD_DIR = REPO_ROOT.parent / "AgentMailGuard-bench"
 _METRICS = "_amg_evaluation_metrics"
 _HARNESS = "_amg_evaluation_harness"
 
 
 def resolve_mailguard_dir() -> Path:
-    """MAILGUARD_DIR (set by ``$(MAILGUARD_UV)``), else ``../AgentMailGuard-bench``."""
-    return Path(os.environ.get("MAILGUARD_DIR") or DEFAULT_MAILGUARD_DIR).resolve()
+    """MAILGUARD_DIR (set by ``$(MAILGUARD_UV)``), else ``default_guard_dir``: ``./agentmailguard``
+    in the single-repository layout, else ``../AgentMailGuard-bench`` (the Makefile's rule)."""
+    return Path(os.environ.get("MAILGUARD_DIR") or default_guard_dir(REPO_ROOT)).resolve()
 
 
 def _load(name: str, path: Path) -> ModuleType:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -51,6 +52,12 @@ REQUIRED_RAW_FILES: tuple[Path, ...] = (
     Path("datasets/raw/poisonedrag/results/adv_targeted_results/msmarco.json"),
 )
 PREP_HINT = "run `make mailguard-prep` first"
+SUBTREE_DIRTY_HINT = (
+    " (on Windows, clone inside the Linux file system, not under /mnt/c, and check "
+    "`git config core.filemode` and `core.autocrlf`: file-mode and line-ending noise also "
+    "shows as changes)"
+)
+"""Why a subtree that nobody edited can still be dirty; the Makefile's refusal says the same."""
 
 ModuleResolver = Callable[[str], Path | None]
 
@@ -117,10 +124,27 @@ def guard_paths_from_env(environ: Mapping[str, str]) -> GuardPaths:
     )
 
 
+def default_guard_dir(repo_root: Path = REPO_ROOT) -> Path:
+    """Where the guard is when ``MAILGUARD_DIR`` is not set: the one rule the Makefile also has.
+
+    ``<repo_root>/agentmailguard`` (the single-repository layout) when it holds the package,
+    else the sibling worktree ``<repo_root>/../AgentMailGuard-bench``.
+    """
+    subtree = repo_root / "agentmailguard"
+    if (subtree / "mailguard" / "__init__.py").is_file():
+        return subtree
+    return repo_root.parent / "AgentMailGuard-bench"
+
+
 def _git(path: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(path), *args], capture_output=True, text=True, check=False
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), *args], capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        raise GuardEnvError(
+            f"git {' '.join(args)} failed in {path}: cannot run git ({exc})"
+        ) from exc
     if result.returncode != 0:
         raise GuardEnvError(f"git {' '.join(args)} failed in {path}: {result.stderr.strip()}")
     return result.stdout.strip()
@@ -195,15 +219,25 @@ def worktree_info(path: Path, expected_commit: str | None = None) -> WorktreeInf
     return WorktreeInfo(path=path.resolve(), commit=commit, clean=status == "")
 
 
-def checkout_commit(path: Path) -> str | None:
+def checkout_line(info: WorktreeInfo) -> str:
+    """The first line of a passing check: ``ok worktree ...`` or ``ok subtree (tree ...) ...``."""
+    where = "worktree" if info.layout == "worktree" else f"{info.layout} (tree {info.tree})"
+    return f"ok {where} {info.path} @ {info.commit} (clean)"
+
+
+def checkout_commit(path: Path, expected_commit: str | None = None) -> str | None:
     """The guard commit a checkout is at, for run manifests and fingerprints; None if unknown.
 
     Worktree layout: HEAD. Subtree layout: the pinned commit whose tree the subdirectory holds
     (never the enclosing repository's HEAD), None when it holds the tree of none. None outside git.
+    The commit asked about is ``expected_commit``, else ``MAILGUARD_COMMIT`` (every
+    ``make mailguard-*`` target exports it, so a run's metas and the pin check that admitted the
+    run name the same commit whichever commit that is), else the v2 and the v1 pin.
     """
     if guard_layout(path) == "subtree":
         try:
-            return _subtree_info(path, None).commit or None
+            expected = expected_commit or os.environ.get("MAILGUARD_COMMIT") or None
+            return _subtree_info(path, expected).commit or None
         except GuardEnvError:
             return None
     return _git_ok(path, "rev-parse", "HEAD") or None
@@ -238,6 +272,7 @@ def require_pinned_worktree(path: Path, expected_commit: str) -> WorktreeInfo:
     if not info.clean:
         raise GuardEnvError(
             f"{info.layout} {path} has uncommitted changes; the benchmark pins a clean commit"
+            f"{SUBTREE_DIRTY_HINT if info.layout == 'subtree' else ''}"
         )
     return info
 

@@ -629,3 +629,232 @@ def test_the_runbook_explains_both_layouts_and_the_tree_pin() -> None:
     assert "git status --porcelain -- agentmailguard" in section9
     assert "../AgentMailGuard-bench" in section9  # the worktree layout is still documented
     assert "evaluation/mailguard_bench/pinned" in section9
+
+
+# --- review fixes (work package R7 review): prep never writes into the pinned directory
+
+
+PINNED_REL = Path("evaluation") / "mailguard_bench" / "pinned"
+
+
+def _work_with_pinned_joblib(tmp_path: Path) -> tuple[Path, Path]:
+    work = _repo_copy(tmp_path, "rag-email")
+    pinned = work / PINNED_REL
+    pinned.mkdir(parents=True)
+    (pinned / "l1_injection_clf_v1.joblib").write_bytes(b"pinned")
+    return work, pinned
+
+
+def _writes(make_n_output: str) -> list[str]:
+    """The path arguments of every recipe line that creates or writes something."""
+    found: list[str] = []
+    for line in make_n_output.splitlines():
+        found += re.findall(r"mkdir -p (\S+)", line)
+        found += re.findall(r"--(?:out|out-dir)[ =](\S+)", line)
+    return found
+
+
+@needs_git_and_make
+def test_prep_writes_beside_the_repository_not_into_the_pinned_directory(tmp_path: Path) -> None:
+    work, pinned = _work_with_pinned_joblib(tmp_path)
+
+    out = _make_n(work, "mailguard-prep")
+
+    targets = _writes(out)
+    assert targets, "mailguard-prep has no writing step the test recognises"
+    assert all(not Path(t).is_relative_to(pinned) for t in targets), targets
+    expected = tmp_path / "AgentMailGuard-bench-artifacts"
+    assert any(Path(t).is_relative_to(expected) for t in targets), targets
+
+
+@needs_git_and_make
+def test_prep_keeps_writing_to_an_explicit_artifacts_directory(tmp_path: Path) -> None:
+    work, _ = _work_with_pinned_joblib(tmp_path)
+
+    out = _make_n(work, "mailguard-prep", f"MAILGUARD_ARTIFACTS={tmp_path / 'mine'}")
+
+    assert all(Path(t).is_relative_to(tmp_path / "mine") for t in _writes(out))
+
+
+@needs_git_and_make
+def test_prep_refuses_an_output_directory_inside_the_pinned_one(tmp_path: Path) -> None:
+    work, pinned = _work_with_pinned_joblib(tmp_path)
+    before = (pinned / "l1_injection_clf_v1.joblib").read_bytes()
+
+    done = subprocess.run(
+        ["make", "--no-print-directory", "mailguard-prep", f"MAILGUARD_PREP_OUT={pinned}"],
+        cwd=work,
+        env=_make_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode != 0
+    assert "pinned" in done.stderr and "MAILGUARD_PREP_OUT" in done.stderr
+    assert (pinned / "l1_injection_clf_v1.joblib").read_bytes() == before
+    assert sorted(p.name for p in pinned.iterdir()) == ["l1_injection_clf_v1.joblib"]
+
+
+# --- review fixes: one rule for the default guard directory, shared with the Makefile
+
+
+def test_default_guard_dir_is_the_subtree_when_it_is_there(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.guard_env import default_guard_dir
+
+    repo = tmp_path / "rag"
+    (repo / PREFIX / "mailguard").mkdir(parents=True)
+    (repo / PREFIX / "mailguard" / "__init__.py").write_text("", encoding="utf-8")
+    assert default_guard_dir(repo) == repo / PREFIX
+
+
+def test_default_guard_dir_is_the_sibling_worktree_otherwise(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.guard_env import default_guard_dir
+
+    repo = tmp_path / "rag"
+    (repo / PREFIX).mkdir(parents=True)  # a directory without the package does not count
+    assert default_guard_dir(repo) == tmp_path / "AgentMailGuard-bench"
+
+
+def test_the_scorer_and_the_report_find_the_subtree_without_mailguard_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from evaluation.mailguard_bench import amg
+
+    repo = tmp_path / "rag"
+    (repo / PREFIX / "mailguard").mkdir(parents=True)
+    (repo / PREFIX / "mailguard" / "__init__.py").write_text("", encoding="utf-8")
+    monkeypatch.setattr(amg, "REPO_ROOT", repo)
+    monkeypatch.delenv("MAILGUARD_DIR", raising=False)
+
+    assert amg.resolve_mailguard_dir() == (repo / PREFIX).resolve()
+    monkeypatch.setenv("MAILGUARD_DIR", str(tmp_path / "x"))
+    assert amg.resolve_mailguard_dir() == (tmp_path / "x").resolve()
+
+
+@needs_git_and_make
+def test_the_makefile_and_the_python_default_name_the_same_directory(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.guard_env import default_guard_dir
+
+    for with_subtree in (False, True):
+        work = _repo_copy(tmp_path, f"w{with_subtree}")
+        if with_subtree:
+            (work / PREFIX / "mailguard").mkdir(parents=True)
+            (work / PREFIX / "mailguard" / "__init__.py").write_text("", encoding="utf-8")
+        assert f"MAILGUARD_DIR={default_guard_dir(work)} " in _make_n(work, "mailguard-smoke")
+
+
+# --- review fixes: any pinned commit in the subtree layout reaches manifests and fingerprints
+
+
+def test_a_third_pinned_commit_reaches_the_manifest_and_the_fingerprint(
+    subtree: tuple[Path, Path, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from evaluation.mailguard_bench import guard_build
+    from evaluation.mailguard_bench.artifacts import git_head as manifest_git_head
+    from evaluation.mailguard_bench.guard_env import checkout_commit
+
+    _, sub, (first, pinned) = subtree  # neither is the v1 or the v2 pin of guard_env
+    info = require_pinned_worktree(sub, pinned)  # the pin check passes for any commit git knows
+    assert info.commit == pinned
+
+    monkeypatch.setenv("MAILGUARD_COMMIT", pinned)  # what every `make mailguard-*` exports
+    assert checkout_commit(sub) == pinned
+    assert guard_build.git_head(sub) == pinned
+    assert manifest_git_head(sub) == {"sha": pinned, "dirty": False}
+    # the runner and the live run both name the commit require_pinned_worktree accepted
+    assert guard_build.git_head(sub) == info.commit
+
+    monkeypatch.setenv("MAILGUARD_COMMIT", first)  # the subtree does not hold that commit's tree
+    assert checkout_commit(sub) is None
+    assert manifest_git_head(sub)["sha"] is None
+
+
+def test_an_explicit_expected_commit_beats_the_environment(
+    subtree: tuple[Path, Path, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from evaluation.mailguard_bench.guard_env import checkout_commit
+
+    _, sub, (first, pinned) = subtree
+    monkeypatch.setenv("MAILGUARD_COMMIT", first)
+    assert checkout_commit(sub, pinned) == pinned
+
+
+# --- review fixes: the manifest's `dirty` means the same thing in both layouts (tracked changes;
+# the pin check itself, worktree_info().clean, is stricter and also refuses untracked files)
+
+
+def test_manifest_dirty_is_tracked_changes_only_in_both_layouts(
+    subtree: tuple[Path, Path, list[str]], tmp_path: Path
+) -> None:
+    from evaluation.mailguard_bench.artifacts import git_head as manifest_git_head
+
+    (tmp_path / "wt").mkdir()
+    guard, _ = _guard_repo(tmp_path / "wt")
+    _, sub, _ = subtree
+    for checkout in (guard, sub):
+        assert manifest_git_head(checkout)["dirty"] is False
+        (checkout / "stray.txt").write_text("x", encoding="utf-8")
+        assert manifest_git_head(checkout)["dirty"] is False, checkout
+        (checkout / "mailguard" / "__init__.py").write_text("VERSION = 9\n", encoding="utf-8")
+        assert manifest_git_head(checkout)["dirty"] is True, checkout
+
+
+# --- review fixes: the report manifest names the layout, guard_smoke names the subtree
+
+
+def test_guard_smoke_line_names_the_subtree_and_keeps_the_worktree_line(
+    subtree: tuple[Path, Path, list[str]], tmp_path: Path
+) -> None:
+    from evaluation.mailguard_bench.guard_env import checkout_line
+
+    (tmp_path / "wt").mkdir()
+    guard, (_, second) = _guard_repo(tmp_path / "wt")
+    assert checkout_line(require_pinned_worktree(guard, second)) == (
+        f"ok worktree {guard.resolve()} @ {second} (clean)"
+    )
+    _, sub, (_, pinned) = subtree
+    info = require_pinned_worktree(sub, pinned)
+    assert (
+        checkout_line(info) == f"ok subtree (tree {info.tree}) {sub.resolve()} @ {pinned} (clean)"
+    )
+
+
+# --- review fixes: a failing git in layout detection says why, and the WSL hint is shown
+
+
+def test_a_refused_subtree_hints_at_the_windows_mount_causes(
+    subtree: tuple[Path, Path, list[str]],
+) -> None:
+    _, sub, (_, pinned) = subtree
+    (sub / "mailguard" / "__init__.py").write_text("VERSION = 9\n", encoding="utf-8")
+    with pytest.raises(GuardEnvError) as err:
+        require_pinned_worktree(sub, pinned)
+    assert "uncommitted changes" in str(err.value)
+    assert "/mnt/c" in str(err.value) and "core.filemode" in str(err.value)
+
+
+@needs_git_and_make
+def test_the_makefile_refusal_carries_the_same_hint(tmp_path: Path) -> None:
+    work, (_, pinned), sub = _subtree_work(tmp_path)
+    (sub / "mailguard" / "__init__.py").write_text("VERSION = 7\n", encoding="utf-8")
+    done = _make_worktree(work, pinned)
+    assert done.returncode != 0 and "/mnt/c" in done.stderr and "core.filemode" in done.stderr
+
+
+def test_a_git_failure_reaches_the_user_with_gits_own_words(tmp_path: Path) -> None:
+    # `detected dubious ownership` and any other reason git cannot answer: guard_layout falls
+    # back to the worktree checks, whose GuardEnvError carries git's stderr.
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+    with pytest.raises(GuardEnvError, match="not a git repository"):
+        worktree_info(not_a_repo)
+
+
+def test_no_git_binary_is_a_guard_env_error_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    guard, _ = _guard_repo(tmp_path)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    with pytest.raises(GuardEnvError, match="git"):
+        worktree_info(guard)

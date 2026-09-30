@@ -1156,3 +1156,37 @@ def test_overhead_of_a_live_run_covers_the_emails_that_reached_the_drafting_step
     assert "| C0 | 3 | 1.04 s / 1.04 s / 1.04 s |" in text
     assert "| C3 | 3 | 1.04 s / 1.04 s / 1.04 s |" in text
     assert "only the emails that reached the drafting step" in text
+
+
+def _git_init(root: Path, *files: str) -> None:
+    import subprocess
+
+    root.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("x = 1\n", encoding="utf-8")
+    for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "c"]):
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@e.invalid", "-c", "user.name=t", *args],
+            check=True,
+            capture_output=True,
+        )
+
+
+@pytest.mark.parametrize("layout", ["worktree", "subtree"])
+def test_manifest_names_the_guard_layout(tmp_path: Path, layout: str) -> None:
+    harness, metrics, _ = _amg_or_skip()
+    from evaluation.mailguard_bench.report import build_report
+
+    if layout == "worktree":
+        guard_dir = tmp_path / "guard"
+        _git_init(guard_dir, "mailguard/__init__.py")
+    else:
+        _git_init(tmp_path / "outer", "README.md", "agentmailguard/mailguard/__init__.py")
+        guard_dir = tmp_path / "outer" / "agentmailguard"
+    run = _run_folder(tmp_path, with_c0t=False)
+
+    build_report(run, harness=harness, metrics=metrics, prices=PRICES, mailguard_dir=guard_dir)
+
+    manifest = json.loads((run / "manifest.json").read_text("utf-8"))
+    assert manifest["git"]["agentmailguard"]["layout"] == layout

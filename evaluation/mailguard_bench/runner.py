@@ -340,7 +340,7 @@ def native_guard_facts(paths: GuardPaths) -> dict[str, Any]:
         "l1_model_path": str(l1_path),
         "l1_model_sha256": sha256_file(l1_path) if l1_path.exists() else None,
         "mailguard_root": str(paths.root),
-        "mailguard_commit": git_head(paths.root),
+        "mailguard_commit": git_head(paths.root, paths.commit),
         "audit_log_path": None,
     }
 
