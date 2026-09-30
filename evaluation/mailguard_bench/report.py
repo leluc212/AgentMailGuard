@@ -54,8 +54,10 @@ from evaluation.mailguard_bench.artifacts import (
     render_report,
     sha256_file,
     summarize_config,
+    summarize_fallbacks,
     summarize_meaning,
     summarize_triage,
+    template_successes,
     write_metrics_csv,
 )
 from evaluation.mailguard_bench.first_layer import Attribution, attribute_attacks
@@ -69,7 +71,9 @@ from evaluation.mailguard_bench.meaning import (
 from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.results import ResultStore
+from evaluation.mailguard_bench.runmeta import prices_from_meta, strict_utility_from_meta
 from evaluation.mailguard_bench.scoring import (
+    FAIL_CLOSED_KIND,
     LIVE_TRANSPORT,
     RawRecord,
     read_raw,
@@ -271,6 +275,19 @@ def _subset(rows: Sequence[Any], ids: set[str]) -> list[Any]:
 
 def _errors_in(errors: Sequence[RawRecord], ids: set[str]) -> int:
     return sum(1 for e in errors if e.case_id in ids)
+
+
+def _fail_closed_attacks_in(
+    errors: Sequence[RawRecord], ids: set[str], cases: Mapping[str, Mapping[str, Any]]
+) -> int:
+    """Attack error rows of kind ``fail_closed_validation`` among ``ids`` (Amendment 1, E.1)."""
+    return sum(
+        1
+        for e in errors
+        if e.case_id in ids
+        and e.error_kind == FAIL_CLOSED_KIND
+        and cases[e.case_id].get("kind") == "attack"
+    )
 
 
 # Files analyses.md is built from; their sha256 is kept in analysis/inputs.json so a report
@@ -525,16 +542,22 @@ def build_report(
     records: dict[str, list[RawRecord]] = {}
     run_meta: dict[str, Any] = {}
     for config in configs:
+        meta_path = run_dir / "raw" / f"{config}.meta.json"
+        if meta_path.exists():
+            run_meta[config] = json.loads(meta_path.read_text(encoding="utf-8"))
         records[config] = read_raw(run_dir / "raw" / f"{config}.jsonl")
+        # A meta that asks for the strict benign-utility rule is a new run (ADR-0012 2(e)); a v3
+        # row is strict by its schema, and a v1 run without the key is scored as before.
         scored[config], errors[config] = score_records(
-            records[config], cases, harness=harness, metrics=metrics
+            records[config],
+            cases,
+            harness=harness,
+            metrics=metrics,
+            strict_utility=True if strict_utility_from_meta(run_meta.get(config)) else None,
         )
         with (run_dir / f"{AGENT}__{config}.jsonl").open("w", encoding="utf-8") as handle:
             for result in scored[config]:
                 handle.write(json.dumps(result.to_dict(), ensure_ascii=False) + "\n")
-        meta_path = run_dir / "raw" / f"{config}.meta.json"
-        if meta_path.exists():
-            run_meta[config] = json.loads(meta_path.read_text(encoding="utf-8"))
     problems = [p for c in configs for p in degradation_problems(c, run_meta.get(c))]
     if problems:
         raise ValueError("refusing to score a weakened guard run: " + "; ".join(problems))
@@ -585,6 +608,7 @@ def build_report(
                 metrics=metrics,
                 n_errors=_errors_in(errors[c], ids),
                 meaning=meaning_of(c, ids),
+                fail_closed_attacks=_fail_closed_attacks_in(errors[c], ids, cases),
             )
             for c in names
         }
@@ -621,6 +645,12 @@ def build_report(
     triage = {
         c: counts for c in configs if (counts := summarize_triage(scored[c])) is not None
     }  # live rows only
+    fallbacks = {
+        c: fallback_table
+        for c in configs
+        if (fallback_table := summarize_fallbacks(records[c], metrics=metrics)) is not None
+    }  # rows of a guard that records its failed AI steps only
+    template_wins = {c: template_successes(scored[c]) for c in triage}
     layer = layer_ablation(
         [c for c in ABLATION_CONFIGS if c in configs],
         scored=scored,
@@ -634,9 +664,12 @@ def build_report(
     )
     # Overhead is the drafting step's: a live email that triage stopped (early exit, template)
     # takes no drafting time, tokens or guard calls, and its zeros would understate the cost.
+    # The prices the run recorded when it started, else the reporting machine's (a v1 run).
     overheads: dict[str, Overhead] = {
         c: overhead(
-            c, [r for r in records[c] if r.pipeline is None or r.pipeline.reached_drafting], prices
+            c,
+            [r for r in records[c] if r.pipeline is None or r.pipeline.reached_drafting],
+            recorded if (recorded := prices_from_meta(run_meta.get(c))) is not None else prices,
         )
         for c in configs
     }
@@ -675,6 +708,8 @@ def build_report(
         rag_retrieved=rag_retrieved,
         triage=triage,
         layer_ablation=layer.summary if layer else None,
+        fallbacks=fallbacks,
+        template_successes=template_wins,
     )
     tables = {
         "llmail": llmail,
@@ -686,7 +721,9 @@ def build_report(
     layer_pairs = layer.summary.paired_by_name() if layer else {}
     if layer:
         tables.update(layer.tables)
-    csv_rows = metrics_rows(tables, overheads, {**paired, **layer_pairs}, triage)
+    csv_rows = metrics_rows(
+        tables, overheads, {**paired, **layer_pairs}, triage, fallbacks=fallbacks
+    )
     write_metrics_csv(
         run_dir / "metrics.csv", csv_rows + (layer_ablation_rows(layer.summary) if layer else [])
     )
@@ -696,6 +733,9 @@ def build_report(
     payload: dict[str, Any] = {"tables": summary, "paired": {**paired, **layer_pairs}}
     if triage:
         payload["triage"] = {c: asdict(t) for c, t in triage.items()}
+        payload["template_successes"] = {c: list(ids) for c, ids in template_wins.items()}
+    if fallbacks:
+        payload["fallbacks"] = {c: asdict(t) for c, t in fallbacks.items()}
     if layer:
         payload["layer_ablation"] = {
             "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()},

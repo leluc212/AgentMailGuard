@@ -99,6 +99,7 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
+from evaluation.mailguard_bench.runmeta import scoring_meta
 from evaluation.mailguard_bench.runner import (
     ABLATION_SETS,
     BENCH_CONFIGS,
@@ -756,6 +757,7 @@ def build_live_meta(
         "rag_email_commit": rag_email_commit,
         "mailguard_commit": guard.facts["mailguard_commit"],
         **generation_meta(settings.llm),
+        **scoring_meta(settings.llm.price_table),  # ADR-0012 2(d), 2(e)
         "guard_models": None if args.config == NATIVE_CONFIG else args.guard_model,
         "live_layers": guard.facts["live_layers"],
         "l1_model_sha256": guard.facts["l1_model_sha256"],

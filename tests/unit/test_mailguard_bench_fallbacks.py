@@ -12,10 +12,8 @@ from typing import Any
 
 import pytest
 
-from evaluation.mailguard_bench.guarded_reply import (
-    AiStepFallback,
-    classify_ai_step_failures,
-)
+from evaluation.mailguard_bench.guarded_reply import classify_ai_step_failures
+from evaluation.mailguard_bench.scoring import AiStepFallback
 
 L1 = "l1_injection_scanner"
 L2 = "l2_intent_extractor"

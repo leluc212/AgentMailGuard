@@ -76,6 +76,7 @@ from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile,
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
+from evaluation.mailguard_bench.runmeta import scoring_meta
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.db.connection import create_pool_from_settings
 from packages.knowledge.embedder import get_embedder
@@ -627,6 +628,7 @@ async def run(args: argparse.Namespace) -> int:
         "rag_email_commit": git_head(REPO_ROOT),
         "mailguard_commit": guard_facts["mailguard_commit"],
         **generation_meta(llm),
+        **scoring_meta(llm.price_table),  # ADR-0012 2(d), 2(e): the report reads them back
         "guard_models": None if guard is None else args.guard_model,
         "live_layers": guard_facts["live_layers"],
         "l1_model_sha256": guard_facts["l1_model_sha256"],

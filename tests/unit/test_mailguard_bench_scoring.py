@@ -551,7 +551,7 @@ def test_live_benign_utility_counts_a_template_draft_but_not_an_early_exit(
     case = benign_case("benign-llmailfp-1")
 
     def utility(outcome: str) -> bool | None:
-        # A v3 row needs a draft of real length (ADR-0012 2(e)); the row's short default body is not.
+        # A v3 row needs a draft of real length (ADR-0012 2(e)); the default body is too short.
         record = RawRecord.from_dict(
             live_row("benign-llmailfp-1", kind="benign", outcome=outcome, body=ANSWER)
         )

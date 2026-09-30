@@ -38,6 +38,10 @@ L3 = "l3_channel_isolation"
 L3B = "l3b_document_scanner"
 L4 = "l4_output_scanner"
 
+FAIL_CLOSED_KIND = "fail_closed_validation"
+"""The ``error.kind`` of a live row whose job was dead-lettered because its draft stayed invalid
+after the repair (Amendment 1, D.1(c)); the sensitivity line of the report counts them."""
+
 RUNNER_SCHEMA = "mailguard-bench-result.v1"
 LIVE_SCHEMA = "mailguard-bench-result.v3"
 LIVE_TRANSPORT = "services-v2"
