@@ -15,6 +15,9 @@ everything it decides (the order of the commands, the readiness rule, what to st
   The Windows signal goes to the process group, whose id is the pid of the process the kit
   started: the pid in the worker's pid file may belong to a process behind a launcher, and any
   other signal sent with ``os.kill`` on Windows is a TerminateProcess.
+- The guard-worker may be given extra environment variables (``spawn(..., env=...)``): they are
+  merged over the environment the kit inherited and reach that child alone. The kit's own
+  environment is never changed, so no later command (the runner, docker) inherits them.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -77,7 +80,14 @@ class Host(Protocol):
 
     def capture(self, command: Sequence[str], *, cwd: Path) -> CommandResult: ...
 
-    def spawn(self, command: Sequence[str], *, cwd: Path, log_path: Path) -> ProcessHandle: ...
+    def spawn(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        log_path: Path,
+        env: Mapping[str, str] | None = None,
+    ) -> ProcessHandle: ...
 
     def http_ok(self, url: str, timeout_s: float) -> bool: ...
 
@@ -167,13 +177,23 @@ class SystemHost:
             return CommandResult(COMMAND_NOT_FOUND)
         return CommandResult(done.returncode, done.stdout)
 
-    def spawn(self, command: Sequence[str], *, cwd: Path, log_path: Path) -> ProcessHandle:
+    def spawn(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        log_path: Path,
+        env: Mapping[str, str] | None = None,
+    ) -> ProcessHandle:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         detach: dict[str, Any] = (
             {"creationflags": CREATE_NEW_PROCESS_GROUP}
             if self._os_name == "nt"
             else {"start_new_session": True}
         )
+        # A copy merged over the inherited environment: os.environ itself stays as it is, and
+        # without ``env`` the child simply inherits.
+        environment: dict[str, Any] = {"env": {**os.environ, **env}} if env else {}
         shown = (
             subprocess.list2cmdline(list(command)) if self._os_name == "nt" else shlex.join(command)
         )
@@ -188,6 +208,7 @@ class SystemHost:
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 **detach,
+                **environment,
             )
         return SystemProcess(child, os_name=self._os_name, kill=self._kill)
 

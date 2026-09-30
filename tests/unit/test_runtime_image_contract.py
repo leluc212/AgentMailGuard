@@ -102,6 +102,17 @@ def test_env_file_is_never_sent_to_the_image() -> None:
     assert "." not in _copied_sources(), "COPY . would bake the host .env into /app"
 
 
+def test_the_kits_reranker_copy_stays_out_of_the_build_context() -> None:
+    """The teammate kit copies the image's reranker model (about 90 MB) into the repo's .cache/.
+
+    The classic builder (this host has no buildx) tars the whole build context for the daemon on
+    every build, and the image never copies .cache, so the weights would only slow every build.
+    """
+    from evaluation.mailguard_bench.kit.campaign import RERANK_COPY_DIR
+
+    assert _is_dockerignored(RERANK_COPY_DIR.as_posix())
+
+
 def test_image_installs_locked_runtime_dependencies_only() -> None:
     text = DOCKERFILE.read_text(encoding="utf-8")
     assert "uv sync --locked --no-dev" in text

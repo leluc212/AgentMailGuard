@@ -941,6 +941,7 @@ run=$(sed -n 's/.*--run \\([^ ]*\\).*/\\1/p' <<<"$args")
 config=$(sed -n 's/.*--config \\([^ ]*\\).*/\\1/p' <<<"$args")
 case "$args" in
   *live.guard_worker*)
+    echo "guard-worker ${RETRIEVAL__RERANK_MODEL_DIR-unset}" >> "$ENV_LOG"
     pidfile="evaluation/results/mailguard_bench/$run/raw/guard_worker.$config.pid"
     trap 'rm -f "$pidfile"; exit 0' TERM
     sleep "${GW_PID_DELAY:-0.2}" & wait $!
@@ -950,6 +951,7 @@ case "$args" in
     touch "$READY_FLAG"
     while :; do sleep 0.1 & wait $!; done ;;
   *live.run*)
+    echo "runner ${RETRIEVAL__RERANK_MODEL_DIR-unset}" >> "$ENV_LOG"
     if [ -e "$READY_FLAG" ]; then state=ready; else state=not-ready; fi
     echo "runner $state $config" >> "$STUB_LOG" ;;
 esac
@@ -976,6 +978,7 @@ def _run_config(tmp_path: Path, config: str, **stub_env: str) -> tuple[int, str,
             **os.environ,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "STUB_LOG": str(log),
+            "ENV_LOG": str(tmp_path / "env.log"),
             "READY_FLAG": str(tmp_path / "ready"),
             **stub_env,
         },
@@ -1016,6 +1019,37 @@ def test_the_runner_starts_only_once_the_guard_worker_answers_readyz(tmp_path: P
     assert code == 0, stderr
     assert calls == ["docker compose stop ai-worker", "runner ready C3"]
     assert not _pid_file(tmp_path, "C3").exists()  # the helper stopped the guard-worker again
+
+
+@needs_bash
+def test_the_guard_worker_alone_reads_the_reranker_model_copied_out_of_the_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The guard-worker is a host process: without RETRIEVAL__RERANK_MODEL_DIR it downloads the
+    # cross-encoder at its first rerank. Step 4 gives it the folder `docker compose cp` made, on
+    # its own command line: the runner, the next command and the shell never hold it.
+    monkeypatch.delenv("RETRIEVAL__RERANK_MODEL_DIR", raising=False)
+    code, stderr, _ = _run_config(tmp_path, "C3")
+    assert code == 0, stderr
+    seen = (tmp_path / "env.log").read_text(encoding="utf-8").splitlines()
+    assert seen == [f"guard-worker {tmp_path}/.cache/reranker", "runner unset"]
+
+
+@needs_bash
+def test_c0_needs_no_reranker_folder_its_container_has_the_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RETRIEVAL__RERANK_MODEL_DIR", raising=False)
+    code, stderr, _ = _run_config(tmp_path, "C0")
+    assert code == 0, stderr
+    assert (tmp_path / "env.log").read_text(encoding="utf-8").splitlines() == ["runner unset"]
+
+
+def test_step_4_copies_the_model_out_of_the_image_with_the_command_the_kit_runs() -> None:
+    from evaluation.mailguard_bench.kit.campaign import RERANK_COPY_DIR, RERANK_IMAGE_DIR
+
+    copy = _block_with(_runbook_9_9(), "bash", "docker compose cp ai-worker:")
+    assert f"docker compose cp ai-worker:{RERANK_IMAGE_DIR} {RERANK_COPY_DIR.as_posix()}" in copy
 
 
 @needs_bash

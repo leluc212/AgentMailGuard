@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from evaluation.mailguard_bench.guard_env import REPO_ROOT
 from evaluation.mailguard_bench.kit import campaign
 from evaluation.mailguard_bench.kit.campaign import (
     DEFAULT_V2_CONFIGS,
@@ -26,7 +30,9 @@ from evaluation.mailguard_bench.kit.campaign import (
     RunOptions,
     run_campaign,
 )
+from evaluation.mailguard_bench.kit.system import CommandResult
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
+    COPY_MODEL,
     GEMINI_KEY,
     HOST_ENV,
     OPENAI_KEY,
@@ -39,6 +45,9 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
     label,
     opts,
     pid_file,
+    rerank_dir,
+    rerank_marker,
+    seed_rerank_copy,
     sequence,
     write_meta,
 )
@@ -62,6 +71,7 @@ def test_the_exact_command_sequence_per_config(bench: Bench) -> None:
     assert run_campaign(bench.ctx, opts(limit=5, concurrency=2)) == 0
     assert sequence(bench.host) == [
         STACK_UP,
+        COPY_MODEL,  # the guarded C3 needs the ai-worker image's reranker model on the host
         "docker compose start ai-worker",
         "live.run C0",
         "docker compose stop ai-worker",
@@ -383,6 +393,278 @@ def test_c0_fails_without_running_the_runner_when_the_container_never_gets_healt
     bench.host.health = health
     assert run_campaign(bench.ctx, opts(configs=("C0",), stack_wait_s=10)) == 1
     assert "live.run C0" not in sequence(bench.host)
+
+
+# --- the reranker model of the guarded configs ------------------------------------------------
+# The guard-worker is a host process with no RETRIEVAL__RERANK_MODEL_DIR of its own, and left alone
+# it downloads the cross-encoder from the internet at its first rerank (another revision than C0's,
+# and a network dependency). The kit copies the model the ai-worker image baked in to a git-ignored
+# folder and starts the guard-worker, and nothing else, with the variable pointing there.
+
+MODEL_DIR_ENV = "RETRIEVAL__RERANK_MODEL_DIR"
+
+
+def test_the_guard_worker_alone_gets_the_model_folder_in_its_environment(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(MODEL_DIR_ENV, raising=False)
+    bench.runner_outcomes({}, {})
+    assert run_campaign(bench.ctx, opts()) == 0
+    spawned = [p for kind, p in bench.host.events if kind == "spawn"]
+    assert [p["env"] for p in spawned] == [{MODEL_DIR_ENV: str(rerank_dir(bench))}]
+    assert rerank_dir(bench).is_absolute()
+    # The kit's own environment never holds it, so the runner and docker do not inherit it.
+    assert MODEL_DIR_ENV not in bench.ctx.environ
+    assert MODEL_DIR_ENV not in os.environ
+
+
+def test_the_model_is_copied_out_of_the_ai_worker_image_before_any_config_runs(
+    bench: Bench,
+) -> None:
+    bench.runner_outcomes({}, {})
+    assert run_campaign(bench.ctx, opts()) == 0  # C0 first, then the guarded C3
+    copies = [
+        command
+        for kind, command in bench.host.events
+        if kind == "run" and command[:3] == ["docker", "compose", "cp"]
+    ]
+    folder = rerank_dir(bench)
+    assert copies == [["docker", "compose", "cp", "ai-worker:/app/.cache/reranker", str(folder)]]
+    order = sequence(bench.host)
+    assert order.index(STACK_UP) < order.index(COPY_MODEL) < order.index("live.run C0")
+    assert (folder / "models--fake--cross-encoder").is_dir()  # the image's folder itself...
+    assert not (folder / "reranker").exists()  # ...and not nested one level down
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
+    short = bench.host.image_id.removeprefix("sha256:")[:12]
+    assert any("copied from the ai-worker image" in line and short in line for line in bench.out)
+
+
+def test_the_kit_copies_from_the_folder_the_dockerfile_bakes_the_model_into() -> None:
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    baked = re.search(r"^ENV RETRIEVAL__RERANK_MODEL_DIR=(\S+)$", dockerfile, re.MULTILINE)
+    assert baked is not None
+    assert baked.group(1) == campaign.RERANK_IMAGE_DIR
+    assert MODEL_DIR_ENV == campaign.RERANK_MODEL_DIR_ENV
+
+
+def test_the_copy_and_its_marker_are_git_ignored_so_the_weights_are_never_committed() -> None:
+    for path in (
+        campaign.RERANK_COPY_DIR / "models--x" / "config.json",
+        campaign.RERANK_COPY_MARKER,
+    ):
+        ignored = subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=REPO_ROOT)
+        assert ignored.returncode == 0, f"{path} is not git-ignored"
+
+
+def test_the_copy_uses_only_commands_that_work_on_a_stopped_container(bench: Bench) -> None:
+    # `docker compose ps -a` lists stopped containers, `docker inspect` answers for any state, and
+    # `docker cp` takes a running or a stopped container (Docker's reference; Compose's `cp` lists
+    # its containers with all=true), so the ai-worker need not be running when it is copied.
+    copied = campaign.sync_rerank_model(bench.ctx)
+    assert bench.host.events == [
+        ("capture", ["docker", "compose", "ps", "-a", "-q", "ai-worker"]),
+        ("capture", ["docker", "inspect", "-f", "{{.Image}}", "id-ai-worker"]),
+        (
+            "run",
+            ["docker", "compose", "cp", "ai-worker:/app/.cache/reranker", str(rerank_dir(bench))],
+        ),
+    ]
+    assert (copied.folder, copied.image, copied.copied) == (
+        rerank_dir(bench),
+        bench.host.image_id,
+        True,
+    )
+
+
+def test_a_copy_made_from_this_image_is_not_made_again(bench: Bench) -> None:
+    folder = seed_rerank_copy(bench, bench.host.image_id)
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert COPY_MODEL not in sequence(bench.host)
+    assert (folder / "weights.bin").read_text(encoding="utf-8") == "the old copy"  # left alone
+    assert any("already the ai-worker image's" in line for line in bench.out)
+    spawned = next(p for kind, p in bench.host.events if kind == "spawn")
+    assert spawned["env"] == {MODEL_DIR_ENV: str(folder)}  # and the guard-worker reads it
+
+
+def test_a_rebuilt_image_gets_a_fresh_copy_that_replaces_the_old_one(bench: Bench) -> None:
+    folder = seed_rerank_copy(bench, "sha256:" + "0" * 64)  # copied before the image was rebuilt
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert sequence(bench.host).count(COPY_MODEL) == 1
+    assert not (folder / "weights.bin").exists()  # the old copy is gone, not merged into
+    assert not (folder / "reranker").exists()  # docker cp would nest the new one in a folder there
+    weights = folder / "models--fake--cross-encoder" / "snapshots" / "rev" / "model.safetensors"
+    assert weights.read_text(encoding="utf-8") == bench.host.image_id
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
+
+
+def test_a_folder_without_its_marker_is_not_trusted(bench: Bench) -> None:
+    # A copy that was interrupted, or made by hand: nothing says which image it came from.
+    folder = seed_rerank_copy(bench, bench.host.image_id)
+    rerank_marker(bench).unlink()
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert sequence(bench.host).count(COPY_MODEL) == 1
+    assert not (folder / "weights.bin").exists()
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
+
+
+@pytest.mark.parametrize("damage", ["missing", "empty"])
+def test_a_marker_whose_folder_is_gone_or_empty_is_not_trusted(bench: Bench, damage: str) -> None:
+    folder = seed_rerank_copy(bench, bench.host.image_id)
+    shutil.rmtree(folder)
+    if damage == "empty":
+        folder.mkdir()
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert sequence(bench.host).count(COPY_MODEL) == 1
+    assert (folder / "models--fake--cross-encoder").is_dir()
+
+
+def test_c0_alone_does_not_need_the_model(bench: Bench) -> None:
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C0",))) == 0
+    assert COPY_MODEL not in sequence(bench.host)
+    asked_the_image = [
+        command
+        for kind, command in bench.host.events
+        if kind == "capture" and "{{.Image}}" in command
+    ]
+    assert asked_the_image == []
+    assert not (bench.repo / ".cache").exists()
+
+
+def test_a_failed_copy_stops_the_campaign_before_any_config_and_says_what_to_do(
+    bench: Bench,
+) -> None:
+    bench.host.exits[COPY_MODEL] = 1
+    assert run_campaign(bench.ctx, opts()) == 1
+    assert sequence(bench.host) == [STACK_UP, COPY_MODEL]  # not C0, not the stop, no worker
+    message = "\n".join(bench.err)
+    command = f"docker compose cp ai-worker:/app/.cache/reranker {rerank_dir(bench)}"
+    assert f"FAIL {command} exited 1" in message
+    assert "make bench-setup" in message  # the fix
+    assert "run the same command again" in message
+    assert not rerank_marker(bench).exists()
+    assert any("make bench-run" in line for line in bench.err)  # how to resume, as for any abort
+
+
+def test_a_failed_copy_leaves_no_half_copy_and_no_stale_marker_to_trust(bench: Bench) -> None:
+    seed_rerank_copy(bench, "sha256:" + "0" * 64)  # the copy of the image before it was rebuilt
+
+    def half_a_copy(command: list[str]) -> int | None:
+        if command[:3] == ["docker", "compose", "cp"]:
+            dest = Path(command[4])
+            dest.mkdir()
+            (dest / "half.bin").write_text("x", encoding="utf-8")
+            return 1
+        return None
+
+    bench.host.run_hook = half_a_copy
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 1
+    assert not rerank_dir(bench).exists()
+    assert not rerank_marker(bench).exists()
+
+
+def test_no_marker_vouches_for_the_folder_while_docker_is_still_copying_into_it(
+    bench: Bench,
+) -> None:
+    # A machine that dies mid-copy (no cleanup runs) must not leave a marker next to half a copy:
+    # the old marker is removed before the old copy is, and the new one is written last.
+    seed_rerank_copy(bench, "sha256:" + "0" * 64)
+    during: dict[str, bool] = {}
+
+    def while_copying(command: list[str]) -> int | None:
+        if command[:3] == ["docker", "compose", "cp"]:
+            during["marker"] = rerank_marker(bench).exists()
+            during["old_copy"] = (rerank_dir(bench) / "weights.bin").exists()
+        return None
+
+    bench.host.run_hook = while_copying
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert during == {"marker": False, "old_copy": False}
+    assert rerank_marker(bench).exists()  # and it is there once the copy is complete
+
+
+def test_a_copy_interrupted_by_ctrl_c_is_made_again_on_the_next_run(bench: Bench) -> None:
+    def interrupted(command: list[str]) -> int | None:
+        if command[:3] == ["docker", "compose", "cp"]:
+            dest = Path(command[4])
+            dest.mkdir()
+            (dest / "half.bin").write_text("x", encoding="utf-8")
+            raise KeyboardInterrupt
+        return None
+
+    bench.host.run_hook = interrupted
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 130
+    assert not rerank_marker(bench).exists()
+    bench.runner_outcomes({})  # the next run: the machine copies normally
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 0
+    assert (rerank_dir(bench) / "models--fake--cross-encoder").is_dir()
+    assert not (rerank_dir(bench) / "half.bin").exists()
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
+
+
+def test_a_copy_that_leaves_nothing_behind_is_a_failure(bench: Bench) -> None:
+    bench.host.run_hook = lambda command: 0 if command[:3] == ["docker", "compose", "cp"] else None
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 1
+    assert "copied nothing" in "\n".join(bench.err)
+    assert not rerank_marker(bench).exists()
+    assert "spawn guard_worker C3" not in sequence(bench.host)
+
+
+def test_a_missing_ai_worker_container_fails_before_any_config_with_the_fix(bench: Bench) -> None:
+    lookup = ["docker", "compose", "ps", "-a", "-q", "ai-worker"]
+    bench.host.capture_hook = lambda command: CommandResult(0, "") if command == lookup else None
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 1
+    assert sequence(bench.host) == [STACK_UP]
+    message = "\n".join(bench.err)
+    assert "no ai-worker container exists" in message and "make bench-setup" in message
+
+
+def test_a_failed_image_lookup_fails_naming_the_command(bench: Bench) -> None:
+    bench.host.capture_hook = lambda c: CommandResult(1, "") if "{{.Image}}" in c else None
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 1
+    assert sequence(bench.host) == [STACK_UP]
+    message = "\n".join(bench.err)
+    assert "docker inspect" in message and "exited 1" in message
+    assert "run the same command again" in message
+
+
+def test_the_kit_log_records_the_image_the_reranker_model_came_from(bench: Bench) -> None:
+    bench.runner_outcomes({}, {})
+    run_campaign(bench.ctx, opts())
+    steps = [r for r in bench.kit_log() if r["step"] == "rerank_model"]
+    assert len(steps) == 1
+    assert (steps[0]["status"], steps[0]["copied"], steps[0]["image"]) == (
+        "ok",
+        True,
+        bench.host.image_id,
+    )
+    assert datetime.fromisoformat(steps[0]["start"]) <= datetime.fromisoformat(steps[0]["end"])
+
+
+def test_a_failed_copy_is_in_the_kit_log_too(bench: Bench) -> None:
+    bench.host.exits[COPY_MODEL] = 1
+    run_campaign(bench.ctx, opts())
+    assert [r["status"] for r in bench.kit_log() if r["step"] == "rerank_model"] == ["failed"]
+
+
+def test_dry_run_prints_the_copy_command_and_the_guard_workers_environment(bench: Bench) -> None:
+    ctx = KitContext(**{**bench.ctx.__dict__, "host": ExplodingHost()})
+    assert run_campaign(ctx, opts(dry_run=True)) == 0
+    printed = "\n".join(bench.out)
+    folder = rerank_dir(bench)
+    assert f"would run: docker compose cp ai-worker:/app/.cache/reranker {folder}" in printed
+    assert f"{MODEL_DIR_ENV}={folder}" in printed  # in the guard-worker's environment only
+    assert not (bench.repo / ".cache").exists()  # nothing was copied or made
+
+
+def test_dry_run_of_c0_alone_prints_no_copy(bench: Bench) -> None:
+    ctx = KitContext(**{**bench.ctx.__dict__, "host": ExplodingHost()})
+    assert run_campaign(ctx, opts(configs=("C0",), dry_run=True)) == 0
+    assert "docker compose cp" not in "\n".join(bench.out)
 
 
 # --- reports ----------------------------------------------------------------------------------

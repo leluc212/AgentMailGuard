@@ -927,10 +927,10 @@
 
 - [~] **7.25 Teammate benchmark kit (Windows 11 Home, WSL2 first)**
   - Decision: ADR-0012 decision 9 (the teammate runs the full v2 benchmark from a fresh download, with their own keys; results come back as ours do).
-  - Done: `evaluation/mailguard_bench/kit/campaign.py` (`setup`, `run`, `report`, `package`) automating runbook §9.9 steps 3 to 7 for one model, the default config list taken from `scheme.configs_for("v2")`; `make bench-setup`, `bench-run`, `bench-report`, `bench-package`; a Windows-safe guard-worker liveness check and stop (`live/process.py`).
+  - Done: `evaluation/mailguard_bench/kit/campaign.py` (`setup`, `run`, `report`, `package`) automating runbook §9.9 steps 3 to 7 for one model, the default config list taken from `scheme.configs_for("v2")`; `make bench-setup`, `bench-run`, `bench-report`, `bench-package`; a Windows-safe guard-worker liveness check and stop (`live/process.py`); the reranker model of the ai-worker image copied to the git-ignored `.cache/reranker/` by `setup` and before the first guarded config of `run` (`docker compose cp`, re-copied when the image id in `.cache/reranker.image-id` changes, a FAIL naming the command and the fix when it cannot), and the guard-worker started with `RETRIEVAL__RERANK_MODEL_DIR` in its own environment only (`Host.spawn(env=...)`), so a guarded config reranks with C0's weights offline (found in the live bring-up of 2026-09-30: the host process had no model folder and downloaded one at its first rerank; runbook §9.9 step 4).
   - Left: the doctor, the pinned inputs and the WSL2 and native Windows guides (work package R6b, held for the owner's decision on redistributing the L1 classifier); a live run of the kit from a fresh download (ADR-0012 decision 1).
   - Numbering: this task's commits say `[task 7.23]`; the number collided with 7.23 (v2 analyses) and was changed to 7.25 when the work packages were integrated.
-  - _Requirements: R22.12, R24.5_
+  - _Requirements: R11.1, R22.12, R24.5_
 
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
@@ -1003,7 +1003,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b, 7.20 |
 | R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |
 | R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 8.6 |
-| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21 |
+| R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21, 7.25 |
 | R12 Query construction | 3.13, 7.18 |
 | R13 Business data | 5.1–5.6, 8.4 |
 | R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |

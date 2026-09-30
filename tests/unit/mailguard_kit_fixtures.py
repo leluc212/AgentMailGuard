@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -114,8 +114,11 @@ class FakeHost:
         self.processes: list[FakeProcess] = []
         self.modes: dict[str, WorkerMode] = {}
         self.run_hook: Callable[[list[str]], int | None] = lambda command: None
+        self.capture_hook: Callable[[list[str]], CommandResult | None] = lambda command: None
         self.health: Callable[[list[str]], list[str] | None] = lambda ids: None
         self.exits: dict[str, int] = {}  # label -> exit code
+        # The image the ai-worker container was created from; a rebuild is a new value.
+        self.image_id = "sha256:" + "1" * 64
 
     # commands ------------------------------------------------------------------------------
     def run(self, command: Sequence[str], *, cwd: Path) -> int:
@@ -124,11 +127,31 @@ class FakeHost:
         hooked = self.run_hook(cmd)
         if hooked is not None:
             return hooked
-        return self.exits.get(label(cmd), 0)
+        code = self.exits.get(label(cmd), 0)
+        if code == 0 and cmd[:3] == ["docker", "compose", "cp"]:
+            return self._copy_out_of_the_image(cmd)
+        return code
+
+    def _copy_out_of_the_image(self, cmd: list[str]) -> int:
+        """``docker compose cp SERVICE:SRC DEST``, as docker documents it (verified against the
+        Compose and moby sources): DEST's parent must exist; a DEST that does not exist receives
+        the contents of SRC; a DEST that exists receives SRC inside it, under SRC's own name.
+        The weights file says which image the copy came from."""
+        source, dest = cmd[3].partition(":")[2], Path(cmd[4])
+        if not dest.parent.is_dir():
+            return 1
+        folder = dest / Path(source).name if dest.is_dir() else dest
+        snapshot = folder / "models--fake--cross-encoder" / "snapshots" / "rev"
+        snapshot.mkdir(parents=True, exist_ok=True)
+        (snapshot / "model.safetensors").write_text(self.image_id, encoding="utf-8")
+        return 0
 
     def capture(self, command: Sequence[str], *, cwd: Path) -> CommandResult:
         cmd = list(command)
         self.events.append(("capture", cmd))
+        hooked = self.capture_hook(cmd)
+        if hooked is not None:
+            return hooked
         if cmd[:3] == ["docker", "compose", "ps"]:
             services = [a for a in cmd[3:] if not a.startswith("-")] or [
                 "api",
@@ -137,15 +160,26 @@ class FakeHost:
             ]
             return CommandResult(0, "".join(f"id-{s}\n" for s in services))
         if cmd[:2] == ["docker", "inspect"]:
+            if cmd[3] == "{{.Image}}":  # the image a container was created from, running or not
+                return CommandResult(0, f"{self.image_id}\n")
             ids = cmd[4:]
             custom = self.health(ids)
             lines = custom if custom is not None else [f"{i}|running|healthy|0" for i in ids]
             return CommandResult(0, "\n".join(lines) + "\n")
         return CommandResult(0, "")
 
-    def spawn(self, command: Sequence[str], *, cwd: Path, log_path: Path) -> FakeProcess:
+    def spawn(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        log_path: Path,
+        env: Mapping[str, str] | None = None,
+    ) -> FakeProcess:
         cmd = list(command)
-        self.events.append(("spawn", {"command": cmd, "log": log_path}))
+        self.events.append(
+            ("spawn", {"command": cmd, "log": log_path, "env": None if env is None else dict(env)})
+        )
         config = cmd[cmd.index("--config") + 1]
         run = cmd[cmd.index("--run") + 1]
         pid_file = self.results_root / run / "raw" / f"guard_worker.{config}.pid"
@@ -296,5 +330,25 @@ def pid_file(bench: Bench, config: str, run: str = RUN) -> Path:
     return bench.results_root / run / "raw" / f"guard_worker.{config}.pid"
 
 
+def rerank_dir(bench: Bench) -> Path:
+    """Where the kit puts the copy of the ai-worker image's reranker model: git-ignored."""
+    return bench.repo / ".cache" / "reranker"
+
+
+def rerank_marker(bench: Bench) -> Path:
+    """Next to the folder: the id of the image the copy came from."""
+    return bench.repo / ".cache" / "reranker.image-id"
+
+
+def seed_rerank_copy(bench: Bench, image_id: str, *, name: str = "weights.bin") -> Path:
+    """A copy made earlier (by the kit, or by hand) from the image ``image_id``."""
+    folder = rerank_dir(bench)
+    folder.mkdir(parents=True)
+    (folder / name).write_text("the old copy", encoding="utf-8")
+    rerank_marker(bench).write_text(f"{image_id}\n", encoding="utf-8")
+    return folder
+
+
 STACK_UP = "docker compose up"
+COPY_MODEL = "docker compose cp ai-worker:/app/.cache/reranker"
 REPORTS = ["report", "analyses", "report"]

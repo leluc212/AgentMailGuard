@@ -66,6 +66,13 @@ cover/
 # make bench-package: the kit's results zip holds raw/ (full attack emails and drafts) (task 7.23)
 bench-results-*.zip
 
+# The reranker model the teammate kit copies out of the ai-worker image for the host guard-worker
+# (about 90 MB of weights), and the marker that names the image it came from (task 7.25;
+# evaluation/mailguard_bench/kit/campaign.py). The generic `.cache` line above also matches them;
+# these keep them ignored if that line is ever narrowed.
+.cache/reranker/
+.cache/reranker.image-id
+
 # IDEs and editors
 .idea/
 .vscode/

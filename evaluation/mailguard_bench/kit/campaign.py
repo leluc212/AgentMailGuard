@@ -12,14 +12,35 @@ the same overlay as the ``mailguard-*`` targets: the pinned AgentMailGuard workt
 rag-email's environment, which every subprocess inherits (``sys.executable -m ...``).
 
     run:  stack env (live/stack_env.py, with its refusals) ─▶ docker compose up --no-deps ─▶ wait
+          a guarded config pending: copy the reranker model of the ai-worker image to
+                   .cache/reranker, unless that already is this image's (see below)
           for each config  C0:      docker compose start ai-worker ─▶ wait healthy ─▶ live.run
                            guarded: docker compose stop ai-worker ─▶ start the guard-worker
-                                    (host process, log in <run>/raw/guard-worker.<config>.log)
+                                    (host process, RETRIEVAL__RERANK_MODEL_DIR=<.cache/reranker>
+                                    in its environment only, log in
+                                    <run>/raw/guard-worker.<config>.log)
                                     ─▶ wait: pid file newer than the start AND /readyz answers
                                     ─▶ live.run ─▶ stop it and confirm it exited
           one retry pass over the configs that failed or left error rows
           reports: report, analyses, report (the meaning column is ``report --reader``: its
                    LLM__* settings may not be exported during a run, so it is not part of one)
+
+The reranker model (R11.1). C0 drafts in the ai-worker container, which reranks with the
+cross-encoder baked into its image (``RETRIEVAL__RERANK_MODEL_DIR=/app/.cache/reranker``, read
+with no network). The guard-worker is a host process with no such variable: left alone it would
+download the model from the internet at its first rerank, a network dependency that may also
+fetch another revision than C0 uses. So ``setup`` (once the stack is up) and ``run`` (before the
+first config, when a guarded config is pending; C0 alone does not need it) copy the image's folder
+with ``docker compose cp ai-worker:/app/.cache/reranker <repo>/.cache/reranker``, a git-ignored
+folder, unless that folder already is this image's: ``.cache/reranker.image-id``, next to it, holds
+the id of the image the ai-worker container was created from, and is written only after a complete
+copy, so a rebuilt image or an interrupted copy gets a fresh one. ``docker compose cp`` works on a
+stopped container too. The guard-worker is started with ``RETRIEVAL__RERANK_MODEL_DIR=<that
+folder>`` in ITS environment only (``Host.spawn(env=...)``): the kit's own environment, the runner
+and the containers never get it, and the refusal of a ``RETRIEVAL__*`` variable exported in the
+shell stays. If the copy fails the run stops with a FAIL that names the command and the fix,
+before any config runs. ``run --dry-run`` prints the command and touches nothing. By hand:
+docs/demo-runbook.md section 9.9 step 4.
 
 It is pure Python: no bash, so it runs natively on Windows as well (the stop signal of the
 guard-worker is chosen by ``kit/system.py``). It never starts a model call of its own; the
@@ -41,12 +62,13 @@ import importlib
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import zipfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,6 +122,16 @@ TRACKED_OUTPUTS = (
 """What demo-runbook section 9.7 commits, plus the kit log; ``raw/`` stays out of git."""
 SECRET_NAME_SUFFIXES = ("_KEY", "_SECRET", "_TOKEN", "_PASSWORD")
 MIN_SECRET_LENGTH = 8
+RERANK_SERVICE = "ai-worker"
+"""The service whose image bakes the cross-encoder in; C0 drafts (and reranks) in its container."""
+RERANK_IMAGE_DIR = "/app/.cache/reranker"
+"""Where the image keeps the model: the Dockerfile's ``ENV RETRIEVAL__RERANK_MODEL_DIR``."""
+RERANK_MODEL_DIR_ENV = "RETRIEVAL__RERANK_MODEL_DIR"
+"""The setting that points a process at a folder holding the model, which is then read offline."""
+RERANK_COPY_DIR = Path(".cache") / "reranker"
+"""The host's copy of that folder, under the repo root: git-ignored and out of the build context."""
+RERANK_COPY_MARKER = Path(".cache") / "reranker.image-id"
+"""Next to the copy: the id of the image it came from, written only once the copy is complete."""
 
 
 def _eprint(line: str) -> None:
@@ -244,6 +276,147 @@ def _build_reports(
     return 1 if status != 0 else 0
 
 
+# --- the reranker model of the guarded configs ------------------------------------------------
+
+
+class RerankModelError(Exception):
+    """The reranker model could not be copied out of the image; the text says what to do."""
+
+
+@dataclass(frozen=True)
+class RerankCopy:
+    """The host's copy of the image's reranker model, and whether this call had to make it."""
+
+    folder: Path
+    image: str
+    copied: bool
+
+
+def rerank_copy_paths(repo_root: Path) -> tuple[Path, Path]:
+    """The folder the guard-worker reads its reranker model from, and the marker next to it."""
+    return (repo_root / RERANK_COPY_DIR).absolute(), (repo_root / RERANK_COPY_MARKER).absolute()
+
+
+def rerank_copy_command(repo_root: Path) -> list[str]:
+    """``docker compose cp`` of the image's model folder to a destination that does not exist.
+
+    Docker puts the contents of a source folder into a destination that does not exist yet (its
+    parent must), and the folder itself, under its own name, inside one that does: the model
+    would end up at ``reranker/reranker``. ``sync_rerank_model`` therefore clears the destination.
+    """
+    folder, _ = rerank_copy_paths(repo_root)
+    return ["docker", "compose", "cp", f"{RERANK_SERVICE}:{RERANK_IMAGE_DIR}", str(folder)]
+
+
+def _rerank_failure(problem: str) -> RerankModelError:
+    return RerankModelError(
+        f"{problem}. The guard-worker needs the reranker model of the {RERANK_SERVICE} image: "
+        "without a copy it downloads the model from the internet at its first rerank, a network "
+        "dependency that may also fetch another revision than C0 reranks with. Fix: make sure "
+        f"Docker is running, the {RERANK_SERVICE} container exists (`make bench-setup` creates "
+        f"it) and {RERANK_COPY_DIR.parent}/ is writable, then run the same command again "
+        "(by hand: docs/demo-runbook.md section 9.9 step 4)"
+    )
+
+
+def _ai_worker_image(ctx: KitContext) -> str:
+    """The id of the image the ai-worker container was created from: what ``docker cp`` copies.
+
+    Only commands that answer for a stopped container are used: ``ps -a`` lists it, ``inspect``
+    reads it in any state, and ``docker cp`` takes a running or a stopped container.
+    """
+    listing = ["docker", "compose", "ps", "-a", "-q", RERANK_SERVICE]
+    found = ctx.host.capture(listing, cwd=ctx.repo_root)
+    if found.returncode != 0:
+        raise _rerank_failure(f"{_join(listing)} exited {found.returncode}")
+    containers = [line.strip() for line in found.stdout.splitlines() if line.strip()]
+    if not containers:
+        raise _rerank_failure(f"no {RERANK_SERVICE} container exists")
+    inspect = ["docker", "inspect", "-f", "{{.Image}}", containers[0]]
+    asked = ctx.host.capture(inspect, cwd=ctx.repo_root)
+    if asked.returncode != 0:
+        raise _rerank_failure(f"{_join(inspect)} exited {asked.returncode}")
+    image = asked.stdout.strip()
+    if not image:
+        raise _rerank_failure(f"{_join(inspect)} printed no image id")
+    return image
+
+
+def _holds_files(folder: Path) -> bool:
+    return folder.is_dir() and any(folder.iterdir())
+
+
+def _copy_is_current(folder: Path, marker: Path, image: str) -> bool:
+    """True when ``folder`` is a complete copy made from ``image`` (its marker is written last)."""
+    try:
+        return marker.read_text(encoding="utf-8").strip() == image and _holds_files(folder)
+    except OSError:
+        return False
+
+
+def _remove(path: Path) -> None:
+    """Delete a folder, or whatever file or link stands in its place; nothing when it is absent."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def sync_rerank_model(ctx: KitContext) -> RerankCopy:
+    """Make the host's copy of the ai-worker image's reranker model match that image.
+
+    The guard-worker reads its model from this copy, offline, instead of downloading one at its
+    first rerank: the weights C0 reranks with in the container. Nothing is copied when the marker
+    names the image the container was created from and the folder holds files; otherwise the old
+    copy and its marker are removed first, the image's folder is copied out, and the marker is
+    written last, so a failed or interrupted copy is never taken for a good one.
+
+    Raises:
+        RerankModelError: the image cannot be found, the copy fails or leaves nothing; the text
+            names the command and the fix.
+    """
+    folder, marker = rerank_copy_paths(ctx.repo_root)
+    image = _ai_worker_image(ctx)
+    short = image.removeprefix("sha256:")[:12]
+    if _copy_is_current(folder, marker, image):
+        ctx.out(
+            f"ok reranker model {RERANK_COPY_DIR} is already the {RERANK_SERVICE} image's "
+            f"({short}); the guard-worker reads it offline"
+        )
+        return RerankCopy(folder, image, copied=False)
+    command = rerank_copy_command(ctx.repo_root)
+    try:
+        marker.unlink(missing_ok=True)  # first: a copy without its marker is never trusted
+        _remove(folder)  # docker would put the model inside a folder that is there
+        folder.parent.mkdir(parents=True, exist_ok=True)  # and needs the parent to exist
+    except OSError as exc:
+        raise _rerank_failure(f"cannot prepare {folder}: {exc}") from exc
+    ctx.out(
+        f"copying the reranker model out of the {RERANK_SERVICE} image ({short}) "
+        f"to {RERANK_COPY_DIR}"
+    )
+    try:
+        code = ctx.host.run(command, cwd=ctx.repo_root)
+        if code != 0:
+            raise _rerank_failure(f"{_join(command)} exited {code}")
+        if not _holds_files(folder):
+            raise _rerank_failure(f"{_join(command)} copied nothing to {folder}")
+        try:
+            marker.write_text(f"{image}\n", encoding="utf-8")
+        except OSError as exc:
+            raise _rerank_failure(f"cannot write {marker}: {exc}") from exc
+    except BaseException:  # a failure or Ctrl+C: leave neither half a copy nor a marker for it
+        shutil.rmtree(folder, ignore_errors=True)
+        with suppress(OSError):
+            marker.unlink(missing_ok=True)
+        raise
+    ctx.out(
+        f"ok reranker model copied from the {RERANK_SERVICE} image {short} to {RERANK_COPY_DIR}; "
+        "the guard-worker reads it offline"
+    )
+    return RerankCopy(folder, image, copied=True)
+
+
 # --- the run ----------------------------------------------------------------------------------
 
 
@@ -358,6 +531,10 @@ class _Campaign:
 
     def _run_configs(self, pending: Sequence[str]) -> dict[str, _Outcome]:
         self._bring_up_stack()
+        if any(config != NATIVE_CONFIG for config in pending):
+            # Before any config, C0 included: a campaign whose guarded configs cannot run should
+            # say so now and not after C0's hours. C0 alone reranks in the container, needs none.
+            self._rerank_model()
         outcomes: dict[str, _Outcome] = {}
         for config in pending:
             outcomes[config] = self._config_step(config, 1)
@@ -425,6 +602,44 @@ class _Campaign:
                     "status": status,
                 }
             )
+
+    def _rerank_model(self) -> None:
+        """The host's copy of the ai-worker image's reranker model, for the guarded configs."""
+        if self.dry:
+            folder, marker = rerank_copy_paths(self.ctx.repo_root)
+            self.ctx.out(
+                f"would do: copy the reranker model out of the {RERANK_SERVICE} image to "
+                f"{self._shown(folder)}, unless {self._shown(marker)} already names this image"
+            )
+            self.ctx.out(f"would run: {_join(rerank_copy_command(self.ctx.repo_root))}")
+            return
+        start = _now()
+        status = "failed"
+        result: RerankCopy | None = None
+        try:
+            result = sync_rerank_model(self.ctx)
+            status = "ok"
+        except RerankModelError as exc:
+            raise _AbortError(str(exc)) from exc
+        except KeyboardInterrupt:
+            status = "interrupted"
+            raise
+        finally:
+            self.log.append(
+                {
+                    "step": "rerank_model",
+                    "image": result.image if result else None,
+                    "copied": result.copied if result else None,
+                    "start": start.isoformat(),
+                    "end": _now().isoformat(),
+                    "status": status,
+                }
+            )
+
+    def _worker_env(self) -> dict[str, str]:
+        """What the guard-worker alone gets: the model folder it reranks from, with no network."""
+        folder, _ = rerank_copy_paths(self.ctx.repo_root)
+        return {RERANK_MODEL_DIR_ENV: str(folder)}
 
     def _docker(self, command: Sequence[str]) -> None:
         if self.dry:
@@ -548,6 +763,10 @@ class _Campaign:
         worker = self._worker_command(config)
         if self.dry:
             self.ctx.out(f"would run: {_join(worker)}")
+            self.ctx.out(
+                f"would do: start it with {RERANK_MODEL_DIR_ENV}="
+                f"{self._worker_env()[RERANK_MODEL_DIR_ENV]} in its own environment only"
+            )
             self.ctx.out(f"would do: append its output to {self._shown(log_path)}")
             self.ctx.out(
                 f"would do: wait until {self._shown(pid)} is newer than the start AND "
@@ -562,7 +781,9 @@ class _Campaign:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         stamp = self.raw_dir / f".kit-stamp.{config}"
         stamp.write_text("", encoding="utf-8")  # its mtime is "the start": a pid file must be newer
-        proc = self.ctx.host.spawn(worker, cwd=self.ctx.repo_root, log_path=log_path)
+        proc = self.ctx.host.spawn(
+            worker, cwd=self.ctx.repo_root, log_path=log_path, env=self._worker_env()
+        )
         try:
             self._await_ready(config, proc, pid, stamp, log_path)
             code = self._run_runner(config)
@@ -779,6 +1000,11 @@ def run_setup(ctx: KitContext) -> int:
             )
             return 1
         ctx.host.sleep(HEALTH_POLL_S)
+    try:
+        sync_rerank_model(ctx)  # the guarded configs' guard-worker reads it, offline
+    except RerankModelError as exc:
+        ctx.err(f"FAIL {exc}")
+        return 1
     ctx.out("ok the stack is up and healthy. Next: make bench-run MODEL=<profile>")
     return 0
 
