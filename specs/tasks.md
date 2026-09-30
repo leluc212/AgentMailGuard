@@ -932,9 +932,11 @@
   - Numbering: this task's commits say `[task 7.23]`; the number collided with 7.23 (v2 analyses) and was changed to 7.25 when the work packages were integrated.
   - _Requirements: R22.12, R24.5_
 
-- [ ] **7.26 Rows that a live-service failure changed are retried error rows**
+- [x] **7.26 Rows that a live-service failure changed are retried error rows**
   - Decision: ADR-0012 decision 13 (owner, 2026-10-01). Found in the live smoke: a DNS stall made triage fall back to the safe default and the query embedding time out, and both rows were scored as normal.
   - Build: the live collector records such a case as an error row of its own kind (triage safe default after stage errors, not an abstention; retrieval degraded), so the retry pass runs it again; the report counts them per config; the v2 design gains Amendment 3 (pre-registered before any v2 run).
+  - Done: `evaluation/mailguard_bench/live/collect.py` raises `TriageStageFailureError` (`error.kind` `triage_stage_failure`: the latest classification has `decided_by = "default"` and at least one `raw.stages_attempted` entry with an `error`) or `RetrievalDegradedError` (`retrieval_degraded`: the latest `context_built` event says `retrieval_degraded` true), before the audit line is waited for; both subclass `PipelineJobError`, so the runner never re-runs them in-process and only `--retry-errors` does. No product change: the cascade already persists each stage's `error` in the default's raw output (R6.7), so a failure and an abstention differ in persisted data (a real-cascade test over the in-memory store proves it). The report (`artifacts.py`, `report.py`) counts both kinds per config and table (`ServiceFailures`: two rows under `Errors (excluded)`, `summary.json` `service_failures`, `metrics.csv` `*_errors`), live rows only, so v1 reports and the goldens are unchanged. Design Amendment 3 (2026-10-01, before any v2 run) holds the exact definitions; runbook 9.9 explains the kinds, the retry pass and that a persistent one points at DNS, network or quota.
+  - Not run: `tests/integration` and `tests/e2e` (the owner's stack is in use); the unit tests cover the collector, the runner's retry pass over a simulated stack and the report.
   - _Requirements: R6.11, R10.9, R22.12_
 
 - [ ] **7.27 Reply prompts say they draft the reply to the customer**
