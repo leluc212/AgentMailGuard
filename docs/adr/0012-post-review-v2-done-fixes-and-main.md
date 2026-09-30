@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
-- **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10)
+- **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10; decisions 12 to 16
+  on 2026-10-01 at 00:42, after the first live v2 smoke runs)
 - **Relates to:** ADR-0010 (its clause "the branches are not merged, and nothing goes to `main`" is
   superseded when decision 6 is carried out), ADR-0011, `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`,
   `STATUS-desktop.md` footnote 4, tasks 7.20, 7.21, 7.22
@@ -90,6 +91,38 @@ a first commit.
      against C0, and a control check of C6 against C0T;
    - the design, hypotheses, utility rules and what is reported are pre-registered in Amendment 2 of
      `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`, written before any v2 run.
+
+12. **Retrieval in the live pipeline.** The live smoke runs of 2026-09-30/10-01 showed that no case
+   reached retrieval: triage's model answered `retrieval_required=false` for every company-policy
+   question, and the feeder files each case's documents under category `support` while retrieval
+   filters by the live triage category, which never said `support`. Both fixes land before any v2 run
+   (ADR-0013): (a) in rag-email, a **category retrieval floor**: a reply routed to AI generation gets
+   retrieval when its category's `default_retrieval_required` in `config/categories.yaml` says so, a
+   setting that is on by default; (b) a retrieval setting that turns the **category filter** off, on by
+   default so production is unchanged; the v2 benchmark turns the filter off in every config, in the
+   containers and the host processes alike, and records it in the fingerprint.
+13. **Rows that a live-service failure changed are error rows.** A case whose triage fell back to the
+   safe default because every stage failed with an error (not an abstention), or whose retrieval ran
+   degraded (the query embedding failed or ran out of its budget), is recorded as an error row of its
+   own kind, re-run by the retry pass, and, if it still fails, excluded from the headline like every
+   other error and counted in the report. Pre-registered in the v2 design (Amendment 3) before any v2
+   run.
+14. **Reply prompts say what they write.** rag-email's general reply prompt asked for "a polite,
+   helpful, and concise response", which Llama-3.1-8B answered with a status line ("Your email draft
+   is ready."). Every reply prompt whose task line does not say it now says it drafts the reply email
+   to the customer, as a new prompt version, so the v1 runs keep the versions they recorded. A clarity
+   fix before any v2 run, the same for every model; no detection prompt, rule or threshold changes.
+15. **The L1 classifier is not redistributed.** About 42 % of its training rows come from
+   `xTRam1/safe-guard-prompt-injection`, which declares no license, and the guard's own dataset
+   registry says it is used for training only, not redistributed. The file stays out of git; the owner
+   sends it to the teammate privately; the repository records its sha256 and the kit refuses any other
+   file. The pinned case file (LLMail-Inject and PoisonedRAG, both MIT, and the guard's own seed
+   documents) is committed with their license notices.
+16. **Docker on the teammate's laptop.** Docker Desktop's system requirements (read 2026-09-30 on
+   docs.docker.com) list Windows 11 Enterprise, Pro and Education, not Home, so the kit's primary route
+   is Docker Engine installed inside WSL2 Ubuntu from Docker's apt repository; Docker Desktop with WSL
+   integration stays an option on the listed editions. This amends decision 9's "Docker Desktop with WSL
+   integration".
 
 ## Consequences
 

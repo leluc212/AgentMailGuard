@@ -932,6 +932,21 @@
   - Numbering: this task's commits say `[task 7.23]`; the number collided with 7.23 (v2 analyses) and was changed to 7.25 when the work packages were integrated.
   - _Requirements: R22.12, R24.5_
 
+- [ ] **7.26 Rows that a live-service failure changed are retried error rows**
+  - Decision: ADR-0012 decision 13 (owner, 2026-10-01). Found in the live smoke: a DNS stall made triage fall back to the safe default and the query embedding time out, and both rows were scored as normal.
+  - Build: the live collector records such a case as an error row of its own kind (triage safe default after stage errors, not an abstention; retrieval degraded), so the retry pass runs it again; the report counts them per config; the v2 design gains Amendment 3 (pre-registered before any v2 run).
+  - _Requirements: R6.11, R10.9, R22.12_
+
+- [ ] **7.27 Reply prompts say they draft the reply to the customer**
+  - Decision: ADR-0012 decision 14 (owner, 2026-10-01). Found in the live smoke: Llama-3.1-8B answered the general prompt's "concise response" with "Your email draft is ready.".
+  - Build: every reply prompt whose task line does not say it drafts the reply email to the customer gets that wording as a new prompt version; the old versions stay for the v1 runs, whose recorded prompts and goldens do not change.
+  - _Requirements: R14.6, R16.1_
+
+- [ ] **7.28 Category retrieval floor and the benchmark's category-filter switch**
+  - Decision: ADR-0012 decision 12 and ADR-0013 (owner, 2026-10-01). Found in the live smoke: no case reached retrieval (triage's model never asked for it, and case documents filed under `support` were filtered out by the live category).
+  - Build: `retrieval_required` raised to the category's `default_retrieval_required` for replies routed to AI (setting, on by default); a setting that disables the category filter (on by default), turned off by the v2 benchmark's stack env and host check, recorded in the fingerprint; design §5.3 updated.
+  - _Requirements: R6.6, R6.9, R12.4, R22.12_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -998,23 +1013,23 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13, 7.20 |
 | R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1, 7.20 |
-| R6 Triage | 2.2–2.8, 2.9, 7.20 |
+| R6 Triage | 2.2–2.8, 2.9, 7.20, 7.26, 7.28 |
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b, 7.20 |
 | R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 8.6 |
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 7.26, 8.6 |
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21 |
-| R12 Query construction | 3.13, 7.18 |
+| R12 Query construction | 3.13, 7.18, 7.28 |
 | R13 Business data | 5.1–5.6, 8.4 |
-| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0 |
+| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27 |
 | R15 Model cascade | 4.8, 4.13a, 4.13b, 7.21 |
-| R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4 |
+| R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4, 7.27 |
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
 | R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
