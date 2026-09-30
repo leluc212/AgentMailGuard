@@ -25,6 +25,7 @@ from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
 from mailguard.layers.l1_injection_scanner.llm_judge import judge_email, judge_findings
 from mailguard.layers.l1_injection_scanner.rules import RuleEngine, obfuscation_findings
 from mailguard.llm.protocol import LLMError, LLMProvider
+from mailguard.llm.structured import mark_llm_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class EmailInjectionScanner:
             output, result = await judge_email(self.judge, email, max_chars=self.cfg.max_chars)
         except LLMError as exc:
             logger.warning("L1 LLM judge unavailable (%s); keeping cheap verdict", exc)
-            cheap.metadata["llm_error"] = str(exc)[:200]
+            mark_llm_fallback(cheap.metadata, exc)
             return cheap
         llm_score = output.injection_score
         final = 0.6 * llm_score + 0.4 * fused_cheap

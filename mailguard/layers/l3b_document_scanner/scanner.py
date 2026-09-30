@@ -33,7 +33,7 @@ from mailguard.layers.l1_injection_scanner.llm_judge import wrap_untrusted
 from mailguard.layers.l1_injection_scanner.rules import RuleEngine, obfuscation_findings
 from mailguard.layers.l1_injection_scanner.scanner import noisy_or
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured
+from mailguard.llm.structured import call_structured, mark_llm_fallback
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -334,7 +334,7 @@ class RetrievedDocumentScanner:
             )
         except LLMError as exc:
             logger.warning("L3b LLM judge unavailable (%s)", exc)
-            cheap.metadata["llm_error"] = str(exc)[:200]
+            mark_llm_fallback(cheap.metadata, exc)
             return cheap
         final = 0.6 * out.poison_score + 0.4 * cheap.score
         findings = list(cheap.findings)

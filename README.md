@@ -41,7 +41,11 @@ python scripts/scan_email.py tests/fixtures/emails.json --pick attacks:0 --confi
 LLM-backed stages (L1 judge, L2 paraphrase, optional L3b/L4 judges) are enabled by setting
 `GUARD_MODELS__*` in `.env` (see `.env.example`) to a model from `configs/models.yaml`:
 `qwen2.5-7b-instruct` / `llama-3.1-8b-instruct` (Ollama) or `gpt-4o-mini` (OpenAI API).
-Without a model the stack degrades to the cheap stages and never fails open.
+Without a model the stack degrades to the cheap stages and never fails open. When a configured
+model fails at run time (timeout, non-JSON, missing/invalid fields, transport error) the stage keeps
+its cheap result and marks the verdict `metadata.llm_fallback = true` with `llm_fallback_reason`
+(`timeout | non_json | schema_missing | invalid_fields | error`), so a report can count fallbacks
+per stage; the email is processed normally (the verdict's `error` stays empty).
 
 ## Datasets (reputable public sources only)
 

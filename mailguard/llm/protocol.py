@@ -66,4 +66,13 @@ class LLMResponseError(LLMError):
 
 
 class LLMSchemaValidationError(LLMError):
-    pass
+    """The model answered, but not with the requested JSON object.
+
+    ``reason`` says how it failed (see ``mailguard.llm.structured.fallback_reason``):
+    ``non_json`` (prose, no JSON object), ``schema_missing`` (JSON without the schema's
+    required fields) or ``invalid_fields`` (fields present but null, mistyped or out of range).
+    """
+
+    def __init__(self, message: str = "", *, reason: str = "invalid_fields") -> None:
+        super().__init__(message)
+        self.reason = reason

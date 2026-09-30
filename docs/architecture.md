@@ -17,7 +17,7 @@ Every layer consumes and produces typed contracts in `mailguard/contracts/`:
 | Stage | Input | Output | Fail-closed behaviour |
 |---|---|---|---|
 | L1 `EmailInjectionScanner.inspect` | `GuardedEmail` | `LayerVerdict` (score, severity, findings, indicators, injected instructions) | exception -> HIGH severity verdict |
-| L2 `UserIntentExtractor.extract` | `GuardedEmail` | `SanitizedIntent` (sanitized body, intent, actions, entities, stripped segments) | exception -> empty sanitized body + HIGH |
+| L2 `UserIntentExtractor.extract` | `GuardedEmail` | `SanitizedIntent` (sanitized body, intent, actions, entities, stripped segments) | exception in the rule/classifier step -> empty sanitized body + HIGH; failure of the AI step -> heuristic result kept, `llm_fallback` metadata (see below), no `error` |
 | L3b `RetrievedDocumentScanner.scan` | `RetrievedChunk[]`, query | kept chunks + `ChunkVerdict[]` | exception -> chunk quarantined |
 | L3 `ChannelIsolation.build` | system/category/business + intent + email + chunks | `SecurePrompt` + `LayerVerdict` | forged markers -> MEDIUM finding |
 | L4 `OutputScanner.inspect` | `DraftCandidate`, allowed citations, protected texts, indicators | `OutputVerdict` (redacted text, redactions, compliance flags) | exception -> empty redacted text + HIGH |
@@ -25,6 +25,26 @@ Every layer consumes and produces typed contracts in `mailguard/contracts/`:
 
 `MailGuardPipeline` orchestrates them as inbound -> prompt -> outbound and stops before
 generation when the inbound decision is `block` or `quarantine`.
+
+### Visible fallback of the AI stages
+
+L1 (judge), L2 (extractor), L3b (document judge) and L4 (output judge) each have a cheap
+rule/classifier result and an optional AI step. When the AI step fails, the layer keeps its
+cheap result exactly as it would be without the AI step, leaves the verdict's `error` empty
+(the email is processed normally, not failed) and records the failure in the verdict
+`metadata`, with the same keys for every stage:
+
+| Key | Value |
+|---|---|
+| `llm_fallback` | `true` (absent when the AI step answered) |
+| `llm_fallback_reason` | `timeout` (provider timeout) / `non_json` (prose instead of a JSON object) / `schema_missing` (JSON without the schema's required fields) / `invalid_fields` (null, mistyped or out-of-range fields) / `error` (transport or any other failure) |
+| `llm_error` | the exception text, at most 200 characters |
+
+A failed answer is never partially trusted: the model's schema is validated once, with one
+repair attempt (`mailguard/llm/structured.py`), and only a fully valid answer is used.
+Counting `llm_fallback` per layer over a run gives the fallback rate of each AI stage. L2's
+`ExtractorOutput` has no field defaults, so `{"raw_text": ...}` or a partial object cannot
+pass as "the model found no instructions".
 
 ## Layer design notes
 
@@ -43,7 +63,9 @@ generation when the inbound decision is `block` or `quarantine`.
 Paragraph/sentence segmentation preserving offsets; each segment scored by the rules and
 the classifier; segments >= `strip_threshold` are removed and recorded with provenance.
 Heuristic entity/action extraction always runs; the optional LLM paraphrase sees only the
-sanitized body and is told to describe, never to follow.
+sanitized body and is told to describe, never to follow. If the AI step fails for any reason
+the rule-and-classifier result stands and the failure is recorded as `llm_fallback` metadata
+(see "Visible fallback of the AI stages").
 
 ### L3 Channel Isolation
 Spotlighting (Hines et al., 2024) with three modes: `delimit` (nonce-tagged markers),

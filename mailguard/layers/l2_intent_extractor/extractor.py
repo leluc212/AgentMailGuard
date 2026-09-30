@@ -9,7 +9,10 @@ Turns the raw (already L1-scored) email into a *structured, non-executable* inte
        heuristics (always available).
     3. Optionally ask the extractor LLM for a neutral third-person paraphrase. The
        sanitized body is wrapped in nonce-tagged data markers and the model is told
-       to describe, never to follow. On any LLM failure the heuristic result stands.
+       to describe, never to follow. On any LLM failure (timeout, transport error, non-JSON,
+       missing or invalid fields) the heuristic result stands unchanged and the verdict
+       metadata says so: ``llm_fallback``, ``llm_fallback_reason``, ``llm_error``. The
+       verdict's ``error`` stays empty, so the email is processed normally.
 
 The output ``SanitizedIntent`` is what Layer 3 places in the semi-trusted INTENT
 channel; the raw email only ever reaches the model inside the untrusted EMAIL
@@ -39,8 +42,8 @@ from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
 from mailguard.layers.l1_injection_scanner.llm_judge import wrap_untrusted
 from mailguard.layers.l1_injection_scanner.rules import RuleEngine
-from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured
+from mailguard.llm.protocol import ChatMessage, LLMProvider, ModelTier
+from mailguard.llm.structured import call_structured, mark_llm_fallback
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -140,12 +143,18 @@ def segment_text(text: str) -> list[Segment]:
 
 
 class ExtractorOutput(BaseModel):
-    user_intent: str = ""
-    requested_actions: list[str] = Field(default_factory=list)
-    entities: dict[str, list[str]] = Field(default_factory=dict)
-    contains_assistant_instructions: bool = False
-    instructions_to_assistant: list[str] = Field(default_factory=list)
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    """The extractor model's answer. Every field is required (as the prompt's schema says).
+
+    Fields must not have defaults: a non-JSON or partial answer would otherwise validate
+    and be reported as if the model had answered "no instructions found", silently.
+    """
+
+    user_intent: str
+    requested_actions: list[str]
+    entities: dict[str, list[str]]
+    contains_assistant_instructions: bool
+    instructions_to_assistant: list[str]
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
 def heuristic_entities(text: str) -> dict[str, list[str]]:
@@ -331,9 +340,9 @@ class UserIntentExtractor:
             out, result = await call_structured(
                 self.llm, messages, ExtractorOutput, tier=ModelTier.FAST, max_tokens=500
             )
-        except LLMError as exc:
-            logger.warning("L2 extractor LLM unavailable (%s); heuristic result kept", exc)
-            base.metadata["llm_error"] = str(exc)[:200]
+        except Exception as exc:  # any failure of the AI step keeps the heuristic result
+            logger.warning("L2 extractor LLM failed (%s); heuristic result kept", exc)
+            mark_llm_fallback(base.metadata, exc)
             return base
         findings = list(base.findings)
         score = base.score
