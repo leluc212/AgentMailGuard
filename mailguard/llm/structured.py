@@ -26,9 +26,7 @@ def compact_schema(model: type[BaseModel]) -> dict[str, object]:
     return schema
 
 
-def _schema_failure(
-    error: ValidationError, content: dict[str, Any]
-) -> LLMSchemaValidationError:
+def _schema_failure(error: ValidationError, content: dict[str, Any]) -> LLMSchemaValidationError:
     """Classify why ``content`` did not validate (see ``fallback_reason``)."""
     if set(content) == {"raw_text"}:  # parse_json_or_text: the model answered with prose
         reason = "non_json"
