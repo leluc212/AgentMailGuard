@@ -99,7 +99,7 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
-from evaluation.mailguard_bench.runmeta import scoring_meta
+from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.runner import (
     ABLATION_SETS,
     BENCH_CONFIGS,
@@ -1088,6 +1088,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     )
     meta_file = meta_path(run_dir, args.config)
     invocations = check_resume(meta_file, meta["fingerprint"])  # before any write or call
+    meta = keep_recorded_scoring_meta(meta, meta_file)  # a resume keeps its first prices and rule
 
     snapshot_case_set(loaded, run_dir)
     result_path(run_dir, args.config).parent.mkdir(parents=True, exist_ok=True)

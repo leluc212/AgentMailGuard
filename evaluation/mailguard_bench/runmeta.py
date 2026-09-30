@@ -12,7 +12,9 @@ output does not change.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from packages.core.settings import ModelPricing
@@ -45,3 +47,23 @@ def prices_from_meta(meta: Mapping[str, Any] | None) -> dict[str, ModelPricing] 
 def strict_utility_from_meta(meta: Mapping[str, Any] | None) -> bool:
     """True when the run's meta asks for the strict benign-utility rule."""
     return (meta or {}).get(UTILITY_RULE_KEY) == UTILITY_RULE_MIN_DRAFT_CHARS
+
+
+def keep_recorded_scoring_meta(meta: Mapping[str, Any], meta_file: Path) -> dict[str, Any]:
+    """``meta`` for a resumed run: the scoring keys are the ones its first invocation recorded.
+
+    The runners rewrite the meta file on every invocation, and the scoring keys sit outside the
+    resume fingerprint. Without this a run started before the keys existed would flip to the strict
+    utility rule half-way, and a run resumed on another machine would take that machine's prices.
+    When ``meta_file`` does not exist yet this is the run's first invocation and ``meta`` stands.
+    """
+    kept = dict(meta)
+    if not meta_file.exists():
+        return kept
+    existing = json.loads(meta_file.read_text(encoding="utf-8"))
+    for key in (PRICES_KEY, UTILITY_RULE_KEY):
+        if key in existing:
+            kept[key] = existing[key]
+        else:
+            kept.pop(key, None)
+    return kept
