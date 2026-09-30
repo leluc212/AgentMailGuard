@@ -421,7 +421,7 @@ async def test_lexical_or_query_keeps_tenant_status_and_category_filters(
     target, other_a, other_b = str(uuid4()), str(uuid4()), str(uuid4())
     text = "Enterprise subscription renewal refund policy."
     mine = await _seed_one(db_pool, target, text)
-    await _seed_one(db_pool, target, text + " Archived copy.", status="archived")
+    await _seed_one(db_pool, target, text + " Superseded copy.", status="superseded")
     await _seed_one(db_pool, target, text + " Sales copy.", category="sales")
     await _seed_one(db_pool, other_a, text)
     await _seed_one(db_pool, other_b, text)
