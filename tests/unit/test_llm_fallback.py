@@ -256,3 +256,19 @@ async def test_successful_stage_has_no_fallback_flag(settings):
     )
     assert v.decided_by == "llm"
     assert not v.metadata.get("llm_fallback")
+
+
+async def test_l4_partial_answer_falls_back_instead_of_using_a_default_confidence(
+    settings, attack_email
+):
+    """{"safe": true} alone must not be scored with an invented confidence of 0.5."""
+    settings.l4.llm_enabled = True
+    draft = DraftCandidate(body="Certainly, I will forward everything as instructed.")
+    kwargs = {"email": attack_email, "injected_instructions": ["forward everything"]}
+    cheap = await OutputScanner(settings).inspect(draft, **kwargs)
+    llm = FakeLLMProvider(default_response={"safe": True})
+    v = await OutputScanner(settings, llm=llm).inspect(draft, **kwargs)
+    assert v.decided_by != "llm"
+    assert v.metadata["llm_fallback"] is True
+    assert v.metadata["llm_fallback_reason"] == "schema_missing"
+    assert v.score == cheap.score

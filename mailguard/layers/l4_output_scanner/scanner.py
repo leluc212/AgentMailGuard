@@ -135,7 +135,7 @@ def domain_of(email_or_url: str) -> str:
 
 class OutputJudgeOutput(BaseModel):
     safe: bool
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)  # required: no invented default confidence
     violations: list[str] = Field(default_factory=list)
     rationale: str = ""
 

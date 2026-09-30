@@ -41,7 +41,18 @@ cheap result exactly as it would be without the AI step, leaves the verdict's `e
 | `llm_error` | the exception text, at most 200 characters |
 
 A failed answer is never partially trusted: the model's schema is validated once, with one
-repair attempt (`mailguard/llm/structured.py`), and only a fully valid answer is used.
+repair attempt (`mailguard/llm/structured.py`), and only a fully valid answer is used. Fields
+that the judgement depends on have no defaults in any stage's schema (L4's `confidence`
+included).
+
+Only L2 catches every exception of the AI step. L1 (judge), L3b and L4 catch `LLMError`
+(including `LLMTimeoutError` and schema failures); any other exception there still reaches the
+layer's outer handler and fails closed (HIGH, `error` set), as before. The `timeout` reason
+also covers a builtin `TimeoutError` where it is caught (L2).
+
+Consumers of the verdicts (benchmark harnesses) should count `llm_fallback` /
+`llm_fallback_reason` per layer as the fallback rate and keep the row scored. `llm_error` is
+free text for diagnosis and is not a failure of the email: `error` is the failure field.
 Counting `llm_fallback` per layer over a run gives the fallback rate of each AI stage. L2's
 `ExtractorOutput` has no field defaults, so `{"raw_text": ...}` or a partial object cannot
 pass as "the model found no instructions".

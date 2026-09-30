@@ -42,7 +42,7 @@ from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
 from mailguard.layers.l1_injection_scanner.llm_judge import wrap_untrusted
 from mailguard.layers.l1_injection_scanner.rules import RuleEngine
-from mailguard.llm.protocol import ChatMessage, LLMProvider, ModelTier
+from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured, mark_llm_fallback
 from mailguard.prompts import load_prompt
 
@@ -142,13 +142,12 @@ def segment_text(text: str) -> list[Segment]:
     return segments
 
 
+# The extractor model's answer. Every field is required (as the prompt's schema says).
+# Fields must not have defaults: a non-JSON or partial answer would otherwise validate and be
+# reported as if the model had answered "no instructions found", silently.
+# (A comment, not a docstring: pydantic would put a docstring into the JSON schema that
+# call_structured sends to the model.)
 class ExtractorOutput(BaseModel):
-    """The extractor model's answer. Every field is required (as the prompt's schema says).
-
-    Fields must not have defaults: a non-JSON or partial answer would otherwise validate
-    and be reported as if the model had answered "no instructions found", silently.
-    """
-
     user_intent: str
     requested_actions: list[str]
     entities: dict[str, list[str]]
@@ -341,7 +340,11 @@ class UserIntentExtractor:
                 self.llm, messages, ExtractorOutput, tier=ModelTier.FAST, max_tokens=500
             )
         except Exception as exc:  # any failure of the AI step keeps the heuristic result
-            logger.warning("L2 extractor LLM failed (%s); heuristic result kept", exc)
+            logger.warning(
+                "L2 extractor LLM failed (%s); heuristic result kept",
+                exc,
+                exc_info=not isinstance(exc, LLMError),  # full trace for non-LLM errors
+            )
             mark_llm_fallback(base.metadata, exc)
             return base
         findings = list(base.findings)
