@@ -22,6 +22,7 @@ from evaluation.mailguard_bench.artifacts import (
     summarize_sensitivity,
     template_successes,
 )
+from evaluation.mailguard_bench.report import summary_entry
 from evaluation.mailguard_bench.scoring import RawRecord
 from tests.unit.test_mailguard_bench_artifacts import (
     GUARD_7_280,
@@ -354,3 +355,26 @@ def test_the_report_lists_template_path_successes_with_their_case_ids() -> None:
         "pipeline ASR and never in the guard ASR): C0: `attack-llmail-a`, `attack-llmail-b`; "
         "C3: none."
     ) in text
+
+
+# --- summary.json: a v1 run's entries keep the keys they had ------------------------------------
+
+
+def test_a_v1_summary_entry_omits_the_keys_only_v2_runs_have() -> None:
+    entry = summary_entry(summary("C3", RateCI(7, 300, 0, 1)))
+
+    assert "utility_legacy" not in entry and "sensitivity" not in entry
+    assert entry["guard_asr"] is None  # the keys v1 already wrote stay, null or not
+
+
+def test_a_live_summary_entry_keeps_them() -> None:
+    live = replace(
+        live_summary("C3", PIPELINE_7_300, GUARD_7_280),
+        utility_legacy=RateCI(140, 150, 0.0, 1.0),
+        sensitivity=Sensitivity(10, RateCI(7, 310, 0.0, 1.0), None),
+    )
+
+    entry = summary_entry(live)
+
+    assert entry["utility_legacy"]["successes"] == 140
+    assert entry["sensitivity"]["fail_closed"] == 10

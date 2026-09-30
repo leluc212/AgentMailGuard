@@ -277,6 +277,20 @@ def _errors_in(errors: Sequence[RawRecord], ids: set[str]) -> int:
     return sum(1 for e in errors if e.case_id in ids)
 
 
+# Keys of a ConfigSummary that only a v2 run has: a v1 run's summary.json keeps the keys it had
+# when published, so a regenerated one differs from the published one in no key.
+V2_ONLY_SUMMARY_KEYS = ("utility_legacy", "sensitivity")
+
+
+def summary_entry(summary: ConfigSummary) -> dict[str, Any]:
+    """One config's ``summary.json`` entry, without the v2-only keys a v1 run leaves empty."""
+    entry = asdict(summary)
+    for key in V2_ONLY_SUMMARY_KEYS:
+        if entry.get(key) is None:
+            del entry[key]
+    return entry
+
+
 def _fail_closed_attacks_in(
     errors: Sequence[RawRecord], ids: set[str], cases: Mapping[str, Mapping[str, Any]]
 ) -> int:
@@ -728,7 +742,8 @@ def build_report(
         run_dir / "metrics.csv", csv_rows + (layer_ablation_rows(layer.summary) if layer else [])
     )
     summary = {
-        name: {c: asdict(s) for c, s in by_config.items()} for name, by_config in tables.items()
+        name: {c: summary_entry(s) for c, s in by_config.items()}
+        for name, by_config in tables.items()
     }
     payload: dict[str, Any] = {"tables": summary, "paired": {**paired, **layer_pairs}}
     if triage:
