@@ -20,6 +20,7 @@ from packages.broker.publisher import RETRY_ORIGIN_EXCHANGE_HEADER, RETRY_TIER_S
 from packages.broker.routing import (
     is_queue_consumed,
     load_categories_from_yaml,
+    resolve_configured_consumers,
 )
 from packages.core.settings import (
     BrokerSettings,
@@ -278,8 +279,9 @@ async def setup_topology(
     # -------------------------------------------------------------------------
     # 6. Check for Unconsumed Category Queues (R7.6)
     # -------------------------------------------------------------------------
+    consumers = resolve_configured_consumers(rt_cfg, registry)
     for q_name in category_queues:
-        if not is_queue_consumed(q_name, rt_cfg.configured_consumers):
+        if not is_queue_consumed(q_name, consumers):
             logger.warning(
                 "Category queue '%s' has no configured consumer (R7.6). Messages may accumulate.",
                 q_name,

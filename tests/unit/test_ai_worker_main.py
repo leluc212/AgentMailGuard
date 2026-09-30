@@ -6,8 +6,10 @@ from typing import Any
 
 import pytest
 
+from packages.broker.routing import is_queue_consumed, resolve_configured_consumers
 from packages.business.postgres import PostgresBusinessDataProvider
 from packages.core.settings import AIWorkerSettings, AppSettings, CategoryRoutingSettings
+from packages.domain.taxonomy import TaxonomyRegistry, get_default_registry
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm import InstrumentedLLMProvider
 from packages.llm.budget import BudgetedLLMProvider, CallKind
@@ -31,8 +33,36 @@ def test_default_lanes_are_the_configured_declared_queues() -> None:
     settings = AppSettings()
     lanes = resolve_lane_queues(settings)
     assert lanes
-    assert set(lanes) <= set(settings.routing.configured_consumers)
+    consumers = resolve_configured_consumers(settings.routing)
+    assert all(is_queue_consumed(q, consumers) for q in lanes)
     assert "email.support.normal" in lanes and "email.support.priority" in lanes
+
+
+def test_default_lanes_cover_every_category_of_the_taxonomy() -> None:
+    """Amendment G.2: no declared lane is left without a consumer."""
+    settings = AppSettings()
+    lanes = set(resolve_lane_queues(settings))
+    declared = {
+        f"email.{category}.{lane}"
+        for category in get_default_registry().all_categories()
+        for lane in settings.routing.priority_lanes
+    }
+    assert lanes == declared
+    assert "email.administration.priority" in lanes
+
+
+def test_a_category_added_by_configuration_gets_a_consumer_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = TaxonomyRegistry()
+    registry.register_from_dict({"category": "g2_added_category"})
+    monkeypatch.setattr("services.ai_worker.main.get_default_registry", lambda: registry)
+    settings = AppSettings(routing=CategoryRoutingSettings(categories_config_path=""))
+
+    lanes = resolve_lane_queues(settings)
+
+    assert "email.g2_added_category.normal" in lanes
+    assert "email.g2_added_category.priority" in lanes
 
 
 def test_lane_resolution_expands_globs_against_declared_queues() -> None:

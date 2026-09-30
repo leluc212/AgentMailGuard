@@ -22,6 +22,7 @@ from packages.broker.routing import (
     is_queue_consumed,
     load_categories_from_yaml,
     prepare_route_envelope,
+    resolve_configured_consumers,
     resolve_priority_lane,
 )
 from packages.core.settings import CategoryRoutingSettings, WorkerConcurrencySettings
@@ -315,10 +316,132 @@ class TestConsumerScalingConfiguration:
         assert concurrency.ai_worker_priority_prefetch == 5
 
     def test_category_routing_settings_defaults(self) -> None:
-        """CategoryRoutingSettings defines default priority lanes and configured consumers."""
+        """CategoryRoutingSettings defines default priority lanes; consumers derive (G.2)."""
         routing_cfg = CategoryRoutingSettings()
         assert routing_cfg.priority_lanes == ["normal", "priority"]
-        assert len(routing_cfg.configured_consumers) > 0
-        assert "email.support.normal" in routing_cfg.configured_consumers
-        assert "email.support.priority" in routing_cfg.configured_consumers
-        assert "email.billing.priority" in routing_cfg.configured_consumers
+        # Unset means "derive from the category taxonomy" (resolve_configured_consumers).
+        assert routing_cfg.configured_consumers is None
+        consumers = resolve_configured_consumers(routing_cfg)
+        assert len(consumers) > 0
+        assert "email.support.normal" in consumers
+        assert "email.support.priority" in consumers
+        assert "email.billing.priority" in consumers
+
+
+class TestConfiguredConsumersDefault:
+    """The default consumer set is derived from the category taxonomy (v2 Amendment 1, G.2, R7.6).
+
+    A hand-written default list left a lane without a consumer whenever the taxonomy grew or a
+    lane was missing from the list (an old .env.example had no email.administration.priority), and
+    a job routed there stayed QUEUED. The default is now every registered category on every lane.
+    """
+
+    def test_every_category_of_the_taxonomy_is_consumed_on_every_lane(self) -> None:
+        registry = TaxonomyRegistry()
+        routing = CategoryRoutingSettings()
+
+        consumers = resolve_configured_consumers(routing, registry)
+
+        for category in registry.all_categories():
+            for lane in routing.priority_lanes:
+                assert is_queue_consumed(f"email.{category}.{lane}", consumers), (category, lane)
+        assert len(registry.all_categories()) >= 9
+
+    def test_a_category_that_can_reach_a_lane_but_is_not_reply_by_default_is_consumed(self) -> None:
+        """A rule or the LLM can set reply_required on any category, so none is left out."""
+        consumers = resolve_configured_consumers(CategoryRoutingSettings(), TaxonomyRegistry())
+
+        assert is_queue_consumed("email.no_response.normal", consumers)
+        assert is_queue_consumed("email.automated_notification.priority", consumers)
+
+    def test_a_category_added_by_configuration_is_consumed_without_touching_settings(
+        self,
+    ) -> None:
+        registry = TaxonomyRegistry()
+        registry.register_from_dict({"category": "legal_hold"})
+
+        consumers = resolve_configured_consumers(CategoryRoutingSettings(), registry)
+
+        assert is_queue_consumed("email.legal_hold.normal", consumers)
+        assert is_queue_consumed("email.legal_hold.priority", consumers)
+
+    def test_custom_lanes_are_derived_too(self) -> None:
+        routing = CategoryRoutingSettings(priority_lanes=["normal", "priority", "bulk"])
+
+        consumers = resolve_configured_consumers(routing, TaxonomyRegistry())
+
+        assert is_queue_consumed("email.support.bulk", consumers)
+
+    def test_an_empty_lane_list_falls_back_to_the_canonical_lanes(self) -> None:
+        consumers = resolve_configured_consumers(
+            CategoryRoutingSettings(priority_lanes=[]), TaxonomyRegistry()
+        )
+
+        assert is_queue_consumed("email.billing.priority", consumers)
+
+    def test_an_explicit_setting_is_used_as_it_is(self) -> None:
+        routing = CategoryRoutingSettings(configured_consumers=["email.support.*"])
+
+        consumers = resolve_configured_consumers(routing, TaxonomyRegistry())
+
+        assert consumers == ["email.support.*"]
+        assert not is_queue_consumed("email.billing.normal", consumers)
+
+    def test_an_explicit_empty_list_means_no_consumers(self) -> None:
+        routing = CategoryRoutingSettings(configured_consumers=[])
+
+        assert resolve_configured_consumers(routing, TaxonomyRegistry()) == []
+
+    def test_the_setting_is_read_from_the_environment_as_a_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from packages.core.settings import AppSettings
+
+        monkeypatch.setenv("ROUTING__CONFIGURED_CONSUMERS", '["email.sales.*"]')
+
+        assert AppSettings().routing.configured_consumers == ["email.sales.*"]
+
+
+class _Declared:
+    """Stands in for an aio-pika exchange or queue: anything can be bound to it."""
+
+    async def bind(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+class _Channel:
+    """An aio-pika channel that accepts every declare (the topology needs no broker to run)."""
+
+    async def declare_exchange(self, *args: object, **kwargs: object) -> _Declared:
+        return _Declared()
+
+    async def declare_queue(self, *args: object, **kwargs: object) -> _Declared:
+        return _Declared()
+
+
+class TestTopologyUnconsumedWarning:
+    """R7.6 uses the derived default: with nothing configured no declared lane is unconsumed."""
+
+    async def test_default_consumers_leave_no_declared_queue_unconsumed(self) -> None:
+        from packages.broker.topology import setup_topology
+
+        topo = await setup_topology(
+            _Channel(),  # type: ignore[arg-type]
+            routing_settings=CategoryRoutingSettings(categories_config_path=""),
+        )
+
+        assert topo.category_queues
+        assert topo.unconsumed_queues == []
+
+    async def test_an_explicit_partial_list_still_warns_about_the_rest(self) -> None:
+        from packages.broker.topology import setup_topology
+
+        topo = await setup_topology(
+            _Channel(),  # type: ignore[arg-type]
+            routing_settings=CategoryRoutingSettings(
+                categories_config_path="", configured_consumers=["email.support.*"]
+            ),
+        )
+
+        assert "email.billing.normal" in topo.unconsumed_queues
+        assert "email.support.normal" not in topo.unconsumed_queues
