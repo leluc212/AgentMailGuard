@@ -864,7 +864,7 @@ def run_package(ctx: KitContext, run: str, out: Path | None = None) -> int:
     ctx.out("Send the zip to the owner. To commit the tracked outputs to a branch, as our runs do:")
     ctx.out(f"  git switch -c bench/{run}")
     ctx.out(f"  git add {' '.join(tracked)}")
-    ctx.out(f'  git commit -m "docs(eval): benchmark results, run {run} [task 7.23] [R22.12]"')
+    ctx.out(f'  git commit -m "docs(eval): benchmark results, run {run} [task 7.20] [R22.12]"')
     ctx.out(f"  git push -u origin bench/{run}")
     ctx.out("(raw/ holds the full attack emails and drafts; it stays out of git, in the zip only)")
     return 0

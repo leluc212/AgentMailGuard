@@ -327,6 +327,8 @@ def test_the_package_prints_how_to_commit_the_tracked_outputs_to_a_bench_branch(
         assert f"{base}/{tracked}" in add
     assert f"{base}/raw" not in add  # raw/ holds the full attack emails: zip only
     assert "metrics.csv" not in add  # it does not exist in this run
+    commit = next(line for line in bench.out if "git commit" in line)
+    assert "[task 7.20]" in commit  # results belong to the v2 benchmark task, not the kit's
 
 
 def test_package_of_a_missing_run_fails(bench: Bench) -> None:
