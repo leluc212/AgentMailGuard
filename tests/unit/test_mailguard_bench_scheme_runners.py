@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -185,6 +186,69 @@ def test_the_in_process_runner_refuses_a_folder_of_the_other_scheme_before_anyth
         asyncio.run(
             runner.run(runner.parse_args(["--config", "C3", "--run", "r1", "--scheme", "v1"]))
         )
+
+
+class _GuardBuiltError(Exception):
+    """Raised by the stand-in ``build_guard`` once it has recorded its call."""
+
+
+def _run_runner_to_build_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *argv: str
+) -> dict[str, Any]:
+    """Run ``runner.run`` up to its ``build_guard`` call and return that call's keywords."""
+    from evaluation.mailguard_bench.guard_env import GuardPaths
+
+    calls: list[dict[str, Any]] = []
+
+    def stand_in(preset: str, **kwargs: Any) -> Any:
+        calls.append({"preset": preset, **kwargs})
+        raise _GuardBuiltError
+
+    paths = GuardPaths(root=tmp_path, commit="c" * 40, artifacts=tmp_path)
+    monkeypatch.setattr(runner, "RESULTS_ROOT", tmp_path / "results")
+    monkeypatch.setattr(runner, "apply_model_profile", lambda *_a, **_k: {})
+    monkeypatch.setattr(runner, "guard_paths_from_env", lambda *_a, **_k: paths)
+    monkeypatch.setattr(runner, "guard_provider_env", lambda *_a, **_k: {})  # no key, no os.environ
+    monkeypatch.setattr(runner, "require_pinned_worktree", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner, "require_module_origins", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner, "load_case_set", lambda *_a, **_k: _case_set("s" * 64))
+    case = type("_Case", (), {"from_dict": staticmethod(lambda raw: SimpleNamespace(**raw))})
+    monkeypatch.setattr(runner, "EvalCase", case)
+    monkeypatch.setattr(runner, "build_guard", stand_in)
+    args = runner.parse_args(["--run", "r1", *argv])
+    with pytest.raises(_GuardBuiltError):
+        asyncio.run(runner.run(args))
+    (call,) = calls
+    return call
+
+
+def test_the_in_process_runner_builds_a_v2_guard_with_its_configs_ai_stages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    expected = {
+        "C1": (False, False),
+        "C2": (False, False),
+        "C3": (False, False),
+        "C4": (True, False),
+        "C5": (False, True),
+        "C6": (False, False),
+        "C7": (True, True),
+    }
+    for config, stages in expected.items():
+        call = _run_runner_to_build_guard(monkeypatch, tmp_path, "--config", config)
+        assert call["scheme"] == "v2" and call["preset"] == config
+        assert (call["l3b_llm"], call["l4_llm"]) == stages, config
+
+
+def test_the_in_process_runner_keeps_the_v1_llm_stages_off(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for config in ("C0T", "C1", "C2", "C3", "C3-L1"):
+        call = _run_runner_to_build_guard(
+            monkeypatch, tmp_path, "--config", config, "--scheme", "v1"
+        )
+        assert call["scheme"] == "v1"
+        assert (call["l3b_llm"], call["l4_llm"]) == (False, False), config
 
 
 # --- the live runner -----------------------------------------------------------------------
