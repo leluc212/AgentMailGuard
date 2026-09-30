@@ -18,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field
 
 from packages.domain.entities import ContextPackage
+from packages.llm import reply_format
 from packages.llm.protocol import ModelTier
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,11 @@ class AgentProfileRegistry:
             autoescape=select_autoescape(["html", "xml"]),
             trim_blocks=True,
             lstrip_blocks=True,
+        )
+        # The reply-format rules the templates end with come from one source shared with the
+        # guarded prompt (packages/llm/reply_format.py). Looked up per call, never copied.
+        self._jinja_env.globals["reply_format_rules"] = lambda start=1: (
+            reply_format.render_reply_format_rules(start)
         )
 
         if profiles:
