@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from evaluation.mailguard_bench.scheme import SCHEME_V2, SchemeMixError, folder_scheme
 from evaluation.mailguard_bench.scoring import RawRecord, read_raw
 
 # The keys of the v1 guard's ``heuristic_entities`` (extractor.py): all a prose answer leaves.
@@ -189,6 +190,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--config", default="C3")
     args = parser.parse_args(argv)
+    try:
+        run_scheme = folder_scheme(args.run_dir)
+    except SchemeMixError as exc:
+        print(f"FAIL {exc}", file=sys.stderr)
+        return 1
+    if run_scheme == SCHEME_V2:
+        print(
+            f"FAIL {args.run_dir} is a scheme v2 run: this recount is for the v1 guard, which "
+            "cannot mark a failed L2 answer, and its default C3 has no L2 in v2. The v2 guard "
+            "records its fallbacks and `make mailguard-report` counts them exactly",
+            file=sys.stderr,
+        )
+        return 1
     path = args.run_dir / "raw" / f"{args.config}.jsonl"
     try:
         records = read_raw(path)

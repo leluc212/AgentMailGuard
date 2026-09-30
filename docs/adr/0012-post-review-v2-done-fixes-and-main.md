@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
-- **Decided by:** project owner (decision round, 2026-09-30 22:25)
+- **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10)
 - **Relates to:** ADR-0010 (its clause "the branches are not merged, and nothing goes to `main`" is
   superseded when decision 6 is carried out), ADR-0011, `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`,
   `STATUS-desktop.md` footnote 4, tasks 7.20, 7.21, 7.22
@@ -68,10 +68,34 @@ a first commit.
    except the mail providers' fetch and send: the benchmark's cases (Microsoft's LLMail-Inject emails and
    the poisoned-document cases) enter right after the mailbox-fetch step, as ADR-0011 designs, and nothing
    is sent. A live Gmail or Outlook round trip is not part of v2.
+11. **The v2 benchmark's config scheme** (owner, 2026-09-30 23:10). The main run, which the teammate runs
+   on Friday 2026-10-02, uses new meanings for the config names, every config on all 550 pinned cases per
+   model: C0 no guard (rag-email's own prompt); C0T the guard's prompt template, no layer; C1 L1 + L5;
+   C2 L2 + L5; C3 L3 + L5; C4 L3b + L5; C5 L4 + L5; C6 L5 alone (a control: with no detector it should
+   behave like C0T); C7 every layer. The target is judged on C7's guard ASR (ADR-0011), with the pipeline
+   ASR next to it. The published v1 runs use the same names with other meanings (v1 C1 = L1+L5, C2 =
+   L1+L2+L3+L5, C3 = every layer, and the remove-one ablation C3-L1..C3-L5), so the meanings are kept
+   apart by a **config scheme**:
+   - every run records `scheme` (`"v1"` or `"v2"`) in its meta and its settings fingerprint; new runs
+     are v2; a run folder never mixes the two (a runner, guard-worker or report that finds the other
+     scheme in a folder refuses); a meta without a `scheme` key was written before the schemes and is
+     v1, and a v1 folder keeps its presets, its case selection, its C3-L1..C3-L5 ablation and its
+     report byte for byte, reproduced at its own guard pin `81df5d07`;
+   - each v2 config is built from **explicit layer flags** in rag-email's evaluation code
+     (`evaluation/mailguard_bench/scheme.py`), not from a preset of the guard, and the guard at
+     `1a3ef62` is not changed; the live AI stages per config are C1 the L1 judge, C2 L2's AI step, C4
+     L3b's AI stage, C5 L4's AI stage, C7 all four, and none for C0, C0T, C3 and C6;
+   - the in-process runner, the live runner and the guard-worker all build the configs from the same
+     flags, and the report reads a v2 run as one experiment: per-layer paired tests against C0T, C7
+     against C0, and a control check of C6 against C0T;
+   - the design, hypotheses, utility rules and what is reported are pre-registered in Amendment 2 of
+     `docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md`, written before any v2 run.
 
 ## Consequences
 
 - v2 results will be produced by a different guard commit than v1; every report records both commits,
-  and v1 and v2 numbers are never mixed.
+  and v1 and v2 numbers are never mixed. Decision 11 adds the second guard against mixing: the same
+  name (C1, C2, C3) means different things in the two schemes, so a run carries its scheme and a
+  folder holds one.
 - The v2 design gains an explicit definition of done, and task 7.20's status is rewritten against it.
 - Until decision 6 is carried out, AgentMailGuard stays a git worktree of its own branch.

@@ -28,7 +28,7 @@ help:
 	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
 	@echo "  mailguard-test - Guard-side unit tests under the AgentMailGuard overlay (fake models, no network)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
-	@echo "  mailguard-bench RUN=... CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 - Benchmark on the real rag-email path: C0 native rag-email, C3 all guard layers (required); C0T/C1/C2 optional; C3-L<n> = C3 minus one layer (layer ablation, task 7.22). Owner-run, live Gemini (task 7.19; not CI)"
+	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|...|C7 [SCHEME=v2|v1] - Benchmark on the real rag-email path. Scheme v2 (default): C0 no guard, C0T guard template with no layer, C1 L1+L5, C2 L2+L5, C3 L3+L5, C4 L3b+L5, C5 L4+L5, C6 L5 alone, C7 every layer. SCHEME=v1 reproduces the published runs: C0, C0T, C1, C2, C3 (every layer), C3-L1..C3-L5 (C3 minus one layer). Owner-run, live model (task 7.19, 7.20; not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
@@ -169,11 +169,17 @@ MAILGUARD_LLM_TIMEOUT_S ?= 60
 # to every recipe, and AppSettings would read CONCURRENCY as its `concurrency` settings group.
 unexport CONCURRENCY
 
+# The config names have two meanings (ADR-0012 decision 11): SCHEME=v2 (the default, for new runs)
+# C0..C7, SCHEME=v1 the published C0/C0T/C1/C2/C3 and the C3-L1..C3-L5 ablation. SCHEME reaches the
+# runner as --scheme only, like CONCURRENCY.
+SCHEME ?= v2
+unexport SCHEME
+
 mailguard-bench:
-	@case "$(CONFIG)" in C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 [MODEL=gpt-4o-mini|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]"; exit 2;; esac
+	@case "$(SCHEME)/$(CONFIG)" in v2/C0|v2/C0T|v2/C1|v2/C2|v2/C3|v2/C4|v2/C5|v2/C6|v2/C7|v1/C0|v1/C3|v1/C0T|v1/C1|v1/C2|v1/C3-L1|v1/C3-L2|v1/C3-L3|v1/C3-L3B|v1/C3-L4|v1/C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [SCHEME=v2] [MODEL=gpt-4o-mini|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]; or, to reproduce the published runs, SCHEME=v1 CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5"; exit 2;; esac
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
-		--config $(CONFIG) --run $(RUN) --retry-errors \
+		--config $(CONFIG) --scheme $(SCHEME) --run $(RUN) --retry-errors \
 		--llm-timeout-s $(MAILGUARD_LLM_TIMEOUT_S) \
 		$(if $(LIMIT),--limit $(LIMIT)) \
 		$(if $(MODEL),--model-profile $(MODEL)) \
@@ -197,5 +203,10 @@ mailguard-report:
 mailguard-analyses:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
-	$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
-	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+	@scheme=$$($(MAILGUARD_PY) -m evaluation.mailguard_bench.scheme --run-dir $(MAILGUARD_RUN_DIR)) || exit 1; \
+	if [ "$$scheme" = v2 ]; then \
+		echo "NOTE scheme v2: the no-API analyses read C3 as the full guard (C7 in v2), so they are v1-only until task 7.23; the report above is all a v2 run has"; \
+	else \
+		$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR) && \
+		$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR); \
+	fi

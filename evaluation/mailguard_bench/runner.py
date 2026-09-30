@@ -1,7 +1,13 @@
 """AgentMailGuard benchmark runner hosted by rag-email (task 7.19; spec §4, §4b, §5; ADR-0010).
 
-    make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 [LIMIT=n]
-    make mailguard-bench RUN=<id> CONFIG=C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [LIMIT=n]      (scheme v2)
+    make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 SCHEME=v1 [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 SCHEME=v1 [LIMIT=n]
+
+A run has a config scheme (``scheme.py``, ADR-0012 decision 11), recorded in every meta and its
+settings fingerprint. New runs are v2 (C0 native, C0T the guard template with no layer, C1 to C6
+one layer each with L5, C7 every layer); the descriptions below are scheme v1, the published one,
+which stays reproducible with ``--scheme v1`` and keeps its case selection and reports exactly.
 
 Owner-run live evaluation (real Gemini calls). It is never part of ``make ci`` (R24.5).
 For each case it opens a throwaway organization, ingests the case KB and builds the real
@@ -59,6 +65,7 @@ from evaluation.mailguard_bench.guard_build import (
     GuardBuild,
     build_guard,
     git_head,
+    live_guard_llm_stages,
 )
 from evaluation.mailguard_bench.guard_env import (
     DEFAULT_GUARD_MODEL,
@@ -81,6 +88,15 @@ from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
+from evaluation.mailguard_bench.scheme import (
+    DEFAULT_SCHEME,
+    SCHEME_KEY,
+    SCHEME_V1,
+    SCHEME_V2,
+    SCHEMES,
+    require_config,
+    require_folder_scheme,
+)
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.db.connection import create_pool_from_settings
 from packages.knowledge.embedder import get_embedder
@@ -290,7 +306,7 @@ RESULTS_ROOT = REPO_ROOT / "evaluation" / "results" / "mailguard_bench"
 # C0 = native rag-email; C0T/C1/C2/C3 = AgentMailGuard (guard_build.GUARDED_CONFIGS)
 BENCH_CONFIGS = (NATIVE_CONFIG, *BENCH_PRESETS)
 # Every config the CLI runs: the v1 configs plus the layer ablation (C3 minus one layer).
-RUNNABLE_CONFIGS = (*BENCH_CONFIGS, *ABLATION_CONFIGS)
+RUNNABLE_CONFIGS = (*BENCH_CONFIGS, *ABLATION_CONFIGS)  # scheme v1; scheme.configs_for has both
 FULL_RUN_SETS = ("llmail_attack", "llmail_benign", "rag_attack")
 ABLATION_SETS = ("ablation_attack", "llmail_benign")  # spec §4b D2: C1/C2 subset + same benign
 RUN_CASES_SCHEMA = "mailguard-bench-run-cases/v1"
@@ -364,13 +380,27 @@ class HostCaseExecutor:
         }
 
 
-def config_case_ids(manifest: Mapping[str, Any], config_name: str) -> list[str]:
-    """Case ids one config runs: C0/C0T/C3 and C3-L* every pinned case, C1/C2 the subset."""
+def case_set_names(config_name: str, scheme: str = SCHEME_V1) -> tuple[str, ...]:
+    """The pinned case sets one config runs: v1 C1 and C2 the ablation subset, everything else all.
+
+    Scheme v2 runs every config on every pinned case (550), so the configs pair on the same ids.
+    """
+    reduced = scheme == SCHEME_V1 and config_name in ("C1", "C2")
+    return ABLATION_SETS if reduced else FULL_RUN_SETS
+
+
+def config_case_ids(
+    manifest: Mapping[str, Any], config_name: str, scheme: str = SCHEME_V1
+) -> list[str]:
+    """Case ids one config runs.
+
+    Scheme v1: C0/C0T/C3 and C3-L* every pinned case, C1/C2 the subset. Scheme v2: every config
+    every pinned case.
+    """
     sets: Mapping[str, list[str]] = manifest["sets"]
-    names = ABLATION_SETS if config_name in ("C1", "C2") else FULL_RUN_SETS
     seen: set[str] = set()
     ids: list[str] = []
-    for name in names:
+    for name in case_set_names(config_name, scheme):
         for case_id in sets[name]:
             if case_id not in seen:
                 seen.add(case_id)
@@ -433,6 +463,7 @@ RUN_META_SCHEMA = "mailguard-bench-run.v2"
 # and what Task 5 compares across C0/C3/C1/C2 (spec Q6: "same model, same settings").
 FINGERPRINT_KEYS = (
     "preset",
+    "scheme",
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",
@@ -508,8 +539,9 @@ def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[s
         raise RunSettingsMismatchError(
             f"{meta_file} has no settings fingerprint (written by an older runner); use a new RUN"
         )
+    recorded = {SCHEME_KEY: SCHEME_V1, **old}  # a meta written before the schemes existed is v1
     changed = sorted(
-        key for key in set(old) | set(fingerprint) if old.get(key) != fingerprint.get(key)
+        key for key in set(recorded) | set(fingerprint) if recorded.get(key) != fingerprint.get(key)
     )
     if changed:
         raise RunSettingsMismatchError(
@@ -552,7 +584,16 @@ def generation_meta(llm: LLMTiersSettings) -> dict[str, Any]:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-    parser.add_argument("--config", required=True, choices=RUNNABLE_CONFIGS)
+    parser.add_argument(
+        "--config", required=True, help="a config of the scheme (scheme.configs_for)"
+    )
+    parser.add_argument(
+        "--scheme",
+        choices=SCHEMES,
+        default=DEFAULT_SCHEME,
+        help="what the config names mean (ADR-0012 decision 11); new runs are v2, the published "
+        "runs v1. A run folder never mixes the two",
+    )
     parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
     parser.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIR)
     parser.add_argument("--limit", type=int, default=None, help="first N selected cases (smoke)")
@@ -572,7 +613,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="run even when a guard stage the preset needs is not live (the report refuses it)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        require_config(args.scheme, args.config)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def apply_model_profile(args: argparse.Namespace, environ: Mapping[str, str]) -> dict[str, str]:
@@ -581,7 +627,56 @@ def apply_model_profile(args: argparse.Namespace, environ: Mapping[str, str]) ->
     return updates
 
 
+def build_run_meta(
+    *,
+    args: argparse.Namespace,
+    cases_sha256: str,
+    llm: LLMTiersSettings,
+    settings: AppSettings,
+    guard_facts: Mapping[str, Any],
+    missing: Sequence[str],
+    rag_email_commit: str | None,
+) -> dict[str, Any]:
+    """The run meta of one invocation of the in-process runner, with its settings fingerprint."""
+    meta: dict[str, Any] = {
+        "schema": RUN_META_SCHEMA,
+        "run_id": args.run,
+        "config": args.config,
+        SCHEME_KEY: args.scheme,  # what the config names mean; a folder never mixes the schemes
+        "preset": args.config,
+        "guard_preset": guard_facts["preset"],  # AgentMailGuard preset; None for native C0
+        "case_dir": str(args.case_dir),
+        "cases_sha256": cases_sha256,
+        "case_sets": list(case_set_names(args.config, args.scheme)),
+        "rag_email_commit": rag_email_commit,
+        "mailguard_commit": guard_facts["mailguard_commit"],
+        # every config of a run records it, C0 too (it runs no guard prompt): the configs of one
+        # run share the harness that built them, and a guarded.v1 row never meets a v2 one
+        "guarded_prompt_version": GUARDED_PROMPT_VERSION,
+        **generation_meta(llm),
+        **scoring_meta(llm.price_table),  # ADR-0012 2(d), 2(e): the report reads them back
+        "guard_models": None if args.config == NATIVE_CONFIG else args.guard_model,
+        "live_layers": guard_facts["live_layers"],
+        "l1_model_sha256": guard_facts["l1_model_sha256"],
+        "embedding_mock": settings.embedding.mock,
+        "embedding": {"mock": settings.embedding.mock, "model": settings.embedding.model_name},
+        "retrieval": {
+            "top_k": settings.retrieval.top_k,
+            "top_n": settings.retrieval.top_n,
+            "timeout_ms": settings.retrieval.retrieval_timeout_ms,
+        },
+        "database": settings.database.name,
+        "guard": dict(guard_facts),
+        "degraded_allowed": bool(missing),
+    }
+    meta["fingerprint"] = settings_fingerprint(meta)
+    return meta
+
+
 async def run(args: argparse.Namespace) -> int:
+    run_dir = RESULTS_ROOT / args.run
+    # Before any setting is read or file written: a folder holds one config scheme.
+    require_folder_scheme(run_dir, args.scheme)
     os.environ.update(apply_model_profile(args, with_dot_env(os.environ)))  # before AppSettings
     paths = guard_paths_from_env(os.environ)
     require_pinned_worktree(paths.root, paths.commit)
@@ -596,20 +691,29 @@ async def run(args: argparse.Namespace) -> int:
     loaded = load_case_set(args.case_dir)
     cases = filter_cases(
         [EvalCase.from_dict(case) for case in loaded.cases.values()],
-        case_ids=config_case_ids(loaded.manifest, args.config),
+        case_ids=config_case_ids(loaded.manifest, args.config, args.scheme),
         limit=args.limit,
     )
-    run_dir = RESULTS_ROOT / args.run
     guard: GuardBuild | None = None
     missing: list[str] = []
     if args.config == NATIVE_CONFIG:
         guard_facts = native_guard_facts(paths)
     else:
+        # v1 keeps L3b's and L4's LLM stages off in-process (task 7.19); a v2 config runs the AI
+        # stage of each layer it lists, in this runner as in the live one.
+        l3b_llm, l4_llm = (
+            live_guard_llm_stages(args.config, SCHEME_V2)
+            if args.scheme == SCHEME_V2
+            else (False, False)
+        )
         guard = build_guard(
             args.config,
             model_name=args.guard_model,
             audit_log_path=run_dir / "raw" / f"audit__{args.config}.jsonl",
             l1_model_path=paths.l1_model,
+            l3b_llm=l3b_llm,
+            l4_llm=l4_llm,
+            scheme=args.scheme,
         )
         missing = guard.missing_live_stages()
         guard_facts = guard.describe()
@@ -621,37 +725,15 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    meta: dict[str, Any] = {
-        "schema": RUN_META_SCHEMA,
-        "run_id": args.run,
-        "config": args.config,
-        "preset": args.config,
-        "guard_preset": guard_facts["preset"],  # AgentMailGuard preset; None for native C0
-        "case_dir": str(args.case_dir),
-        "cases_sha256": loaded.manifest["cases_sha256"],
-        "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
-        "rag_email_commit": git_head(REPO_ROOT),
-        "mailguard_commit": guard_facts["mailguard_commit"],
-        # every config of a run records it, C0 too (it runs no guard prompt): the configs of one
-        # run share the harness that built them, and a guarded.v1 row never meets a v2 one
-        "guarded_prompt_version": GUARDED_PROMPT_VERSION,
-        **generation_meta(llm),
-        **scoring_meta(llm.price_table),  # ADR-0012 2(d), 2(e): the report reads them back
-        "guard_models": None if guard is None else args.guard_model,
-        "live_layers": guard_facts["live_layers"],
-        "l1_model_sha256": guard_facts["l1_model_sha256"],
-        "embedding_mock": settings.embedding.mock,
-        "embedding": {"mock": settings.embedding.mock, "model": settings.embedding.model_name},
-        "retrieval": {
-            "top_k": settings.retrieval.top_k,
-            "top_n": settings.retrieval.top_n,
-            "timeout_ms": settings.retrieval.retrieval_timeout_ms,
-        },
-        "database": settings.database.name,
-        "guard": guard_facts,
-        "degraded_allowed": bool(missing),
-    }
-    meta["fingerprint"] = settings_fingerprint(meta)
+    meta = build_run_meta(
+        args=args,
+        cases_sha256=loaded.manifest["cases_sha256"],
+        llm=llm,
+        settings=settings,
+        guard_facts=guard_facts,
+        missing=missing,
+        rag_email_commit=git_head(REPO_ROOT),
+    )
     meta_file = meta_path(run_dir, args.config)
     invocations = check_resume(meta_file, meta["fingerprint"])  # before any write or call
     meta = keep_recorded_scoring_meta(meta, meta_file)  # a resume keeps its first prices and rule
