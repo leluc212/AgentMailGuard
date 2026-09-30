@@ -25,7 +25,10 @@ Audit line, one JSON object per job, flat: ``message_id``, ``organization_id``, 
 persisted draft's body and action, as the scorer's flat record names them), ``decision_action``
 (the L5 decision's action, which v1 called ``final_action``), ``escalation_reason``,
 ``retrieval_query`` (the query L3b's echo check compared the chunks with), ``retrieved`` (the
-context's chunks, as the ``context_built`` event lists them) and ``guard_errors``. A job that is
+context's chunks, as the ``context_built`` event lists them), ``guard_errors`` (layer crashes; they
+make the row an error row) and, when the guard marks its failed AI steps, ``guard_fallbacks`` (one
+``{layer, reason, error}`` per AI step that fell back to its cheap result; the row is scored
+normally) and ``l2_llm_schema_fallback`` (L2's model answer carried no schema). A job that is
 retried appends a line per attempt; the last line of a message wins.
 """
 
