@@ -742,13 +742,13 @@ def test_the_command_names_application_services_only() -> None:
     }
 
 
-def test_settings_the_image_or_the_settings_default_own_are_forwarded_only_when_set() -> None:
-    # A blank forward would override the image's RETRIEVAL__RERANK_MODEL_DIR (a compose
-    # `environment` entry beats the image ENV). A value-less key is dropped by Compose when
-    # nothing resolves it (Compose spec, `environment`).
+def test_the_image_owns_the_reranker_model_dir_and_compose_never_forwards_it() -> None:
+    # A value-less key that nothing resolves reaches Docker as a bare name, and a bare name unsets
+    # the variable in the container, the image's ENV included. Seen live on 2026-09-30: the
+    # ai-worker lost the image's RETRIEVAL__RERANK_MODEL_DIR and read the Hugging Face cache
+    # instead of the model baked into the image. So the image alone sets it.
     environment = _compose()["x-app-env"]
-    assert "RETRIEVAL__RERANK_MODEL_DIR" in environment
-    assert environment["RETRIEVAL__RERANK_MODEL_DIR"] is None
+    assert "RETRIEVAL__RERANK_MODEL_DIR" not in environment
 
 
 def test_env_example_never_sets_an_optional_setting_to_blank() -> None:

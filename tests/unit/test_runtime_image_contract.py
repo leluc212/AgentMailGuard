@@ -132,6 +132,41 @@ def test_image_bakes_the_bpe_encoding() -> None:
     assert text.index(fetch) > text.index("RUN uv sync --locked --no-dev\n")
 
 
+def _image_env_names() -> set[str]:
+    """The variables the Dockerfile sets with ENV (the ``A=b`` form and the ``A b`` form)."""
+    names: set[str] = set()
+    joined = DOCKERFILE.read_text(encoding="utf-8").replace("\\\n", " ")  # continuation lines
+    for raw in joined.splitlines():
+        line = raw.strip()
+        if not line.upper().startswith("ENV "):
+            continue
+        tokens = shlex.split(line[4:])
+        if "=" in tokens[0]:
+            names.update(token.split("=", 1)[0] for token in tokens if "=" in token)
+        else:
+            names.add(tokens[0])
+    return names
+
+
+def test_compose_never_forwards_a_bare_name_the_image_sets() -> None:
+    """A value-less Compose key reaches Docker as a bare name, and a bare name unsets the variable.
+
+    So a bare forward of a variable the Dockerfile sets with ENV erases the image's value whenever
+    nothing on the host sets it. The live bring-up of 2026-09-30 found RETRIEVAL__RERANK_MODEL_DIR
+    missing in the ai-worker: the reranker ignored the model baked into the image and fell back to
+    the Hugging Face cache, which downloads at runtime (R11.1).
+    """
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    image_env = _image_env_names()
+    assert "RETRIEVAL__RERANK_MODEL_DIR" in image_env  # the variable that bit us stays covered
+    for name, service in compose["services"].items():
+        if "build" not in service:
+            continue
+        env = service.get("environment") or {}
+        bare = {key for key, value in env.items() if value is None}
+        assert not bare & image_env, f"{name} erases the image's {sorted(bare & image_env)}"
+
+
 @pytest.mark.parametrize(
     "variable",
     [

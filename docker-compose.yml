@@ -43,17 +43,18 @@ x-app-env: &app-env
   # line would ask its endpoint for that model and fail every summary. Blank means unset: the
   # FAST tier model writes the summary (the settings default).
   SUMMARIZATION__SUMMARIZER_MODEL: ${BENCH_SUMMARIZER_MODEL:-}
-  # Optional settings of the live benchmark (task 7.20, demo-runbook section 9.9): forwarded only
-  # when the host .env, the stack env (.env.stack) or the shell sets them. Compose drops a
-  # value-less key that nothing resolves (Compose spec, `environment`), so the settings default or
-  # the image's own value applies. A blank forward would override both: the image sets
-  # RETRIEVAL__RERANK_MODEL_DIR (the reranker model is baked in at build time). Keep these out
-  # of .env as `NAME=`.
+  # Optional settings of the live benchmark (task 7.20, demo-runbook section 9.9): forwarded when
+  # the host .env, the stack env (.env.stack) or the shell sets them. A value-less key that nothing
+  # resolves reaches Docker as a bare name, which UNSETS the variable in the container, so the
+  # settings default applies. That is right for these keys only because the image sets none of
+  # them. Never add a key here that the Dockerfile sets with ENV: the bare name would erase the
+  # image's value (RETRIEVAL__RERANK_MODEL_DIR, where the reranker model is baked in at build
+  # time, is set by the image alone and deliberately not forwarded). Keep these out of .env as
+  # `NAME=`: a blank value overrides the settings default too.
   LLM__TIMEOUT_S:
   EMBEDDING__DIMENSION:
   RETRIEVAL__RERANK_ENABLED:
   RETRIEVAL__RERANK_MODEL:
-  RETRIEVAL__RERANK_MODEL_DIR:
   RETRIEVAL__RERANK_TIMEOUT_MS:
   # Business-data lookup deadline (also the Postgres statement_timeout) and snapshot sizes (R13.7).
   BUSINESS_DATA__TIMEOUT_MS: ${BUSINESS_DATA__TIMEOUT_MS:-500}
