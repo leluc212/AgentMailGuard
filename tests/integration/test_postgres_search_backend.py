@@ -319,3 +319,166 @@ async def test_multi_tenant_filtered_vector_and_underfill_mitigation(
     for c in candidates:
         assert "Target tenant" in c.content
         assert "Competitor" not in c.content
+
+
+# --- Amendment G.1: the lexical branch ORs the query's terms (mailguard-live-v2 design) ---
+
+LONG_EMAIL_TERMS = [
+    "billed",
+    "twice",
+    "enterprise",
+    "subscription",
+    "renewal",
+    "refund",
+    "arrived",
+    "admin",
+    "password",
+    "account",
+]
+
+
+async def _seed_one(
+    pool: asyncpg.Pool[Any],
+    org_id: str,
+    content: str,
+    *,
+    category: str | None = "billing",
+    status: str = "active",
+    embedding: list[float] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Seed one chunk in its own document, so each chunk keeps its own status and category."""
+    chunk_id = str(uuid4())
+    await _seed_postgres_chunk(
+        pool=pool,
+        chunk_id=chunk_id,
+        document_id=str(uuid4()),
+        organization_id=org_id,
+        content=content,
+        category=category,
+        document_status=status,
+        embedding=embedding,
+        metadata=metadata,
+    )
+    return chunk_id
+
+
+@pytest.mark.asyncio
+async def test_lexical_matches_a_chunk_that_holds_only_some_of_a_long_query(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    """A ~10-term email query used to AND every word and match nothing (G.1)."""
+    backend = PostgresSearchBackend(db_pool)
+    org_id = str(uuid4())
+    hit = await _seed_one(db_pool, org_id, "Refund policy: duplicate charges are refunded in days.")
+    await _seed_one(db_pool, org_id, "Office opening hours and holiday calendar.")
+
+    q = RetrievalQuery(
+        semantic_text="",
+        lexical_terms=LONG_EMAIL_TERMS,
+        filters={"organization_id": org_id, "category": "billing", "status": "active"},
+    )
+    found = await backend.lexical(q, top_n=10)
+
+    assert [c.chunk_id for c in found] == [hit]
+    assert found[0].lexical_rank == 1
+    assert found[0].lexical_score is not None and found[0].lexical_score > 0
+
+
+@pytest.mark.asyncio
+async def test_lexical_ranking_prefers_the_chunk_with_more_matching_terms(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    backend = PostgresSearchBackend(db_pool)
+    org_id = str(uuid4())
+    one = await _seed_one(db_pool, org_id, "Enterprise server maintenance guidelines.")
+    two = await _seed_one(db_pool, org_id, "Refund of the enterprise subscription after a renewal.")
+    three = await _seed_one(
+        db_pool, org_id, "Enterprise subscription renewal: how a duplicate charge is refunded."
+    )
+
+    q = RetrievalQuery(
+        semantic_text="",
+        lexical_terms=["enterprise", "subscription", "renewal", "refund", "unrelated"],
+        filters={"organization_id": org_id, "category": "billing", "status": "active"},
+    )
+    found = await backend.lexical(q, top_n=10)
+
+    assert [c.chunk_id for c in found] == [three, two, one]
+    assert [c.lexical_rank for c in found] == [1, 2, 3]
+    scores = [c.lexical_score or 0.0 for c in found]
+    assert scores == sorted(scores, reverse=True) and scores[0] > scores[-1]
+
+
+@pytest.mark.asyncio
+async def test_lexical_or_query_keeps_tenant_status_and_category_filters(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    """Three tenants with overlapping content (CLAUDE.md §8); filters stay inside the branch."""
+    backend = PostgresSearchBackend(db_pool)
+    target, other_a, other_b = str(uuid4()), str(uuid4()), str(uuid4())
+    text = "Enterprise subscription renewal refund policy."
+    mine = await _seed_one(db_pool, target, text)
+    await _seed_one(db_pool, target, text + " Archived copy.", status="archived")
+    await _seed_one(db_pool, target, text + " Sales copy.", category="sales")
+    await _seed_one(db_pool, other_a, text)
+    await _seed_one(db_pool, other_b, text)
+
+    q = RetrievalQuery(
+        semantic_text="",
+        lexical_terms=["enterprise", "subscription", "renewal", "refund", "unrelated", "extra"],
+        filters={"organization_id": target, "category": "billing", "status": "active"},
+    )
+    found = await backend.lexical(q, top_n=10)
+
+    assert [c.chunk_id for c in found] == [mine]
+
+
+@pytest.mark.asyncio
+async def test_lexical_identifier_is_matched_verbatim_among_other_terms(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    backend = PostgresSearchBackend(db_pool)
+    org_id = str(uuid4())
+    hit = await _seed_one(db_pool, org_id, "Invoice INV-2026-01829 was billed twice.")
+    await _seed_one(db_pool, org_id, "Invoice INV-2026-99999 was paid.")
+
+    q = RetrievalQuery(
+        semantic_text="",
+        identifiers=["INV-2026-01829"],
+        lexical_terms=["unrelated", "nothing"],
+        filters={"organization_id": org_id, "category": "billing", "status": "active"},
+    )
+    found = await backend.lexical(q, top_n=10)
+
+    assert found and found[0].chunk_id == hit
+
+
+@pytest.mark.asyncio
+async def test_hybrid_with_a_long_query_carries_a_lexical_rank(
+    db_pool: asyncpg.Pool[Any],
+) -> None:
+    """Hybrid was vector-only for long queries: the lexical branch matched nothing."""
+    backend = PostgresSearchBackend(db_pool)
+    org_id = str(uuid4())
+    lexical_hit = await _seed_one(
+        db_pool,
+        org_id,
+        "Refund policy: duplicate charges are refunded in days.",
+        embedding=[0.0, 1.0, 0.0],
+    )
+    vector_hit = await _seed_one(
+        db_pool, org_id, "Office opening hours.", embedding=[1.0, 0.0, 0.0]
+    )
+
+    q = RetrievalQuery(
+        semantic_text="billed twice refund",
+        lexical_terms=LONG_EMAIL_TERMS,
+        query_vector=[1.0, 0.0, 0.0],
+        filters={"organization_id": org_id, "category": "billing", "status": "active"},
+    )
+    found = {c.chunk_id: c for c in await backend.hybrid(q, top_n=10, k=60, fuse_limit=10)}
+
+    assert found[lexical_hit].lexical_rank == 1
+    assert found[vector_hit].vector_rank == 1
+    assert found[vector_hit].lexical_rank is None

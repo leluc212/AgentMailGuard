@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -216,6 +217,50 @@ DEFAULT_STOPWORDS: set[str] = {
     "please",
     "dear",
 }
+
+
+# One term is a run of letters and digits, optionally joined by "-", "_", "." or an apostrophe
+# ("INV-2026-01829", "v2.1", "don't"). Nothing else can reach the tsquery text, so the terms need
+# no escaping and a query that holds tsquery syntax ("&", "|", "!", "(", "'") stays plain words.
+_TSQUERY_TERM_RE = re.compile(r"[^\W_]+(?:['\u2019._-][^\W_]+)*")
+
+# A full email is ~20 words after keyword extraction, but the semantic fallback can be ~2000
+# characters: cap the OR so PostgreSQL ranks a bounded set of terms.
+DEFAULT_MAX_TSQUERY_TERMS = 64
+
+
+def build_or_tsquery(
+    text: str,
+    *,
+    stopwords: Collection[str] = DEFAULT_STOPWORDS,
+    max_terms: int = DEFAULT_MAX_TSQUERY_TERMS,
+) -> str:
+    """Build the OR of a query's terms as text for ``to_tsquery('english', ...)`` (G.1, R10.1).
+
+    ``websearch_to_tsquery`` ANDs every word, so a ~20-word email query matched almost no chunk
+    and hybrid retrieval was vector-only. Here every term is an alternative: a chunk matches when
+    it holds any of them, and ``ts_rank_cd`` ranks the chunks that hold more of them higher.
+
+    Terms are lowercased, stop words and one-character terms are dropped, duplicates are removed
+    in first-seen order and at most ``max_terms`` are kept. Each term is single-quoted so that
+    PostgreSQL tokenizes it as it tokenized the chunk (an identifier such as ``INV-2026-01829``
+    matches the chunk that holds it) and stems it. Returns ``""`` when nothing usable is left, and
+    the caller skips the lexical branch.
+    """
+    seen: set[str] = set()
+    terms: list[str] = []
+    for match in _TSQUERY_TERM_RE.finditer(text or ""):
+        raw = match.group(0).lower().replace("\u2019", "'")
+        if raw in stopwords:
+            continue
+        term = re.sub(r"'s$", "", raw).replace("'", "")
+        if len(term) < 2 or term in stopwords or term in seen:
+            continue
+        seen.add(term)
+        terms.append(f"'{term}'")
+        if len(terms) >= max_terms:
+            break
+    return " | ".join(terms)
 
 
 @dataclass

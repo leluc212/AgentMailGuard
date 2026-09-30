@@ -26,6 +26,7 @@ from packages.retrieval.models import RetrievalQuery
 from packages.retrieval.query_builder import (
     QueryBuilderConfig,
     RetrievalQueryBuilder,
+    build_or_tsquery,
 )
 from packages.retrieval.retriever import HybridRetriever
 
@@ -353,3 +354,66 @@ class TestIdentifierRetrievalSuperiority:
         assert top_chunk.fused_score is not None
         assert hybrid_result.candidates[1].fused_score is not None
         assert top_chunk.fused_score > hybrid_result.candidates[1].fused_score
+
+
+class TestLexicalOrTsquery:
+    """The full-text branch matches any query term and ranks by how many match (Amendment G.1).
+
+    ``websearch_to_tsquery`` ANDs every word, so a ~20-word email query matched no chunk and the
+    "hybrid" search was vector-only. ``build_or_tsquery`` builds the OR of the query's terms as
+    text for ``to_tsquery('english', ...)``; PostgreSQL stems the terms and drops its own stop
+    words, and ``ts_rank_cd`` ranks chunks that match more terms higher.
+    """
+
+    def test_terms_are_or_joined_and_quoted(self) -> None:
+        assert build_or_tsquery("reset password invoice") == "'reset' | 'password' | 'invoice'"
+
+    def test_stop_words_are_removed(self) -> None:
+        assert build_or_tsquery("how do I reset my password please") == "'reset' | 'password'"
+
+    def test_terms_are_lowercased_and_deduplicated_in_first_seen_order(self) -> None:
+        assert build_or_tsquery("Refund refund REFUND the Invoice") == "'refund' | 'invoice'"
+
+    def test_an_identifier_is_kept_whole(self) -> None:
+        # R12.3: identifiers reach the lexical branch verbatim; PostgreSQL tokenizes the term
+        # the way it tokenized the chunk, so a chunk that holds the identifier matches.
+        assert build_or_tsquery("INV-2026-01829 refund") == "'inv-2026-01829' | 'refund'"
+
+    def test_contractions_and_possessives(self) -> None:
+        assert build_or_tsquery("don't refund the customer's invoice") == (
+            "'refund' | 'customer' | 'invoice'"
+        )
+
+    def test_only_stop_words_gives_an_empty_string(self) -> None:
+        assert build_or_tsquery("the and of to") == ""
+        assert build_or_tsquery("   ") == ""
+        assert build_or_tsquery("") == ""
+
+    def test_tsquery_syntax_in_the_text_cannot_leak_into_the_query(self) -> None:
+        built = build_or_tsquery('foo\' | bar & (baz) !qux :* <-> \\ "quoted" a@b.com')
+
+        assert built == "'foo' | 'bar' | 'baz' | 'qux' | 'quoted' | 'b.com'"
+
+    def test_the_number_of_terms_is_capped(self) -> None:
+        text = " ".join(f"term{i}" for i in range(500))
+
+        built = build_or_tsquery(text, max_terms=10)
+
+        assert built.count("|") == 9
+        assert built.startswith("'term0' | 'term1'")
+
+    def test_custom_stop_words(self) -> None:
+        assert build_or_tsquery("alpha beta", stopwords={"alpha"}) == "'beta'"
+
+    def test_a_query_of_email_length_keeps_every_content_word(self) -> None:
+        body = (
+            "Hello, we were billed twice on our enterprise subscription renewal and the refund "
+            "has not arrived. Could you also reset the admin password for our account?"
+        )
+
+        built = build_or_tsquery(body)
+
+        for word in ("billed", "twice", "enterprise", "subscription", "renewal", "refund", "admin"):
+            assert f"'{word}'" in built
+        assert "'the'" not in built and "'you'" not in built
+        assert " & " not in built

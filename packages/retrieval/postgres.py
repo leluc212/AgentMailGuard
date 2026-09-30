@@ -2,6 +2,8 @@
 
 Requirements:
 - R10.1: Execute PostgreSQL FTS query and pgvector ANN query against chunk corpus.
+- R10.1 (Amendment G.1): the FTS branch ORs the query's terms (``build_or_tsquery``) and ranks by
+  ``ts_rank_cd``; ``websearch_to_tsquery`` ANDed every word, so long email queries matched nothing.
 - R10.2: Configurable top-N per branch, default 20.
 - R10.4: Apply metadata filters (organization_id, category, document status) inside both branches.
 - R10.7: SearchBackend interface abstraction.
@@ -22,6 +24,7 @@ from uuid import UUID
 import asyncpg
 
 from packages.retrieval.models import BranchCandidates, Candidate, RetrievalQuery
+from packages.retrieval.query_builder import build_or_tsquery
 
 if TYPE_CHECKING:
     from packages.observability.metrics import PipelineMetrics
@@ -147,7 +150,7 @@ class PostgresSearchBackend:
         except Exception:
             return []
 
-        lex_text = q.lexical_text.strip()
+        lex_text = build_or_tsquery(q.lexical_text)
         if not lex_text:
             return []
 
@@ -168,7 +171,7 @@ class PostgresSearchBackend:
                    ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.content_tsv, q.query) DESC) AS rnk
             FROM knowledge_chunk c
             JOIN knowledge_document d ON d.id = c.document_id
-            CROSS JOIN websearch_to_tsquery('english', $2) AS q(query)
+            CROSS JOIN to_tsquery('english', $2) AS q(query)
             WHERE c.organization_id = $1
               AND d.status = $3
               AND ($4::text IS NULL OR d.category = $4)
@@ -326,7 +329,7 @@ class PostgresSearchBackend:
         except Exception:
             return []
 
-        lex_text = q.lexical_text.strip()
+        lex_text = build_or_tsquery(q.lexical_text)
         has_lex = bool(lex_text)
         has_vec = bool(q.query_vector)
 
@@ -357,7 +360,7 @@ class PostgresSearchBackend:
                      ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.content_tsv, q.query) DESC) AS rnk
               FROM knowledge_chunk c
               JOIN knowledge_document d ON d.id = c.document_id
-              CROSS JOIN websearch_to_tsquery('english', $2) AS q(query)
+              CROSS JOIN to_tsquery('english', $2) AS q(query)
               WHERE c.organization_id = $1
                 AND d.status = $3
                 AND ($4::text IS NULL OR d.category = $4)
