@@ -16,6 +16,7 @@ from enum import StrEnum
 from packages.broker.consumer import FatalError
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.llm.drafts import UnpersistableDraftError
+from packages.llm.protocol import LLMProviderMismatchError, LLMResponseError
 from packages.llm.validation import DraftSchemaContractError, UnvalidatedDraftError
 
 
@@ -58,7 +59,12 @@ _PERMANENT: tuple[type[BaseException], ...] = (
     DraftSchemaContractError,
     UnpersistableDraftError,
     FatalError,
+    LLMProviderMismatchError,
 )
+
+_TRANSIENT_402_SOURCE = "openrouter_in_flight_budget"
+"""The one OpenRouter 402 that clears by itself (in-flight spend drains); every other 402 is
+an account limit (no credit, a key limit, or an unnamed source) that waiting does not lift."""
 
 
 def _describe(exc: BaseException) -> str:
@@ -87,5 +93,11 @@ def classify_generation_failure(exc: BaseException, *, job_state: str | None) ->
             )
         return FailureDecision(Disposition.DEAD_LETTER, reason)
     if isinstance(exc, _PERMANENT):
+        return FailureDecision(Disposition.DEAD_LETTER, _describe(exc))
+    if (
+        isinstance(exc, LLMResponseError)
+        and exc.status_code == 402
+        and exc.limit_source != _TRANSIENT_402_SOURCE
+    ):
         return FailureDecision(Disposition.DEAD_LETTER, _describe(exc))
     return FailureDecision(Disposition.RETRY, _describe(exc))

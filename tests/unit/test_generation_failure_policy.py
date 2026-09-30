@@ -11,7 +11,13 @@ from packages.broker.consumer import FatalError
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator
 from packages.llm.drafts import UnpersistableDraftError
-from packages.llm.protocol import LLMResponseError, LLMResult, LLMTimeoutError
+from packages.llm.protocol import (
+    CallProvenance,
+    LLMProviderMismatchError,
+    LLMResponseError,
+    LLMResult,
+    LLMTimeoutError,
+)
 from packages.llm.validation import DraftSchemaContractError, UnvalidatedDraftError
 from services.ai_worker.failure_policy import (
     DRAFTED_OR_LATER,
@@ -63,6 +69,42 @@ def test_permanent_failures_are_dead_lettered(exc: Exception) -> None:
 def test_transient_and_unknown_failures_are_retried(exc: Exception) -> None:
     decision = classify_generation_failure(exc, job_state=None)
     assert decision.disposition is Disposition.RETRY
+
+
+def _mismatch() -> LLMProviderMismatchError:
+    return LLMProviderMismatchError(
+        "provider_mismatch: served by 'Together', pinned to ['phala'] (model qwen/qwen-2.5-7b-instruct)",
+        expected=("phala",),
+        served="Together",
+        provenance=CallProvenance(requested_model="qwen/qwen-2.5-7b-instruct"),
+    )
+
+
+def test_provider_mismatch_is_dead_lettered_with_its_marker() -> None:
+    """A wrong provider is deterministic: a retry is billed again and fails the same way."""
+    decision = classify_generation_failure(_mismatch(), job_state=None)
+    assert decision.disposition is Disposition.DEAD_LETTER
+    assert "provider_mismatch" in decision.reason
+
+
+@pytest.mark.parametrize("source", ["openrouter_credits", "openrouter_key_limit", None])
+def test_a_402_that_is_not_the_in_flight_budget_is_dead_lettered(source: str | None) -> None:
+    """No credit or a key limit does not clear by waiting 30 s, 5 m and 30 m."""
+    exc = LLMResponseError("HTTP 402", status_code=402, limit_source=source)
+    assert classify_generation_failure(exc, job_state=None).disposition is Disposition.DEAD_LETTER
+
+
+def test_the_transient_in_flight_402_is_still_retried() -> None:
+    exc = LLMResponseError(
+        "HTTP 402", status_code=402, limit_source="openrouter_in_flight_budget"
+    )
+    assert classify_generation_failure(exc, job_state=None).disposition is Disposition.RETRY
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503])
+def test_other_http_errors_are_still_retried(status: int) -> None:
+    exc = LLMResponseError(f"HTTP {status}", status_code=status)
+    assert classify_generation_failure(exc, job_state=None).disposition is Disposition.RETRY
 
 
 def test_truncated_draft_reason_names_max_tokens() -> None:
