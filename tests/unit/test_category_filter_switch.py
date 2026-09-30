@@ -36,6 +36,8 @@ def _filter_disabled() -> RetrievalSettings:
 def test_the_category_filter_is_on_by_default_and_the_setting_turns_it_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # the benchmark's own environment sets it to false (docs/BENCHMARK.md): the default is tested
+    monkeypatch.delenv("RETRIEVAL__CATEGORY_FILTER_ENABLED", raising=False)
     assert RetrievalSettings().category_filter_enabled is True
     assert AppSettings(_env_file=None).retrieval.category_filter_enabled is True
     monkeypatch.setenv("RETRIEVAL__CATEGORY_FILTER_ENABLED", "false")
@@ -121,7 +123,10 @@ async def test_a_disabled_filter_finds_them_and_never_another_tenants_documents(
 # --- where the builder is made from the settings ------------------------------------------------
 
 
-def test_the_ai_worker_builds_its_query_builder_from_the_retrieval_settings() -> None:
+def test_the_ai_worker_builds_its_query_builder_from_the_retrieval_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RETRIEVAL__CATEGORY_FILTER_ENABLED", raising=False)  # the default, not .env
     default = build_consumers(
         fake_worker_resources(AIWorkerSettings(_env_file=None)), token_counter=TokenCounter()
     )
