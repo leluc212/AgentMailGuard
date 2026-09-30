@@ -300,7 +300,9 @@ class EarlyExitGate:
             )
 
         # Outcome 1: Early Exit -> straight to COMPLETED (R6.5)
-        if not classification.reply_required or classification.workflow_hint == "none":
+        # Only reply_required decides an early exit (design.md §5.3): a 'none' hint beside a
+        # required reply is an inconsistent classification, routed to AI generation below.
+        if not classification.reply_required:
             action = GateAction.EARLY_EXIT
             reason = "no_reply_required"
             payload = {
@@ -435,6 +437,14 @@ class EarlyExitGate:
                 classification.intent,
             )
             effective_cls = replace(classification, workflow_hint="ai")
+        elif classification.workflow_hint == "none":
+            logger.warning(
+                "workflow_hint='none' on a message that requires a reply (%s, %s); "
+                "routing it to AI generation (R6.5: only reply_required=false exits early).",
+                classification.category,
+                classification.intent,
+            )
+            effective_cls = replace(classification, workflow_hint="ai")
 
         target_state = JobState.QUEUED
         if not effective_cls.retrieval_required:
@@ -458,6 +468,7 @@ class EarlyExitGate:
             "priority": effective_cls.priority,
             "retrieval_required": effective_cls.retrieval_required,
             "workflow_hint": effective_workflow_hint,
+            "classified_workflow_hint": classification.workflow_hint,
             "confidence": effective_cls.confidence,
             "decided_by": effective_cls.decided_by,
         }
@@ -545,7 +556,9 @@ class EarlyExitGate:
             )
 
         # Outcome 1: Early Exit
-        if not classification.reply_required or classification.workflow_hint == "none":
+        # Only reply_required decides an early exit (design.md §5.3): a 'none' hint beside a
+        # required reply is an inconsistent classification, routed to AI generation below.
+        if not classification.reply_required:
             action = GateAction.EARLY_EXIT
             reason = "no_reply_required"
             payload = {
@@ -708,6 +721,14 @@ class EarlyExitGate:
                 classification.intent,
             )
             effective_cls = replace(classification, workflow_hint="ai")
+        elif classification.workflow_hint == "none":
+            logger.warning(
+                "workflow_hint='none' on a message that requires a reply (%s, %s); "
+                "routing it to AI generation (R6.5: only reply_required=false exits early).",
+                classification.category,
+                classification.intent,
+            )
+            effective_cls = replace(classification, workflow_hint="ai")
 
         target_state = JobState.QUEUED
         if not effective_cls.retrieval_required:
@@ -731,6 +752,7 @@ class EarlyExitGate:
             "priority": effective_cls.priority,
             "retrieval_required": effective_cls.retrieval_required,
             "workflow_hint": effective_workflow_hint,
+            "classified_workflow_hint": classification.workflow_hint,
             "confidence": effective_cls.confidence,
             "decided_by": effective_cls.decided_by,
         }

@@ -244,6 +244,92 @@ class TestSelectiveRetrievalBypass:
         assert mock_hooks.generate_reply.call_count == 1
 
 
+class TestReplyRequiredIsNeverDropped:
+    """Only reply_required == false exits early (design.md §5.3, R6.5).
+
+    The live v2 smoke of 2026-09-30 saw the stage-3 LLM answer reply_required=true with
+    workflow_hint='none' for "What is the warranty period for the X200 vacuum?", and the gate
+    completed the job with no reply and no review. A 'none' hint beside a required reply goes
+    to AI generation, like a template hint with no matching template (R6.14).
+    """
+
+    @pytest.mark.parametrize(
+        ("retrieval_required", "expected"),
+        [(True, GateAction.PROCEED_RAG), (False, GateAction.PROCEED_NO_RAG)],
+    )
+    def test_none_hint_with_reply_required_goes_to_ai_generation(
+        self,
+        gate: EarlyExitGate,
+        sample_job: Job,
+        retrieval_required: bool,
+        expected: GateAction,
+    ) -> None:
+        classification = Classification(
+            category="general_inquiry",
+            intent="warranty_question",
+            reply_required=True,
+            retrieval_required=retrieval_required,
+            workflow_hint="none",
+            confidence=0.9,
+            decided_by="llm",
+        )
+
+        decision = gate.evaluate_decision(sample_job, classification)
+
+        assert decision.action == expected
+        assert decision.job.state == JobState.QUEUED
+        assert decision.should_generate is True
+        assert decision.should_retrieve is retrieval_required
+        assert decision.workflow_hint == "ai"
+        assert decision.classification.workflow_hint == "ai"
+        assert decision.event.payload["classified_workflow_hint"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_persisted_path_queues_a_required_reply_with_a_none_hint(
+        self,
+        gate: EarlyExitGate,
+        sample_job: Job,
+    ) -> None:
+        store = InMemoryJobStore()
+        await store.create_job(sample_job)
+        classification = Classification(
+            category="general_inquiry",
+            intent="warranty_question",
+            reply_required=True,
+            retrieval_required=True,
+            workflow_hint="none",
+            confidence=0.9,
+            decided_by="llm",
+        )
+
+        decision = await gate.evaluate_and_persist(sample_job, classification, job_store=store)
+
+        assert decision.action == GateAction.PROCEED_RAG
+        persisted = await store.get_job(sample_job.organization_id, sample_job.id)
+        assert persisted is not None
+        assert persisted.state == JobState.QUEUED
+
+    def test_reply_not_required_still_exits_early_whatever_the_hint(
+        self,
+        gate: EarlyExitGate,
+        sample_job: Job,
+    ) -> None:
+        classification = Classification(
+            category="acknowledgement",
+            intent="thanks",
+            reply_required=False,
+            retrieval_required=False,
+            workflow_hint="ai",
+            confidence=0.9,
+            decided_by="llm",
+        )
+
+        decision = gate.evaluate_decision(sample_job, classification)
+
+        assert decision.action == GateAction.EARLY_EXIT
+        assert decision.job.state == JobState.COMPLETED
+
+
 class TestStateTransitionSafety:
     """Validate state machine transition invariants and illegal state handling."""
 
