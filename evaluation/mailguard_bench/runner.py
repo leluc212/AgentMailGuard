@@ -80,6 +80,12 @@ from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile,
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
+from evaluation.mailguard_bench.route import (
+    RouteBreaker,
+    expected_guard_route,
+    provenance_summary,
+    route_meta,
+)
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.db.connection import create_pool_from_settings
@@ -100,6 +106,8 @@ class RunSummary:
     skipped: int = 0
     ok: int = 0
     error: int = 0
+    stopped: str | None = None
+    """Why the run stopped starting cases (a tripped ``RouteBreaker``); None: it ran them all."""
 
 
 def build_record(
@@ -216,6 +224,7 @@ async def run_cases(
     on_record: Callable[[dict[str, Any]], None] | None = None,
     schema: str = RESULT_SCHEMA,
     rate_limited: RateLimitTest = is_rate_limited,
+    breaker: RouteBreaker | None = None,
 ) -> RunSummary:
     """Run every case not yet recorded; append each row as soon as it exists.
 
@@ -226,6 +235,9 @@ async def run_cases(
         rate_limited: Whether an error is an HTTP 429 worth running the case again after a
             back-off. v1 counts any 429 in the error's cause chain; the live runner narrows it,
             because a model's 429 is the services' to retry, not the runner's.
+        breaker: A pinned OpenRouter route's stop switch. Once it trips, no further case starts
+            (cases in flight finish and are recorded); the unrecorded ones run on a resume, and
+            ``RunSummary.stopped`` says why.
 
     Raises:
         ValueError: If concurrency is outside 1..2.
@@ -245,6 +257,8 @@ async def run_cases(
 
     async def one(case: EvalCase) -> None:
         async with gate:
+            if breaker is not None and breaker.tripped is not None:
+                return  # the route stopped serving while this case waited its turn
             record = await _run_one(
                 case,
                 execute,
@@ -261,10 +275,14 @@ async def run_cases(
                 summary.ok += 1
             else:
                 summary.error += 1
+            if breaker is not None:
+                breaker.observe(record)
             if on_record is not None:
                 on_record(record)
 
     await asyncio.gather(*(one(case) for case in todo))
+    if breaker is not None:
+        summary.stopped = breaker.tripped
     return summary
 
 
@@ -520,6 +538,21 @@ def check_resume(meta_file: Path, fingerprint: Mapping[str, Any]) -> list[dict[s
     return list(existing.get("invocations") or [])
 
 
+def add_route_summary(
+    invocation_summary: dict[str, Any], store: ResultStore, summary: RunSummary
+) -> None:
+    """Add the OpenRouter facts of a finished invocation to its ``summary`` (none when not routed).
+
+    ``stopped`` is why the run stopped starting cases (a tripped ``RouteBreaker``);
+    ``provenance`` totals which providers served the calls of every row recorded so far.
+    """
+    if summary.stopped:
+        invocation_summary["stopped"] = summary.stopped
+    totals = provenance_summary(store.latest_records().values())
+    if totals is not None:
+        invocation_summary["provenance"] = totals
+
+
 def generation_meta(llm: LLMTiersSettings) -> dict[str, Any]:
     """The ``generation_model`` and ``generation`` blocks of the run meta.
 
@@ -537,17 +570,18 @@ def generation_meta(llm: LLMTiersSettings) -> dict[str, Any]:
             "fallback": llm.fallback_model,
         }
     )
-    return {
-        "generation_model": model_map["routine"],
-        "generation": {
-            "provider": llm.provider,
-            "base_url": llm.openai_base_url,
-            "model": model_map["routine"],
-            "model_map": model_map,
-            "force_single_tier": llm.force_single_tier,
-            "timeout_s": llm.timeout_s,
-        },
+    generation: dict[str, Any] = {
+        "provider": llm.provider,
+        "base_url": llm.openai_base_url,
+        "model": model_map["routine"],
+        "model_map": model_map,
+        "force_single_tier": llm.force_single_tier,
+        "timeout_s": llm.timeout_s,
     }
+    routed = route_meta(llm)
+    if routed is not None:  # an OpenRouter run: the pin is a fingerprint fact (a resume keeps it)
+        generation.update(routed)
+    return {"generation_model": model_map["routine"], "generation": generation}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -610,6 +644,7 @@ async def run(args: argparse.Namespace) -> int:
             model_name=args.guard_model,
             audit_log_path=run_dir / "raw" / f"audit__{args.config}.jsonl",
             l1_model_path=paths.l1_model,
+            expected_route=expected_guard_route(llm),
         )
         missing = guard.missing_live_stages()
         guard_facts = guard.describe()
@@ -714,6 +749,7 @@ async def run(args: argparse.Namespace) -> int:
             concurrency=args.concurrency,
             secrets=[llm.openai_api_key],
             on_record=progress,
+            breaker=RouteBreaker() if llm.openai_provider_routing is not None else None,
         )
         invocation["finished_at"] = datetime.now(UTC).isoformat()
         invocation["summary"] = {
@@ -723,6 +759,7 @@ async def run(args: argparse.Namespace) -> int:
             "error": summary.error,
             "torn_lines_skipped": store.skipped_lines,
         }
+        add_route_summary(invocation["summary"], store, summary)
         write_json(meta_file, meta)
     finally:
         await pool.release(lock_conn)
@@ -731,6 +768,9 @@ async def run(args: argparse.Namespace) -> int:
         f"ok {args.config}: {summary.ok} ok, {summary.error} error, "
         f"{summary.skipped} already recorded -> {store.path}"
     )
+    if summary.stopped:
+        print(f"STOP {args.config}: {summary.stopped}; run again to resume", file=sys.stderr)
+        return 1
     return 0
 
 

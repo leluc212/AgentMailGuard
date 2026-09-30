@@ -20,7 +20,8 @@ Checks, stopping at the first failure:
      With --l3b-llm / --l4-llm (the C3 of the live v2 benchmark, task 7.20) the same holds for
      L3b's and L4's LLM stages, and without them those stages must be off.
   6. --live-probe only: one judge call with a system message and a JSON schema returns the
-     requested JSON (verifies system role + json_mode on the Gemini endpoint).
+     requested JSON (verifies system role + json_mode on the Gemini endpoint). On an OpenRouter
+     profile it also checks that the pinned provider served the call and prints it.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import argparse
 import asyncio
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import sklearn
@@ -54,6 +55,7 @@ from evaluation.mailguard_bench.guard_factory import (
     require_live,
 )
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
+from evaluation.mailguard_bench.route import expected_guard_route, guard_pin_problem, pin_problem
 from packages.core.settings import AppSettings
 
 SMOKE_EMAIL: dict[str, Any] = {
@@ -104,10 +106,19 @@ def check_registered(
     return layers
 
 
-async def live_probe(paths: GuardPaths, model_name: str) -> None:
-    """Check 6: one real judge call on the Gemini endpoint."""
+async def live_probe(
+    paths: GuardPaths, model_name: str, expected_route: Mapping[str, Any] | None = None
+) -> None:
+    """Check 6: one real judge call on the model's endpoint.
+
+    ``expected_route`` is the OpenRouter pin of the run (None: not routed): the guard's provider
+    must send it, or nothing is called.
+    """
     pipeline = build_guard_pipeline("C3", guard_settings(model_name, l1_model_path=paths.l1_model))
     judge = pipeline.l1.judge
+    unpinned = guard_pin_problem(judge, expected_route)
+    if unpinned is not None:
+        raise GuardEnvError(unpinned)
     try:
         result = await judge.generate(
             messages=[
@@ -124,7 +135,15 @@ async def live_probe(paths: GuardPaths, model_name: str) -> None:
             f"probe reply is not the requested JSON (keys={sorted(result.content)}); "
             "try json_mode: none in guard_models.yaml"
         )
-    print(f"ok live probe model={result.model} latency_ms={result.latency_ms}")
+    # An OpenRouter route pins one provider: the guard's provider only reports who served the call
+    # (a stage that raised would just fall back), so the pin is checked here, as in a real run.
+    routing = getattr(judge, "provider_routing", None)
+    provenance = getattr(result, "provenance", None)
+    problem = pin_problem(routing, provenance.to_dict() if provenance is not None else None)
+    if problem is not None:
+        raise GuardEnvError(f"provider_mismatch: guard judge call {problem}")
+    served = f" served_by={provenance.served_provider}" if routing and provenance else ""
+    print(f"ok live probe model={result.model} latency_ms={result.latency_ms}{served}")
 
 
 def run(argv: Sequence[str] | None = None) -> None:
@@ -157,7 +176,7 @@ def run(argv: Sequence[str] | None = None) -> None:
     )
     print(f"ok guard model registered: l1_judge={layers.l1_judge} l2_llm={layers.l2_llm}{stages}")
     if args.live_probe:
-        asyncio.run(live_probe(paths, args.model))
+        asyncio.run(live_probe(paths, args.model, expected_guard_route(llm)))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

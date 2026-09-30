@@ -20,12 +20,14 @@ are the presets of the same name. The layer ablation (task 7.22, pre-registratio
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from evaluation.mailguard_bench.counting import CountingProvider
-from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, sha256_file
+from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, GuardEnvError, sha256_file
+from evaluation.mailguard_bench.route import guard_pin_problem
 
 NATIVE_CONFIG = "C0"
 # The layer each ablation config removes from the full guard (GuardConfig.preset "C3-<L>").
@@ -113,6 +115,7 @@ class GuardBuild:
 
         settings = self.pipeline.settings
         l1_path = Path(settings.resolve(settings.l1.ml_model_path))
+        routing = getattr(self.guard_llm, "provider_routing", None)
         return {
             "config": self.config,
             "preset": self.preset,
@@ -126,6 +129,8 @@ class GuardBuild:
             "mailguard_root": str(PROJECT_ROOT),
             "mailguard_commit": git_head(Path(PROJECT_ROOT)),
             "audit_log_path": settings.l5.audit_log_path,
+            # An OpenRouter run: the pin the guard's judges send (no key means not routed, as v1)
+            **({"provider_routing": dict(routing)} if isinstance(routing, Mapping) else {}),
         }
 
 
@@ -150,6 +155,7 @@ def build_guard(
     models_path: Path = GUARD_MODELS_YAML,
     l3b_llm: bool = False,
     l4_llm: bool = False,
+    expected_route: Mapping[str, Any] | None = None,
 ) -> GuardBuild:
     """MailGuardPipeline for C0T|C1|C2|C3|C3-L1..C3-L5, its LLM stages on ``model_name``.
 
@@ -162,8 +168,12 @@ def build_guard(
             ablation configs the guard's "C3 minus one layer" preset of the same name.
         l3b_llm: Also run L3b's LLM poisoned-document check on ``model_name``.
         l4_llm: Also run L4's LLM output check on ``model_name``.
+        expected_route: The OpenRouter ``provider`` object the run pins (None: not routed). The
+            guard's provider for ``model_name`` must send exactly it and ask for the router's
+            metadata, or the build fails before any call (``route.guard_pin_problem``).
 
     Raises:
+        GuardEnvError: If ``expected_route`` is set and the guard's provider would not honour it.
         ValueError: If ``preset`` is ``C0`` (rag-email's native path has no guard) or not
             one of the guarded benchmark configs.
         KeyError: If ``model_name`` is not registered (never silently disabled).
@@ -193,7 +203,11 @@ def build_guard(
     )
     settings.l5.audit_log_path = str(audit_log_path.resolve())
     registry = ModelRegistry(settings)
-    guard_llm = CountingProvider(registry.get(model_name))
+    provider = registry.get(model_name)
+    problem = guard_pin_problem(provider, expected_route)
+    if problem is not None:
+        raise GuardEnvError(problem)
+    guard_llm = CountingProvider(provider)
     pipeline = MailGuardPipeline(
         settings,
         GuardConfig.preset(guard_preset),

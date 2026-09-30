@@ -9,6 +9,7 @@ against throw-away local git repositories.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -196,7 +197,11 @@ def test_the_v1_runner_runs_under_whichever_pin_the_environment_names(
     if override:
         args.append(f"MAILGUARD_COMMIT={override}")
 
-    done = subprocess.run(args, cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    # Hermetic: a MAILGUARD_COMMIT exported by the caller (the overlay runs of the unit suite set
+    # it to the worktree's HEAD) would win over the Makefile's default, which is what `None` tests.
+    env = {k: v for k, v in os.environ.items() if k != "MAILGUARD_COMMIT"}
+
+    done = subprocess.run(args, cwd=REPO_ROOT, capture_output=True, text=True, check=True, env=env)
 
     assert f"MAILGUARD_COMMIT={pin} " in done.stdout
     assert "-m evaluation.mailguard_bench.runner" in done.stdout

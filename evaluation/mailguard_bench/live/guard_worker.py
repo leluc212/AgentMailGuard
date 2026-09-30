@@ -75,6 +75,7 @@ from evaluation.mailguard_bench.guard_env import (
 from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
+from evaluation.mailguard_bench.route import expected_guard_route
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AIWorkerSettings, EmbeddingSettings, RetrievalSettings
@@ -381,6 +382,7 @@ async def run(args: argparse.Namespace) -> int:
         l1_model_path=paths.l1_model,
         l3b_llm=l3b_llm,
         l4_llm=l4_llm,
+        expected_route=expected_guard_route(llm),
     )
     missing = guard.missing_live_stages()
     if missing:
