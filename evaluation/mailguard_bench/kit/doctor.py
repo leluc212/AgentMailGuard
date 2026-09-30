@@ -865,21 +865,38 @@ def _endpoint(profile: ModelProfile, environ: Mapping[str, str]) -> str:
         return profile.base_url
 
 
+_DOCKER0_INET = re.compile(r"\binet\s+(\d{1,3}(?:\.\d{1,3}){3})/")
+
+
+def parse_bridge_ip(ip_output: str) -> str | None:
+    """The IPv4 address of ``docker0`` from ``ip -4 -o addr show docker0`` (None when absent)."""
+    match = _DOCKER0_INET.search(ip_output)
+    return match.group(1) if match else None
+
+
+def _origin(url: str) -> str:
+    origin = url.rstrip("/")
+    return origin[: -len("/v1")] if origin.endswith("/v1") else origin
+
+
 def check_ollama(
     profile: ModelProfile,
     environ: Mapping[str, str],
     platform: Platform,
     fetch: Callable[[str], HttpResult | None],
+    bridge_ip: str | None = None,
 ) -> Result | None:
     """For a profile on a local server: it answers and lists the profile's model.
 
-    None when the profile's endpoint is hosted (nothing local to check).
+    None when the profile's endpoint is hosted (nothing local to check). An address on this
+    machine's loopback is reached by the host processes directly, but the containers reach the
+    host through ``host.docker.internal`` (the ``docker0`` address on Docker Engine): that needs
+    Ollama listening there, or a forwarder on that address (``bridge_ip``), which is probed.
     """
     url = _endpoint(profile, environ)
     if not is_local_endpoint(url):
         return None
-    origin = url.rstrip("/")
-    origin = origin[: -len("/v1")] if origin.endswith("/v1") else origin
+    origin = _origin(url)
     version = fetch(f"{origin}/api/version")
     if version is None or version.status != 200:
         return Result(
@@ -907,18 +924,69 @@ def check_ollama(
             f"{origin} answers (version {version_text}) but has no model {profile.model}",
             f"`ollama pull {profile.model}` in the shell where OLLAMA_HOST is set as in part E",
         )
-    if _is_loopback(urlsplit(url).hostname or "") and platform in ("wsl2", "linux"):
+    parts = urlsplit(url)
+    if _is_loopback(parts.hostname or "") and platform in ("wsl2", "linux"):
+        found = f"{profile.model} is at {origin} (version {version_text})"
+        relay = f"{bridge_ip}:{parts.port or 11434}" if bridge_ip else None
+        if relay is not None:
+            answer = fetch(f"http://{relay}/api/version")
+            if answer is not None and answer.status == 200:
+                return Result(
+                    Status.OK,
+                    "ollama",
+                    f"{found}; the containers reach it at {relay} "
+                    "(a forwarder or Ollama itself answers there)",
+                )
+        reach = (
+            f"{relay} does not answer"
+            if relay
+            else "the bridge address could not be read (is Docker running?)"
+        )
         return Result(
             Status.WARN,
             "ollama",
-            f"{profile.model} is at {origin} (version {version_text}); the containers reach "
-            "the host "
-            "through host.docker.internal, which on Docker Engine is the bridge address, "
-            "not localhost",
-            "make Ollama listen on the bridge address and set BENCH_OLLAMA_BASE_URL to it "
-            f"({GUIDE}, part E; runbook 9.9 step 2)",
+            f"{found}; the containers reach the host through host.docker.internal, which on "
+            f"Docker Engine is the bridge address, not localhost; {reach}",
+            "either make Ollama listen on the bridge address with the systemd override and set "
+            "BENCH_OLLAMA_BASE_URL to it (needs sudo), or, without sudo, forward the bridge "
+            "address to Ollama: `socat TCP-LISTEN:11434,bind=<docker0 address>,reuseaddr,fork "
+            f"TCP:127.0.0.1:11434` ({GUIDE}, part E; runbook 9.9 step 2)",
         )
     return Result(Status.OK, "ollama", f"{profile.model} is at {origin} (version {version_text})")
+
+
+def check_model_loaded(
+    profile: ModelProfile,
+    environ: Mapping[str, str],
+    fetch: Callable[[str], HttpResult | None],
+) -> Result | None:
+    """A local model is loaded in Ollama now: the live runner refuses one that is not.
+
+    None for a hosted profile, or when Ollama does not answer (``check_ollama`` says so).
+    """
+    url = _endpoint(profile, environ)
+    if not is_local_endpoint(url):
+        return None
+    shown = fetch(f"{_origin(url)}/api/ps")
+    if shown is None or shown.status != 200:
+        return None
+    try:
+        loaded = [
+            name
+            for entry in json.loads(shown.body).get("models", [])
+            for name in (entry.get("model"), entry.get("name"))
+        ]
+    except (ValueError, AttributeError):
+        return None
+    if profile.model in loaded:
+        return Result(Status.OK, "ollama model loaded", f"{profile.model} is loaded")
+    return Result(
+        Status.WARN,
+        "ollama model loaded",
+        f"{profile.model} is not loaded now, and the live runner refuses a model that is not "
+        "(it reads the context length of the loaded model)",
+        f'ollama run {profile.model} "Reply with OK"',
+    )
 
 
 def check_gpu(nvidia_smi: str | None, *, local_model: bool | None) -> Result:
@@ -1091,10 +1159,15 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
 
     local_model: bool | None = None
     if profile is not None:
-        ollama = check_ollama(profile, merged, platform, world.http_get)
+        ip = world.run(["ip", "-4", "-o", "addr", "show", "docker0"])
+        bridge_ip = parse_bridge_ip(ip.stdout) if ip and ip.returncode == 0 else None
+        ollama = check_ollama(profile, merged, platform, world.http_get, bridge_ip)
         local_model = ollama is not None
         if ollama is not None:
             results.append(ollama)
+            loaded = check_model_loaded(profile, merged, world.http_get)
+            if loaded is not None:
+                results.append(loaded)
     results.append(check_gpu(world.which("nvidia-smi"), local_model=local_model))
     results.append(check_reader(reader, profile))
     return results

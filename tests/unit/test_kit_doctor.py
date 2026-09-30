@@ -646,6 +646,69 @@ def test_loopback_ollama_warns_that_containers_cannot_reach_it_on_docker_engine(
     assert "BENCH_OLLAMA_BASE_URL" in result.hint
 
 
+def _ollama_routes(origin: str, *, loaded: Sequence[str] = ()) -> dict[str, HttpResult | None]:
+    return {
+        f"{origin}/api/version": HttpResult(200, '{"version":"0.12.3"}'),
+        f"{origin}/api/tags": HttpResult(200, TAGS),
+        f"{origin}/api/ps": HttpResult(200, json.dumps({"models": [{"name": n} for n in loaded]})),
+    }
+
+
+def test_loopback_ollama_with_a_forwarder_on_the_bridge_address_is_ok() -> None:
+    """Runbook 9.9 step 2 without sudo: socat on the docker0 address, Ollama stays on 127.0.0.1."""
+    routes = {
+        **_ollama_routes("http://localhost:11434"),
+        "http://172.17.0.1:11434/api/version": HttpResult(200, '{"version":"0.12.3"}'),
+    }
+    result = doctor.check_ollama(
+        get_profile("qwen2.5-7b"), {}, "wsl2", _fetch(routes), bridge_ip="172.17.0.1"
+    )
+    assert result is not None and result.status is Status.OK
+    assert "172.17.0.1:11434" in result.detail
+
+
+def test_loopback_ollama_with_nothing_on_the_bridge_address_names_both_ways_out() -> None:
+    result = doctor.check_ollama(
+        get_profile("qwen2.5-7b"),
+        {},
+        "wsl2",
+        _fetch(_ollama_routes("http://localhost:11434")),
+        bridge_ip="172.17.0.1",
+    )
+    assert result is not None and result.status is Status.WARN
+    assert "172.17.0.1:11434" in result.detail and "does not answer" in result.detail
+    assert "bridge.conf" in result.hint or "systemd" in result.hint
+    assert "socat" in result.hint
+
+
+def test_the_bridge_address_comes_from_docker0() -> None:
+    line = "5: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\n"
+    assert doctor.parse_bridge_ip(line) == "172.17.0.1"
+    assert doctor.parse_bridge_ip("") is None
+    assert doctor.parse_bridge_ip('Device "docker0" does not exist.') is None
+
+
+def test_a_local_model_that_is_not_loaded_is_a_warning_with_the_load_command() -> None:
+    """The live runner refuses a model that Ollama has not loaded (`/api/ps`)."""
+    origin = "http://172.17.0.1:11434"
+    env = {"BENCH_OLLAMA_BASE_URL": f"{origin}/v1"}
+    profile = get_profile("qwen2.5-7b")
+    cold = doctor.check_model_loaded(profile, env, _fetch(_ollama_routes(origin)))
+    assert cold is not None and cold.status is Status.WARN
+    assert cold.hint == f'ollama run {profile.model} "Reply with OK"'
+    warm = doctor.check_model_loaded(
+        profile, env, _fetch(_ollama_routes(origin, loaded=[profile.model]))
+    )
+    assert warm is not None and warm.status is Status.OK
+    assert doctor.check_model_loaded(get_profile("gpt-4o-mini"), {}, _fetch({})) is None
+
+
+def test_the_doctor_runs_the_loaded_check_for_a_local_profile() -> None:
+    world = good_world(http_get=_fetch(_ollama_routes("http://localhost:11434")))
+    results = by_check(doctor.run_checks(world, model_profile="qwen2.5-7b", reader="x-reader"))
+    assert results["ollama model loaded"].status is Status.WARN  # nothing is loaded in this fake
+
+
 @pytest.mark.parametrize("host", ["[::1]", "127.0.0.1", "127.1.2.3", "localhost"])
 def test_every_loopback_spelling_warns_on_docker_engine(host: str) -> None:
     url = f"http://{host}:11434"
