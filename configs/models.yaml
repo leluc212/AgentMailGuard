@@ -19,5 +19,33 @@ models:
     model: gpt-4o-mini
     json_mode: json_object             # json_object | json_schema
     timeout_s: 30
+  # The same two open models served through OpenRouter's API with ONE provider pinned and
+  # fallbacks off (a benchmark route: the endpoint's precision and its structured-output
+  # support are fixed, and each call says which provider served it). The key and base URL come
+  # from OPENAI_API_KEY / OPENAI_BASE_URL (https://openrouter.ai/api/v1). `provider_routing` is
+  # OpenRouter's `provider` request object; only its documented keys are accepted.
+  # Qwen2.5-7B has one provider (Phala), precision undisclosed, so no `quantizations` filter.
+  qwen/qwen-2.5-7b-instruct:
+    backend: openai
+    model: qwen/qwen-2.5-7b-instruct
+    json_mode: json_object
+    timeout_s: 120
+    provider_routing:
+      order: [phala]
+      allow_fallbacks: false
+      require_parameters: true
+    response_metadata: true            # provenance: which provider served each call
+  # Llama-3.1-8B: CoreWeave is the only endpoint that lists structured outputs, and the only bf16.
+  meta-llama/llama-3.1-8b-instruct:
+    backend: openai
+    model: meta-llama/llama-3.1-8b-instruct
+    json_mode: json_object
+    timeout_s: 120
+    provider_routing:
+      order: [coreweave]
+      allow_fallbacks: false
+      require_parameters: true
+      quantizations: [bf16]
+    response_metadata: true
   fake:
     backend: fake                      # offline CI double
