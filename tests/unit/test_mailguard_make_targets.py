@@ -209,7 +209,7 @@ def _run_analyses_target(tmp_path: Path, scheme: str | None) -> tuple[int, list[
     stub.write_text(
         "#!/bin/sh\n"
         'case "$2" in\n'
-        f'  evaluation.mailguard_bench.scheme) cd {shlex.quote(str(REPO))} && '
+        f"  evaluation.mailguard_bench.scheme) cd {shlex.quote(str(REPO))} && "
         f'exec {shlex.quote(sys.executable)} "$@";;\n'
         f'  *) echo "$2" >> {shlex.quote(str(log))};;\n'
         "esac\n",
