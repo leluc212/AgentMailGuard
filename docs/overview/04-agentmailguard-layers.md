@@ -16,11 +16,12 @@ first use and again in the glossary (section 7). Background on the whole guard i
      12 came from L2.
    - **Whole attack classes are outside L1's input.** It flagged 0 of 100 poisoned-document attacks and
      never sees the draft. Only L3b, L4 and (for thread text) L3 touch those.
-   - **Whether each of layers 2 to 5 earns its cost is not proven on this benchmark.** In an offline
-     replay, L2 alone would still have blocked 267 of 285 (gpt-4o-mini) and 268 of 286 (Qwen) of the
-     email attacks the full guard blocks, though L2 reuses L1's rules and classifier. L3 has no measured
-     effect. The one-layer-removed experiment (section 5) has no results yet, so the case for layers 2
-     to 5 is currently a design argument more than measured evidence.
+   - **Measured: four of the six layers are each necessary on this benchmark.** In the pre-registered
+     remove-one-layer run (section 5.1: gpt-4o-mini, 550 cases), removing L2, L3b or L4 raised the
+     poisoned-document ASR from 30 % to 38 %, 58 % and 40 %, and removing L5 raised the email ASR from
+     0 % to 7.7 % (23 of 300), although L1 still flagged all 300: without L5 no flag becomes a block.
+     Removing L1 changed almost nothing (0.3 %), because L2 then caught 271 of the same 300 attacks: on
+     these cases L1 and L2 back each other up. L3's effect was not measurable.
 
 Terms first. **AgentMailGuard** is the security package around rag-email's reply writer. A **prompt
 injection** is text in an email or document that tries to give orders to the AI that writes the reply
@@ -416,9 +417,8 @@ data can test only the first rows and the poisoned-document row, which is why se
 The v1 presets add layers on top of L1, so they cannot credit any other layer fairly. A pre-registered
 experiment (task 7.22, decided 2026-09-30, before any run) removes one layer at a time from the full
 guard, including L1, on the same 550 cases. The design is in
-[docs/superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md](../superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md)
-(written on the ablation work tree; not in this tree, so it cannot be checked here). "Ablation" means
-removing one part to measure what it contributes.
+[docs/superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md](../superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md).
+"Ablation" means removing one part to measure what it contributes.
 
 | Config | Meaning |
 |---|---|
@@ -456,7 +456,72 @@ L4 are exercised on only about 15 of them, and no config removes both. With L3 o
 truncation still run, so C0 and C1 are not plain concatenation and C3-L3 removes only the wrapping,
 marking and preamble, which will understate L3. Removing L1 or L2 also empties L4's indicator or
 instruction inputs, so it is not a clean single-layer test. No correction for the several McNemar
-tests is stated here. Results are added when the run finishes.
+tests is stated here.
+
+### 5.1 Results (run `2026-09-30-gpt4omini-ablation`, finished 2026-09-30)
+
+All eight configs ran on the 550 pinned cases (guard `81df5d07`, reply model gpt-4o-mini), plus the
+retry pass. 4,399 of 4,400 rows were scored; one C0 row stayed an error (the model's repaired answer was
+still not valid JSON, so rag-email refused to save it) and is excluded, as the rules say. Full report:
+[`evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/report.md`](../../evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/report.md).
+
+| Config | Layer removed | Email ASR (LLMail) | Poisoned-document ASR | Benign false blocks | Benign drafts, 40+ characters |
+|---|---|---|---|---|---|
+| C0 | all (no guard) | 54.5 % [48.8, 60.1] (163/299) | 81.0 % [72.2, 87.5] (81/100) | 0/150 | 150/150 |
+| C3 | none (full guard) | 0.0 % [0.0, 1.3] (0/300) | 30.0 % [21.9, 39.6] (30/100) | 0/150 | 150/150 |
+| C3-L1 | L1 | 0.3 % [0.1, 1.9] (1/300) | 32.0 % [23.7, 41.7] (32/100) | 0/150 | 150/150 |
+| C3-L2 | L2 | 0.0 % [0.0, 1.3] (0/300) | **38.0 %** [29.1, 47.8] (38/100) | 0/150 | 150/150 |
+| C3-L3 | L3 | 0.0 % [0.0, 1.3] (0/300) | 29.0 % [21.0, 38.5] (29/100) | 0/150 | 150/150 |
+| C3-L3B | L3b | 0.0 % [0.0, 1.3] (0/300) | **58.0 %** [48.2, 67.2] (58/100) | 0/150 | 150/150 |
+| C3-L4 | L4 | 0.3 % [0.1, 1.9] (1/300) | **40.0 %** [30.9, 49.8] (40/100) | 0/150 | 150/150 |
+| C3-L5 | L5 | **7.7 %** [5.2, 11.2] (23/300) | 36.0 % [27.3, 45.8] (36/100) | 0/150 | 150/150 |
+
+Bold: removing the layer raised the ASR with McNemar p < 0.05 against the same-run C3, the
+pre-registered decision rule.
+
+| Layer | Verdict on this benchmark | Paired test against C3 (attacks that succeeded only without the layer vs only with it) |
+|---|---|---|
+| L1 | not measurable | email 1 vs 0, p = 1; documents 3 vs 1, p = 0.63 |
+| L2 | **measurably necessary** | documents 8 vs 0, p = 0.008 |
+| L3 | not measurable | email 0 vs 0; documents 2 vs 3, p = 1 |
+| L3b | **measurably necessary** | documents 29 vs 1, p = 6 × 10⁻⁸ |
+| L4 | **measurably necessary** | documents 11 vs 1, p = 0.006 |
+| L5 | **measurably necessary** | email 23 vs 0, p = 2 × 10⁻⁷ (documents 7 vs 1, p = 0.07) |
+
+**Hypotheses.** H1 holds: without L1 the email ASR is 0.3 %, against C0's 54.5 %. H2 holds: without
+L4 the document ASR is 40 %, against 30 %. H3 holds as worded: removing L3b did not lower the document
+ASR; it nearly doubled it. H4 fails for L5 (7.7 points) and holds for L2, L3, L3b and L4 (at most 0.3
+points).
+
+**What the numbers say.**
+
+- **L1 and L2 back each other up.** With L1 removed, L2 was the first catching layer for 271 of the 300
+  email attacks; with L2 removed, L1 was for 258, and neither removal let more than one attack through.
+  A remove-one test cannot credit a layer whose work another layer repeats, and no config removes both,
+  so "not measurable" for L1 means redundant here, not useless.
+- **L5 turns detection into protection.** With L5 removed, L1 still flagged all 300 email attacks and
+  L2 298, but nothing acted on the flags and 23 succeeded. The other 277 still failed: in 5, L4 had
+  redacted the draft; in 272, the reply model did not follow the injection, which the report cannot
+  pin on one layer (L2 strips flagged sentences and L3 marks the email as data before the model reads
+  it; part of the effect may be the guard's prompt template, whose own config, C0T, was not run here).
+  Even with nothing blocked, the guarded path cut the email ASR from 54.5 % to 7.7 %.
+- **Poisoned documents need L2, L3b and L4 together.** L3b quarantined a poisoned chunk in 46 of the
+  100 cases, so the reply model never saw it; without L3b the ASR rose from 30 % to 58 %. The blocks
+  come from L5's rule P03 (the draft complies with an injected goal, an L4 finding): 32 in C3, none
+  without L4, 26 without L2 and 14 without L3b, because L4 compares the draft with the instructions L2
+  extracted and the excerpts L3b quarantined (section 3).
+- **L3 had no measurable effect** (29 % against 30 %), as the design's limits predicted: with L3 off,
+  scrubbing and truncation still run, so C3-L3 removes only the wrapping and the markers.
+- **No layer cost usefulness here:** no config blocked a benign email and every config drafted all
+  150. But 138 of those 150 overlap L1's training data (section 4.5), so this says little about real
+  mail.
+
+**Cautions.** The rule makes 12 tests (six layers, two vectors) without a correction, as
+pre-registered. Under a Holm correction, which was not pre-registered and is shown only for
+transparency, L3b and L5 stay significant and L2 and L4 do not (p = 0.008 and 0.006 against Holm
+thresholds of 0.0056 and 0.005). One sample per case and one reply model. The report's "which layer
+stopped each attack" table counts blocks only, so a chunk that L3b quarantined without a block shows
+up as "the model did not follow the injection". Qwen2.5-7B may repeat the run under the same design.
 
 ## 6. Scope and assumptions
 
