@@ -13,6 +13,10 @@
 .env
 .env.*
 
+# The teammate kit copies the image's reranker model here (about 90 MB, task 7.25). The image never
+# copies .cache, and the classic builder would tar it into the build context on every build.
+.cache
+
 # Not needed at runtime (artifacts/models IS needed)
 artifacts/superpowers
 # evaluation/ holds the benchmark and the pinned L1 joblib (evaluation/mailguard_bench/pinned);

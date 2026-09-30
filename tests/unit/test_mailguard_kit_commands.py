@@ -25,6 +25,7 @@ from evaluation.mailguard_bench.kit.campaign import (
     run_setup,
 )
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
+    COPY_MODEL,
     GEMINI_KEY,
     OPENAI_KEY,
     REPORTS,
@@ -32,10 +33,13 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
     RUN,
     Bench,
     bench_fixture,
+    rerank_dir,
+    rerank_marker,
     sequence,
 )
 
 PINNED = "evaluation.mailguard_bench.kit.pinned"
+COPY_MODEL_ARGS = ["docker", "compose", "cp"]
 
 
 def _git(path: Path, *args: str) -> str:
@@ -94,7 +98,7 @@ def test_setup_checks_the_guard_and_the_pins_then_smokes_then_brings_the_stack_u
     ctx = with_guard(bench, guard)
     assert run_setup(ctx) == 0
     assert calls == [bench.repo]  # the pinned inputs of THIS checkout
-    assert sequence(bench.host) == ["guard_smoke", "docker compose up"]
+    assert sequence(bench.host) == ["guard_smoke", "docker compose up", COPY_MODEL]
     up = next(p for k, p in bench.host.events if k == "run" and p[0] == "docker")
     assert up == ["docker", "compose", "up", "-d", "--build"]  # what `make up` runs
     smoke = next(p for k, p in bench.host.events if k == "run" and p[0] != "docker")
@@ -103,6 +107,56 @@ def test_setup_checks_the_guard_and_the_pins_then_smokes_then_brings_the_stack_u
         p for k, p in bench.host.events if k == "capture" and p[:3] == ["docker", "compose", "ps"]
     ]
     assert ps and "api" not in ps[0]  # the whole project, not four services
+
+
+def test_setup_copies_the_reranker_model_out_of_the_image_once_the_stack_is_healthy(
+    bench: Bench, guard: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_pinned(monkeypatch)
+    assert run_setup(with_guard(bench, guard)) == 0
+    events = bench.host.events
+    copied_at = next(
+        i for i, (kind, cmd) in enumerate(events) if kind == "run" and cmd[:3] == COPY_MODEL_ARGS
+    )
+    polled_at = max(
+        i
+        for i, (kind, cmd) in enumerate(events)
+        if kind == "capture" and cmd[:2] == ["docker", "inspect"] and cmd[3] != "{{.Image}}"
+    )
+    assert polled_at < copied_at  # the health wait came first: the container exists by now
+    assert (rerank_dir(bench) / "models--fake--cross-encoder").is_dir()
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
+    assert any("reranker model copied from the ai-worker image" in line for line in bench.out)
+    assert "Next: make bench-run" in bench.out[-1]  # the hint stays the last word
+
+
+def test_setup_fails_when_the_reranker_model_cannot_be_copied(
+    bench: Bench, guard: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_pinned(monkeypatch)
+    bench.host.exits[COPY_MODEL] = 1
+    assert run_setup(with_guard(bench, guard)) == 1
+    command = f"docker compose cp ai-worker:/app/.cache/reranker {rerank_dir(bench)}"
+    assert f"FAIL {command} exited 1" in "\n".join(bench.err)
+    assert not any("Next: make bench-run" in line for line in bench.out)
+    assert not rerank_marker(bench).exists()
+
+
+def test_setup_run_again_copies_only_when_the_image_was_rebuilt(
+    bench: Bench, guard: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_pinned(monkeypatch)
+    ctx = with_guard(bench, guard)
+    assert run_setup(ctx) == 0
+    bench.host.events.clear()
+    assert run_setup(ctx) == 0  # the same image: the copy is current
+    assert COPY_MODEL not in sequence(bench.host)
+    assert any("already the ai-worker image's" in line for line in bench.out)
+    bench.host.events.clear()
+    bench.host.image_id = "sha256:" + "2" * 64  # `docker compose up --build` made a new image
+    assert run_setup(ctx) == 0
+    assert COPY_MODEL in sequence(bench.host)
+    assert rerank_marker(bench).read_text(encoding="utf-8").strip() == bench.host.image_id
 
 
 def test_setup_stops_when_the_guard_is_not_at_the_pin_before_anything_else(

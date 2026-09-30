@@ -616,7 +616,7 @@ Run the models in that order, each one completely (all its configs, the retry pa
 
 **Finish every §9.8 v1 `RUN` before you start v2**: all its configs, the retry pass and `make mailguard-analyses`. Step 2 moves Ollama's address, after which `localhost:11434` no longer answers, so a v1 run that is still going or has not started would fail. Pointing v1 at the new address with `BENCH_OLLAMA_BASE_URL` instead does not help: v1's settings fingerprint records the base URL (`generation.base_url`), so the runner then stops a resume of that config with `was started with other settings (generation changed)`, and the report refuses a `RUN` whose configs recorded different addresses (§9.4).
 
-**1. Once.** Do §9.8 step 1 (repo, `make up`, worktree, `make mailguard-prep`, `make mailguard-cases`, `make mailguard-smoke`), then `make up` again once the v2 code is on the branch: it rebuilds the images. That first build is slow and needs the network, because the CPU-only torch and the cross-encoder model are downloaded into the image; the containers never download them at runtime. Then set the keys and the host-side settings in `.env` (never committed).
+**1. Once.** Do §9.8 step 1 (repo, `make up`, worktree, `make mailguard-prep`, `make mailguard-cases`, `make mailguard-smoke`), then `make up` again once the v2 code is on the branch: it rebuilds the images. That first build is slow and needs the network, because the CPU-only torch and the cross-encoder model are downloaded into the image; the containers never download them at runtime, and step 4 copies the model out of the image for the guard-worker, which is a host process. Then set the keys and the host-side settings in `.env` (never committed).
 
 The guard-worker and the runner are host processes: they read `.env` (and the shell), never `.env.stack`, while the containers get their settings from the stack env (step 3). `.env` must therefore say what the containers get. The corpus and the queries must use one embedding model, and C0 and the guarded configs one retrieval budget, one LLM timeout and one set of lane queues; otherwise the guarded configs run on other settings than C0 and nothing reports it. Step 3 refuses to write while `.env` disagrees, and step 5 prints both sides:
 
@@ -691,7 +691,16 @@ docker compose ps api triage-worker knowledge-worker ai-worker     # wait until 
 | `C1` to `C6` | the guard-worker: that config's one layer and L5 (table at the top of this section) | stopped | running for that config |
 | `C7` | the guard-worker: every layer, all four AI stages | stopped | running for `C7` |
 
-The guard-worker is a host process. It runs the ai-worker's own code with the guard around the one generation call, until it gets `SIGTERM`, and while alive it keeps `raw/guard_worker.<config>.pid` in the `RUN` folder, which is where the runner looks. Set the helpers below once per model (from the repo root). `mg` is the Make targets' overlay, with the pinned commit read from the Makefile and the guard directory and the L1 classifier directory taken from `MAILGUARD_DIR` and `MAILGUARD_ARTIFACTS` when you set them (defaults as in the Makefile: `./agentmailguard` and `evaluation/mailguard_bench/pinned` when they exist, else `../AgentMailGuard-bench` and `../AgentMailGuard-bench-artifacts`); `run_config` does the switch and the run for one config, and keeps the guard-worker's output in `$R/raw/guard-worker.<config>.log`:
+**The reranker model of the guard-worker (once per image build).** C0 reranks in the `ai-worker` container with the cross-encoder baked into its image (`RETRIEVAL__RERANK_MODEL_DIR=/app/.cache/reranker`, read with no network). The guard-worker is a host process and has no such variable: left alone it downloads the model from the internet at its first rerank, a network dependency during the run and possibly another revision than C0 reranks with. So copy the model out of the image into a git-ignored folder, and start the guard-worker, and only it, with the variable pointing there (`run_config` below does the second part):
+
+```bash
+rm -rf .cache/reranker && mkdir -p .cache      # the destination must not exist, or docker puts the model inside it
+docker compose cp ai-worker:/app/.cache/reranker .cache/reranker      # works on a stopped container too
+```
+
+Do it again after every rebuild of the images (`make up`, `docker compose up --build`): a rebuilt image may carry another revision of the model. `make bench-setup` and `make bench-run` do both parts themselves. They copy when `.cache/reranker` is missing, or when the marker `.cache/reranker.image-id` beside it names another image than the `ai-worker` container was created from, and they stop with a `FAIL` that names the command and the fix when the copy fails; a campaign of C0 alone does not copy. The variable goes on the guard-worker's command line only (see `run_config`), never into `.env`, the shell, the runner or a container, so step 1's rule that nothing `RETRIEVAL__*` is exported still holds. To check that the host loads the copy with no network: `uv run python -c "from packages.retrieval.rerank import CrossEncoderReranker as R; R(model_dir='.cache/reranker').warm_up(); print('ok reranker model loads offline')"`.
+
+The guard-worker runs the ai-worker's own code with the guard around the one generation call, until it gets `SIGTERM`, and while alive it keeps `raw/guard_worker.<config>.pid` in the `RUN` folder, which is where the runner looks. Set the helpers below once per model (from the repo root). `mg` is the Make targets' overlay, with the pinned commit read from the Makefile and the guard directory and the L1 classifier directory taken from `MAILGUARD_DIR` and `MAILGUARD_ARTIFACTS` when you set them (defaults as in the Makefile: `./agentmailguard` and `evaluation/mailguard_bench/pinned` when they exist, else `../AgentMailGuard-bench` and `../AgentMailGuard-bench-artifacts`); `run_config` does the switch and the run for one config, and keeps the guard-worker's output in `$R/raw/guard-worker.<config>.log`:
 
 ```bash
 mg() {
@@ -716,6 +725,8 @@ run_config() {   # $1 = C0 | C0T | C1 | ... | C7 (scheme v2); uses M, RUN, R, WO
   fi
   docker compose stop ai-worker
   mkdir -p "$R/raw"; stamp=$(mktemp); pid=$R/raw/guard_worker.$c.pid
+  # RETRIEVAL__RERANK_MODEL_DIR: the copy of the image's reranker model, for the guard-worker only (see above)
+  RETRIEVAL__RERANK_MODEL_DIR="$PWD/.cache/reranker" \
   mg python -m evaluation.mailguard_bench.live.guard_worker --config "$c" --run "$RUN" --model-profile "$M" \
     > "$R/raw/guard-worker.$c.log" 2>&1 &
   gw=$!
@@ -743,7 +754,7 @@ run_config() {   # $1 = C0 | C0T | C1 | ... | C7 (scheme v2); uses M, RUN, R, WO
 
 `run_config` starts the runner only when the guard-worker is consuming: its pid file is newer than the start and its health endpoint answers (`http://127.0.0.1:8014/readyz`, the guard-worker's default health port; the endpoint starts after every consumer has). The pid file alone is not enough, because the guard-worker writes it before it connects and starts its consumers, and the runner fails a config at once when a lane queue has no consumer. A guard-worker that exits fails the config with `FAIL`, and one that is not ready after `GW_WAIT_S` seconds (default 300) is stopped and fails it too; its log is `$R/raw/guard-worker.<config>.log`.
 
-By hand, the switch is `docker compose stop ai-worker` before a guarded config, `docker compose start ai-worker` before C0 (wait until it is healthy), and `kill -TERM "$(cat $R/raw/guard_worker.C3.pid)"` to stop the guard-worker of `C3`; after starting a guard-worker by hand, wait until `curl -sf http://127.0.0.1:8014/readyz` succeeds before you start the runner. A forgotten switch stops the runner before it spends anything: it names the drafting consumer that is missing or extra.
+By hand, the switch is `docker compose stop ai-worker` before a guarded config, `docker compose start ai-worker` before C0 (wait until it is healthy), and `kill -TERM "$(cat $R/raw/guard_worker.C3.pid)"` to stop the guard-worker of `C3`; after starting a guard-worker by hand, wait until `curl -sf http://127.0.0.1:8014/readyz` succeeds before you start the runner, and start it with `RETRIEVAL__RERANK_MODEL_DIR="$PWD/.cache/reranker"` in front of its command, as `run_config` does. A forgotten switch stops the runner before it spends anything: it names the drafting consumer that is missing or extra.
 
 **5. Preflight (a handful of calls, before the full runs).** First check that the containers carry this model's settings (values only; the keys are never printed), that the reranker model is in the image, and, for a local model, that a container reaches Ollama at the address it will use:
 
@@ -756,7 +767,7 @@ docker compose exec -T ai-worker sh -c 'curl -sS "${LLM__OPENAI_BASE_URL%/v1}/ap
 make mailguard-probe MODEL=$M                                                   # ONE guard-judge call; must print `ok live probe`
 ```
 
-Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms` and `timeout=60.0s`; the Ollama call prints its version as JSON.
+Every line must show this model, `gemini-embedding-001/1536`, `mock=false`, `budget=3000ms` and `timeout=60.0s`; the Ollama call prints its version as JSON. The `ls` of the reranker folder must list `models--cross-encoder--ms-marco-MiniLM-L-6-v2`, and the host's copy of it (step 4) must load with no network: the `uv run python -c ...` line of step 4 prints `ok reranker model loads offline`.
 
 That checks C0 only: the guard-worker, a host process, reads `.env` and not `.env.stack`. Check that it would run on the settings the ai-worker container runs on. The probe below prints the model, the timeout, the summarizer model, the embedding, the retrieval budget and the lane queues the ai-worker consumes. It runs in the container, and on the host with the model profile applied first, as the guard-worker does; `diff` must print nothing. (The ai-worker container must be running for it: `docker compose start ai-worker` if a guarded config stopped it.)
 
@@ -845,6 +856,7 @@ make up            # recreates the app containers from .env alone
 `make up` gives the app containers `.env`'s own settings, and Compose forwards two groups of the lines you set in step 1: the Gemini embedding lines (`EMBEDDING__*`) and `LLM__TIMEOUT_S=60`. Comment out the embedding lines for the offline defaults (fake LLM, mock embedder) and set `LLM__TIMEOUT_S` back to `15.0` (or delete it), or every LLM call of the normal stack keeps the benchmark's 60 s timeout. `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` is the default now and may stay. Commit the results as in §9.7 (`analysis/` now also holds the `meaning__<config>.jsonl` files; a scheme-v2 `RUN` has no `analyses.md`, so leave it out of the `git add`). If you set up the Ollama bridge only for this benchmark, undo it as in step 2. When a run misbehaves:
 
 - **The runner refuses to start** and names a missing or extra drafting consumer: switch as in step 4.
+- **The guard-worker downloads the reranker model** (its log shows a Hugging Face download, or a case that retrieved shows `rerank: False` in a guarded config only): `RETRIEVAL__RERANK_MODEL_DIR` did not reach it, or `.cache/reranker` is missing or from an older image. Copy it again and start the guard-worker as in step 4 (the kit does both, and stops with a `FAIL` when it cannot copy).
 - **`retrieval_degraded` is true on many rows:** the Gemini embedding call ran out of its 3000 ms budget or its quota; check AI Studio's limits before rerunning.
 - **A container cannot reach Ollama:** `connection refused` means Ollama is not listening on the bridge address (`systemctl show ollama -p Environment`; Docker must have started first). A timeout means a firewall on this machine drops traffic from Docker's networks to port 11434, which is your firewall's policy to change.
 

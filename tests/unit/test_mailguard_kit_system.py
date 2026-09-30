@@ -113,6 +113,58 @@ def test_the_log_is_appended_with_a_header_so_a_retry_does_not_erase_the_first_p
     assert "kit: starting" in text
 
 
+def test_the_extra_environment_is_merged_over_the_inherited_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KIT_SPAWN_INHERITED", "from-the-shell")
+    host = SystemHost(os_name="posix", popen=FakePopen)
+    host.spawn(
+        ["py", "-m", "w"],
+        cwd=tmp_path,
+        log_path=tmp_path / "w.log",
+        env={"RETRIEVAL__RERANK_MODEL_DIR": "/models"},
+    )
+    env = FakePopen.instances[0].kwargs["env"]
+    assert env["RETRIEVAL__RERANK_MODEL_DIR"] == "/models"
+    assert env["KIT_SPAWN_INHERITED"] == "from-the-shell"  # merged over it, not replacing it
+
+
+def test_the_extra_environment_is_that_child_s_alone_and_a_command_still_inherits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RETRIEVAL__RERANK_MODEL_DIR", raising=False)
+    host = SystemHost(os_name="posix", popen=FakePopen)
+    host.spawn(
+        ["py"],
+        cwd=tmp_path,
+        log_path=tmp_path / "w.log",
+        env={"RETRIEVAL__RERANK_MODEL_DIR": "/models"},
+    )
+    assert "RETRIEVAL__RERANK_MODEL_DIR" not in os.environ  # the kit's own environment is untouched
+    host.run(["runner"], cwd=tmp_path)
+    assert "env" not in FakePopen.instances[1].kwargs  # the next command inherits, as before
+
+
+def test_a_real_child_gets_the_extra_environment_and_nobody_else_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("KIT_CHILD_ONLY", raising=False)
+    monkeypatch.setenv("KIT_CHILD_INHERITED", "inherited")
+    script = (
+        "import os; print(os.environ.get('KIT_CHILD_ONLY'), os.environ.get('KIT_CHILD_INHERITED'))"
+    )
+    host = SystemHost()
+    child = host.spawn(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        log_path=tmp_path / "w.log",
+        env={"KIT_CHILD_ONLY": "child-value"},
+    )
+    assert child.wait(30) == 0
+    assert "child-value inherited" in (tmp_path / "w.log").read_text(encoding="utf-8")
+    assert "KIT_CHILD_ONLY" not in os.environ
+
+
 def test_posix_stop_is_sigterm_to_the_pid_file_pid_and_the_child() -> None:
     seen, kill = _kills()
     host = SystemHost(os_name="posix", popen=FakePopen, kill=kill)

@@ -12,7 +12,9 @@ driven through injection in test_mailguard_kit_system.py). No model call, no net
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import os
 import socket
 import stat
 import subprocess
@@ -26,6 +28,8 @@ from evaluation.mailguard_bench.kit.system import SystemHost
 from tests.unit.mailguard_kit_fixtures import HOST_ENV
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and shebangs")
+
+IMAGE_ID = "sha256:" + "ab" * 32  # what the stand-in docker says the ai-worker container runs
 
 FAKE_PYTHON = """#!{python}
 import http.server, json, os, signal, sys, threading, time, urllib.request
@@ -66,6 +70,7 @@ if module == "live.guard_worker":
         stop.set()
 
     signal.signal(signal.SIGTERM, on_term)
+    note(f"worker {{config}} rerank dir {{os.environ.get('RETRIEVAL__RERANK_MODEL_DIR')}}")
     time.sleep(0.3)
     pid_file.write_text(f"{{os.getpid()}}\\n")  # first the pid file...
     time.sleep(1.2)  # ...and only later the consumers and /readyz
@@ -82,6 +87,7 @@ if module == "live.guard_worker":
     server.shutdown()
 elif module == "live.run":
     assert "--retry-errors" in flags, "the runner must be told to retry error rows"
+    note(f"run {{config}} sees rerank dir {{os.environ.get('RETRIEVAL__RERANK_MODEL_DIR')}}")
     if config != "C0":
         pid_file = root / flags["--run"] / "raw" / f"guard_worker.{{config}}.pid"
         if not pid_file.exists():
@@ -112,8 +118,15 @@ with open(os.environ["FAKE_CALLS"], "a") as handle:
     handle.write("docker " + " ".join(a for a in args if not a.startswith("/")) + "\\n")
 if args[:2] == ["compose", "ps"]:
     print("\\n".join(f"id-{{s}}" for s in args[2:] if not s.startswith("-")))
+elif args[0] == "inspect" and args[2] == "{{{{.Image}}}}":  # the image a container was made from
+    print(os.environ["FAKE_IMAGE_ID"])
 elif args[0] == "inspect":
     print("\\n".join(f"/{{i}}|running|healthy|0" for i in args[3:]))
+elif args[:2] == ["compose", "cp"]:  # docker compose cp SERVICE:SRC DEST, with docker's rules:
+    dest = args[3]  # DEST's parent must exist, and DEST must not (else SRC lands inside it)
+    if not os.path.isdir(os.path.dirname(dest)) or os.path.exists(dest):
+        sys.exit(1)
+    os.makedirs(os.path.join(dest, "models--fake"))
 """
 
 
@@ -148,6 +161,8 @@ def test_one_guarded_and_one_native_config_over_real_processes(
     monkeypatch.setenv("FAKE_RESULTS_ROOT", str(results_root))
     monkeypatch.setenv("FAKE_CALLS", str(calls))
     monkeypatch.setenv("FAKE_READY_PORT", str(port))
+    monkeypatch.setenv("FAKE_IMAGE_ID", IMAGE_ID)
+    monkeypatch.delenv("RETRIEVAL__RERANK_MODEL_DIR", raising=False)  # the children inherit this
     out: list[str] = []
     err: list[str] = []
     ctx = KitContext(
@@ -173,18 +188,27 @@ def test_one_guarded_and_one_native_config_over_real_processes(
 
     lines = calls.read_text(encoding="utf-8").splitlines()
     waits = ("docker compose ps", "docker inspect")  # the health polls, however many there were
+    model_dir = repo / ".cache" / "reranker"
     assert [ln for ln in lines if not ln.startswith(waits)] == [
         next(ln for ln in lines if " up -d --no-deps " in ln),
+        "docker compose cp ai-worker:/app/.cache/reranker",  # once, before C0 and the worker
         "docker compose start ai-worker",
+        "run C0 sees rerank dir None",
         "run C0 ok",
         "docker compose stop ai-worker",
+        f"worker C3 rerank dir {model_dir}",  # the guard-worker's own environment holds it...
         "worker C3 ready",
+        "run C3 sees rerank dir None",  # ...and the runner's does not
         "run C3 ok",  # only after the worker was ready: the stand-in runner refuses otherwise
         "worker C3 stopped",  # a real SIGTERM, stopped before the reports
         "module report",
         "module analyses",
         "module report",
     ]
+    assert (model_dir / "models--fake").is_dir()  # the image's folder itself, not nested
+    assert not (model_dir / "reranker").exists()
+    assert (repo / ".cache" / "reranker.image-id").read_text(encoding="utf-8") == IMAGE_ID + "\n"
+    assert "RETRIEVAL__RERANK_MODEL_DIR" not in os.environ  # the kit's own environment is clean
     assert not (results_root / "real-1" / "raw" / "guard_worker.C3.pid").exists()
     assert not list((results_root / "real-1" / "raw").glob(".kit-stamp.*"))
     assert (results_root / "real-1" / "raw" / "guard-worker.C3.log").is_file()
@@ -205,3 +229,10 @@ def test_one_guarded_and_one_native_config_over_real_processes(
         "module analyses",
         "module report",
     ]
+    # A later run on the same image reuses the copy: no second `docker compose cp`, and its
+    # guard-worker is still started with the variable.
+    calls.write_text("", encoding="utf-8")
+    assert run_campaign(ctx, dataclasses.replace(options, run="real-2", configs=("C3",))) == 0, err
+    later = calls.read_text(encoding="utf-8").splitlines()
+    assert "docker compose cp ai-worker:/app/.cache/reranker" not in later
+    assert f"worker C3 rerank dir {model_dir}" in later
