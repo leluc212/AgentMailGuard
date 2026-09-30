@@ -324,7 +324,15 @@ rules:
 
 - `reply_required == false` → job goes straight to `COMPLETED`. No embedding, no retrieval, no rerank, no generation (R6.5). This is the ~45%.
 - `workflow_hint == 'template'` → a deterministic approved-template reply is rendered and the job goes to `DRAFTED` without retrieval or generation (R6.12, R6.13). This is the ~20%.
-- `retrieval_required == false` → context is thread + business data only; hybrid RAG is not called (R6.6).
+- `retrieval_required == false` → context is thread + business data only; hybrid RAG is not called (R6.6). For a reply that reaches AI generation this flag is the stage's own answer **or** its category's default (next paragraph).
+
+**The category retrieval floor (ADR-0013, proposed).** A triage stage can answer `retrieval_required=false` for a question only the knowledge base can answer: in the live v2 smoke of 2026-09-30 the stage-3 model did so for 9 of 9 company-policy questions (warranty period, refund fee, password reset, shipping redirect, discount, policy), so hybrid retrieval and the reranker never ran. `config/categories.yaml` already declares `default_retrieval_required` per category (true for support, sales, billing, administration and general_inquiry; false for scheduling and the no-reply categories), and nothing applied it to a stage's result. The gate applies it where a required reply is finally routed to AI generation, for every stage (rule, ML, LLM and the R6.11 safe default):
+
+```
+routed.retrieval_required = stage.retrieval_required  OR  category.default_retrieval_required
+```
+
+It runs only in the third outcome, after the no-reply exit (R6.5) and the matched-template reply (R6.13) have been taken, so those two stay zero-AI. A template-hinted message with no matching template falls back to AI (R6.14), and then the floor applies. A category the taxonomy does not know has no default, so the stage's answer stands. The classification row persisted by the cascade keeps the stage's own answer (R6.7); the gate's `QUEUED` event payload records `retrieval_required_from_category` (true when the floor raised the flag) and the routed classification's `raw` carries the same key when it is true. `TRIAGE__CATEGORY_RETRIEVAL_FLOOR=false` switches the floor off and restores the stage's own answer.
 
 **Why the template gate exists.** The reference funnel is 45% no-reply / 20% deterministic / 35% AI. Without a template path there is nowhere for the middle 20% to go, the funnel cannot reconcile against NFR14, and 20,000 daily emails that need no reasoning are paid for at generation prices. The template registry is keyed by `(category, intent)` with variable substitution from message and business fields; **no match ⇒ fall back to `workflow_hint='ai'`** (R6.14) — the template path never blocks a reply, it only makes cheap replies cheap.
 

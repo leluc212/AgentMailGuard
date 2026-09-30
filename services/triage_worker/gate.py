@@ -8,7 +8,9 @@ Implements the three mutually exclusive economic routing outcomes:
    (R6.12, R6.13). If no template matches (category, intent), falls back to workflow_hint='ai'
    so replies are never blocked (R6.14). (~20% of inbound mail)
 3. Actionable AI generation (workflow_hint == 'ai') -> Job transitions to QUEUED (R6.6, R7.1).
-   Selective hybrid RAG is performed only if retrieval_required == true. (~35% of inbound mail)
+   Selective hybrid RAG is performed only if retrieval_required == true, which is the stage's own
+   answer OR the category's default_retrieval_required (the category retrieval floor; it applies
+   to this outcome only, so outcomes 1 and 2 stay zero-AI). (~35% of inbound mail)
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from packages.domain.state_machine import (
     JobState,
     transition_job,
 )
+from packages.domain.taxonomy import TaxonomyRegistry, get_default_registry
 from packages.domain.templates import (
     TemplateDefinition,
     TemplateRegistry,
@@ -43,6 +46,10 @@ from packages.observability.funnel import FunnelOutcome, RAGMode, record_funnel_
 from packages.observability.metrics import PipelineMetrics, get_metrics
 
 logger = logging.getLogger(__name__)
+
+RETRIEVAL_FROM_CATEGORY_KEY = "retrieval_required_from_category"
+"""Recorded in the gate event payload (always, true or false) and in the routed classification's
+``raw`` (only when true) when the category retrieval floor raised ``retrieval_required``."""
 
 
 class GateAction(StrEnum):
@@ -191,6 +198,8 @@ class EarlyExitGate:
     2. workflow_hint == 'template' -> Render template and transition to DRAFTED.
        Zero retrieval, zero generation (R6.12, R6.13). Fall back to 'ai' if missing (R6.14).
     3. workflow_hint == 'ai' -> Transition to QUEUED. Downstream AI generation (R6.6, R7.1).
+       retrieval_required is the stage's own OR the category's default (the category retrieval
+       floor, ``category_retrieval_floor``; design.md §5.3).
     """
 
     def __init__(
@@ -199,11 +208,67 @@ class EarlyExitGate:
         template_registry: TemplateRegistry | None = None,
         draft_store: DraftStore | None = None,
         metrics: PipelineMetrics | None = None,
+        category_retrieval_floor: bool = True,
+        taxonomy: TaxonomyRegistry | None = None,
     ) -> None:
+        """Build the gate.
+
+        Args:
+            category_retrieval_floor: Raise ``retrieval_required`` to the category's
+                ``default_retrieval_required`` for a reply routed to AI generation
+                (``TRIAGE__CATEGORY_RETRIEVAL_FLOOR``).
+            taxonomy: Where the category defaults come from. None reads the process-wide default
+                registry when the gate decides: the worker loads ``config/categories.yaml`` into
+                it while it starts (``setup_topology``).
+        """
         self.job_store = job_store
         self.template_registry = template_registry
         self.draft_store = draft_store
         self.metrics = metrics or get_metrics()
+        self.category_retrieval_floor = category_retrieval_floor
+        self._taxonomy = taxonomy
+
+    def _apply_category_retrieval_floor(
+        self, classification: Classification
+    ) -> tuple[Classification, bool]:
+        """Raise retrieval_required to the category default for a reply routed to AI (R6.6, R12.4).
+
+        Only the AI-generation outcome calls this, after the two zero-AI outcomes (no reply, R6.5,
+        and a matched template, R6.13) have been taken, so it cannot touch them. A stage may say
+        ``retrieval_required=false`` for a question only the knowledge base can answer (the live v2
+        smoke: stage 3 said so for 9 of 9 company-policy questions), so the routed value is the
+        stage's own OR the category's ``default_retrieval_required`` from the taxonomy
+        (``config/categories.yaml``), for every stage. A category the taxonomy does not know has no
+        default, so the stage's answer stands.
+
+        The result is a copy: the cascade has already persisted the stage's own result (R6.7) and
+        keeps it as it was.
+
+        Returns:
+            The classification to route and whether the floor raised ``retrieval_required``.
+        """
+        if not self.category_retrieval_floor or classification.retrieval_required:
+            return classification, False
+        taxonomy = self._taxonomy if self._taxonomy is not None else get_default_registry()
+        definition = taxonomy.get(classification.category)
+        if definition is None or not definition.default_retrieval_required:
+            return classification, False
+        logger.info(
+            "retrieval_floor_applied",
+            extra={
+                "fields": {
+                    "category": classification.category,
+                    "decided_by": classification.decided_by,
+                    "intent": classification.intent,
+                }
+            },
+        )
+        raised = replace(
+            classification,
+            retrieval_required=True,
+            raw={**classification.raw, RETRIEVAL_FROM_CATEGORY_KEY: True},
+        )
+        return raised, True
 
     def _record_metrics(
         self,
@@ -446,6 +511,9 @@ class EarlyExitGate:
             )
             effective_cls = replace(classification, workflow_hint="ai")
 
+        # The category retrieval floor applies to this outcome only (R6.5, R6.13 stay intact).
+        effective_cls, retrieval_from_category = self._apply_category_retrieval_floor(effective_cls)
+
         target_state = JobState.QUEUED
         if not effective_cls.retrieval_required:
             action = GateAction.PROCEED_NO_RAG
@@ -467,6 +535,7 @@ class EarlyExitGate:
             "intent": effective_cls.intent,
             "priority": effective_cls.priority,
             "retrieval_required": effective_cls.retrieval_required,
+            RETRIEVAL_FROM_CATEGORY_KEY: retrieval_from_category,
             "workflow_hint": effective_workflow_hint,
             "classified_workflow_hint": classification.workflow_hint,
             "confidence": effective_cls.confidence,
@@ -730,6 +799,9 @@ class EarlyExitGate:
             )
             effective_cls = replace(classification, workflow_hint="ai")
 
+        # The category retrieval floor applies to this outcome only (R6.5, R6.13 stay intact).
+        effective_cls, retrieval_from_category = self._apply_category_retrieval_floor(effective_cls)
+
         target_state = JobState.QUEUED
         if not effective_cls.retrieval_required:
             action = GateAction.PROCEED_NO_RAG
@@ -751,6 +823,7 @@ class EarlyExitGate:
             "intent": effective_cls.intent,
             "priority": effective_cls.priority,
             "retrieval_required": effective_cls.retrieval_required,
+            RETRIEVAL_FROM_CATEGORY_KEY: retrieval_from_category,
             "workflow_hint": effective_workflow_hint,
             "classified_workflow_hint": classification.workflow_hint,
             "confidence": effective_cls.confidence,

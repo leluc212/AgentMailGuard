@@ -47,6 +47,7 @@ Every incoming email triaged by `triage_worker` is accounted for across exactly 
    - Sub-dimension `rag_mode`:
      - `rag` (~70% of AI = ~24,500/day): `retrieval_required == true`, executes hybrid RAG.
      - `no_rag` (~30% of AI = ~10,500/day): `retrieval_required == false`, utilizes thread and business context only.
+     - `retrieval_required` here is the value the gate routed with. With the category retrieval floor (`TRIAGE__CATEGORY_RETRIEVAL_FLOOR`, ADR-0013, proposed) a stage's `false` for a category that retrieves by default counts as `rag`, so the measured split follows the category mix rather than the ~70/30 planning figure.
 
 ### 1.2 Mathematical Reconciliation Formula (R6.15)
 

@@ -140,6 +140,7 @@ def build_triage_consumer(
         job_store=job_store,
         template_registry=template_registry,
         draft_store=draft_store,
+        category_retrieval_floor=triage_cfg.category_retrieval_floor,
     )
     cascade = CascadingTriageEngine(
         rule_engine=rule_engine,

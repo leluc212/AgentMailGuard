@@ -238,9 +238,12 @@ async def test_funnel_metrics_integration_with_postgres(db_pool: asyncpg.Pool) -
         idempotency_key=f"idem-{j4_id}",
     )
     await job_store.create_job(job_4_entity)
+    # scheduling is the replying category whose default is not to retrieve; a stage's false for a
+    # category that retrieves by default is raised by the category retrieval floor
+    # (tests/unit/test_category_retrieval_floor.py).
     cls_4 = Classification(
-        category="general_inquiry",
-        intent="greeting",
+        category="scheduling",
+        intent="availability",
         priority="low",
         reply_required=True,
         workflow_hint="ai",

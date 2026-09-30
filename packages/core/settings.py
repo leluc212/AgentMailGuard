@@ -465,6 +465,14 @@ class TriageSettings(BaseModel):
         default="config/templates.yaml",
         description="Path to declarative response templates YAML (R6.13, R6.14)",
     )
+    category_retrieval_floor: bool = Field(
+        default=True,
+        description=(
+            "A required reply routed to AI generation retrieves when its category's "
+            "default_retrieval_required (config/categories.yaml) is true, whatever the triage "
+            "stage said; false keeps each stage's own retrieval_required (R6.6, R12.4)"
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_threshold_order(self) -> "TriageSettings":
