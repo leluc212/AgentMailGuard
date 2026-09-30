@@ -73,6 +73,7 @@ from evaluation.mailguard_bench.guard_env import (
     require_pinned_worktree,
 )
 from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
+from evaluation.mailguard_bench.live import process
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
@@ -145,12 +146,8 @@ def _live_guard_worker_pid(path: Path) -> int | None:
         return None
     if pid <= 0:
         return None
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, OverflowError):
+    if not process.process_is_alive(pid):  # never os.kill(pid, 0): that ends a process on Windows
         return None
-    except PermissionError:
-        pass  # alive, only not ours to signal
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
@@ -415,6 +412,7 @@ async def run(args: argparse.Namespace) -> int:
             host=HOST,
             build=functools.partial(build_guarded_components, guard=guard, audit_path=audit_path),
         )
+        process.install_break_handler()  # Windows: CTRL_BREAK_EVENT stops it like Ctrl+C does
         await runtime.run()  # until SIGTERM/SIGINT drains the consumers
     return 0
 

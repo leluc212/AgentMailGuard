@@ -63,6 +63,7 @@ from evaluation.mailguard_bench.guard_env import (
     sha256_file,
 )
 from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
+from evaluation.mailguard_bench.live import process
 from evaluation.mailguard_bench.live.cleanup import (
     CleanupOutcome,
     MinioObjectAdmin,
@@ -243,12 +244,8 @@ def is_guard_worker_process(pid: int) -> bool:
     A pid file outlives a crashed worker, and its pid may since belong to another program;
     the command line tells them apart. Without /proc the liveness check is all there is.
     """
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+    if not process.process_is_alive(pid):  # never os.kill(pid, 0): that ends a process on Windows
         return False
-    except PermissionError:
-        pass  # alive, another user's
     try:
         return GUARD_WORKER_MARKER.encode() in Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
