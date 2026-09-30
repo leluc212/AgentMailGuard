@@ -200,3 +200,13 @@ def test_the_v1_runner_runs_under_whichever_pin_the_environment_names(
 
     assert f"MAILGUARD_COMMIT={pin} " in done.stdout
     assert "-m evaluation.mailguard_bench.runner" in done.stdout
+
+
+def test_the_runbook_states_both_pins_where_the_operator_reads_them() -> None:
+    text = (REPO_ROOT / "docs/demo-runbook.md").read_text("utf-8")
+    section9 = text[text.index("## 9. AgentMailGuard benchmark") : text.index("## Appendix A")]
+    section99 = section9[section9.index("### 9.9 ") :]
+
+    assert V1 in section9 and V2 in section9
+    assert V2 in section99  # the v2 procedure names the pin it runs on
+    assert "guarded.v2" in section99
