@@ -252,6 +252,16 @@ def test_the_notice_names_the_question_datasets_behind_the_poisoned_cases() -> N
     assert "owner" in notice.lower() and "decide" in notice.lower()
 
 
+def test_the_notice_says_which_training_texts_overlap_the_benchmark_and_which_do_not() -> None:
+    """Only the attack emails come from a disjoint half; the benign ones share their source file
+    with the classifier's training negatives, which a reader of the results must not miss."""
+    notice = (pinned.REPO_ROOT / pinned.PINNED_DIR / "NOTICE.md").read_text(encoding="utf-8")
+    assert "come from the half of the challenge\ndata that is not used" not in notice
+    assert "emails_for_fp_tests.json" in notice  # the file both the benign cases and negatives use
+    assert "138 of the 150 benign" in notice and "near-duplicates" in notice
+    assert "analysis/leakage.json" in notice
+
+
 def test_the_case_file_really_has_the_three_question_dataset_prefixes() -> None:
     """The NOTICE counts (30, 29, 30) must match what is committed."""
     counts = {"hotpotqa": 0, "nq": 0, "msmarco": 0}
