@@ -22,7 +22,7 @@ help:
 	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
 	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
 	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
-	@echo "  mailguard-worktree - Check out AgentMailGuard at the pinned commit in ../AgentMailGuard-bench (task 7.19)"
+	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v2: 1a3ef62) in ../AgentMailGuard-bench (task 7.19)"
 	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
 	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
@@ -130,7 +130,10 @@ llm-smoke:
 MAILGUARD_DIR ?= $(abspath $(CURDIR)/../AgentMailGuard-bench)
 MAILGUARD_ARTIFACTS ?= $(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts)
 MAILGUARD_REMOTE_BRANCH ?= feature/mailguard-defense-stack
-MAILGUARD_COMMIT ?= 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0
+# The guard commit the v2 benchmark pins (ADR-0012 decision 3); guard_env.DEFAULT_MAILGUARD_COMMIT is
+# the same value (a test keeps them equal). v1 stays reproducible at its own pin, in a worktree of its
+# own: make <target> MAILGUARD_COMMIT=81df5d07b15b5bb3d1ecf3aae556df01e304cbe0 MAILGUARD_DIR=<worktree at it>.
+MAILGUARD_COMMIT ?= 1a3ef62b7368703c22c3f90111abdde0678d5617
 MAILGUARD_UV = MAILGUARD_DIR=$(MAILGUARD_DIR) MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) MAILGUARD_ARTIFACTS=$(MAILGUARD_ARTIFACTS) $(UV) run --project $(CURDIR) --with-editable $(MAILGUARD_DIR)
 MAILGUARD_EVAL_DEPS = --with 'datasets>=2.20' --with 'pandas>=2.2' --with 'huggingface-hub>=0.24' --with 'tqdm>=4.66' --with 'pyarrow>=15'
 
@@ -139,7 +142,7 @@ mailguard-worktree:
 	@if [ -e "$(MAILGUARD_DIR)" ]; then echo "[INFO] $(MAILGUARD_DIR) exists; not re-adding"; \
 	else git worktree add --detach "$(MAILGUARD_DIR)" $(MAILGUARD_COMMIT); fi
 	@test "$$(git -C "$(MAILGUARD_DIR)" rev-parse HEAD)" = "$(MAILGUARD_COMMIT)" || \
-	  { echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT)" >&2; exit 1; }
+	  { echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT); use another directory (make ... MAILGUARD_DIR=<path>) or set MAILGUARD_COMMIT to that worktree's commit for a v1 run" >&2; exit 1; }
 	@echo "ok AgentMailGuard worktree $(MAILGUARD_DIR) @ $(MAILGUARD_COMMIT)"
 
 mailguard-prep: mailguard-worktree

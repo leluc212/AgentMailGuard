@@ -21,6 +21,15 @@ BENCH_DIR = Path(__file__).resolve().parent
 GUARD_MODELS_YAML = BENCH_DIR / "guard_models.yaml"
 DEFAULT_GUARD_MODEL = "gemma-4-26b-a4b-it"
 GUARD_BRANCH = "feature/mailguard-defense-stack"
+V1_MAILGUARD_COMMIT = "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
+"""The guard commit of the v1 benchmark (task 7.19). Its published results, and any v1 rerun,
+are pinned to it: run with ``MAILGUARD_COMMIT`` set to it and ``MAILGUARD_DIR`` at a worktree of
+it. A v1 result and a v2 result are never mixed."""
+V2_MAILGUARD_COMMIT = "1a3ef62b7368703c22c3f90111abdde0678d5617"
+"""The guard commit the v2 benchmark pins (ADR-0012 decision 3): v1's guard plus the visible
+fallback of the AI stages and the strictest-rule-wins fix in L5."""
+DEFAULT_MAILGUARD_COMMIT = V2_MAILGUARD_COMMIT
+"""What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""
 L1_MODEL_NAME = "l1_injection_clf_v1.joblib"
 RAW_MANIFEST = Path("datasets/raw/MANIFEST.json")
 REQUIRED_RAW_FILES: tuple[Path, ...] = (
@@ -107,12 +116,25 @@ def worktree_info(path: Path) -> WorktreeInfo:
     return WorktreeInfo(path=path.resolve(), commit=commit, clean=status == "")
 
 
+def _generation_hint(found: str, expected: str) -> str:
+    """When a worktree and the pin are the v1 and the v2 guard, say so and how to fix it."""
+    names = {V1_MAILGUARD_COMMIT: "v1", V2_MAILGUARD_COMMIT: "v2"}
+    if found not in names or expected not in names or found == expected:
+        return ""
+    return (
+        f" (the worktree is the {names[found]} guard, the run is pinned to the {names[expected]} "
+        f"guard: point MAILGUARD_DIR at a worktree of {expected}, or set MAILGUARD_COMMIT to "
+        f"{found} for a {names[found]} run; v1 and v2 results are never mixed)"
+    )
+
+
 def require_pinned_worktree(path: Path, expected_commit: str) -> WorktreeInfo:
     """Fail unless the worktree is clean and exactly at the pinned commit."""
     info = worktree_info(path)
     if info.commit != expected_commit:
         raise GuardEnvError(
             f"worktree {path} is at {info.commit}, the pinned commit is {expected_commit}"
+            f"{_generation_hint(info.commit, expected_commit)}"
         )
     if not info.clean:
         raise GuardEnvError(
