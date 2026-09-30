@@ -352,6 +352,7 @@ def test_main_starts_the_worker_runtime_for_the_config_and_writes_its_files(rig:
     assert meta["model_profile"] == "gpt-4o-mini" and meta["guard_model"] == MODEL
     assert meta["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
     assert meta["guard"]["mailguard_commit"] == "c" * 40
+    assert meta["guarded_prompt_version"] == "guarded.v2"
     assert meta["audit_log"] == str(guard_worker.audit_log_path(rig.run_dir(), "C3"))
 
 
@@ -374,6 +375,7 @@ def test_the_meta_names_what_a_start_must_share_with_every_other_start_of_the_ru
     assert fingerprint["model_profile"] == "gpt-4o-mini" and fingerprint["guard_model"] == MODEL
     assert fingerprint["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
     assert fingerprint["mailguard_commit"] == "c" * 40
+    assert fingerprint["guarded_prompt_version"] == "guarded.v2"
     assert fingerprint["live_layers"]["l3b_llm"] == "stub"
 
 

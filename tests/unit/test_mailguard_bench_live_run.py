@@ -876,6 +876,7 @@ def _worker_meta(
         "guard_model": GUARD_MODEL,
         "guard_llm_stages": {"l3b_llm": on, "l4_llm": on},
         "mailguard_commit": guard["mailguard_commit"],
+        "guarded_prompt_version": "guarded.v2",
         "l1_model_sha256": guard["l1_model_sha256"],
         "live_layers": guard["live_layers"],
         "embedding": embedding_facts(settings.embedding),
@@ -927,6 +928,16 @@ def test_the_live_meta_keeps_the_v1_keys_and_adds_the_live_ones() -> None:
     assert meta["generation"]["model"] == meta["generation_model"]
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
     assert set(meta["fingerprint"]) == {*FINGERPRINT_KEYS, *LIVE_KEYS}
+
+
+@pytest.mark.parametrize("config", ["C0", "C3"])
+def test_the_live_meta_and_fingerprint_record_the_guarded_prompt_version(config: str) -> None:
+    from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
+
+    meta = _meta(config)
+
+    assert meta["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v2"
+    assert meta["fingerprint"]["guarded_prompt_version"] == "guarded.v2"
 
 
 def test_every_live_fact_is_in_the_fingerprint_and_none_of_them_is_none() -> None:
@@ -1092,6 +1103,7 @@ def test_the_stages_the_worker_says_are_missing_are_returned_as_missing(tmp_path
         ("model_profile", "llama-3.1-8b-local"),
         ("guard_model", "llama3.1:8b"),
         ("mailguard_commit", "d" * 40),
+        ("guarded_prompt_version", "guarded.v1"),
         ("l1_model_sha256", "0" * 64),
         ("embedding", {"mock": True, "model": "fake", "dimension": 1536, "base_url_host": None}),
         ("reranker", {"enabled": False, "model": None}),
