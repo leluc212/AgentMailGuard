@@ -30,6 +30,8 @@ NATIVE_CONFIG = "C0"
 # benchmark config -> AgentMailGuard GuardConfig preset
 GUARDED_CONFIGS: dict[str, str] = {"C0T": "C0", "C1": "C1", "C2": "C2", "C3": "C3"}
 BENCH_PRESETS = tuple(GUARDED_CONFIGS)
+FULL_GUARD_CONFIG = "C3"
+"""The config that runs the whole guard: the live v2 benchmark also gives it the LLM stages."""
 
 
 def git_head(path: Path) -> str | None:
@@ -104,6 +106,18 @@ class GuardBuild:
         }
 
 
+def live_guard_llm_stages(config: str) -> tuple[bool, bool]:
+    """``(l3b_llm, l4_llm)``: the optional guard LLM stages a live v2 run of ``config`` uses.
+
+    C3, the full guard, runs both; C0T, C1 and C2 keep them off, as every v1 guard does (task
+    7.19). The guard-worker builds its guard with this rule, and so must anything that
+    describes that guard (the runner's fingerprint), or the report would name the stages of a
+    guard the run never used.
+    """
+    full = config.upper() == FULL_GUARD_CONFIG  # build_guard reads the preset in any case
+    return full, full
+
+
 def build_guard(
     preset: str,
     *,
@@ -111,11 +125,19 @@ def build_guard(
     audit_log_path: Path,
     l1_model_path: Path,
     models_path: Path = GUARD_MODELS_YAML,
+    l3b_llm: bool = False,
+    l4_llm: bool = False,
 ) -> GuardBuild:
-    """MailGuardPipeline for C0T|C1|C2|C3 with every guard LLM stage on ``model_name``.
+    """MailGuardPipeline for C0T|C1|C2|C3 with the guard's LLM stages on ``model_name``.
+
+    The L1 judge and the L2 extractor always run on the model. L3b's document check and L4's
+    output check are off unless asked for: v1 runs (task 7.19) keep them off, and the live v2
+    benchmark (task 7.20, ADR-0011) turns both on for C3 (``live_guard_llm_stages``).
 
     Args:
         preset: The benchmark config; ``C0T`` builds ``GuardConfig.preset("C0")``.
+        l3b_llm: Also run L3b's LLM poisoned-document check on ``model_name``.
+        l4_llm: Also run L4's LLM output check on ``model_name``.
 
     Raises:
         ValueError: If ``preset`` is ``C0`` (rag-email's native path has no guard) or not
@@ -136,7 +158,13 @@ def build_guard(
 
     from evaluation.mailguard_bench.guard_factory import guard_settings
 
-    settings = guard_settings(model_name, l1_model_path=l1_model_path, models_path=models_path)
+    settings = guard_settings(
+        model_name,
+        l1_model_path=l1_model_path,
+        models_path=models_path,
+        l3b_llm=l3b_llm,
+        l4_llm=l4_llm,
+    )
     settings.l5.audit_log_path = str(audit_log_path.resolve())
     registry = ModelRegistry(settings)
     guard_llm = CountingProvider(registry.get(model_name))
