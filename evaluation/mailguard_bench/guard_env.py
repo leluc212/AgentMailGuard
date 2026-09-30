@@ -1,7 +1,9 @@
 """AgentMailGuard environment checks for the C0/C3 benchmark.
 
 Task 7.19; ADR-0010 item 2 (AgentMailGuard is a git worktree installed editable, pinned by
-its commit); R22.12 (reproducible run artifacts); R24.5 (no live credentials in CI).
+its commit); task 7.24 and ADR-0012 decision 6 (after the final merge the guard lives inside this
+repository under ``agentmailguard/``, a git subtree, pinned by its tree); R22.12 (reproducible run
+artifacts); R24.5 (no live credentials in CI).
 
 This module never imports ``mailguard``. CI imports it, and CI does not install the guard.
 Everything that needs the guard lives in ``guard_factory``.
@@ -15,6 +17,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCH_DIR = Path(__file__).resolve().parent
@@ -25,9 +28,16 @@ V1_MAILGUARD_COMMIT = "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
 """The guard commit of the v1 benchmark (task 7.19). Its published results, and any v1 rerun,
 are pinned to it: run with ``MAILGUARD_COMMIT`` set to it and ``MAILGUARD_DIR`` at a worktree of
 it. A v1 result and a v2 result are never mixed."""
+V1_MAILGUARD_TREE = "1a955c156a23cb6ad6dbde041c93080dfb69ceca"
+"""``git rev-parse V1_MAILGUARD_COMMIT^{tree}``. In the single-repository layout the guard is a
+subdirectory and the pin is this tree: a subtree is at a guard commit iff its tree is the
+commit's tree. Recorded here so a shallow clone, which lacks the commit object, still verifies;
+a test keeps it equal to git's answer wherever the commit is present."""
 V2_MAILGUARD_COMMIT = "1a3ef62b7368703c22c3f90111abdde0678d5617"
 """The guard commit the v2 benchmark pins (ADR-0012 decision 3): v1's guard plus the visible
 fallback of the AI stages and the strictest-rule-wins fix in L5."""
+V2_MAILGUARD_TREE = "257d57bc3b8635a2180bddf40fae290c4a44eb57"
+"""``git rev-parse V2_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
 DEFAULT_MAILGUARD_COMMIT = V2_MAILGUARD_COMMIT
 """What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""
 L1_MODEL_NAME = "l1_injection_clf_v1.joblib"
@@ -45,17 +55,28 @@ PREP_HINT = "run `make mailguard-prep` first"
 ModuleResolver = Callable[[str], Path | None]
 
 
+Layout = Literal["worktree", "subtree"]
+
+
 class GuardEnvError(RuntimeError):
     """The AgentMailGuard worktree or environment is not the pinned, complete one."""
 
 
 @dataclass(frozen=True)
 class WorktreeInfo:
-    """Where the AgentMailGuard worktree is, which commit it is at, and whether it is clean."""
+    """Where the AgentMailGuard checkout is, which commit it is at, and whether it is clean.
+
+    ``layout`` is ``"worktree"`` (its own git worktree or clone: ``commit`` is its HEAD) or
+    ``"subtree"`` (a subdirectory of the repository it sits in: ``commit`` is the pinned commit
+    whose tree the subdirectory holds, or ``""`` when it holds the tree of none). ``tree`` is the
+    subdirectory's tree id in HEAD, for a subtree.
+    """
 
     path: Path
     commit: str
     clean: bool
+    layout: Layout = "worktree"
+    tree: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,15 +126,87 @@ def _git(path: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def worktree_info(path: Path) -> WorktreeInfo:
-    """Read HEAD and cleanliness of the worktree. Git-ignored files do not count as dirty."""
+def _git_ok(path: Path, *args: str) -> str | None:
+    """Stdout of a git command in ``path``, or None when git fails (or is absent)."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), *args], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def guard_layout(path: Path) -> Layout:
+    """``"subtree"`` when ``path`` is a subdirectory of the git repository it sits in.
+
+    A path that is its own repository root (a worktree, a clone), one that does not exist and
+    one outside git are ``"worktree"``: the worktree checks then report what is wrong.
+    """
+    top = _git_ok(path, "rev-parse", "--show-toplevel")
+    if top is None:
+        return "worktree"
+    return "worktree" if Path(top).resolve() == path.resolve() else "subtree"
+
+
+def _commit_tree(path: Path, commit: str) -> str | None:
+    """Tree id of a pinned commit: the recorded constant, else git's answer, else None."""
+    recorded = {
+        V1_MAILGUARD_COMMIT: V1_MAILGUARD_TREE,
+        V2_MAILGUARD_COMMIT: V2_MAILGUARD_TREE,
+    }
+    if commit in recorded:
+        return recorded[commit]
+    return _git_ok(path, "rev-parse", "--verify", "-q", f"{commit}^{{tree}}")
+
+
+def _subtree_info(path: Path, expected_commit: str | None) -> WorktreeInfo:
+    prefix = _git(path, "rev-parse", "--show-prefix").rstrip("/")
+    tree = _git_ok(path, "rev-parse", f"HEAD:{prefix}")
+    if tree is None:
+        raise GuardEnvError(
+            f"{path} is inside a git repository but `{prefix}` is not committed in its HEAD; "
+            "the subtree layout needs the guard committed under that directory "
+            "(`git subtree add`)"
+        )
+    status = _git(path, "status", "--porcelain", "--untracked-files=normal", "--", ".")
+    candidates = [c for c in (expected_commit, V2_MAILGUARD_COMMIT, V1_MAILGUARD_COMMIT) if c]
+    commit = next((c for c in candidates if _commit_tree(path, c) == tree), "")
+    return WorktreeInfo(
+        path=path.resolve(), commit=commit, clean=status == "", layout="subtree", tree=tree
+    )
+
+
+def worktree_info(path: Path, expected_commit: str | None = None) -> WorktreeInfo:
+    """Read where the guard is, its commit and its cleanliness. Git-ignored files do not count.
+
+    Worktree layout: HEAD of the worktree. Subtree layout: the pinned commit (``expected_commit``,
+    else the v2 or v1 pin) whose tree the subdirectory holds, ``""`` if none. Only tracked and
+    untracked files under the subdirectory make a subtree dirty.
+    """
     if not path.is_dir():
         raise GuardEnvError(
             f"AgentMailGuard worktree not found at {path}; run `make mailguard-worktree`"
         )
+    if guard_layout(path) == "subtree":
+        return _subtree_info(path, expected_commit)
     commit = _git(path, "rev-parse", "HEAD")
     status = _git(path, "status", "--porcelain", "--untracked-files=normal")
     return WorktreeInfo(path=path.resolve(), commit=commit, clean=status == "")
+
+
+def checkout_commit(path: Path) -> str | None:
+    """The guard commit a checkout is at, for run manifests and fingerprints; None if unknown.
+
+    Worktree layout: HEAD. Subtree layout: the pinned commit whose tree the subdirectory holds
+    (never the enclosing repository's HEAD), None when it holds the tree of none. None outside git.
+    """
+    if guard_layout(path) == "subtree":
+        try:
+            return _subtree_info(path, None).commit or None
+        except GuardEnvError:
+            return None
+    return _git_ok(path, "rev-parse", "HEAD") or None
 
 
 def _generation_hint(found: str, expected: str) -> str:
@@ -129,16 +222,22 @@ def _generation_hint(found: str, expected: str) -> str:
 
 
 def require_pinned_worktree(path: Path, expected_commit: str) -> WorktreeInfo:
-    """Fail unless the worktree is clean and exactly at the pinned commit."""
-    info = worktree_info(path)
+    """Fail unless the guard is clean and exactly at the pinned commit (its tree, for a subtree)."""
+    info = worktree_info(path, expected_commit)
     if info.commit != expected_commit:
+        if info.layout == "subtree" and not info.commit:
+            raise GuardEnvError(
+                f"subtree {path} holds tree {info.tree}, which is the tree of no known guard "
+                f"commit; the pinned commit is {expected_commit} "
+                f"(tree {_commit_tree(path, expected_commit) or 'unknown'})"
+            )
         raise GuardEnvError(
-            f"worktree {path} is at {info.commit}, the pinned commit is {expected_commit}"
+            f"{info.layout} {path} is at {info.commit}, the pinned commit is {expected_commit}"
             f"{_generation_hint(info.commit, expected_commit)}"
         )
     if not info.clean:
         raise GuardEnvError(
-            f"worktree {path} has uncommitted changes; the benchmark pins a clean commit"
+            f"{info.layout} {path} has uncommitted changes; the benchmark pins a clean commit"
         )
     return info
 
@@ -163,7 +262,9 @@ def require_module_origins(
     origins: dict[str, str] = {}
     for name in ("services", "evaluation"):
         origin = resolve(name)
-        if origin is None or not origin.is_relative_to(repo_root.resolve()):
+        # Under rag-email's own `<name>/`, not merely under its root: in the single-repository
+        # layout the guard's copy of `<name>` lives inside the repository too.
+        if origin is None or not origin.is_relative_to(repo_root.resolve() / name):
             raise GuardEnvError(
                 f"`import {name}` resolves to {origin}, not rag-email's {repo_root / name}; "
                 "run with `python -m` from the rag-email root (AgentMailGuard ships a "

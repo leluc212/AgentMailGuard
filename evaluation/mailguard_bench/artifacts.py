@@ -36,6 +36,7 @@ from types import ModuleType
 from typing import Any, NamedTuple, Protocol
 
 from evaluation.mailguard_bench.first_layer import Attribution
+from evaluation.mailguard_bench.guard_env import GuardEnvError, guard_layout, worktree_info
 from evaluation.mailguard_bench.overhead import SC4_TYPICAL_MS, SC5_P95_MS, Overhead
 from evaluation.mailguard_bench.scoring import MIN_DRAFT_CHARS, TRIAGE_BUCKETS, RawRecord
 
@@ -764,7 +765,18 @@ def sha256_json(value: object) -> str:
 
 
 def git_head(repo: Path) -> dict[str, Any]:
-    """``{"sha": ..., "dirty": ...}`` of a checkout; ``sha`` is ``None`` outside git."""
+    """``{"sha": ..., "dirty": ...}`` of a checkout; ``sha`` is ``None`` outside git.
+
+    A guard subtree (a subdirectory of another repository, task 7.24) reports the pinned guard
+    commit whose tree it holds, ``None`` when it holds none, and whether files under it differ:
+    never the enclosing repository's HEAD.
+    """
+    if guard_layout(repo) == "subtree":
+        try:
+            info = worktree_info(repo)
+        except GuardEnvError:
+            return {"sha": None, "dirty": None}
+        return {"sha": info.commit or None, "dirty": not info.clean}
     try:
         sha = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "HEAD"],

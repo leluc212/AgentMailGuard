@@ -142,7 +142,8 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     paths = guard_paths_from_env(os.environ)
     info = require_pinned_worktree(paths.root, paths.commit)
-    print(f"ok worktree {info.path} @ {info.commit} (clean)")
+    where = "worktree" if info.layout == "worktree" else f"{info.layout} (tree {info.tree})"
+    print(f"ok {where} {info.path} @ {info.commit} (clean)")
     origins = require_module_origins(REPO_ROOT, paths.root)
     print(f"ok imports services/evaluation from rag-email, mailguard from {origins['mailguard']}")
     model_path, digest = l1_artifact(paths)

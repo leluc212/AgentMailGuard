@@ -62,6 +62,7 @@ from evaluation.mailguard_bench.artifacts import (
 )
 from evaluation.mailguard_bench.first_layer import Attribution, attribute_attacks
 from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, LAYER_ABLATIONS
+from evaluation.mailguard_bench.guard_env import guard_layout
 from evaluation.mailguard_bench.meaning import (
     PROMPT_SHA256,
     RUBRIC_VERSION,
@@ -782,6 +783,7 @@ def build_report(
         },
         mailguard={
             **_commit_of(run_meta, "mailguard_commit"),
+            "layout": guard_layout(mailguard_dir),
             "at_report_time": git_head(mailguard_dir),
         },
         case_manifest_sha256=sha256_file(manifest_path),

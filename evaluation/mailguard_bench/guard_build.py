@@ -19,13 +19,12 @@ are the presets of the same name. The layer ablation (task 7.22, pre-registratio
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from evaluation.mailguard_bench.counting import CountingProvider
-from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, sha256_file
+from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, checkout_commit, sha256_file
 
 NATIVE_CONFIG = "C0"
 # The layer each ablation config removes from the full guard (GuardConfig.preset "C3-<L>").
@@ -52,14 +51,12 @@ FULL_GUARD_CONFIG = "C3"
 
 
 def git_head(path: Path) -> str | None:
-    """HEAD of the checkout at ``path``, or None outside git."""
-    completed = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return (completed.stdout.strip() or None) if completed.returncode == 0 else None
+    """HEAD of the checkout at ``path``, or None outside git.
+
+    For a guard subtree (task 7.24) the pinned commit whose tree it holds instead, None if none:
+    the enclosing repository's HEAD is not the guard's commit.
+    """
+    return checkout_commit(path)
 
 
 @dataclass
