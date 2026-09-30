@@ -218,6 +218,47 @@ async def test_every_call_records_which_provider_served_it() -> None:
     assert result.input_tokens == 12  # usage is unchanged
 
 
+async def test_the_provider_field_of_the_body_names_the_server_when_there_is_no_metadata() -> None:
+    body = completion(provider=None, attempt=None)
+    body["provider"] = "CoreWeave"
+    rec = Recorder(body)
+    result = await provider(rec).generate(messages=MESSAGES, schema=SCHEMA)
+
+    prov = result.provenance
+    assert prov is not None
+    assert prov.served_provider == "CoreWeave"
+    assert prov.attempt is None
+    assert prov.provider_source == "response.provider"
+    assert prov.to_dict()["provider_source"] == "response.provider"
+
+
+async def test_the_body_provider_field_of_another_provider_is_still_a_mismatch() -> None:
+    body = completion(provider=None, attempt=None)
+    body["provider"] = "DeepInfra"
+    with pytest.raises(LLMProviderMismatchError) as caught:
+        await provider(Recorder(body)).generate(messages=MESSAGES)
+
+    assert caught.value.served == "DeepInfra"
+    assert caught.value.provenance.provider_source == "response.provider"
+
+
+async def test_the_metadata_is_read_before_the_body_provider_field() -> None:
+    body = completion()
+    body["provider"] = "DeepInfra"
+    result = await provider(Recorder(body)).generate(messages=MESSAGES)
+
+    assert result.provenance is not None
+    assert result.provenance.served_provider == "CoreWeave"
+    assert result.provenance.provider_source == "openrouter_metadata.endpoints"
+
+
+async def test_a_fallback_attempt_in_the_metadata_still_fails_beside_a_body_provider() -> None:
+    body = completion(attempt=2)
+    body["provider"] = "CoreWeave"
+    with pytest.raises(LLMProviderMismatchError, match="attempt 2"):
+        await provider(Recorder(body)).generate(messages=MESSAGES)
+
+
 async def test_the_generation_id_falls_back_to_the_response_header() -> None:
     body = completion()
     del body["id"]
@@ -281,6 +322,15 @@ def test_the_served_name_matches_the_pinned_slug(served: str, expected: list[str
     routing = ProviderRouting(order=expected)
     prov = {"served_provider": served, "attempt": 1}
     assert check_pinned_route(prov, routing) is None
+
+
+def test_an_absent_attempt_is_accepted_when_the_provider_is_pinned() -> None:
+    """With fallbacks off and one provider named, a matching server is enough; only a reported
+    attempt above 1 shows a fallback."""
+    routing = ProviderRouting(order=["coreweave"])
+    assert check_pinned_route({"served_provider": "CoreWeave", "attempt": None}, routing) is None
+    assert check_pinned_route({"served_provider": "CoreWeave"}, routing) is None
+    assert check_pinned_route({"served_provider": "CoreWeave", "attempt": 0}, routing) is not None
 
 
 @pytest.mark.parametrize("served", ["DeepInfra", "core", "", None])

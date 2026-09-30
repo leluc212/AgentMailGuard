@@ -68,6 +68,7 @@ class RunFacts:
     live: bool  # transport services-v2: every service ran and triage decided what reached drafting
     embedding_mock: bool
     embedding_model: str | None
+    route: dict[str, Any] | None = None  # the OpenRouter pin and provenance totals, when routed
 
 
 def run_facts(run_dir: Path) -> RunFacts:
@@ -76,12 +77,22 @@ def run_facts(run_dir: Path) -> RunFacts:
     live = meta.get("live_layers") or {}
     off = [name for key, name in GUARD_LLM_STAGES.items() if key in live and not live[key]]
     embedding = meta.get("embedding") or {}
+    pin = (meta.get("generation") or {}).get("provider_routing")
+    totals = [
+        (inv.get("summary") or {}).get("provenance")
+        for inv in meta.get("invocations") or []
+        if isinstance(inv, dict)
+    ]
+    route = (
+        {"pin": pin, "provenance": next((t for t in reversed(totals) if t), None)} if pin else None
+    )
     return RunFacts(
         model=str(meta.get("generation_model") or "unknown"),
         stages_off=off,
         live=meta.get("transport") == LIVE_TRANSPORT,
         embedding_mock=bool(embedding.get("mock", meta.get("embedding_mock"))),
         embedding_model=str(embedding["model"]) if embedding.get("model") else None,
+        route=route,
     )
 
 
@@ -210,6 +221,7 @@ def run_analyses(
             live=facts.live,
             embedding_mock=facts.embedding_mock,
             embedding_model=facts.embedding_model,
+            route=facts.route,
         ),
     ]
     path = run_dir / "analyses.md"

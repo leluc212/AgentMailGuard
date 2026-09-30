@@ -85,6 +85,7 @@ from evaluation.mailguard_bench.route import (
     expected_guard_route,
     provenance_summary,
     route_meta,
+    stop_message,
 )
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from packages.core.settings import AppSettings, LLMTiersSettings
@@ -769,7 +770,7 @@ async def run(args: argparse.Namespace) -> int:
         f"{summary.skipped} already recorded -> {store.path}"
     )
     if summary.stopped:
-        print(f"STOP {args.config}: {summary.stopped}; run again to resume", file=sys.stderr)
+        print(stop_message(args.config, summary.stopped), file=sys.stderr)
         return 1
     return 0
 

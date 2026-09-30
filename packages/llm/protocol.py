@@ -48,6 +48,9 @@ class CallProvenance:
     completion_tokens: int = 0
     cost: float | None = None  # USD, as the router billed the call
     finish_reason: str | None = None
+    # the response field that named the provider (openrouter_metadata.endpoints | .summary, or
+    # response.provider, the body's top-level field, when the metadata names none)
+    provider_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-ready form, as a result row and the run meta store it."""

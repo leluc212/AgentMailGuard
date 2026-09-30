@@ -73,7 +73,7 @@ def test_transient_and_unknown_failures_are_retried(exc: Exception) -> None:
 
 def _mismatch() -> LLMProviderMismatchError:
     return LLMProviderMismatchError(
-        "provider_mismatch: served by 'Together', pinned to ['phala'] (model qwen/qwen-2.5-7b-instruct)",
+        "provider_mismatch: served by 'Together', pinned to ['phala'] (model qwen/qwen-2.5-7b)",
         expected=("phala",),
         served="Together",
         provenance=CallProvenance(requested_model="qwen/qwen-2.5-7b-instruct"),
@@ -95,9 +95,7 @@ def test_a_402_that_is_not_the_in_flight_budget_is_dead_lettered(source: str | N
 
 
 def test_the_transient_in_flight_402_is_still_retried() -> None:
-    exc = LLMResponseError(
-        "HTTP 402", status_code=402, limit_source="openrouter_in_flight_budget"
-    )
+    exc = LLMResponseError("HTTP 402", status_code=402, limit_source="openrouter_in_flight_budget")
     assert classify_generation_failure(exc, job_state=None).disposition is Disposition.RETRY
 
 

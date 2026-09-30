@@ -100,7 +100,7 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
-from evaluation.mailguard_bench.route import RouteBreaker
+from evaluation.mailguard_bench.route import RouteBreaker, stop_message
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.runner import (
     ABLATION_SETS,
@@ -1209,7 +1209,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
         f"{summary.skipped} already recorded -> {store.path}"
     )
     if summary.stopped:
-        print(f"STOP {args.config}: {summary.stopped}; run again to resume", file=sys.stderr)
+        print(stop_message(args.config, summary.stopped), file=sys.stderr)
         return 1
     return 0
 

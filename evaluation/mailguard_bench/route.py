@@ -111,6 +111,19 @@ def route_failure(record: Mapping[str, Any]) -> str | None:
     return None
 
 
+def stop_message(config: str, reason: str) -> str:
+    """The line a run prints when the breaker stopped it, with how to go on.
+
+    The rows that tripped the stop are ``error`` rows, and a resume skips every recorded case,
+    so only ``--retry-errors`` runs those cases again.
+    """
+    return (
+        f"STOP {config}: {reason}; once the route serves again, run the same command again "
+        "with --retry-errors (the rows that tripped the stop are error rows, and a plain "
+        "resume skips them)"
+    )
+
+
 class RouteBreaker:
     """Trips after ``limit`` route failures in a row, or at the first ``no_credit``."""
 

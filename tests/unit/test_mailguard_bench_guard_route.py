@@ -102,6 +102,23 @@ async def test_a_judge_call_served_by_another_provider_is_recorded_as_a_violatio
     assert violation.startswith("provider_mismatch:") and "Groq" in violation
 
 
+async def test_a_judge_call_with_only_the_body_provider_field_is_verified_by_it() -> None:
+    profile = get_profile(PROFILES[1])
+    body = _guard_response(profile.model, "x")
+    del body["openrouter_metadata"]
+    body["provider"] = "CoreWeave"
+    provider, _ = _registry_provider(PROFILES[1], body)
+    counting = CountingProvider(provider)
+    counting.begin_case()
+
+    await counting.generate(messages=[ChatMessage(role="user", content="hi")], schema={})
+    snapshot = counting.snapshot()
+
+    assert snapshot["provenance"][0]["served_provider"] == "CoreWeave"
+    assert snapshot["provenance"][0]["provider_source"] == "response.provider"
+    assert "route_violations" not in snapshot
+
+
 def _probe_paths(monkeypatch: pytest.MonkeyPatch, provider: OpenAIProvider) -> Any:
     monkeypatch.setattr(
         guard_smoke,

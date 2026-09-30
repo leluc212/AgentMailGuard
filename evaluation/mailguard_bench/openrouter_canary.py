@@ -76,6 +76,7 @@ class CanaryReport:
     checks: dict[str, bool]
     problems: list[str] = field(default_factory=list)
     served_provider: str | None = None
+    provider_source: str | None = None
     generation_id: str | None = None
     cost_usd: float | None = None
     path: Path | None = None
@@ -200,6 +201,7 @@ async def run_canary(
         await client.aclose()
     if provenance is not None:
         report.served_provider = provenance.served_provider
+        report.provider_source = provenance.provider_source
         report.generation_id = provenance.generation_id
         report.cost_usd = provenance.cost
     if capture.response is not None:
@@ -251,7 +253,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{'ok  ' if passed else 'FAIL'} {name}")
     for problem in report.problems:
         print(f"FAIL {problem}", file=sys.stderr)
-    print(f"{profile.name}: served by {served}, cost {cost}, generation {report.generation_id}")
+    source = report.provider_source or "no field"
+    print(
+        f"{profile.name}: served by {served} (read from {source}), cost {cost}, "
+        f"generation {report.generation_id}"
+    )
     if report.path is not None:
         print(f"captured request and response (no key) in {report.path}")
     return 0 if report.ok else 1

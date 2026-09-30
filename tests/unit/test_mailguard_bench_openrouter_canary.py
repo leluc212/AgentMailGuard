@@ -98,6 +98,26 @@ async def test_a_call_served_by_the_pinned_provider_passes_and_is_captured(
     assert captured["checks"] == report.checks
 
 
+async def test_the_canary_names_the_field_that_named_the_provider(tmp_path: Path) -> None:
+    model = "meta-llama/llama-3.1-8b-instruct"
+    body = answer(model, "CoreWeave")
+    del body["openrouter_metadata"]
+    body["provider"] = "CoreWeave"
+    mock, _ = transport(body)
+
+    report = await run_canary(
+        get_profile("llama-3.1-8b-openrouter"),
+        llm_for("llama-3.1-8b-openrouter"),
+        transport=mock,
+        out_dir=tmp_path,
+    )
+
+    assert report.ok, report
+    assert report.provider_source == "response.provider"
+    captured = json.loads((tmp_path / "llama-3.1-8b-openrouter.json").read_text(encoding="utf-8"))
+    assert captured["provenance"]["provider_source"] == "response.provider"
+
+
 async def test_the_capture_never_holds_the_key(tmp_path: Path) -> None:
     mock, _ = transport(answer("qwen/qwen-2.5-7b-instruct", "Phala"))
     await run_canary(

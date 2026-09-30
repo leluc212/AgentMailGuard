@@ -39,6 +39,7 @@ from evaluation.mailguard_bench.route import (
     provenance_summary,
     route_failure,
     route_meta,
+    stop_message,
 )
 from evaluation.mailguard_bench.runner import generation_meta, run_cases
 from packages.core.settings import AppSettings, LLMTiersSettings, ProviderRouting
@@ -609,3 +610,138 @@ def test_the_runbook_section_names_the_profiles_the_canary_and_the_stop_rule() -
     }
     # step 1's key block is a different section, and the tests of §9.9 read it
     assert "BENCH_OPENROUTER_API_KEY=<your OpenRouter key>" in text
+
+
+def test_the_stop_message_says_a_resume_needs_retry_errors() -> None:
+    """The rows that tripped the stop are error rows; a plain resume skips recorded cases."""
+    message = stop_message("C0", "3 consecutive provider_mismatch errors")
+
+    assert message.startswith("STOP C0: 3 consecutive provider_mismatch errors")
+    assert "--retry-errors" in message
+
+
+# --- the report states the route and what the runs are not comparable with ----------------
+
+
+ROUTE_FACTS = {
+    "pin": {"order": ["phala"], "allow_fallbacks": False, "require_parameters": True},
+    "provenance": {
+        "calls": 12,
+        "by_provider": {"Phala": 12},
+        "fallback_attempts": 0,
+        "unverified": 0,
+        "cost_usd": 0.0042,
+    },
+}
+
+
+def test_a_routed_runs_limitations_state_the_pin_the_providers_and_the_comparability() -> None:
+    from evaluation.mailguard_bench.threat_model import render_threat_model
+
+    text = " ".join(render_threat_model("qwen/qwen-2.5-7b-instruct", route=ROUTE_FACTS).split())
+
+    assert "OpenRouter" in text
+    assert "phala" in text and "Phala: 12" in text
+    assert "0 fallback attempts" in text and "0 unverified" in text
+    assert "not comparable with the local 4-bit runs" in text
+
+
+def test_an_unrouted_runs_limitations_do_not_mention_openrouter() -> None:
+    from evaluation.mailguard_bench.threat_model import render_threat_model
+
+    assert "OpenRouter" not in render_threat_model("qwen2.5:7b-instruct")
+
+
+def test_the_run_facts_read_the_pin_and_the_served_providers_from_the_meta(
+    tmp_path: Path,
+) -> None:
+    from evaluation.mailguard_bench.analyses import run_facts
+
+    (tmp_path / "raw").mkdir()
+    meta = {
+        "generation_model": "qwen/qwen-2.5-7b-instruct",
+        "generation": {"provider_routing": ROUTE_FACTS["pin"], "response_metadata": True},
+        "invocations": [
+            {"summary": {"provenance": {"calls": 4, "by_provider": {"Phala": 4}}}},
+            {"summary": {"provenance": ROUTE_FACTS["provenance"]}},
+        ],
+    }
+    (tmp_path / "raw" / "C3.meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    assert run_facts(tmp_path).route == ROUTE_FACTS  # the latest invocation totals every row
+
+    meta.pop("generation")
+    (tmp_path / "raw" / "C3.meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    assert run_facts(tmp_path).route is None
+
+
+async def test_a_plain_resume_skips_the_rows_that_tripped_the_stop_and_retry_errors_reruns_them(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        EvalCase.from_dict({"case_id": f"c-{n}", "kind": "benign", "email": {"body_text": "x"}})
+        for n in range(5)
+    ]
+    store = ResultStore(tmp_path / "rows.jsonl")
+    calls: list[str] = []
+    serving = {"ok": False}
+
+    async def execute(case: EvalCase) -> dict[str, Any]:
+        calls.append(case.case_id)
+        if not serving["ok"]:
+            raise RuntimeError("provider_mismatch: served by 'Groq'")
+        return {"final_action": "reply"}
+
+    async def no_sleep(_: float) -> None:
+        return None
+
+    def go(**kw: Any) -> Any:
+        return run_cases(
+            cases,
+            execute,
+            store,
+            config_name="C0",
+            run_id="r",
+            policy=BackoffPolicy(max_attempts=1),
+            sleep=no_sleep,
+            breaker=RouteBreaker(),
+            **kw,
+        )
+
+    first = await go()
+    assert first.stopped is not None and calls == ["c-0", "c-1", "c-2"]
+
+    serving["ok"] = True
+    calls.clear()
+    plain = await go()
+    assert calls == ["c-3", "c-4"]  # the three error rows are skipped, as stop_message warns
+    assert plain.skipped == 3
+
+    calls.clear()
+    retried = await go(retry_errors=True)
+    assert sorted(calls) == ["c-0", "c-1", "c-2"]
+    assert retried.ok == 3
+
+
+def test_a_finished_invocation_records_the_served_providers_and_why_it_stopped(
+    tmp_path: Path,
+) -> None:
+    from evaluation.mailguard_bench.runner import RunSummary, add_route_summary
+
+    store = ResultStore(tmp_path / "rows.jsonl")
+    record = {
+        "case_id": "c-0",
+        "config": "C0",
+        "status": "ok",
+        "result": {"generation": {"provenance": [prov().to_dict()]}},
+    }
+    store.append(record)
+    invocation: dict[str, Any] = {}
+
+    add_route_summary(invocation, store, RunSummary(selected=1, stopped="3 consecutive x"))
+
+    assert invocation["stopped"] == "3 consecutive x"
+    assert invocation["provenance"]["by_provider"] == {"CoreWeave": 1}
+    bare: dict[str, Any] = {}
+    add_route_summary(bare, ResultStore(tmp_path / "none.jsonl"), RunSummary(selected=0))
+    assert bare == {}  # an unrouted run's summary keeps its old shape
