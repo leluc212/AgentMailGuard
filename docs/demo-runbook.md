@@ -372,6 +372,10 @@ make mailguard-cases
 
 This builds, or verifies against the committed `evaluation/datasets/mailguard/manifest.json`, the pinned case set (`cases.jsonl` is git-ignored, so a fresh checkout needs this before any `mailguard-bench`). The first `make mailguard-bench` of a `RUN` copies it into the run folder (`cases.jsonl`, `case_manifest.json`), and every later run of that `RUN` must bring the same set, so C0, C0T and C3 are paired on exactly the same emails.
 
+### 9.2a Run the whole unit suite with the guard (no model calls)
+
+Plain `make test-unit` and CI's first unit job skip about 260 tests that import the guard (the v2 layer wiring, the live guarded drafting, the guard stages, the report and scoring numbers). Run them before a merge to main and before a benchmark: `make mailguard-unit` (the guard on the import path, fake models, no network, no classifier). CI runs the same on the committed `agentmailguard/`. `make mailguard-test` runs one file only.
+
 ### 9.3 Check before spending quota
 
 In AI Studio, read the requests-per-minute and requests-per-day limits for `gemma-4-26b-a4b-it` (the Gemini API shows limits per project there). Then run:
