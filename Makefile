@@ -34,8 +34,8 @@ help:
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
 	@echo "  bench-doctor - Teammate kit: check this machine (Docker, Python, disk, keys in .env) before the first run; no model calls (task 7.23)"
 	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
-	@echo "  bench-run MODEL=<profile> [RUN=<id>] [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [READER=<model>] [DRY_RUN=1] - Teammate kit: one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes (task 7.23)"
-	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given; no model calls except the reader's (task 7.23)"
+	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes (task 7.23)"
+	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given (run it with LLM__PROVIDER and LLM__OPENAI_BASE_URL set inline: the reader is served by LLM__*); no model calls except the reader's (task 7.23)"
 	@echo "  bench-package RUN=<id> - Teammate kit: bench-results-<id>.zip of the run folder (raw/ included, never a key) and how to commit it to branch bench/<id> (task 7.23)"
 
 up:
@@ -210,7 +210,6 @@ mailguard-analyses:
 # modules themselves are pure Python and also run natively on Windows. CONCURRENCY stays an
 # argument only (the `unexport CONCURRENCY` above). CONFIGS empty: the kit's own default list.
 .PHONY: bench-doctor bench-setup bench-run bench-report bench-package
-BENCH_RUN = $(or $(RUN),$(shell date +%F)-$(MODEL)-live)
 
 bench-doctor:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.doctor
@@ -219,15 +218,15 @@ bench-setup:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign setup
 
 bench-run:
-	@test -n "$(MODEL)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> [RUN=<id>] [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [READER=<reader model>] [DRY_RUN=1]" >&2; exit 2; }
+	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run its own)" >&2; exit 2; }
+	@test -z "$(READER)" || { echo "FAIL READER= is not a bench-run option: the reader is served by LLM__* in the shell and bench-run refuses an exported LLM__*. Add the meaning column afterwards: LLM__PROVIDER=... LLM__OPENAI_BASE_URL=... make bench-report RUN=$(RUN) READER=<reader model>" >&2; exit 2; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign run \
 		--model-profile $(MODEL) \
-		--run $(BENCH_RUN) \
+		--run $(RUN) \
 		$(if $(CONFIGS),--configs $(CONFIGS)) \
 		$(if $(LIMIT),--limit $(LIMIT)) \
 		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY)) \
-		$(if $(READER),--reader $(READER)) \
-		$(if $(DRY_RUN),--dry-run)
+		$(if $(filter 1 yes true,$(DRY_RUN)),--dry-run)
 
 bench-report:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }

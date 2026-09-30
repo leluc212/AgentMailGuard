@@ -11,6 +11,7 @@ temporary git repository and .env. No docker, no model call, no network, no live
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from evaluation.mailguard_bench.kit import campaign
 from evaluation.mailguard_bench.kit.campaign import (
     DEFAULT_V2_CONFIGS,
     KitContext,
+    RunOptions,
     run_campaign,
 )
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
@@ -310,7 +312,24 @@ def test_ctrl_c_during_a_guarded_run_stops_the_worker_and_prints_the_resume_comm
     printed = "\n".join(bench.out + bench.err)
     assert "make bench-run MODEL=gpt-4o-mini RUN=r1 CONFIGS=C3 LIMIT=5 CONCURRENCY=2" in printed
     assert "-m evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini" in printed
+    # the module line needs the overlay (MAILGUARD_* and the editable guard): it says so
+    module_line = next(line for line in printed.splitlines() if "kit.campaign run" in line)
+    assert "overlay" in module_line
     assert [r["status"] for r in bench.kit_log() if r["step"] == "config"] == ["interrupted"]
+
+
+def test_a_second_ctrl_c_during_the_drain_still_kills_the_worker_and_removes_its_pid_file(
+    bench: Bench,
+) -> None:
+    # The worker runs in its own session: if the kit leaves without killing it, it keeps
+    # consuming the lane queues with ai-worker stopped, and the next run refuses to start.
+    bench.host.modes["C3"] = WorkerMode(stop="stuck", interrupt_wait=True)
+    assert run_campaign(bench.ctx, opts(configs=("C3",))) == 130
+    kinds = [kind for kind, _ in bench.host.events]
+    assert "kill" in kinds
+    assert bench.host.processes[0].exit_code is not None
+    assert not pid_file(bench, "C3").exists()
+    assert not list((bench.results_root / RUN / "raw").glob(".kit-stamp.*"))
 
 
 def test_ctrl_c_while_waiting_for_readiness_stops_the_worker_too(bench: Bench) -> None:
@@ -375,31 +394,22 @@ def test_the_reports_are_report_analyses_report_with_the_run_folder(bench: Bench
         assert cmd[cmd.index("--mailguard-dir") + 1] == "/guard"
 
 
-def test_the_meaning_column_runs_between_two_report_builds_when_a_reader_is_given(
-    bench: Bench,
-) -> None:
+def test_run_has_no_reader_because_the_shell_may_not_export_the_llm_settings_it_needs() -> None:
+    # The meaning reader is served by LLM__* from the process settings, and the run refuses an
+    # exported LLM__* (docker compose would let it win over the env file). So a reader on `run`
+    # could only fail after the whole campaign: it is a step of `report` (make bench-report).
+    assert "reader" not in {f.name for f in dataclasses.fields(RunOptions)}
+    with pytest.raises(SystemExit):
+        campaign.parse_args(
+            ["run", "--model-profile", "gpt-4o-mini", "--run", "x", "--reader", "some-reader"]
+        )
+    assert campaign.parse_args(["report", "--run", "x", "--reader", "r"]).reader == "r"
+
+
+def test_a_run_builds_the_reports_without_the_meaning_column(bench: Bench) -> None:
     bench.runner_outcomes({})
-    run_campaign(bench.ctx, opts(configs=("C0",), reader="gemini-2.5-flash"))
-    tail = sequence(bench.host)[-7:]
-    assert tail == [*REPORTS, "meaning", *REPORTS]
-    meaning = next(p for k, p in bench.host.events if k == "run" and label(p) == "meaning")
-    assert meaning[meaning.index("--reader-model") + 1] == "gemini-2.5-flash"
-    assert meaning[meaning.index("--run-dir") + 1] == str(bench.results_root / RUN)
-
-
-@pytest.mark.parametrize("reader", ["gpt-4o-mini", "qwen2.5:7b-instruct", "  LLAMA3.1:8B "])
-def test_a_benchmarked_reader_is_refused_before_anything_runs(bench: Bench, reader: str) -> None:
-    assert run_campaign(bench.ctx, opts(reader=reader)) == 2
-    assert bench.host.events == []
-    assert any("benchmarked model" in line for line in bench.err)
-    assert not (bench.repo / ".env.stack").exists()
-
-
-def test_the_reader_may_not_be_the_model_under_test_even_when_it_is_not_in_the_bench_list(
-    bench: Bench,
-) -> None:
-    assert run_campaign(bench.ctx, opts(reader="gemma-4-26b-a4b-it")) == 2
-    assert bench.host.events == []
+    run_campaign(bench.ctx, opts(configs=("C0",)))
+    assert "meaning" not in sequence(bench.host)
 
 
 def test_the_reports_are_skipped_when_a_config_failed_and_the_exit_code_says_so(
@@ -587,11 +597,11 @@ def test_dry_run_prints_every_command_and_touches_nothing(bench: Bench) -> None:
 
 def test_dry_run_prints_the_commands_a_real_run_executes(bench: Bench) -> None:
     ctx = KitContext(**{**bench.ctx.__dict__, "host": ExplodingHost()})
-    run_campaign(ctx, opts(dry_run=True, limit=3, reader="gemini-2.5-flash"))
+    run_campaign(ctx, opts(dry_run=True, limit=3))
     dry = [line.removeprefix("would run: ") for line in bench.out if line.startswith("would run: ")]
     bench.out.clear()
     bench.runner_outcomes({}, {})
-    assert run_campaign(bench.ctx, opts(limit=3, reader="gemini-2.5-flash")) == 0
+    assert run_campaign(bench.ctx, opts(limit=3)) == 0
     real = [
         " ".join(p["command"] if isinstance(p, dict) else p)
         for kind, p in bench.host.events
@@ -617,10 +627,9 @@ def test_dry_run_lists_finished_configs_as_skipped(bench: Bench) -> None:
 def test_the_command_line_defaults_to_the_v2_configs_and_one_worker() -> None:
     args = campaign.parse_args(["run", "--model-profile", "gpt-4o-mini", "--run", "x"])
     assert tuple(args.configs) == DEFAULT_V2_CONFIGS
-    assert (args.concurrency, args.gw_wait_s, args.limit, args.reader, args.dry_run) == (
+    assert (args.concurrency, args.gw_wait_s, args.limit, args.dry_run) == (
         1,
         300.0,
-        None,
         None,
         False,
     )

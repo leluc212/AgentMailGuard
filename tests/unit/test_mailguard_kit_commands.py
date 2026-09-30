@@ -278,6 +278,22 @@ def test_the_zip_is_refused_when_a_key_is_in_any_file(bench: Bench) -> None:
     assert not (bench.repo / f"bench-results-{RUN}.zip").exists()
 
 
+@pytest.mark.parametrize(
+    "name", ["POSTGRES_PASSWORD", "RABBITMQ_TOKEN", "APP_SECRET", "SIGNING_KEY", "X_API_KEY"]
+)
+def test_the_zip_is_refused_for_any_secret_shaped_setting_not_only_api_keys(
+    bench: Bench, name: str
+) -> None:
+    value = "correct-horse-battery"
+    run_dir = _populate(bench)
+    (run_dir / "raw" / "C0.jsonl").write_text(f'{{"err": "{value}"}}\n', "utf-8")
+    ctx = KitContext(**{**bench.ctx.__dict__, "environ": {**bench.ctx.environ, name: value}})
+    assert run_package(ctx, RUN) == 1
+    message = "\n".join(bench.err)
+    assert "raw/C0.jsonl" in message and value not in message
+    assert not (bench.repo / f"bench-results-{RUN}.zip").exists()
+
+
 def test_the_package_prints_how_to_commit_the_tracked_outputs_to_a_bench_branch(
     bench: Bench,
 ) -> None:

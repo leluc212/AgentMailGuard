@@ -44,6 +44,7 @@ class WorkerMode:
     start: str = "ready"  # ready | crash | never-ready | late
     stop: str = "graceful"  # graceful | leaves-pid | stuck | unkillable
     ready_after_s: float = 5.0
+    interrupt_wait: bool = False  # a second Ctrl+C / SIGTERM arrives while the drain is awaited
 
 
 class FakeProcess:
@@ -82,6 +83,9 @@ class FakeProcess:
         return self.exit_code
 
     def wait(self, timeout: float) -> int:
+        if self.exit_code is None and self.mode.interrupt_wait:
+            self.mode.interrupt_wait = False
+            raise KeyboardInterrupt
         if self.exit_code is None:
             raise subprocess.TimeoutExpired("worker", timeout)
         return self.exit_code
@@ -283,7 +287,6 @@ def opts(**changes: Any) -> RunOptions:
         "concurrency": 1,
         "gw_wait_s": 300.0,
         "stack_wait_s": 600.0,
-        "reader": None,
         "dry_run": False,
     }
     return RunOptions(**{**base, **changes})

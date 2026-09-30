@@ -18,7 +18,8 @@ rag-email's environment, which every subprocess inherits (``sys.executable -m ..
                                     ─▶ wait: pid file newer than the start AND /readyz answers
                                     ─▶ live.run ─▶ stop it and confirm it exited
           one retry pass over the configs that failed or left error rows
-          reports: report, analyses, report; with --reader also the meaning column, then again
+          reports: report, analyses, report (the meaning column is ``report --reader``: its
+                   LLM__* settings may not be exported during a run, so it is not part of one)
 
 It is pure Python: no bash, so it runs natively on Windows as well (the stop signal of the
 guard-worker is chosen by ``kit/system.py``). It never starts a model call of its own; the
@@ -97,7 +98,7 @@ TRACKED_OUTPUTS = (
     "ollama-state.txt",
 )
 """What demo-runbook section 9.7 commits, plus the kit log; ``raw/`` stays out of git."""
-SECRET_NAME_SUFFIX = "API_KEY"
+SECRET_NAME_SUFFIXES = ("_KEY", "_SECRET", "_TOKEN", "_PASSWORD")
 MIN_SECRET_LENGTH = 8
 
 
@@ -130,7 +131,6 @@ class RunOptions:
     concurrency: int = 1
     gw_wait_s: float = DEFAULT_GW_WAIT_S
     stack_wait_s: float = DEFAULT_STACK_WAIT_S
-    reader: str | None = None
     dry_run: bool = False
     stop_wait_s: float = DEFAULT_STOP_WAIT_S
 
@@ -159,14 +159,12 @@ def resume_commands(options: RunOptions) -> list[str]:
         f"make bench-run MODEL={options.model_profile} RUN={options.run} CONFIGS={configs}"
         + (f" LIMIT={options.limit}" if options.limit is not None else "")
         + f" CONCURRENCY={options.concurrency}"
-        + (f" READER={options.reader}" if options.reader else "")
     )
     module = (
         "python -m evaluation.mailguard_bench.kit.campaign run "
         f"--model-profile {options.model_profile} --run {options.run} --configs {configs}"
         + (f" --limit {options.limit}" if options.limit is not None else "")
         + f" --concurrency {options.concurrency}"
-        + (f" --reader {options.reader}" if options.reader else "")
     )
     return [make, module]
 
@@ -305,9 +303,7 @@ class _Campaign:
                     f"WARN {', '.join(with_errors)} still have error rows after the retry pass; "
                     "rerun the same command to retry them"
                 )
-            status = _build_reports(
-                self.ctx, self.run_dir, self.opts.reader, self.log, dry=self.dry
-            )
+            status = _build_reports(self.ctx, self.run_dir, None, self.log, dry=self.dry)
             if status == 0 and not self.dry:
                 self.ctx.out(
                     f"ok reports in {self.run_dir}. Next model: its own `make bench-run`. "
@@ -329,7 +325,7 @@ class _Campaign:
     def _refusals(self) -> list[str]:
         opts, problems = self.opts, []
         try:
-            profile = model_profiles.get_profile(opts.model_profile)
+            model_profiles.get_profile(opts.model_profile)
         except model_profiles.ModelProfileError as exc:
             return [str(exc)]
         if not opts.configs:
@@ -351,13 +347,12 @@ class _Campaign:
                 "win over every env file, so the containers would not get the settings of "
                 "this run. `unset` them (demo-runbook section 9.9 step 1)"
             )
-        problems.extend(reader_problems(opts.reader, [profile.model]))
         return problems
 
     def _print_resume(self, *, stream: Callable[[str], None]) -> None:
         make, module = resume_commands(self.opts)
         stream(f"  {make}")
-        stream(f"  {module}")
+        stream(f"  native Windows, inside the guide's overlay: {module}")
 
     # -- the stack ---------------------------------------------------------------------------
 
@@ -614,27 +609,49 @@ class _Campaign:
         this worker's (newer than the stamp). Windows ends the worker on CTRL_BREAK_EVENT before
         its own ``finally`` removes the file, so a stale file is expected there.
         """
+        interrupted = False
         if proc.poll() is None:
-            proc.request_stop(_fresh_pid(pid, stamp))
             try:
+                proc.request_stop(_fresh_pid(pid, stamp))
                 proc.wait(self.opts.stop_wait_s)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                try:
-                    proc.wait(10)
-                except subprocess.TimeoutExpired:
-                    return (
-                        f"guard-worker {config} (pid {proc.pid}) did not exit after a stop "
-                        f"request and a kill; its pid file {pid} is left in place. Stop the "
-                        "process by hand before any other run: two consumers split the lanes"
-                    )
                 self.ctx.err(
                     f"WARN guard-worker {config} did not stop within "
                     f"{self.opts.stop_wait_s:g} s and was killed"
                 )
+                problem = self._kill_worker(config, proc, pid)
+                if problem:
+                    return problem
+            except KeyboardInterrupt:
+                # A second Ctrl+C or SIGTERM while the drain is awaited. The worker has its own
+                # session, so leaving now would leave it consuming the lane queues with ai-worker
+                # stopped: finish the stop the hard way, then let the interrupt through.
+                interrupted = True
+                self.ctx.err(
+                    f"WARN interrupted again: guard-worker {config} is killed, not drained"
+                )
+                problem = self._kill_worker(config, proc, pid)
+                if problem:
+                    self.ctx.err(f"FAIL {problem}")
+                    raise
         if _fresh_pid(pid, stamp) is not None:
             pid.unlink(missing_ok=True)
         stamp.unlink(missing_ok=True)
+        if interrupted:
+            raise KeyboardInterrupt
+        return None
+
+    def _kill_worker(self, config: str, proc: ProcessHandle, pid: Path) -> str | None:
+        """Kill the guard-worker; the problem text when it still did not exit."""
+        proc.kill()
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            return (
+                f"guard-worker {config} (pid {proc.pid}) did not exit after a stop request and "
+                f"a kill; its pid file {pid} is left in place. Stop the process by hand before "
+                "any other run: two consumers split the lanes"
+            )
         return None
 
 
@@ -779,7 +796,7 @@ def _secret_values(ctx: KitContext) -> dict[str, str]:
     return {
         name: value.strip()
         for name, value in environ.items()
-        if name.upper().endswith(SECRET_NAME_SUFFIX) and len(value.strip()) >= MIN_SECRET_LENGTH
+        if name.upper().endswith(SECRET_NAME_SUFFIXES) and len(value.strip()) >= MIN_SECRET_LENGTH
     }
 
 
@@ -874,11 +891,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="seconds the containers may take to be healthy (default: %(default)g)",
     )
     run.add_argument(
-        "--reader",
-        default=None,
-        help="the meaning column's reader model; never a benchmarked model (ADR-0012 decision 7)",
-    )
-    run.add_argument(
         "--dry-run", action="store_true", help="print every command; run nothing, needs no docker"
     )
 
@@ -929,7 +941,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         concurrency=args.concurrency,
                         gw_wait_s=args.gw_wait_s,
                         stack_wait_s=args.stack_wait_s,
-                        reader=args.reader,
                         dry_run=args.dry_run,
                     ),
                 )

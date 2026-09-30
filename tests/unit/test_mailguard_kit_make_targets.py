@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -54,7 +53,7 @@ def test_the_targets_run_under_the_overlay_of_the_mailguard_targets() -> None:
     for target, args in (
         ("bench-doctor", []),
         ("bench-setup", []),
-        ("bench-run", ["MODEL=gpt-4o-mini"]),
+        ("bench-run", ["MODEL=gpt-4o-mini", "RUN=x"]),
         ("bench-report", ["RUN=x"]),
         ("bench-package", ["RUN=x"]),
     ):
@@ -68,15 +67,41 @@ def test_doctor_and_setup_run_their_modules() -> None:
     assert f"python {CAMPAIGN} setup" in dry("bench-setup")
 
 
-def test_bench_run_defaults_the_run_to_the_date_the_profile_and_live() -> None:
-    printed = dry("bench-run", "MODEL=qwen2.5-7b")
+def test_bench_run_needs_a_run_id_so_a_resume_after_midnight_never_starts_a_new_run() -> None:
+    # A run id with today's date in it, made by default, would change at midnight: a three-model
+    # campaign spans days, and a smoke run without RUN would land in the real run's folder.
+    result = make("bench-run", "MODEL=qwen2.5-7b", check=False)
+    assert result.returncode == 2
+    text = result.stdout + result.stderr
+    assert text.startswith("usage: make bench-run")
+    assert "RUN=<id>" in text
+    assert "kit.campaign" not in text
+
+
+def test_bench_run_passes_the_model_and_the_run_to_the_kit() -> None:
+    printed = dry("bench-run", "MODEL=qwen2.5-7b", "RUN=r1")
     assert f"python {CAMPAIGN} run" in printed
     assert "--model-profile qwen2.5-7b" in printed
-    assert f"--run {date.today().isoformat()}-qwen2.5-7b-live" in printed
+    assert "--run r1" in printed
+
+
+def test_bench_run_refuses_a_reader_and_points_to_bench_report() -> None:
+    result = make("bench-run", "MODEL=gpt-4o-mini", "RUN=r", "READER=some-reader", check=False)
+    assert result.returncode != 0
+    text = result.stdout + result.stderr
+    assert "bench-report" in text
+    assert "kit.campaign" not in text
+
+
+def test_dry_run_is_on_for_1_yes_true_and_off_for_anything_else() -> None:
+    for on in ("1", "yes", "true"):
+        assert "--dry-run" in dry("bench-run", "MODEL=m", "RUN=r", f"DRY_RUN={on}"), on
+    for off in ("0", "false", "no", ""):
+        assert "--dry-run" not in dry("bench-run", "MODEL=m", "RUN=r", f"DRY_RUN={off}"), off
 
 
 def test_bench_run_leaves_the_configs_to_the_kit_unless_given() -> None:
-    printed = dry("bench-run", "MODEL=gpt-4o-mini")
+    printed = dry("bench-run", "MODEL=gpt-4o-mini", "RUN=r")
     for flag in ("--configs", "--limit", "--concurrency", "--reader", "--dry-run"):
         assert flag not in printed, flag  # the kit's one constant is the default list
 
@@ -89,14 +114,12 @@ def test_bench_run_passes_what_it_is_given() -> None:
         "CONFIGS=C0,C3",
         "LIMIT=5",
         "CONCURRENCY=2",
-        "READER=some-reader",
         "DRY_RUN=1",
     )
     assert "--run 2026-10-02-gpt4omini-live" in printed
     assert "--configs C0,C3" in printed
     assert "--limit 5" in printed
     assert "--concurrency 2" in printed
-    assert "--reader some-reader" in printed
     assert "--dry-run" in printed
 
 
