@@ -1074,7 +1074,8 @@ def test_the_live_meta_records_the_prices_and_the_utility_rule_outside_the_finge
 
     meta = _meta("C3")
 
-    assert prices_from_meta(meta) == dict(AppSettings().llm.price_table)
+    # the same settings _meta builds from: never the machine's own `.env`
+    assert prices_from_meta(meta) == dict(AppSettings(_env_file=None).llm.price_table)
     assert meta["benign_utility_rule"] == UTILITY_RULE_MIN_DRAFT_CHARS
     assert strict_utility_from_meta(meta) is True
     assert "prices" not in meta["fingerprint"]
