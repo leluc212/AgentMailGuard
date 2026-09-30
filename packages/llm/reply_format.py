@@ -1,6 +1,6 @@
 """The reply-format rules: one source, rendered into both the native and the guarded prompt.
 
-rag-email's own prompt (``prompts/*.v2.j2``) ends with numbered instructions. The first two are
+rag-email's own prompt (``prompts/*.v[23].j2``) ends with numbered instructions. The first two are
 specific to a profile; the rest tell the model *how to answer*: cite the knowledge chunks it used
 and conform to the reply JSON schema. Those rules live here. The templates render them through the
 ``reply_format_rules`` Jinja global (``AgentProfileRegistry``), and the benchmark's guarded prompt

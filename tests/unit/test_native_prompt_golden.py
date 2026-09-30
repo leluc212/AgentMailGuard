@@ -29,6 +29,12 @@ from packages.llm.profile import DEFAULT_ENTERPRISE_INSTRUCTIONS, AgentProfileRe
 GOLDEN = Path(__file__).parent / "golden" / "native_prompt"
 REGISTRY_PATH = "config/agent_profiles.yaml"
 PROFILES = ("technical_support", "billing", "sales", "general_inquiry")
+STEMS = {
+    "technical_support": "support",
+    "billing": "billing",
+    "sales": "sales",
+    "general_inquiry": "general",
+}
 AS_OF = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 ORG = UUID("00000000-0000-0000-0000-0000000000a1")
 
@@ -95,8 +101,15 @@ def package(*, full: bool) -> ContextPackage:
 
 @pytest.mark.parametrize("full", [True, False], ids=["full_context", "email_only"])
 @pytest.mark.parametrize("profile", PROFILES)
-def test_native_prompt_is_byte_identical_to_the_pre_move_golden(profile: str, full: bool) -> None:
+def test_v2_native_prompt_is_byte_identical_to_the_pre_move_golden(
+    profile: str, full: bool
+) -> None:
     registry = AgentProfileRegistry.from_yaml(REGISTRY_PATH)
-    rendered = registry.render_prompt(profile, package(full=full))
+    active = registry.get_profile(profile)
+    assert active is not None
+    # The goldens pin the v2 templates, which stay on disk for the runs that recorded them. The
+    # active profiles moved to v3 (task 7.27); test_reply_prompt_task_line.py pins those.
+    v2 = active.model_copy(update={"prompt_template": f"prompts/{STEMS[profile]}.v2.j2"})
+    rendered = registry.render_prompt(v2, package(full=full))
     golden = (GOLDEN / f"{profile}.{'full' if full else 'email_only'}.txt").read_bytes()
     assert rendered.encode("utf-8") == golden

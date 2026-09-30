@@ -103,7 +103,7 @@ async def test_c0_record_has_the_runner_row_shape_with_no_guard() -> None:
     assert record["detected_layers"] == [] and record["l3b_quarantined"] == []
     assert record["generation"]["called"] is True
     assert record["generation"]["calls"] == 1
-    assert record["generation"]["prompt_version"] == "support.v2"
+    assert record["generation"]["prompt_version"] == "support.v3"
     assert record["generation"]["reply_v1"] == REPLY
     assert record["draft"] == {
         "action": "forward",
