@@ -11,11 +11,12 @@ from __future__ import annotations
 import importlib.util
 import re
 import shlex
+from collections.abc import Sequence
 
 import pytest
 
-from evaluation.mailguard_bench.guard_env import REPO_ROOT, V2_MAILGUARD_COMMIT
-from evaluation.mailguard_bench.kit import doctor
+from evaluation.mailguard_bench.guard_env import REPO_ROOT, V2_MAILGUARD_COMMIT, GuardEnvError
+from evaluation.mailguard_bench.kit import doctor, pinned
 from evaluation.mailguard_bench.live import stack_env
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT
 from evaluation.mailguard_bench.model_profiles import PROFILES
@@ -120,3 +121,85 @@ def test_the_campaign_commands_of_the_native_guide_parse() -> None:
     assert lines
     for line in lines:
         campaign.parse_args(shlex.split(line.replace("<your reader model>", "reader-x")))
+
+
+# --- the guide's order, and the commands it names exist -----------------------------------------
+
+
+def _blocks(text: str) -> list[str]:
+    # only blocks with a language (bash, powershell): the overview diagram has none
+    return re.findall(r"```[a-z]+\n(.*?)```", text, flags=re.DOTALL)
+
+
+def _first_block_with(text: str, needles: Sequence[str]) -> int:
+    for position, block in enumerate(_blocks(text)):
+        if any(needle in block for needle in needles):
+            return position
+    raise AssertionError(f"no block of the guide holds any of {needles}")
+
+
+def test_the_guards_fix_is_in_the_guide_before_the_first_doctor_run() -> None:
+    def refuse(path: object, commit: str) -> None:
+        raise GuardEnvError("worktree not found")
+
+    hint = doctor.check_guard(refuse, REPO_ROOT / "nowhere", "0" * 40).hint
+    [command] = re.findall(r"`(make [a-z\-]+)`", hint)
+    assert command != "make bench-setup"  # which only checks the worktree
+    fix = _first_block_with(GUIDE, [command])
+    first_doctor = _first_block_with(GUIDE, ["bench-doctor", "kit.doctor"])
+    assert fix < first_doctor, "the teammate would run the doctor before the fix it asks for"
+    native_fix = _first_block_with(NATIVE, ["git worktree add"])
+    assert native_fix < _first_block_with(NATIVE, ["kit.doctor"])
+
+
+def test_the_guide_points_the_runners_at_the_pinned_classifier_before_the_first_doctor_run() -> (
+    None
+):
+    folder = pinned.PINNED.classifier.path.parent.as_posix()
+    want = re.compile(rf"{doctor.ARTIFACTS_ENV}\s*=")
+    for text in (GUIDE, NATIVE):
+        blocks = _blocks(text)
+        position = next(i for i, b in enumerate(blocks) if want.search(b))
+        assert folder.replace("/", "\\") in blocks[position] or folder in blocks[position]
+        assert position < _first_block_with(text, ["bench-doctor", "kit.doctor"])
+
+
+def make_problems(guide: str, makefile: str) -> list[str]:
+    """Every `make bench-*` line of a guide needs its target and its variables in the Makefile."""
+    targets = set(re.findall(r"^(bench-[a-z]+)\s*:", makefile, flags=re.MULTILINE))
+    problems: list[str] = []
+    for line in guide.splitlines():
+        for target, rest in re.findall(r"make (bench-[a-z]+)((?: [^`\s]+)*)", line):
+            if target not in targets:
+                problems.append(f"target {target} is not in the Makefile")
+            for variable in re.findall(r"\b([A-Z]+)=", rest):
+                if f"$({variable})" not in makefile:
+                    problems.append(f"variable {variable} of {target} is not in the Makefile")
+    return sorted(set(problems))
+
+
+def test_the_make_target_check_finds_a_missing_target_and_a_missing_variable() -> None:
+    run = "make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-x CONCURRENCY=2"
+    guide = f"```bash\n{run}\nmake bench-gone\n```\n"
+    makefile = "bench-run:\n\t@echo $(MODEL) $(RUN)\n"
+    assert make_problems(guide, makefile) == [
+        "target bench-gone is not in the Makefile",
+        "variable CONCURRENCY of bench-run is not in the Makefile",
+    ]
+    assert make_problems(guide, makefile + "bench-gone:\n\t@echo $(CONCURRENCY)\n") == []
+
+
+def test_the_guides_name_make_targets_at_all() -> None:
+    names = set(re.findall(r"make (bench-[a-z]+)", GUIDE))
+    assert {"bench-doctor", "bench-setup", "bench-run", "bench-report", "bench-package"} <= names
+
+
+MAKEFILE = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    not re.search(r"^bench-doctor\s*:", MAKEFILE, flags=re.MULTILINE),
+    reason="the bench-* Make targets arrive with work packages R6a and R7; this runs once merged",
+)
+def test_every_make_target_and_variable_the_guides_name_is_in_the_makefile() -> None:
+    assert make_problems(GUIDE + NATIVE, MAKEFILE) == []

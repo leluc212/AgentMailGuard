@@ -23,6 +23,7 @@ import io
 import json
 import os
 import platform as platform_module
+import posixpath
 import re
 import shutil
 import socket
@@ -46,6 +47,7 @@ from evaluation.mailguard_bench.guard_env import (
     REPO_ROOT,
     GuardEnvError,
     require_pinned_worktree,
+    sha256_file,
 )
 from evaluation.mailguard_bench.kit import pinned
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT as GUARD_WORKER_PORT
@@ -60,6 +62,7 @@ from evaluation.mailguard_bench.live.stack_env import (
 )
 from evaluation.mailguard_bench.meaning import reader_model_problems
 from evaluation.mailguard_bench.model_profiles import (
+    BENCH_MODELS,
     PROFILES,
     ModelProfile,
     ModelProfileError,
@@ -143,6 +146,7 @@ class World:
     installed_sklearn: str | None
     require_guard: Callable[[Path, str], object]
     pinned_problems: Callable[[], list[str]]
+    file_sha256: Callable[[Path], str | None]
 
 
 # --- platform ----------------------------------------------------------------------------------
@@ -367,19 +371,27 @@ def parse_compose_ps(stdout: str) -> set[int]:
 # --- disk, tools, python -----------------------------------------------------------------------
 
 
-def check_disk(label: str, path: str, free: int | None) -> Result:
-    """At least 25 GB free (the images, the models and the run folders)."""
+_FREE_SPACE_HINT = (
+    "free some space; the first build of the images and the Ollama models are the big downloads"
+)
+
+
+def check_disk(label: str, path: str, free: int | None, hint: str = _FREE_SPACE_HINT) -> Result:
+    """At least 25 GB free (the images, the models and the run folders).
+
+    A disk that cannot be measured is a warning, not a pass: the doctor has not seen the space.
+    """
     if free is None:
-        return Result(Status.OK, label, f"cannot be measured from here ({path})")
-    detail = f"{free / 1e9:.1f} GB free at {path} (25 GB wanted)"
-    if free < MIN_FREE_DISK_BYTES:
         return Result(
             Status.WARN,
             label,
-            detail,
-            "free some space; the first build of the images and the Ollama models are the big "
-            "downloads",
+            f"cannot be measured from here ({path})",
+            "check the free space yourself: about 25 GB are needed for the images, the models "
+            "and the run folders",
         )
+    detail = f"{free / 1e9:.1f} GB free at {path} (25 GB wanted)"
+    if free < MIN_FREE_DISK_BYTES:
+        return Result(Status.WARN, label, detail, hint)
     return Result(Status.OK, label, detail)
 
 
@@ -423,6 +435,19 @@ def check_env_file(exists: bool) -> Result:
         ".env",
         "missing",
         f"`cp .env.example .env`, then set the keys ({GUIDE}, part C); never share or commit it",
+    )
+
+
+def check_env_encoding(env_text: str | None) -> Result | None:
+    """A byte order mark (some Windows editors write one) glues U+FEFF to the first name."""
+    if env_text is None or not env_text.startswith("\ufeff"):
+        return None
+    return Result(
+        Status.WARN,
+        ".env encoding",
+        "starts with a byte order mark (BOM); the doctor reads past it, other tools may not",
+        "save .env as UTF-8 without BOM (`nano` and VS Code's default do); in Ubuntu: "
+        "`sed -i '1s/^\\xEF\\xBB\\xBF//' .env`",
     )
 
 
@@ -569,7 +594,9 @@ def check_guard(require: Callable[[Path, str], object], directory: Path, commit:
             Status.FAIL,
             "AgentMailGuard",
             str(exc),
-            f"`make bench-setup` creates the worktree at the pinned commit ({GUIDE}, part D)",
+            "`make mailguard-worktree` creates the worktree at the pinned commit "
+            f"({GUIDE}, D1); on native Windows run the `git worktree add` lines of {NATIVE_GUIDE}, "
+            "section 3",
         )
     return Result(Status.OK, "AgentMailGuard", f"{directory} at {commit[:8]}, clean")
 
@@ -588,6 +615,81 @@ def check_pinned(problems: Sequence[str]) -> Result:
         "; ".join(problems),
         "they ship in git: `git status` shows what changed; restore them with `git checkout -- "
         "evaluation/datasets/mailguard evaluation/mailguard_bench/pinned` or clone again",
+    )
+
+
+ARTIFACTS_ENV = "MAILGUARD_ARTIFACTS"
+_ARTIFACTS_ASSIGNMENT = re.compile(rf"^{ARTIFACTS_ENV}\s*(?:\?=|:=|=)\s*(.*?)\s*(?:#.*)?$", re.M)
+_ABSPATH = re.compile(r"\$\(abspath\s+([^()$]*)\)")
+_ARTIFACTS_HINT = (
+    f'`export {ARTIFACTS_ENV}="$PWD/{pinned.PINNED.classifier.path.parent.as_posix()}"` in the '
+    f"shell that runs make (native Windows: {NATIVE_GUIDE}, section 3); {GUIDE}, D1"
+)
+
+
+def makefile_artifacts_default(makefile_text: str | None, repo_root: Path) -> Path | None:
+    """The folder the Makefile's ``MAILGUARD_ARTIFACTS ?=`` line names, when it is a plain path.
+
+    Only ``$(CURDIR)`` and ``$(abspath ...)`` are understood; anything else (a conditional, a
+    function) is not guessed at: the answer is None.
+    """
+    match = _ARTIFACTS_ASSIGNMENT.search(makefile_text or "")
+    if not match:
+        return None
+    value = match.group(1).replace("$(CURDIR)", repo_root.as_posix())
+    value = _ABSPATH.sub(lambda m: posixpath.normpath(m.group(1).strip()), value)
+    if not value or "$" in value:
+        return None
+    return Path(value)
+
+
+def check_artifacts(
+    environ: Mapping[str, str],
+    makefile_text: str | None,
+    repo_root: Path,
+    file_sha256: Callable[[Path], str | None],
+) -> Result:
+    """The classifier the runners read (``MAILGUARD_ARTIFACTS``) is the pinned one.
+
+    ``make`` takes the variable from the shell first, then from the Makefile's default; so does
+    this check, and it prints the folder it resolved. ``check_pinned`` verifies the copy in git,
+    this verifies the copy the run will load.
+    """
+    name = pinned.PINNED.classifier.path.name
+    source = f"${ARTIFACTS_ENV}"
+    folder: Path | None = Path(environ[ARTIFACTS_ENV]) if environ.get(ARTIFACTS_ENV) else None
+    if folder is None:
+        folder = makefile_artifacts_default(makefile_text, repo_root)
+        source = "the Makefile's default"
+    if folder is None:
+        return Result(
+            Status.WARN,
+            "classifier directory",
+            f"{ARTIFACTS_ENV} is not set and the Makefile's default could not be read, so the "
+            "folder the runners load the L1 classifier from is unknown",
+            f"set it: {_ARTIFACTS_HINT}",
+        )
+    found = file_sha256(folder / name)
+    if found is None:
+        return Result(
+            Status.FAIL,
+            "classifier directory",
+            f"{folder / name} is missing (folder from {source}); the runners would not find the "
+            "pinned L1 classifier",
+            f"point the runners at the copy in git: {_ARTIFACTS_HINT}",
+        )
+    if found != pinned.PINNED.classifier.sha256:
+        return Result(
+            Status.FAIL,
+            "classifier directory",
+            f"{folder / name} (folder from {source}) has sha256 {found}, the pinned one is "
+            f"{pinned.PINNED.classifier.sha256}; the runs would use another classifier",
+            f"point the runners at the copy in git: {_ARTIFACTS_HINT}",
+        )
+    return Result(
+        Status.OK,
+        "classifier directory",
+        f"{folder} (from {source}) holds the pinned {name}",
     )
 
 
@@ -676,6 +778,16 @@ def is_local_endpoint(url: str) -> bool:
     return address.is_loopback or address.is_private
 
 
+def _is_loopback(host: str) -> bool:
+    """``localhost`` or any loopback address (127.x.x.x, ::1)."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def model_listed(model: str, names: Sequence[str]) -> bool:
     """Whether Ollama's model list has ``model`` (a name without a tag means ``:latest``)."""
     return model in names or (":" not in model and f"{model}:latest" in names)
@@ -742,11 +854,7 @@ def check_ollama(
             f"{origin} answers (version {version_text}) but has no model {profile.model}",
             f"`ollama pull {profile.model}` in the shell where OLLAMA_HOST is set as in part E",
         )
-    host = urlsplit(url).hostname or ""
-    loopback = host == "localhost" or (
-        host.replace(".", "").isdigit() and ip_address(host).is_loopback
-    )
-    if loopback and platform in ("wsl2", "linux"):
+    if _is_loopback(urlsplit(url).hostname or "") and platform in ("wsl2", "linux"):
         return Result(
             Status.WARN,
             "ollama",
@@ -779,6 +887,25 @@ def check_gpu(nvidia_smi: str | None, *, local_model: bool | None) -> Result:
 # --- the reader --------------------------------------------------------------------------------
 
 
+_QUANT = re.compile(r"[-:_.]q\d+(?:_[a-z0-9]+)*$")
+_DATE = re.compile(r"[-_]?(?:\d{4}-\d{2}-\d{2}|\d{8})")
+_NOISE_TOKENS = frozenset({"instruct", "chat", "it", "latest", "fp16", "bf16"})
+
+
+def model_key(name: str) -> str:
+    """A model's family and size, without the spelling: ``qwen2.5:7b-instruct-q4_K_M``,
+    ``Qwen2.5-7B-Instruct`` and ``qwen2.5:7b`` are all ``qwen2.57b``.
+
+    Drops the provider prefix, a date suffix, a quantisation tag and ``instruct``/``chat``/
+    ``latest``, lowercases and joins what is left, so variants of one model compare equal while
+    another size or version (``gpt-4o`` against ``gpt-4o-mini``) does not.
+    """
+    text = name.strip().lower().rsplit("/", 1)[-1]
+    text = _DATE.sub("", _QUANT.sub("", text))
+    tokens = [t for t in re.split(r"[-:_\s]+", text) if t and t not in _NOISE_TOKENS]
+    return "".join(tokens)
+
+
 def check_reader(reader: str | None, profile: ModelProfile | None) -> Result:
     """The meaning column's reader is chosen and not a benchmarked model (ADR-0012 d. 7)."""
     if not reader:
@@ -791,6 +918,16 @@ def check_reader(reader: str | None, profile: ModelProfile | None) -> Result:
         )
     run_meta = {"this run": {"generation_model": profile.model}} if profile else {}
     problems = reader_model_problems(reader, run_meta)
+    if not problems:
+        # ADR-0012 decision 7 is about the model, not the string: a tag, a date or a quantisation
+        # of a benchmarked model is that model
+        key = model_key(reader)
+        for benchmarked in sorted(BENCH_MODELS):
+            if key and key == model_key(benchmarked):
+                problems.append(
+                    f"reader model {reader!r} is a variant of the benchmarked model "
+                    f"{benchmarked!r}; the reader must be independent of the models under test"
+                )
     if problems:
         return Result(
             Status.FAIL,
@@ -833,6 +970,19 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
     docker_root = info.get("DockerRootDir") if info else None
     if isinstance(docker_root, str):
         results.append(check_disk("docker disk", docker_root, world.free_bytes(docker_root)))
+    if platform == "wsl2":
+        # WSL2's disk is a virtual one: the drive that holds it is the real limit
+        c_free = world.free_bytes("/mnt/c")
+        if c_free is not None:
+            results.append(
+                check_disk(
+                    "windows drive (C:)",
+                    "/mnt/c",
+                    c_free,
+                    "the WSL virtual disk grows on this drive and cannot grow past its free "
+                    "space; free some space on C:",
+                )
+            )
 
     results.append(
         check_tool(
@@ -857,6 +1007,10 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
 
     env_text = world.read_text(root / ".env")
     results.append(check_env_file(env_text is not None))
+    encoding = check_env_encoding(env_text)
+    if encoding is not None:
+        results.append(encoding)
+        env_text = (env_text or "").removeprefix("\ufeff")
     merged = merge_env(env_text, world.environ)
     if env_text is not None:
         results.extend(check_env_keys(merged, profile))
@@ -868,6 +1022,9 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
     commit = world.environ.get("MAILGUARD_COMMIT") or DEFAULT_MAILGUARD_COMMIT
     results.append(check_guard(world.require_guard, guard_dir, commit))
     results.append(check_pinned(world.pinned_problems()))
+    results.append(
+        check_artifacts(world.environ, world.read_text(root / "Makefile"), root, world.file_sha256)
+    )
     results.append(check_sklearn(world.installed_sklearn))
 
     compose_text = world.read_text(root / "docker-compose.yml")
@@ -918,6 +1075,13 @@ def _free_bytes(path: str) -> int | None:
         return None
 
 
+def _file_sha256(path: Path) -> str | None:
+    try:
+        return sha256_file(path)
+    except OSError:
+        return None
+
+
 def _read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
@@ -943,6 +1107,7 @@ def real_world() -> World:
         installed_sklearn=pinned.installed_scikit_learn(),
         require_guard=require_pinned_worktree,
         pinned_problems=pinned.verify,
+        file_sha256=_file_sha256,
     )
 
 

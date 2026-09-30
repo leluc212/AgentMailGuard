@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from evaluation.mailguard_bench.guard_env import GuardEnvError, require_pinned_worktree
-from evaluation.mailguard_bench.kit import doctor
+from evaluation.mailguard_bench.kit import doctor, pinned
 from evaluation.mailguard_bench.kit.doctor import (
     CommandResult,
     HttpResult,
@@ -230,10 +230,43 @@ def test_disk_below_25_gb_is_a_warning() -> None:
     assert "10.0 GB" in low.detail and "25" in low.detail
 
 
-def test_disk_that_cannot_be_measured_is_said_so() -> None:
+def test_disk_that_cannot_be_measured_is_a_warning_not_a_pass() -> None:
     result = doctor.check_disk("Docker disk", "/var/lib/docker", None)
-    assert result.status is Status.OK
+    assert result.status is Status.WARN
     assert "cannot be measured" in result.detail
+    assert result.hint
+
+
+def test_wsl2_also_measures_the_windows_drive_that_holds_the_virtual_disk() -> None:
+    # the ext4 disk reports its virtual capacity (about 1 TB); the C: drive is the real limit
+    def free(path: str) -> int | None:
+        return {"/mnt/c": 12 * GB}.get(path, 900 * GB)
+
+    results = by_check(
+        doctor.run_checks(good_world(free_bytes=free), model_profile="gpt-4o-mini", reader=None)
+    )
+    windows = results["windows drive (C:)"]
+    assert windows.status is Status.WARN
+    assert "12.0 GB" in windows.detail and "/mnt/c" in windows.detail
+    assert results["repository disk"].status is Status.OK
+
+
+def test_wsl2_without_a_mounted_windows_drive_skips_that_check() -> None:
+    results = by_check(
+        doctor.run_checks(
+            good_world(free_bytes=lambda p: None if p == "/mnt/c" else 900 * GB),
+            model_profile="gpt-4o-mini",
+            reader=None,
+        )
+    )
+    assert "windows drive (C:)" not in results
+
+
+def test_a_linux_machine_has_no_windows_drive_check() -> None:
+    world = good_world(proc_version="Linux version 6.8.0-45-generic", free_bytes=lambda p: 50 * GB)
+    assert "windows drive (C:)" not in by_check(
+        doctor.run_checks(world, model_profile="gpt-4o-mini", reader=None)
+    )
 
 
 def test_tool_present_or_missing() -> None:
@@ -399,7 +432,10 @@ def test_the_guard_check_calls_guard_envs_own_function(tmp_path: Path) -> None:
     assert ok.status is Status.OK and commit[:8] in ok.detail
     wrong = doctor.check_guard(require_pinned_worktree, tmp_path / "guard", "0" * 40)
     assert wrong.status is Status.FAIL and "pinned commit" in wrong.detail
-    assert "make bench-setup" in wrong.hint
+    # the worktree is created by `make mailguard-worktree`; `make bench-setup` only checks it
+    assert "make mailguard-worktree" in wrong.hint
+    assert "make bench-setup" not in wrong.hint
+    assert "benchmark-windows-native.md" in wrong.hint
     (tmp_path / "guard" / "f").write_text("changed", encoding="utf-8")
     dirty = doctor.check_guard(require_pinned_worktree, tmp_path / "guard", commit)
     assert dirty.status is Status.FAIL and "uncommitted" in dirty.detail
@@ -571,6 +607,39 @@ def test_loopback_ollama_warns_that_containers_cannot_reach_it_on_docker_engine(
     assert "BENCH_OLLAMA_BASE_URL" in result.hint
 
 
+@pytest.mark.parametrize("host", ["[::1]", "127.0.0.1", "127.1.2.3", "localhost"])
+def test_every_loopback_spelling_warns_on_docker_engine(host: str) -> None:
+    url = f"http://{host}:11434"
+    result = doctor.check_ollama(
+        get_profile("qwen2.5-7b"),
+        {"BENCH_OLLAMA_BASE_URL": f"{url}/v1"},
+        "linux",
+        _fetch(
+            {
+                f"{url}/api/version": HttpResult(200, '{"version":"0.12.3"}'),
+                f"{url}/api/tags": HttpResult(200, TAGS),
+            }
+        ),
+    )
+    assert result is not None and result.status is Status.WARN, host
+
+
+def test_a_bridge_address_is_not_loopback() -> None:
+    url = "http://172.17.0.1:11434"
+    result = doctor.check_ollama(
+        get_profile("qwen2.5-7b"),
+        {"BENCH_OLLAMA_BASE_URL": f"{url}/v1"},
+        "wsl2",
+        _fetch(
+            {
+                f"{url}/api/version": HttpResult(200, '{"version":"0.12.3"}'),
+                f"{url}/api/tags": HttpResult(200, TAGS),
+            }
+        ),
+    )
+    assert result is not None and result.status is Status.OK
+
+
 def test_a_tagless_model_name_matches_its_latest_tag() -> None:
     assert doctor.model_listed("llama3.1", ["llama3.1:latest"])
     assert doctor.model_listed("llama3.1:8b", ["llama3.1:8b"])
@@ -633,6 +702,35 @@ def test_a_benchmarked_model_may_not_be_the_reader() -> None:
         assert "benchmarked model" in result.detail
 
 
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "qwen2.5:7b",
+        "Qwen2.5-7B-Instruct",
+        "qwen2.5:7b-instruct-q4_K_M",
+        "llama3.1:8b-instruct-q4_0",
+        "Llama-3.1-8B-Instruct",
+        "meta-llama/Llama-3.1-8B-Instruct",
+        "gpt-4o-mini-2024-07-18",
+        "openai/gpt-4o-mini",
+        "GPT-4o-mini",
+    ],
+)
+def test_a_variant_of_a_benchmarked_model_may_not_read_either(variant: str) -> None:
+    # ADR-0012 decision 7 is about the model, not the string that names it
+    result = doctor.check_reader(variant, get_profile("gpt-4o-mini"))
+    assert result.status is Status.FAIL, variant
+    assert "benchmarked model" in result.detail
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["gpt-4o", "gpt-4.1-mini", "qwen2.5:14b", "llama3.1:70b", "llama3.2:3b", "gemini-2.5-flash"],
+)
+def test_a_different_model_of_the_same_family_may_read(other: str) -> None:
+    assert doctor.check_reader(other, get_profile("gpt-4o-mini")).status is Status.OK, other
+
+
 def test_another_model_may_read() -> None:
     assert doctor.check_reader("gemini-2.5-flash", get_profile("gpt-4o-mini")).status is Status.OK
 
@@ -640,6 +738,97 @@ def test_another_model_may_read() -> None:
 def test_no_reader_yet_is_a_warning_that_says_to_choose_one() -> None:
     result = doctor.check_reader(None, None)
     assert result.status is Status.WARN and "ADR-0012" in result.hint
+
+
+# --- the classifier directory the runners read ------------------------------------------------
+
+PINNED_SHA = pinned.PINNED.classifier.sha256
+JOBLIB = "l1_injection_clf_v1.joblib"
+ROOT = Path("/home/u/work/rag-email")
+MAKEFILE_TODAY = "MAILGUARD_ARTIFACTS ?= $(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts)\n"
+MAKEFILE_R7 = "MAILGUARD_ARTIFACTS ?= $(CURDIR)/evaluation/mailguard_bench/pinned\n"
+
+
+def _sha_table(table: Mapping[str, str]) -> Callable[[Path], str | None]:
+    return lambda path: table.get(str(path))
+
+
+def test_the_runners_read_the_classifier_where_mailguard_artifacts_points() -> None:
+    folder = "/home/u/work/rag-email/evaluation/mailguard_bench/pinned"
+    result = doctor.check_artifacts(
+        {"MAILGUARD_ARTIFACTS": folder},
+        MAKEFILE_TODAY,
+        ROOT,
+        _sha_table({f"{folder}/{JOBLIB}": PINNED_SHA}),
+    )
+    assert result.status is Status.OK
+    assert folder in result.detail  # the effective directory is printed
+
+
+def test_a_classifier_with_another_hash_is_a_failure() -> None:
+    folder = "/elsewhere/artifacts"
+    result = doctor.check_artifacts(
+        {"MAILGUARD_ARTIFACTS": folder},
+        MAKEFILE_TODAY,
+        ROOT,
+        _sha_table({f"{folder}/{JOBLIB}": "0" * 64}),
+    )
+    assert result.status is Status.FAIL
+    assert folder in result.detail and "0" * 64 in result.detail
+    assert "export MAILGUARD_ARTIFACTS" in result.hint
+
+
+def test_the_makefile_default_is_used_when_the_shell_sets_nothing() -> None:
+    # today's Makefile points next to the repository, where a teammate has nothing
+    result = doctor.check_artifacts({}, MAKEFILE_TODAY, ROOT, _sha_table({}))
+    assert result.status is Status.FAIL
+    assert "/home/u/work/AgentMailGuard-bench-artifacts" in result.detail
+    assert "missing" in result.detail
+    assert "evaluation/mailguard_bench/pinned" in result.hint
+
+
+def test_the_single_repo_makefile_default_is_the_pinned_folder() -> None:
+    folder = f"{ROOT}/evaluation/mailguard_bench/pinned"
+    result = doctor.check_artifacts(
+        {}, MAKEFILE_R7, ROOT, _sha_table({f"{folder}/{JOBLIB}": PINNED_SHA})
+    )
+    assert result.status is Status.OK and folder in result.detail
+
+
+def test_a_makefile_default_that_cannot_be_read_is_a_warning() -> None:
+    for makefile in (None, "", "MAILGUARD_ARTIFACTS ?= $(if $(X),a,b)\n"):
+        result = doctor.check_artifacts({}, makefile, ROOT, _sha_table({}))
+        assert result.status is Status.WARN, makefile
+        assert "export MAILGUARD_ARTIFACTS" in result.hint
+
+
+def test_the_shell_wins_over_the_makefile_as_make_does() -> None:
+    folder = "/mine"
+    result = doctor.check_artifacts(
+        {"MAILGUARD_ARTIFACTS": folder},
+        MAKEFILE_R7,
+        ROOT,
+        _sha_table({f"{folder}/{JOBLIB}": PINNED_SHA}),
+    )
+    assert result.status is Status.OK and folder in result.detail
+
+
+def test_the_real_sha256_reader_returns_none_for_a_missing_file(tmp_path: Path) -> None:
+    assert doctor._file_sha256(tmp_path / "nope") is None
+    (tmp_path / "f").write_bytes(b"abc")
+    assert doctor._file_sha256(tmp_path / "f") == (
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+
+
+def test_a_byte_order_mark_in_env_does_not_hide_keys_or_old_lines() -> None:
+    text = "﻿" + ok_env_text(SUMMARIZATION__SUMMARIZER_MODEL="gpt-4o-mini")
+    world = good_world(read_text=lambda p: text if p.name == ".env" else COMPOSE)
+    results = by_check(doctor.run_checks(world, model_profile="gpt-4o-mini", reader=None))
+    assert results["env BENCH_OPENAI_API_KEY"].status is Status.OK
+    assert results["old .env lines"].status is Status.FAIL
+    assert results[".env encoding"].status is Status.WARN
+    assert "BOM" in results[".env encoding"].detail
 
 
 # --- output and the whole run ------------------------------------------------------------------
@@ -671,7 +860,10 @@ def good_world(**overrides: object) -> World:
         "system": "Linux",
         "proc_version": "Linux version 5.15-microsoft-standard-WSL2",
         "repo_root": Path("/home/u/work/rag-email"),
-        "environ": {"PATH": "/usr/bin"},
+        "environ": {
+            "PATH": "/usr/bin",
+            "MAILGUARD_ARTIFACTS": "/home/u/work/rag-email/evaluation/mailguard_bench/pinned",
+        },
         "run": run,
         "which": lambda name: f"/usr/bin/{name}",
         "free_bytes": lambda path: 100 * GB,
@@ -683,6 +875,7 @@ def good_world(**overrides: object) -> World:
         "installed_sklearn": "1.9.1",
         "require_guard": lambda path, commit: None,
         "pinned_problems": lambda: [],
+        "file_sha256": lambda path: PINNED_SHA,
     }
     base.update(overrides)
     return World(**base)  # type: ignore[arg-type]
@@ -711,6 +904,7 @@ def test_a_good_machine_passes_every_check() -> None:
         "old .env lines",
         "AgentMailGuard",
         "pinned inputs",
+        "classifier directory",
         "scikit-learn",
         "ports",
         "reader model",

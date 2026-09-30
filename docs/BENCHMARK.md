@@ -230,13 +230,24 @@ The reader is reached through the `LLM__*` settings of the process that runs it.
 
 ## D. Check, set up, run
 
-### D1. The doctor
+### D1. Put the guard and the classifier in place (once)
+
+```bash
+make mailguard-worktree
+export MAILGUARD_ARTIFACTS="$PWD/evaluation/mailguard_bench/pinned"
+```
+
+`make mailguard-worktree` puts the guard (AgentMailGuard) next to the repository, in `../AgentMailGuard-bench`, at the exact commit the benchmark pins (`1a3ef62b7368703c22c3f90111abdde0678d5617`); it does nothing if the folder is already there at that commit. After the owner merges everything into one repository, the guard is inside it (`agentmailguard/`) and this line is no longer needed. `make bench-setup` (D3) only checks the guard, it does not create it, and the doctor (D2) fails on a missing guard.
+
+`MAILGUARD_ARTIFACTS` is the folder the runs load the Layer-1 classifier from. Point it at the copy that came with the clone. The variable lasts only for this window: run the `export` again in a new one, or append it to `~/.bashrc` once with `echo "export MAILGUARD_ARTIFACTS=\"$PWD/evaluation/mailguard_bench/pinned\"" >> ~/.bashrc` (run from the repository folder). Once the Makefile's own default is the pinned folder the `export` changes nothing; the doctor prints the folder it found and fails if the classifier there is not the pinned one.
+
+### D2. The doctor
 
 ```bash
 make bench-doctor
 ```
 
-It prints one line per check, `ok`, `WARN` or `FAIL`, and under every WARN and FAIL a line that starts with `fix:`. Fix every `FAIL`, then run it again until it exits cleanly. It checks, among other things: that you are in WSL2 and not under `/mnt/c`, that no file has Windows line endings, Docker (command, daemon, Compose v2, 8 GB of memory), disk space, `uv`, Python 3.12, that `.env` has each key (by name), that nothing is exported in the shell, the pinned guard and inputs, scikit-learn 1.9.1 (the classifier was made with it), that the ports the stack needs are free, and the reader model.
+It prints one line per check, `ok`, `WARN` or `FAIL`, and under every WARN and FAIL a line that starts with `fix:`. Fix every `FAIL`, then run it again until it exits cleanly. It checks, among other things: that you are in WSL2 and not under `/mnt/c`, that no file has Windows line endings, Docker (command, daemon, Compose v2, 8 GB of memory), disk space (inside Ubuntu, and on the Windows C: drive that holds Ubuntu's virtual disk), `uv`, Python 3.12, that `.env` has each key (by name), that nothing is exported in the shell, the pinned guard and inputs, the folder `MAILGUARD_ARTIFACTS` names, scikit-learn 1.9.1 (the classifier was made with it), that the ports the stack needs are free, and the reader model.
 
 For a model you are about to run, name it, and the doctor also adds that model's key and, for a local model, the Ollama and GPU checks (part E):
 
@@ -246,18 +257,15 @@ uv run python -m evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7
 
 The doctor changes nothing. It runs only read-only Docker commands.
 
-### D2. Set up (once)
+### D3. Set up (once)
 
 ```bash
-make mailguard-worktree
 make bench-setup
 ```
 
-`make mailguard-worktree` puts the guard (AgentMailGuard) next to the repository, in `../AgentMailGuard-bench`, at the exact commit the benchmark pins (`1a3ef62b7368703c22c3f90111abdde0678d5617`); it does nothing if the folder is already there at that commit. After the owner merges everything into one repository, the guard is inside it (`agentmailguard/`) and this line is no longer needed.
+`make bench-setup` checks the guard is at the pinned commit, checks the pinned inputs, runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything.
 
-`make bench-setup` then checks the guard is at that commit, checks the pinned inputs, runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything.
-
-### D3. One model at a time
+### D4. One model at a time
 
 Run the models **in this order, and finish one completely (all its configs, the retry pass, the reports) before you start the next**:
 
@@ -289,11 +297,11 @@ While a run is going:
 - Keep the laptop plugged in and awake (part A6).
 - Close other heavy programs.
 
-### D4. Resume
+### D5. Resume
 
 If something stops (Ctrl+C, a power cut, sleep, a network failure), run **the same command again**. Each case is written as it finishes, a rerun skips the cases it has, and it retries cases recorded as errors. The kit log says which configs are finished, so they are not started again. Ctrl+C stops the guard-worker cleanly and prints the command that resumes.
 
-### D5. What the kit logs
+### D6. What the kit logs
 
 - `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl`: one line per step, with its status and times.
 - `evaluation/results/mailguard_bench/<RUN>/raw/guard-worker.<config>.log`: the guard-worker's output for a config.
@@ -301,7 +309,7 @@ If something stops (Ctrl+C, a power cut, sleep, a network failure), run **the sa
 
 Nothing the kit prints or logs contains a key.
 
-### D6. Reports and the meaning column
+### D7. Reports and the meaning column
 
 The run builds `report.md` itself. The meaning column needs your reader model. Run it for a finished model like this (the two `LLM__` words before `make` apply to that one command only; nothing is exported):
 
