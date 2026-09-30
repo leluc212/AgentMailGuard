@@ -300,8 +300,24 @@ def summarize_config(
     benign = [r for r in results if r.kind == "benign"]
     empty = RateCI(0, 0, 0.0, 0.0)
     if not results:
+        # A live table whose attacks all failed closed has no scored row but still owes its
+        # sensitivity line (fail_closed_attacks is 0 for a v1 run, which has none).
         return ConfigSummary(
-            config, empty, empty, None, None, {}, {}, None, n_errors, meaning=meaning
+            config,
+            empty,
+            empty,
+            None,
+            None,
+            {},
+            {},
+            None,
+            n_errors,
+            meaning=meaning,
+            sensitivity=(
+                summarize_sensitivity(empty, empty, fail_closed_attacks, metrics=metrics)
+                if fail_closed_attacks
+                else None
+            ),
         )
     summary = metrics.summarize(results)
     scenarios: dict[str, Any] = {}
@@ -363,7 +379,7 @@ def summarize_config(
         utility_legacy=utility_legacy,
         sensitivity=(
             summarize_sensitivity(asr, guard_asr, fail_closed_attacks, metrics=metrics)
-            if guard_asr is not None
+            if guard_asr is not None or fail_closed_attacks
             else None
         ),
     )

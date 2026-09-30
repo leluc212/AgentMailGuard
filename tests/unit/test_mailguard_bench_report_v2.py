@@ -17,6 +17,7 @@ from evaluation.mailguard_bench.artifacts import (
     Sensitivity,
     metrics_rows,
     render_report,
+    summarize_config,
     summarize_fallbacks,
     summarize_sensitivity,
     template_successes,
@@ -246,6 +247,20 @@ def test_the_sensitivity_of_a_table_without_a_guard_asr_has_none() -> None:
     s = summarize_sensitivity(RateCI(7, 300, 0, 1), None, 2, metrics=METRICS)
 
     assert s.guard_asr is None and s.asr.total == 302
+
+
+def test_a_table_whose_attacks_all_failed_closed_still_gets_its_sensitivity() -> None:
+    # No scored row at all in the table: the case the sensitivity exists to expose.
+    s = summarize_config("C3", [], metrics=METRICS, n_errors=4, fail_closed_attacks=4)
+
+    assert s.sensitivity == Sensitivity(
+        fail_closed=4, asr=RateCI(0, 4, 0.0, 1.0), guard_asr=RateCI(0, 4, 0.0, 1.0)
+    )
+    assert s.asr.total == 0  # the official headline still excludes them
+
+
+def test_an_empty_table_without_fail_closed_rows_has_no_sensitivity() -> None:
+    assert summarize_config("C3", [], metrics=METRICS).sensitivity is None  # a v1 table
 
 
 def test_the_report_prints_one_sensitivity_line_per_live_config() -> None:
