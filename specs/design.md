@@ -408,6 +408,8 @@ class RetrievalQuery:
 
 Built from `current email + thread summary + classification intent` — no extra LLM call in the default path (R12.5). Persisted with the job for replay (R12.6).
 
+The category filter is derived from the classification (R12.4) and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` switches it off; the organization and status filters always stay (R10.4). Production keeps it on. Only the live benchmark turns it off, because its knowledge documents are filed under the case's own category while live triage picks the query's (ADR-0013, proposed).
+
 **Business data (R13) — code-side fetch plan (ADR-0008):** the decision to fetch is made in code, before the one generation call, from signals the pipeline already has. The model never calls a lookup tool: a tool call needs a second model request, which breaks the one-generation budget (§5.7). An intent-only trigger is not enough, because the ML triage stage always emits `intent=None`.
 
 ```

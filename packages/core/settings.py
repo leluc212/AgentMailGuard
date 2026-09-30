@@ -381,6 +381,14 @@ class RetrievalSettings(BaseModel):
     retrieval_timeout_ms: int = Field(
         default=3000, ge=10, description="Retrieval SLA timeout in milliseconds"
     )
+    category_filter_enabled: bool = Field(
+        default=True,
+        description=(
+            "Filter retrieval by the category triage assigned (R10.4, R12.4). False searches "
+            "every active document of the tenant whatever its category; the organization and "
+            "status filters stay. Only the live benchmark turns it off"
+        ),
+    )
 
 
 class BusinessDataSettings(BaseModel):

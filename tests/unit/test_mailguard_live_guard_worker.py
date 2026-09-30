@@ -402,6 +402,7 @@ def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
         ("LLM__TIMEOUT_S", "60", "15", "llm_timeout_s"),
         ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", "3000", "500", "retrieval"),
         ("RETRIEVAL__RERANK_ENABLED", "true", "false", "reranker"),
+        ("RETRIEVAL__CATEGORY_FILTER_ENABLED", "false", "true", "retrieval"),
         (
             "EMBEDDING__BASE_URL",
             V2_EMBEDDING_ENV["EMBEDDING__BASE_URL"],
@@ -449,7 +450,17 @@ def test_the_meta_records_the_settings_the_worker_drafts_with(rig: Rig) -> None:
     }
     assert set(meta["reranker"]) == {"enabled", "model"}
     assert meta["reranker"]["enabled"] is True  # the setting's default: rerank when it can
-    assert meta["retrieval"] == {"top_k": 5, "top_n": 20, "timeout_ms": 3000}
+    assert meta["retrieval"] == {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": True,  # the setting's default: production filters by category
+    }
+    # The runner compares this block key by key with its own (live.run.retrieval_facts).
+    from evaluation.mailguard_bench.live.run import retrieval_facts
+    from packages.core.settings import AppSettings
+
+    assert meta["retrieval"] == retrieval_facts(AppSettings().retrieval)
     assert meta["llm_timeout_s"] == 60.0
     for fact in ("embedding", "reranker", "retrieval", "llm_timeout_s"):
         assert meta["fingerprint"][fact] == meta[fact]

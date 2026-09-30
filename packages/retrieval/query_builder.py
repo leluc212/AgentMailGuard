@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from packages.retrieval.models import RetrievalQuery
 
 if TYPE_CHECKING:
+    from packages.core.settings import RetrievalSettings
     from packages.domain.entities import Classification, NormalizedMessage
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,17 @@ class QueryBuilderConfig:
     ignored_categories_for_filter: set[str] = field(
         default_factory=lambda: {"general", "other", "unknown"}
     )
+
+    @classmethod
+    def from_settings(cls, retrieval: RetrievalSettings) -> QueryBuilderConfig:
+        """The configuration the retrieval settings ask for (R12.4).
+
+        ``RETRIEVAL__CATEGORY_FILTER_ENABLED`` switches the category filter that is derived from
+        the classification; the organization and status filters always stay (R10.4). This is the
+        one place that maps the settings onto the builder, so every process that builds one from
+        its settings, the ai-worker and the benchmark's guard-worker among them, agrees.
+        """
+        return cls(category_filter_enabled=retrieval.category_filter_enabled)
 
 
 class RetrievalQueryBuilder:

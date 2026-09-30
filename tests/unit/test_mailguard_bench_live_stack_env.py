@@ -52,6 +52,7 @@ HOST_ENV = {
     "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
     "EMBEDDING__API_KEY": GEMINI_KEY,
     "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
+    "RETRIEVAL__CATEGORY_FILTER_ENABLED": "false",
     "LLM__TIMEOUT_S": "60",
 }
 
@@ -137,6 +138,14 @@ def test_retrieval_gets_a_budget_for_a_hosted_embedding_call_and_the_reranker_is
     assert values["RETRIEVAL__RERANK_TIMEOUT_MS"] == "1000"
     # The runtime image carries the model and sets its own path; a value here would override it.
     assert "RETRIEVAL__RERANK_MODEL_DIR" not in values
+
+
+@pytest.mark.parametrize("name", sorted(PROFILES))
+def test_the_category_filter_is_off_for_every_model(name: str) -> None:
+    # Live triage picks the category; the case KB is filed under the case's own (ADR-0013).
+    assert render_stack_env(get_profile(name), DOT_ENV)["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == (
+        "false"
+    )
 
 
 def test_the_llm_timeout_is_the_benchmark_runs_60_seconds_and_can_be_changed() -> None:
@@ -317,6 +326,9 @@ def test_a_dot_env_that_says_what_the_containers_get_has_no_disagreement(name: s
         ("RETRIEVAL__RERANK_ENABLED", "false"),
         ("RETRIEVAL__RERANK_MODEL", "other/cross-encoder"),
         ("RETRIEVAL__RERANK_TIMEOUT_MS", "50"),
+        # The production value: C0 would search without the category filter, the guarded
+        # configs with it.
+        ("RETRIEVAL__CATEGORY_FILTER_ENABLED", "true"),
         # Settings no container reads from a file: an older .env still carries them.
         ("SUMMARIZATION__SUMMARIZER_MODEL", "gpt-4o-mini"),
         ("ROUTING__CONFIGURED_CONSUMERS", '["email.support.*"]'),
@@ -337,11 +349,13 @@ def test_a_dot_env_that_disagrees_with_the_containers_is_named(setting: str, sta
         "EMBEDDING__API_KEY",
         "LLM__TIMEOUT_S",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+        "RETRIEVAL__CATEGORY_FILTER_ENABLED",
     ],
 )
 def test_a_dot_env_that_leaves_out_a_setting_the_host_must_state_is_named(setting: str) -> None:
-    # Unset on the host means the code default (a mock embedder, 15 s), not the container's
-    # value; the vector column's width is stated too rather than left to a default (R5.10).
+    # Unset on the host means the code default (a mock embedder, 15 s, the category filter on),
+    # not the container's value; the vector column's width is stated too rather than left to a
+    # default (R5.10).
     problems = _problems("qwen2.5-7b", {k: v for k, v in HOST_ENV.items() if k != setting})
     assert len(problems) == 1 and problems[0].startswith(setting), problems
 
@@ -358,6 +372,9 @@ def test_a_dot_env_that_leaves_out_a_setting_the_host_must_state_is_named(settin
         {"EMBEDDING__MOCK": "0"},
         {"EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/"},
         {"RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "03000"},
+        {"RETRIEVAL__CATEGORY_FILTER_ENABLED": "False"},
+        {"RETRIEVAL__CATEGORY_FILTER_ENABLED": "0"},
+        {"RETRIEVAL__CATEGORY_FILTER_ENABLED": "off"},
         {
             "RETRIEVAL__RERANK_ENABLED": "TRUE",
             "RETRIEVAL__RERANK_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",
@@ -394,6 +411,7 @@ def test_every_disagreement_is_listed_at_once() -> None:
         "EMBEDDING__MOCK": "true",
         "EMBEDDING__DIMENSION": "1536",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "500",
+        "RETRIEVAL__CATEGORY_FILTER_ENABLED": "true",
         "LLM__TIMEOUT_S": "15.0",
         "SUMMARIZATION__SUMMARIZER_MODEL": "gpt-4o-mini",
         "ROUTING__CONFIGURED_CONSUMERS": '["email.support.*"]',
@@ -405,6 +423,7 @@ def test_every_disagreement_is_listed_at_once() -> None:
         "EMBEDDING__BASE_URL",
         "EMBEDDING__API_KEY",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
+        "RETRIEVAL__CATEGORY_FILTER_ENABLED",
         "LLM__TIMEOUT_S",
         "SUMMARIZATION__SUMMARIZER_MODEL",
         "ROUTING__CONFIGURED_CONSUMERS",
@@ -466,6 +485,8 @@ def test_main_writes_the_file_prints_the_command_and_never_a_key(
     assert written["EMBEDDING__API_KEY"] == GEMINI_KEY
     assert written["BENCH_SUMMARIZER_MODEL"] == "gpt-4o-mini"
     assert "SUMMARIZATION__SUMMARIZER_MODEL" not in written
+    assert written["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "false"
+    assert "category filter off" in captured.out  # the owner is told what the containers get
     assert stat.S_IMODE((cli_repo / ".env.stack").stat().st_mode) == 0o600
 
 
@@ -570,7 +591,12 @@ def test_a_dot_env_without_the_host_settings_is_refused_naming_them(
     )
     assert main(["--model-profile", "qwen2.5-7b"]) == 1
     err = capsys.readouterr().err
-    for name in ("EMBEDDING__MOCK", "EMBEDDING__MODEL_NAME", "LLM__TIMEOUT_S"):
+    for name in (
+        "EMBEDDING__MOCK",
+        "EMBEDDING__MODEL_NAME",
+        "LLM__TIMEOUT_S",
+        "RETRIEVAL__CATEGORY_FILTER_ENABLED",
+    ):
         assert name in err
     assert not (cli_repo / ".env.stack").exists()
 
@@ -653,6 +679,7 @@ V2_KEYS = (
     "RETRIEVAL__RERANK_MODEL_DIR",
     "RETRIEVAL__RERANK_TIMEOUT_MS",
     "RETRIEVAL__RERANK_ENABLED",
+    "RETRIEVAL__CATEGORY_FILTER_ENABLED",
     "SUMMARIZATION__SUMMARIZER_MODEL",
     "EMBEDDING__MOCK",
     "EMBEDDING__MODEL_NAME",
@@ -751,6 +778,15 @@ def test_the_image_owns_the_reranker_model_dir_and_compose_never_forwards_it() -
     assert "RETRIEVAL__RERANK_MODEL_DIR" not in environment
 
 
+def test_compose_forwards_the_category_filter_only_when_something_sets_it() -> None:
+    # Value-less, like the other optional retrieval settings: unset (a bare name), the settings
+    # default, true, applies. Right only because the image does not set it (see
+    # test_compose_never_forwards_a_bare_name_the_image_sets in test_runtime_image_contract.py).
+    environment = _compose()["x-app-env"]
+    assert "RETRIEVAL__CATEGORY_FILTER_ENABLED" in environment
+    assert environment["RETRIEVAL__CATEGORY_FILTER_ENABLED"] is None
+
+
 def test_env_example_never_sets_an_optional_setting_to_blank() -> None:
     # Compose resolves a value-less key from .env, so `NAME=` there would be forwarded blank.
     values = dotenv_values(REPO_ROOT / ".env.example")
@@ -775,6 +811,9 @@ def test_a_fresh_copy_of_env_example_sets_nothing_the_host_check_refuses() -> No
     for name in HOST_ONLY:
         assert name not in active, f"{name} must stay commented out in .env.example"
     assert active["RETRIEVAL__RETRIEVAL_TIMEOUT_MS"] == "3000"
+    # A fresh copy keeps production's category filter; only the benchmark's .env (runbook 9.9
+    # step 1) turns it off, and the host check refuses a benchmark run while it is on.
+    assert active["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "true"
 
 
 def _default_cell(name: str) -> str:
@@ -788,6 +827,7 @@ def test_the_configuration_reference_states_the_v2_defaults() -> None:
     assert _default_cell("RETRIEVAL__RERANK_MODEL") == "`cross-encoder/ms-marco-MiniLM-L-6-v2`"
     assert _default_cell("RETRIEVAL__RERANK_TIMEOUT_MS") == "`1000`"
     assert _default_cell("RETRIEVAL__RERANK_ENABLED") == "`true`"
+    assert _default_cell("RETRIEVAL__CATEGORY_FILTER_ENABLED") == "`true`"
     # Honoured now: unset means the FAST tier model, so a copied .env.example must not name one.
     assert _default_cell("SUMMARIZATION__SUMMARIZER_MODEL") == "unset"
 
@@ -849,6 +889,7 @@ def test_the_dot_env_of_step_1_is_what_the_host_check_accepts_for_every_model() 
         "EMBEDDING__API_KEY": GEMINI_KEY,  # "the same Gemini key"
     }
     assert set(keys) <= set(parsed), "step 1 must name the keys as placeholders"
+    assert parsed["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "false"  # the benchmark's value
     environ = {name: value for name, value in parsed.items() if value is not None}
     environ.update(keys)
     for name in sorted(PROFILES):
@@ -904,7 +945,14 @@ def test_the_preflight_probe_agrees_between_the_container_and_the_host_when_dot_
     host = _run_probe(tmp_path / "host", {}, profile.name, dot_env=DOT_ENV_TEXT)
     assert host == container
     # It reads real settings: the model, the Gemini embedding, the budget and the lanes.
-    for fact in (profile.model, "gemini-embedding-001", "1536", "3000", "email.support.normal"):
+    for fact in (
+        profile.model,
+        "gemini-embedding-001",
+        "1536",
+        "3000",
+        "category filter: False",
+        "email.support.normal",
+    ):
         assert fact in host, fact
 
 
@@ -915,12 +963,13 @@ def test_the_preflight_probe_shows_an_old_dot_env_as_a_difference(tmp_path: Path
     )
     old = _dot_env(
         RETRIEVAL__RETRIEVAL_TIMEOUT_MS="500",
+        RETRIEVAL__CATEGORY_FILTER_ENABLED="true",
         SUMMARIZATION__SUMMARIZER_MODEL="gpt-4o-mini",
         ROUTING__CONFIGURED_CONSUMERS='["email.support.*"]',
     )
     host = _run_probe(tmp_path / "host", {}, profile.name, dot_env=old)
     differing = {line.split(":")[0] for line in host.splitlines() if line not in container}
-    assert differing == {"retrieval budget", "summarizer", "lane queues"}
+    assert differing == {"retrieval budget", "category filter", "summarizer", "lane queues"}
 
 
 BASH = shutil.which("bash")

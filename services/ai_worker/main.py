@@ -41,6 +41,7 @@ from packages.llm.inference_metrics import start_token_counter_warmup
 from packages.llm.protocol import LLMProvider
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.postgres import PostgresSearchBackend
+from packages.retrieval.query_builder import QueryBuilderConfig, RetrievalQueryBuilder
 from packages.retrieval.rerank import RerankService, build_rerank_service
 from packages.retrieval.retriever import HybridRetriever
 from services.ai_worker.consumer import AIWorkerConsumer
@@ -135,6 +136,8 @@ def build_consumers(
             metrics=res.metrics,
             embedder=query_embedder,
         ),
+        # RETRIEVAL__CATEGORY_FILTER_ENABLED: only the live benchmark turns the filter off (R12.4).
+        query_builder=RetrievalQueryBuilder(QueryBuilderConfig.from_settings(settings.retrieval)),
         business_data_provider=PostgresBusinessDataProvider(
             res.db_pool,
             snapshot_orders=business.snapshot_orders,

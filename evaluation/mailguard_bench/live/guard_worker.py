@@ -286,6 +286,7 @@ def worker_meta(
             "top_k": settings.retrieval.top_k,
             "top_n": settings.retrieval.top_n,
             "timeout_ms": settings.retrieval.retrieval_timeout_ms,
+            "category_filter": settings.retrieval.category_filter_enabled,
         },
         "llm_timeout_s": settings.llm.timeout_s,
         "guard": facts,
