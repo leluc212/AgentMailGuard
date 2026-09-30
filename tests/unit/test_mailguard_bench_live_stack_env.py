@@ -148,6 +148,25 @@ def test_the_category_filter_is_off_for_every_model(name: str) -> None:
     )
 
 
+@pytest.mark.parametrize("name", sorted(PROFILES))
+def test_the_category_retrieval_floor_is_pinned_on_for_every_model(name: str) -> None:
+    # The floor is what makes the RAG path run (ADR-0013). Compose forwards it from .env, and a
+    # leftover `false` there would silently disable it, so the stack env (which Compose reads
+    # after .env) states it like every other setting the run depends on.
+    values = render_stack_env(get_profile(name), DOT_ENV)
+    assert values["TRIAGE__CATEGORY_RETRIEVAL_FLOOR"] == "true"
+
+
+def test_a_dot_env_that_switches_the_floor_off_does_not_reach_the_containers() -> None:
+    # Compose: a later --env-file wins, and compose_command puts .env.stack after .env.
+    command = compose_command([Path("/repo/.env"), Path("/repo/.env.stack")])
+    assert command.index("/repo/.env.stack") > command.index("/repo/.env")
+    values = render_stack_env(
+        get_profile("gpt-4o-mini"), {**DOT_ENV, "TRIAGE__CATEGORY_RETRIEVAL_FLOOR": "false"}
+    )
+    assert values["TRIAGE__CATEGORY_RETRIEVAL_FLOOR"] == "true"
+
+
 def test_the_llm_timeout_is_the_benchmark_runs_60_seconds_and_can_be_changed() -> None:
     profile = get_profile("qwen2.5-7b")
     assert render_stack_env(profile, DOT_ENV)["LLM__TIMEOUT_S"] == "60.0"
@@ -487,6 +506,8 @@ def test_main_writes_the_file_prints_the_command_and_never_a_key(
     assert "SUMMARIZATION__SUMMARIZER_MODEL" not in written
     assert written["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "false"
     assert "category filter off" in captured.out  # the owner is told what the containers get
+    assert written["TRIAGE__CATEGORY_RETRIEVAL_FLOOR"] == "true"
+    assert "category retrieval floor on" in captured.out
     assert stat.S_IMODE((cli_repo / ".env.stack").stat().st_mode) == 0o600
 
 
@@ -631,6 +652,15 @@ def test_main_refuses_when_the_shell_sets_another_value_and_writes_nothing(
     err = capsys.readouterr().err
     assert "LLM__FAST_MODEL" in err and "EMBEDDING__MOCK" in err
     assert "some-other-model" not in err  # names only: a shell value can be a key
+    assert not (cli_repo / ".env.stack").exists()
+
+
+def test_main_refuses_a_shell_that_switches_the_floor_off_and_writes_nothing(
+    cli_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TRIAGE__CATEGORY_RETRIEVAL_FLOOR", "false")
+    assert main(["--model-profile", "gpt-4o-mini"]) == 1
+    assert "TRIAGE__CATEGORY_RETRIEVAL_FLOOR" in capsys.readouterr().err
     assert not (cli_repo / ".env.stack").exists()
 
 
@@ -1093,3 +1123,17 @@ def test_c0_switches_the_container_on_and_starts_no_guard_worker(tmp_path: Path)
     assert calls[0] == "docker compose start ai-worker"
     assert calls[-1] == "runner not-ready C0"  # not-ready: no stand-in guard-worker ever ran
     assert not _pid_file(tmp_path, "C0").exists()
+
+
+def test_the_step_5_preflight_prints_the_floor_and_says_which_service_each_switch_matters_for() -> (
+    None
+):
+    step5 = _runbook_9_9().split("**5. Preflight", 1)[1].split("**6.", 1)[0]
+    loop = _block_with(step5, "bash", "catfilter=")
+    assert "floor=${TRIAGE__CATEGORY_RETRIEVAL_FLOOR" in loop
+    expected = step5.split("Every line must show", 1)[1].split("\n", 1)[0]
+    assert "`floor=true`" in expected and "`catfilter=false`" in expected
+    # catfilter is read by the ai-worker alone and the floor by the triage-worker alone; the
+    # other services print the forwarded value, which is not evidence of their behaviour.
+    assert "only the `ai-worker`'s `catfilter`" in step5
+    assert "only the `triage-worker`'s `floor`" in step5

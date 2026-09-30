@@ -93,6 +93,7 @@ from packages.db.migrator import verify_database_vector_dimension
 from packages.knowledge.embedder import get_embedder
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.retrieval.query_builder import QueryBuilderConfig, RetrievalQueryBuilder
 from services.ai_worker import main as ai_main
 from services.ai_worker.consumer import AIWorkerConsumer
 
@@ -331,7 +332,14 @@ async def build_guarded_components(
         token_counter=counter,
         embedder=embedder,
         drafting_factory=functools.partial(
-            GuardedDraftingService, guard=guard, audit_path=audit_path
+            GuardedDraftingService,
+            guard=guard,
+            audit_path=audit_path,
+            # The ContextBuilder's configuration (ai_worker.main), so the echo check's query and
+            # the retrieval's come from one set of settings, the category filter switch included.
+            query_builder=RetrievalQueryBuilder(
+                QueryBuilderConfig.from_settings(settings.retrieval)
+            ),
         ),
     )
     provider = consumers[0].drafting.generator.llm_provider if consumers else None

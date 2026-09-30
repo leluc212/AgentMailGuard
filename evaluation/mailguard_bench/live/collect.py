@@ -66,6 +66,10 @@ GATE_EARLY_EXIT = "early_exit"
 GATE_TEMPLATE = "template_reply"
 GATE_RAG = "proceed_rag"
 GATE_NO_RAG = "proceed_no_rag"
+# Recorded in the gate's QUEUED payload: true when the category retrieval floor raised
+# retrieval_required (services/triage_worker/gate.py RETRIEVAL_FROM_CATEGORY_KEY; a test holds
+# the two equal, this module does not import the service).
+FLOOR_MARKER = "retrieval_required_from_category"
 LAST_ERROR_CHARS = 200
 """How much of a job's last error a timeout message carries."""
 UNVALIDATED_DRAFT_ERROR = "UnvalidatedDraftError"
@@ -255,6 +259,24 @@ def gate_outcome(events: list[ProcessingEvent]) -> str | None:
     return None
 
 
+def retrieval_floor_applied(events: list[ProcessingEvent]) -> bool | None:
+    """Whether the category retrieval floor raised ``retrieval_required`` for this job.
+
+    Read from the QUEUED transition the gate committed, the one place that holds the value the
+    job was routed with: the persisted classification row keeps the stage's own answer (R6.7),
+    so next to it a floored job reads ``retrieval_required=false`` with ``proceed_rag``.
+    None when the job was not routed to AI, never got past triage, or the gate recorded no marker.
+    """
+    for event in _transitions(events):
+        if (
+            event.state_from == JobState.CLASSIFIED.value
+            and event.state_to == JobState.QUEUED.value
+        ):
+            marker = (event.payload or {}).get(FLOOR_MARKER)
+            return marker if isinstance(marker, bool) else None
+    return None
+
+
 def read_audit_line(
     path: Path, *, organization_id: UUID, message_id: UUID | str, config: str
 ) -> dict[str, Any] | None:
@@ -427,9 +449,13 @@ def _retrieved(fed: FedCase, context: Mapping[str, Any]) -> list[dict[str, Any]]
 
 
 def _triage_block(
-    classification: ClassificationResultRow | None, gate: str | None
+    classification: ClassificationResultRow | None, gate: str | None, floor: bool | None
 ) -> dict[str, Any]:
-    """The live triage decision; every field is None when no classification was persisted."""
+    """The live triage decision; every field is None when no classification was persisted.
+
+    ``retrieval_required`` is the stage's own answer, ``gate_outcome`` what the gate routed
+    with and ``retrieval_floor`` whether the category retrieval floor made the difference.
+    """
     return {
         "decided_by": classification.decided_by if classification else None,
         "category": classification.category if classification else None,
@@ -440,6 +466,7 @@ def _triage_block(
         "model_name": classification.model_name if classification else None,
         "latency_ms": classification.latency_ms if classification else None,
         "gate_outcome": gate,
+        "retrieval_floor": floor,
     }
 
 
@@ -549,7 +576,7 @@ class LiveCollector:
         record["pipeline"] = {
             "transport": TRANSPORT,
             "job_state": job.state,
-            "triage": _triage_block(classification, gate),
+            "triage": _triage_block(classification, gate, retrieval_floor_applied(events)),
             "reached_drafting": reached_drafting,
             "template_draft": gate == GATE_TEMPLATE,
             "summary_triggered": ctx.get("summary_triggered"),

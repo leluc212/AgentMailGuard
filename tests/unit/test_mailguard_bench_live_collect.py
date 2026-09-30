@@ -27,6 +27,7 @@ from evaluation.mailguard_bench.live.collect import (
     find_job,
     gate_outcome,
     read_audit_line,
+    retrieval_floor_applied,
     stage_timings,
     wait_for_audit,
     wait_for_job,
@@ -699,6 +700,9 @@ async def test_wait_asks_the_check_only_while_the_job_is_queued() -> None:
 
 # --- the gate outcome and the timings ----------------------------------------------------
 
+FLOOR_MARKER_TRUE = {"retrieval_required_from_category": True}
+FLOOR_MARKER_FALSE = {"retrieval_required_from_category": False}
+
 
 def _event(
     state_to: JobState, state_from: JobState | None = None, **payload: Any
@@ -752,6 +756,34 @@ def test_the_gate_outcome_is_read_from_the_transition_the_gate_committed() -> No
     )
     assert gate_outcome([received, classified]) is None  # the job never got past triage
     assert gate_outcome([]) is None
+
+
+def test_the_retrieval_floor_is_read_from_the_queued_transition_the_gate_committed() -> None:
+    received = _event(JobState.RECEIVED)
+    classified = _event(JobState.CLASSIFIED, JobState.NORMALIZED)
+
+    def queued(**payload: Any) -> list[ProcessingEvent]:
+        return [received, classified, _event(JobState.QUEUED, JobState.CLASSIFIED, **payload)]
+
+    assert retrieval_floor_applied(queued(retrieval_required=True, **FLOOR_MARKER_TRUE)) is True
+    assert retrieval_floor_applied(queued(retrieval_required=True, **FLOOR_MARKER_FALSE)) is False
+    # A gate that recorded no marker (before the floor existed) does not say either way.
+    assert retrieval_floor_applied(queued(retrieval_required=True)) is None
+    # The zero-AI outcomes and a job that never got past triage have no floor to report.
+    exit_events = [
+        received,
+        classified,
+        _event(JobState.COMPLETED, JobState.CLASSIFIED, early_exit=True),
+    ]
+    assert retrieval_floor_applied(exit_events) is None
+    assert retrieval_floor_applied([received, classified]) is None
+    assert retrieval_floor_applied([]) is None
+
+
+def test_the_floor_marker_is_the_triage_workers_own() -> None:
+    from services.triage_worker.gate import RETRIEVAL_FROM_CATEGORY_KEY
+
+    assert next(iter(FLOOR_MARKER_TRUE)) == RETRIEVAL_FROM_CATEGORY_KEY
 
 
 def test_the_gate_outcome_names_are_the_triage_workers_own() -> None:
@@ -1022,6 +1054,7 @@ async def test_the_pipeline_block_reports_triage_gate_and_context_flags() -> Non
         "model_name": None,
         "latency_ms": 4,
         "gate_outcome": "proceed_rag",
+        "retrieval_floor": None,  # this job's gate recorded no marker
     }
     assert pipeline["summary_triggered"] is True
     assert pipeline["rerank_applied"] is True
@@ -1483,3 +1516,35 @@ def test_a_guarded_collector_needs_the_audit_path() -> None:
     with pytest.raises(ValueError, match="audit"):
         LiveCollector(stores=World().stores, config="C3", audit_path=None)
     LiveCollector(stores=World().stores, config="C0", audit_path=None)  # C0 has no guard-worker
+
+
+async def test_a_job_the_floor_raised_shows_the_stage_answer_the_gate_outcome_and_the_floor() -> (
+    None
+):
+    # The classification row is the stage's own answer (R6.7) and the QUEUED payload is what the
+    # gate routed with, so without the marker a floored job reads as retrieval_required=false
+    # next to gate_outcome=proceed_rag and cannot be told from a stage that asked for retrieval.
+    world, clock = World(), FakeClock()
+    await world.receive()
+    await world.to(JobState.NORMALIZED)
+    await world.classify(retrieval_required=False, decided_by="llm")
+    await world.to(JobState.CLASSIFIED, {"category": "support"})
+    await world.to(
+        JobState.QUEUED,
+        {
+            "retrieval_required": True,
+            "retrieval_required_from_category": True,
+            "workflow_hint": "ai",
+            "category": "support",
+        },
+    )
+    await world.to(JobState.CONTEXT_READY, {"retrieved_chunks_count": 0})
+    await world.context_built(retrieved=[])
+    await world.to(JobState.GENERATING, {"category": "support"})
+    await world.to(JobState.DRAFTED, {"category": "support"})
+
+    triage = (await _collect(world, clock))["pipeline"]["triage"]
+
+    assert triage["retrieval_required"] is False  # what the stage said
+    assert triage["gate_outcome"] == "proceed_rag"  # what ran
+    assert triage["retrieval_floor"] is True  # why they differ

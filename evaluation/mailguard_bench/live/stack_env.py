@@ -29,8 +29,14 @@ What the file holds, the same for every run apart from the model:
 - The retrieval budget for a hosted embedding call, the reranker settings, and the retrieval
   category filter switched off. The case knowledge documents are uploaded under the case's own
   category while live triage chooses the category retrieval filters by, so with the filter on a
-  document filed under another category is never found (ADR-0013, proposed). Only the category
+  document filed under another category is never found (ADR-0013, accepted). Only the category
   filter goes; the tenant filter stays, and every case runs in its own organization.
+- The category retrieval floor (``TRIAGE__CATEGORY_RETRIEVAL_FLOOR``) switched on. It is what
+  makes a reply routed to AI retrieve when its category does (ADR-0013). Only the triage
+  worker container reads it, so there is no host check; but Compose forwards it from .env, and
+  a leftover ``false`` there would silently take the RAG path out of the run, so it is pinned
+  here like the filter (Compose reads .env.stack after .env, and a shell value that differs is
+  refused).
 
 The file holds API keys, so it is written owner-only and only where git ignores it, and the
 keys are never printed. ``uv run`` does not load .env, so like the runner this reads it with
@@ -75,6 +81,7 @@ EMBEDDING_KEY_ENV = "LLM__OPENAI_API_KEY"
 SUMMARIZER_MODEL_ENV = "BENCH_SUMMARIZER_MODEL"
 RETRIEVAL_TIMEOUT_MS = 3000
 CATEGORY_FILTER_ENABLED = "false"  # RETRIEVAL__CATEGORY_FILTER_ENABLED for every model profile
+CATEGORY_RETRIEVAL_FLOOR = "true"  # TRIAGE__CATEGORY_RETRIEVAL_FLOOR, the code default, pinned
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 RERANK_TIMEOUT_MS = 1000
 DEFAULT_LLM_TIMEOUT_S = 60.0
@@ -189,6 +196,7 @@ def render_stack_env(
         "EMBEDDING__API_KEY": embedding_key,
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": str(RETRIEVAL_TIMEOUT_MS),
         "RETRIEVAL__CATEGORY_FILTER_ENABLED": CATEGORY_FILTER_ENABLED,
+        "TRIAGE__CATEGORY_RETRIEVAL_FLOOR": CATEGORY_RETRIEVAL_FLOOR,
         "RETRIEVAL__RERANK_ENABLED": "true",
         "RETRIEVAL__RERANK_MODEL": RERANK_MODEL,
         "RETRIEVAL__RERANK_TIMEOUT_MS": str(RERANK_TIMEOUT_MS),
@@ -484,6 +492,10 @@ def run(argv: Sequence[str] | None = None) -> None:
     print(
         "   retrieval category filter off (RETRIEVAL__CATEGORY_FILTER_ENABLED=false): the case "
         "documents are filed under the case's own category, live triage picks the query's"
+    )
+    print(
+        "   category retrieval floor on (TRIAGE__CATEGORY_RETRIEVAL_FLOOR=true): a reply routed "
+        "to AI retrieves when its category does, whatever triage's model answered"
     )
     print(
         f"   host      {args.env_file} agrees, so the guard-worker and the runner read "
