@@ -1,7 +1,7 @@
-"""The category retrieval floor (task 7.20; R6.6, R6.9, R12.4; design.md section 5.3).
+"""The category retrieval floor (task 7.28; R6.6, R6.9, R12.4; design.md section 5.3).
 
-PROPOSED, awaiting the owner: ADR-0013 (docs/adr/0013-category-retrieval-floor-and-benchmark-
-category-filter.md).
+Accepted by the owner, 2026-10-01 00:42 (ADR-0012 decision 12): ADR-0013
+(docs/adr/0013-category-retrieval-floor-and-benchmark-category-filter.md).
 
 The live v2 smoke of 2026-09-30 and 2026-10-01 (gpt-4o-mini) saw the stage-3 LLM answer
 ``retrieval_required=false`` for 9 of 9 company-policy questions (warranty period, refund fee,
@@ -27,6 +27,7 @@ from uuid import UUID, uuid4
 import pytest
 import yaml
 from dotenv import dotenv_values
+from prometheus_client import CollectorRegistry
 
 from packages.broker.envelope import JobEnvelope
 from packages.broker.publisher import MessagePublisher
@@ -37,11 +38,16 @@ from packages.core.settings import AppSettings, SummarizationSettings, TriageSet
 from packages.db.classification import InMemoryClassificationStore
 from packages.db.job import InMemoryJobStore
 from packages.domain.entities import Classification, EmailAddress, Job, NormalizedMessage
-from packages.domain.rules import Rule
+from packages.domain.rules import Rule, RuleEngine
 from packages.domain.state_machine import JobState
 from packages.domain.taxonomy import TaxonomyRegistry
 from packages.domain.templates import TemplateDefinition, TemplateRegistry
 from packages.llm.fake import FakeLLMProvider
+from packages.observability.metrics import (
+    PipelineMetrics,
+    create_pipeline_metrics,
+    generate_metrics_payload,
+)
 from packages.retrieval.fake import FakeSearchBackend
 from packages.retrieval.query_builder import RetrievalQueryBuilder
 from packages.retrieval.retriever import HybridRetriever
@@ -51,7 +57,11 @@ from services.triage_worker.classifier import MLClassifier
 from services.triage_worker.consumer import TriageConsumer
 from services.triage_worker.gate import EarlyExitGate, GateAction
 from services.triage_worker.llm_classifier import LLMTriageClassifier
-from services.triage_worker.rules import HotReloadableRuleEngine
+from services.triage_worker.rules import (
+    HotReloadableRuleEngine,
+    load_rules_from_file,
+    load_rules_from_yaml,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FLOOR_MARKER = "retrieval_required_from_category"
@@ -705,3 +715,117 @@ async def test_the_floor_reaches_the_ai_workers_retrieval_end_to_end() -> None:
     package = await builder.build_context(job, message, classification, thread_messages=[message])
 
     assert [chunk.chunk_id for chunk in package.retrieved_chunks] == ["CHUNK-WARRANTY"]
+
+
+# --- the floor is countable (CLAUDE.md section 3 item 5, R21.4) ---------------------------------
+
+
+def _floor_count(
+    metrics: PipelineMetrics, category: str, decided_by: str, org: UUID | str
+) -> float:
+    value = metrics.registry.get_sample_value(
+        "retrieval_floor_applied_total",
+        {"organization": str(org), "category": category, "decided_by": decided_by},
+    )
+    return value or 0.0
+
+
+def test_a_job_the_floor_raised_is_counted_by_category_and_deciding_stage() -> None:
+    metrics = create_pipeline_metrics(registry=CollectorRegistry())
+    job = _job()
+
+    EarlyExitGate(metrics=metrics).evaluate_decision(
+        job, _classification("billing", decided_by="llm", retrieval_required=False)
+    )
+
+    assert _floor_count(metrics, "billing", "llm", job.organization_id) == 1.0
+
+
+async def test_the_persisted_gate_counts_the_floor_once_the_transition_is_committed() -> None:
+    metrics = create_pipeline_metrics(registry=CollectorRegistry())
+    store = InMemoryJobStore()
+    job = _job()
+    await store.create_job(job)
+
+    await EarlyExitGate(job_store=store, metrics=metrics).evaluate_and_persist(
+        job, _classification("support", decided_by="rule")
+    )
+
+    assert _floor_count(metrics, "support", "rule", job.organization_id) == 1.0
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param({"retrieval_required": True}, id="stage-already-asked"),
+        pytest.param({"category": "scheduling"}, id="category-does-not-retrieve"),
+        pytest.param({"category": "no_such_category"}, id="unknown-category"),
+        pytest.param({"reply_required": False, "workflow_hint": "none"}, id="no-reply"),
+    ],
+)
+def test_a_job_the_floor_did_not_raise_is_not_counted(case: dict[str, Any]) -> None:
+    metrics = create_pipeline_metrics(registry=CollectorRegistry())
+    job = _job()
+    args: dict[str, Any] = {"category": "support", "retrieval_required": False, **case}
+
+    EarlyExitGate(metrics=metrics).evaluate_decision(job, _classification(**args))
+
+    payload, _ = generate_metrics_payload(metrics.registry)
+    assert b"retrieval_floor_applied_total{" not in payload
+
+
+def test_a_switched_off_floor_counts_nothing() -> None:
+    metrics = create_pipeline_metrics(registry=CollectorRegistry())
+    job = _job()
+
+    EarlyExitGate(metrics=metrics, category_retrieval_floor=False).evaluate_decision(
+        job, _classification("support")
+    )
+
+    payload, _ = generate_metrics_payload(metrics.registry)
+    assert b"retrieval_floor_applied_total{" not in payload
+
+
+def test_the_observability_reference_lists_the_floor_counter() -> None:
+    text = (REPO_ROOT / "docs" / "observability.md").read_text(encoding="utf-8")
+
+    assert (
+        "`retrieval_floor_applied_total` | Counter | `organization, category, decided_by`" in text
+    )
+
+
+# --- the shipped rules and the floor (ADR-0013, "Rules") -----------------------------------------
+
+
+def _rules_that_reply_without_retrieval(engine: RuleEngine) -> list[str]:
+    """Ids of rules the floor would overrule: they need a reply and say no retrieval."""
+    return [
+        rule.id
+        for rule in engine.rules
+        if rule.action.reply_required and not rule.action.retrieval_required
+    ]
+
+
+def test_no_shipped_rule_asks_for_a_reply_without_retrieval() -> None:
+    # ADR-0013 records that the floor overrules a rule's explicit retrieval_required=false and
+    # that this changes nothing today: every shipped rule with retrieval_required=false also has
+    # reply_required=false, so it exits at the no-reply outcome before the floor. This holds that
+    # claim: a rule edit that breaks it is overruled by the floor unnoticed otherwise.
+    engine = load_rules_from_file(REPO_ROOT / "config" / "triage_rules.yaml")
+
+    assert engine.rules, "the shipped rules did not load"
+    assert _rules_that_reply_without_retrieval(engine) == []
+
+
+def test_the_shipped_rules_check_would_catch_a_rule_that_replies_without_retrieval() -> None:
+    engine = load_rules_from_yaml(
+        "rules:\n"
+        "  - id: fine\n"
+        "    when: {subject: {contains: a}}\n"
+        "    then: {category: support, reply_required: false, retrieval_required: false}\n"
+        "  - id: overruled\n"
+        "    when: {subject: {contains: b}}\n"
+        "    then: {category: support, reply_required: true, retrieval_required: false}\n"
+    )
+
+    assert _rules_that_reply_without_retrieval(engine) == ["overruled"]

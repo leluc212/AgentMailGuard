@@ -277,8 +277,16 @@ class EarlyExitGate:
         category: str,
         reason: str,
         template_id: str | None = None,
+        floored_by: str | None = None,
     ) -> None:
-        """Record funnel accounting and specific gate metrics (R6.10, R6.15, R21.4)."""
+        """Record funnel accounting and specific gate metrics (R6.10, R6.15, R21.4).
+
+        Args:
+            floored_by: The stage that decided, when the category retrieval floor raised
+                ``retrieval_required`` for this job (None when it did not). Counted with the
+                outcome, after the transition has committed, so a redelivery that never reached
+                the commit does not count.
+        """
         org_str = str(org_id)
         if action == GateAction.EARLY_EXIT:
             record_funnel_outcome(
@@ -313,6 +321,12 @@ class EarlyExitGate:
                 outcome=FunnelOutcome.AI_GENERATION,
                 rag_mode=RAGMode.RAG,
             )
+            if floored_by is not None:
+                self.metrics.retrieval_floor_applied_total.labels(
+                    organization=org_str,
+                    category=category,
+                    decided_by=floored_by,
+                ).inc()
         elif action == GateAction.PROCEED_NO_RAG:
             record_funnel_outcome(
                 self.metrics,
@@ -553,6 +567,7 @@ class EarlyExitGate:
             org_id=job.organization_id,
             category=effective_cls.category,
             reason=reason,
+            floored_by=effective_cls.decided_by if retrieval_from_category else None,
         )
 
         return GateDecision(
@@ -843,6 +858,7 @@ class EarlyExitGate:
             org_id=job.organization_id,
             category=effective_cls.category,
             reason=reason,
+            floored_by=effective_cls.decided_by if retrieval_from_category else None,
         )
 
         return GateDecision(

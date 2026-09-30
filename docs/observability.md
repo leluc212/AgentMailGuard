@@ -47,7 +47,7 @@ Every incoming email triaged by `triage_worker` is accounted for across exactly 
    - Sub-dimension `rag_mode`:
      - `rag` (~70% of AI = ~24,500/day): `retrieval_required == true`, executes hybrid RAG.
      - `no_rag` (~30% of AI = ~10,500/day): `retrieval_required == false`, utilizes thread and business context only.
-     - `retrieval_required` here is the value the gate routed with. With the category retrieval floor (`TRIAGE__CATEGORY_RETRIEVAL_FLOOR`, ADR-0013, proposed) a stage's `false` for a category that retrieves by default counts as `rag`, so the measured split follows the category mix rather than the ~70/30 planning figure.
+     - `retrieval_required` here is the value the gate routed with. With the category retrieval floor (`TRIAGE__CATEGORY_RETRIEVAL_FLOOR`, ADR-0013, accepted) a stage's `false` for a category that retrieves by default counts as `rag`, so the measured split follows the category mix rather than the ~70/30 planning figure.
 
 ### 1.2 Mathematical Reconciliation Formula (R6.15)
 
@@ -66,6 +66,7 @@ $$\text{rag\_share} = \frac{\text{ai\_generation}\{\text{rag\_mode} = \text{"rag
 | `triage_funnel_outcomes_total` | Counter | `organization, category, outcome, rag_mode` | Primary accounting counter across `early_exit`, `template`, and `ai_generation`. |
 | `emails_early_exit_total` | Counter | `organization, category, reason` | Emails completed at early exit gate. |
 | `emails_templated_total` | Counter | `organization, template_id` | Deterministic template replies drafted without LLM. |
+| `retrieval_floor_applied_total` | Counter | `organization, category, decided_by` | AI-routed replies whose `retrieval_required` the category retrieval floor raised (the stage said `false`, the category's default is `true`; ADR-0013). Counted with the `rag` outcome, after the `QUEUED` transition commits; divide by `triage_funnel_outcomes_total{rag_mode="rag"}` for the share of `rag` jobs the floor made. |
 | `emails_generated_total` | Counter | `organization, category, model_tier` | Persisted AI drafts; counted once per job, never on redelivery (R21.4). |
 | `emails_classified_total` | Counter | `organization, category, priority, decided_by` | Total classifications executed by triage cascade. |
 | `citations_verified_total` | Counter | `category` | Drafts whose citations were checked against the supplied context (R16.5). |
