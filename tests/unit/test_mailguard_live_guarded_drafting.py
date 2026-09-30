@@ -26,6 +26,7 @@ pytest.importorskip("mailguard")
 from mailguard.llm.protocol import LLMResponseError as GuardLLMResponseError  # noqa: E402
 
 from evaluation.mailguard_bench.guard_build import GuardBuild, build_guard  # noqa: E402
+from evaluation.mailguard_bench.guarded_reply import guard_marks_fallbacks  # noqa: E402
 from evaluation.mailguard_bench.live.guarded_drafting import (  # noqa: E402
     AUDIT_SCHEMA,
     GUARD_MODEL_NAME,
@@ -653,6 +654,9 @@ async def test_a_rate_limited_guard_stage_fails_the_job_for_the_retry_ladder(
     assert rig.audit_lines() == []
 
 
+@pytest.mark.skipif(
+    guard_marks_fallbacks(), reason="the installed guard marks failed AI steps (llm_fallback)"
+)
 async def test_a_guard_layer_error_is_flagged_in_the_audit_line_never_hidden(
     tmp_path: Path,
 ) -> None:
@@ -668,6 +672,83 @@ async def test_a_guard_layer_error_is_flagged_in_the_audit_line_never_hidden(
     (line,) = rig.audit_lines()
     assert any(error.startswith("guard_llm:") for error in line["guard_errors"])
     assert line["guard_llm"]["calls"] >= 1
+
+
+@pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
+async def test_failed_guard_ai_steps_are_audited_per_layer_and_the_job_is_drafted(
+    tmp_path: Path,
+) -> None:
+    # Amendment 1, C.1 generalised (ADR-0012 decision 4): every AI stage that fell back is in the
+    # audit line with its reason; none of them is a guard error, so the case is scored normally.
+    rig = await _rig(tmp_path)
+    rig.guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
+
+    outcome = await rig.service.draft(rig.job, rig.context(), category="support")
+
+    assert outcome.job.state == JobState.DRAFTED.value
+    (line,) = rig.audit_lines()
+    assert line["guard_errors"] == []
+    # L1's judge, L3b's and L4's run only when their cheap stages escalate; L2's always runs.
+    assert [f["layer"] for f in line["guard_fallbacks"]] == ["l2_intent_extractor"]
+    assert {f["reason"] for f in line["guard_fallbacks"]} == {"error"}
+    assert all("HTTP 500" in f["error"] for f in line["guard_fallbacks"])
+    assert line["l2_llm_schema_fallback"] is False  # a transport error, not an answer
+
+
+@pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
+async def test_the_draft_persisted_log_counts_the_guard_fallbacks_next_to_the_errors(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # CLAUDE.md 3.5: a processing step's structured log carries what it recorded. A fallback is
+    # scored, not an error, so it needs its own count beside guard_errors.
+    rig = await _rig(tmp_path)
+    rig.guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
+
+    with caplog.at_level(logging.INFO):
+        await rig.service.draft(rig.job, rig.context(), category="support")
+
+    (record,) = [r for r in caplog.records if r.getMessage() == "draft_persisted"]
+    fields = record.fields  # type: ignore[attr-defined]
+    assert fields["guard_fallbacks"] == 1
+    assert fields["guard_errors"] == 0
+
+
+@pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
+async def test_an_l2_answer_without_the_schema_sets_l2_llm_schema_fallback_in_the_audit(
+    tmp_path: Path,
+) -> None:
+    from mailguard.llm.fake import FakeLLMProvider as GuardFakeLLM
+
+    rig = await _rig(tmp_path)
+    rig.guard.guard_llm.inner = GuardFakeLLM(
+        default_response={"raw_text": "Sure, happy to help."}, model_name="fake:fake"
+    )
+
+    await rig.service.draft(rig.job, rig.context(), category="support")
+
+    (line,) = rig.audit_lines()
+    by_layer = {f["layer"]: f["reason"] for f in line["guard_fallbacks"]}
+    assert by_layer["l2_intent_extractor"] == "non_json"
+    assert line["l2_llm_schema_fallback"] is True
+    assert line["guard_errors"] == []
+
+
+@pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
+async def test_a_healthy_guarded_job_audits_an_empty_fallback_list(tmp_path: Path) -> None:
+    rig = await _rig(tmp_path)
+
+    await rig.service.draft(rig.job, rig.context(), category="support")
+
+    (line,) = rig.audit_lines()
+    assert line["guard_fallbacks"] == [] and line["l2_llm_schema_fallback"] is False
 
 
 async def test_a_persisted_generated_draft_counts_once_and_a_guard_escalation_not_at_all(

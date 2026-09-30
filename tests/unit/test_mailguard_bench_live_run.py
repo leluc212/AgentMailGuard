@@ -929,6 +929,25 @@ def test_the_live_meta_keeps_the_v1_keys_and_adds_the_live_ones() -> None:
     assert set(meta["fingerprint"]) == {*FINGERPRINT_KEYS, *LIVE_KEYS}
 
 
+def test_the_live_meta_records_the_prices_and_the_utility_rule_outside_the_fingerprint() -> None:
+    # ADR-0012 2(d), 2(e): the report prices the run from its own meta; a resume of an older
+    # meta must not be refused for lacking the keys, so they stay out of the fingerprint.
+    from evaluation.mailguard_bench.runmeta import (
+        UTILITY_RULE_MIN_DRAFT_CHARS,
+        prices_from_meta,
+        strict_utility_from_meta,
+    )
+    from packages.core.settings import AppSettings
+
+    meta = _meta("C3")
+
+    assert prices_from_meta(meta) == dict(AppSettings().llm.price_table)
+    assert meta["benign_utility_rule"] == UTILITY_RULE_MIN_DRAFT_CHARS
+    assert strict_utility_from_meta(meta) is True
+    assert "prices" not in meta["fingerprint"]
+    assert "benign_utility_rule" not in meta["fingerprint"]
+
+
 def test_every_live_fact_is_in_the_fingerprint_and_none_of_them_is_none() -> None:
     fingerprint = _meta("C3")["fingerprint"]
 

@@ -38,6 +38,7 @@ from uuid import UUID
 from evaluation.mailguard_bench.case_adapter import EvalCase
 from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
 from evaluation.mailguard_bench.live.feeder import Deadline, FedCase, Sleep
+from evaluation.mailguard_bench.scoring import FAIL_CLOSED_KIND
 from packages.broker.routing import format_routing_key
 from packages.context.builder import DefaultInstructionProvider
 from packages.core.idempotency import derive_idempotency_key
@@ -70,8 +71,6 @@ LAST_ERROR_CHARS = 200
 UNVALIDATED_DRAFT_ERROR = "UnvalidatedDraftError"
 """The error a job is dead-lettered with when its draft is invalid after the repair (R16.3);
 a test keeps the name equal to the generator's own exception class."""
-FAIL_CLOSED_KIND = "fail_closed_validation"
-"""The ``error.kind`` of the row of such a job (amendment 1, D.1(c))."""
 AUDIT_GRACE_S = 10.0
 """How long a drafted job may wait for its audit line: the guard-worker writes the line
 around the DRAFTED commit, not inside it."""

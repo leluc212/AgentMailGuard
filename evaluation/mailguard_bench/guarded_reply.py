@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from evaluation.mailguard_bench.case_adapter import PreparedCase
 from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.resilience import RateLimitedError, text_is_rate_limited
+from evaluation.mailguard_bench.scoring import AiStepFallback
 from packages.llm.generator import GenerationResult, SinglePassGenerator
 from packages.llm.protocol import ChatMessage
 
@@ -40,6 +41,77 @@ L3B_LAYER = "l3b_document_scanner"
 
 def _value(obj: Any) -> str:
     return str(getattr(obj, "value", obj))
+
+
+@dataclass(frozen=True)
+class AiStepFailures:
+    """The failed AI steps of one case, split by whether the case may still be scored.
+
+    ``fallbacks`` are steps the guard marked (``llm_fallback``): the case is scored normally.
+    ``errors`` are what keeps a case out of the scoring: a layer crash (the verdict's ``error``)
+    and an ``llm_error`` the guard did not mark as a fallback (the v1 guard), which is a weaker
+    guard and never a defence.
+    """
+
+    fallbacks: tuple[AiStepFallback, ...]
+    crashes: tuple[str, ...]  # layer crashes: the verdict's ``error``
+    degraded: tuple[str, ...]  # an ``llm_error`` the guard did not mark as a fallback
+
+    @property
+    def errors(self) -> tuple[str, ...]:
+        """Everything that keeps the case out of the scoring."""
+        return self.crashes + self.degraded
+
+    @property
+    def l2_schema_fallback(self) -> bool:
+        """True when L2's model answer did not carry the schema (Amendment 1, C.1)."""
+        return any(f.is_l2_schema_fallback for f in self.fallbacks)
+
+
+def classify_ai_step_failures(verdicts: Iterable[Any]) -> AiStepFailures:
+    """Sort the failed AI steps of a case's verdicts into fallbacks and errors.
+
+    AgentMailGuard's "Visible fallback of the AI stages" (docs/architecture.md): a failed AI step
+    keeps the cheap result, leaves ``error`` empty and sets ``metadata["llm_fallback"]``,
+    ``llm_fallback_reason`` and ``llm_error``. A verdict whose ``error`` is set is a layer crash
+    and stays an error whatever else its metadata says. An ``llm_error`` without the mark comes
+    from a guard that does not mark its failures, and keeps the classification of the v1 runs.
+    """
+    fallbacks: list[AiStepFallback] = []
+    crashes: list[str] = []
+    degraded: list[str] = []
+    for verdict in verdicts:
+        layer = _value(verdict.layer)
+        metadata = verdict.metadata or {}
+        marked = metadata.get("llm_fallback") is True
+        if verdict.error:
+            crashes.append(f"{layer}: {verdict.error}")
+        if marked and not verdict.error:
+            fallbacks.append(
+                AiStepFallback(
+                    layer=layer,
+                    reason=str(metadata.get("llm_fallback_reason") or "error"),
+                    error=str(metadata.get("llm_error") or ""),
+                )
+            )
+        elif metadata.get("llm_error") and not marked:
+            degraded.append(f"{layer}: llm_error: {metadata['llm_error']}")
+    return AiStepFailures(
+        fallbacks=tuple(fallbacks), crashes=tuple(crashes), degraded=tuple(degraded)
+    )
+
+
+def guard_marks_fallbacks() -> bool:
+    """True when the installed AgentMailGuard marks a failed AI step in its verdicts.
+
+    The guard at 1a3ef62 does (``mailguard.llm.structured.mark_llm_fallback``); the v1 guard
+    (81df5d07) does not, and its runs keep their old classification.
+    """
+    try:
+        from mailguard.llm.structured import mark_llm_fallback  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -132,11 +204,16 @@ class GuardedCaseExecutor:
         generator: SinglePassGenerator,
         guard_llm: CountingProvider | None = None,
         max_tokens: int = 1000,
+        marks_fallbacks: bool | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.generator = generator
         self.guard_llm = guard_llm
         self.max_tokens = max_tokens
+        # Whether the guard marks a failed AI step in its verdicts (None: ask the installed guard).
+        self.marks_fallbacks = (
+            guard_marks_fallbacks() if marks_fallbacks is None else marks_fallbacks
+        )
 
     async def execute(self, prepared: PreparedCase) -> CaseExecution:
         """Run MailGuardPipeline.run around one rag-email generation call.
@@ -198,15 +275,21 @@ class GuardedCaseExecutor:
         llm_errors = [str(e) for e in guard_calls["errors"]]
         # A stage that caught LLMError after generate() returned (the schema-validation
         # failure call_structured raises when the guard model answers in prose or with
-        # missing fields) keeps its cheap verdict and only writes metadata["llm_error"].
+        # missing fields) keeps its cheap verdict and writes metadata["llm_error"].
         # CountingProvider never sees that, so read it from every verdict (L1, L2, L3,
-        # each L3b chunk, L4): a weaker guard must be an error row, never a defence.
-        degraded = [
-            f"{_value(v.layer)}: llm_error: {v.metadata['llm_error']}"
-            for v in report.verdicts()
-            if (v.metadata or {}).get("llm_error")
+        # each L3b chunk, L4). A guard that marks the failure (llm_fallback) keeps the case
+        # scored and the failure is counted per layer and reason (ADR-0012 decision 4); a guard
+        # that does not is a weaker guard and the case is an error row, never a defence.
+        failures = classify_ai_step_failures(report.verdicts())
+        limited = [
+            e
+            for e in [
+                *llm_errors,
+                *(f"{f.layer}: llm_error: {f.error}" for f in failures.fallbacks),
+                *failures.errors,
+            ]
+            if text_is_rate_limited(e)
         ]
-        limited = [e for e in llm_errors + degraded if text_is_rate_limited(e)]
         if limited:
             raise RateLimitedError(f"guard LLM stage hit HTTP 429: {limited[-1][:300]}")
 
@@ -218,11 +301,10 @@ class GuardedCaseExecutor:
             generation=generation,
             blocked=self.pipeline.blocked,
         )
-        guard_errors = tuple(
-            [f"{_value(v.layer)}: {v.error}" for v in report.verdicts() if v.error]
-            + [f"guard_llm: {e}" for e in llm_errors]
-            + degraded
-        )
+        # A guard that marks its failed AI steps records each one on the verdict, so the provider's
+        # own error list adds nothing: a step it cannot mark crashes the layer (verdict error).
+        counted = [] if self.marks_fallbacks else [f"guard_llm: {e}" for e in llm_errors]
+        guard_errors = (*failures.crashes, *counted, *failures.degraded)
         record = {
             **outcome,
             "system_instructions": context.agent_instructions or "",
@@ -237,4 +319,9 @@ class GuardedCaseExecutor:
             "job_result": decision_to_job_result(report, draft),
             "report": json.loads(report_json(report)),
         }
+        if self.marks_fallbacks:
+            # Recorded only when the guard can say so: no key means "not recorded" (the v1 guard),
+            # an empty list means "no AI step fell back".
+            record["guard_fallbacks"] = [f.to_dict() for f in failures.fallbacks]
+            record["l2_llm_schema_fallback"] = failures.l2_schema_fallback
         return CaseExecution(record=record, guard_errors=guard_errors)
