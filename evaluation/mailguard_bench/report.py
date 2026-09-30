@@ -171,10 +171,13 @@ def _v2_degradation_problems(config: str, meta: Mapping[str, Any] | None) -> lis
         problems.append(f"{config}: active layers {list(active)} are not {list(V2_LAYERS[config])}")
     missing = list(guard.get("missing_live_stages") or [])
     recorded = guard.get("live_stages") or {}
-    off = [stage for stage in v2_required_stages(config) if recorded and not recorded.get(stage)]
+    # A stage the config needs is live only if live_stages says so: a meta that records none
+    # (hand-made or truncated) verifies nothing, so it is not a pass (Amendment 2).
+    off = [stage for stage in v2_required_stages(config) if not recorded.get(stage)]
     not_live = [*missing, *(stage for stage in off if stage not in missing)]
     if not_live:
-        problems.append(f"{config}: guard stages not live: {', '.join(not_live)}")
+        unrecorded = " (no live_stages recorded)" if off and not recorded else ""
+        problems.append(f"{config}: guard stages not live: {', '.join(not_live)}{unrecorded}")
     if meta.get("degraded_allowed"):
         problems.append(f"{config}: started with --allow-degraded")
     return problems

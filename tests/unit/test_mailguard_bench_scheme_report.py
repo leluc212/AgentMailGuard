@@ -55,7 +55,11 @@ def v2_meta(config: str, **over: Any) -> dict[str, Any]:
         "guard_models": None if config == "C0" else GPT,
         "generation_model": GPT,
         "generation": {"provider": "openai", "model": GPT},
-        "guard": {"active_layers": layers, "missing_live_stages": []},
+        "guard": {
+            "active_layers": layers,
+            "missing_live_stages": [],
+            "live_stages": dict.fromkeys(scheme.v2_required_stages(config), True),
+        },
         "live_layers": None if config == "C0" else {"preset": scheme.v2_guard_name(config)},
         "benign_utility_rule": "min_draft_chars.v1",
     }
@@ -491,7 +495,7 @@ def test_a_v2_config_must_have_run_exactly_its_layers() -> None:
 
     assert degradation_problems("C4", v2_meta("C4")) == []
     assert settings_problems("C4", v2_meta("C4")) == []
-    wrong = {**v2_meta("C4"), "guard": {"active_layers": ["l3", "l5"], "missing_live_stages": []}}
+    wrong = {**v2_meta("C4"), "guard": {**v2_meta("C4")["guard"], "active_layers": ["l3", "l5"]}}
     (problem,) = degradation_problems("C4", wrong)
     assert problem == "C4: active layers ['l3', 'l5'] are not ['l3b', 'l5']"
     other = {**v2_meta("C4"), "guard_preset": "C3"}
@@ -514,13 +518,40 @@ def test_a_missing_stage_or_allow_degraded_refuses_a_v2_run() -> None:
 
     stage = {
         **v2_meta("C5"),
-        "guard": {"active_layers": ["l4", "l5"], "missing_live_stages": ["l4.llm"]},
+        "guard": {
+            "active_layers": ["l4", "l5"],
+            "missing_live_stages": ["l4.llm"],
+            "live_stages": {"l4.llm": False},
+        },
     }
     assert degradation_problems("C5", stage) == ["C5: guard stages not live: l4.llm"]
     assert degradation_problems("C5", {**v2_meta("C5"), "degraded_allowed": True}) == [
         "C5: started with --allow-degraded"
     ]
     assert degradation_problems("C7", None, scheme="v2") == ["C7: raw/C7.meta.json is missing"]
+
+
+def test_a_v2_meta_whose_live_stages_do_not_show_a_needed_stage_live_is_refused() -> None:
+    # The second check: missing_live_stages says nothing, live_stages must still show every stage
+    # the config needs. A truncated or hand-made meta that records neither is not a pass.
+    from evaluation.mailguard_bench.report import degradation_problems
+
+    def guard(**over: Any) -> dict[str, Any]:
+        return {**v2_meta("C7")["guard"], **over}
+
+    off = {**v2_meta("C7"), "guard": guard(live_stages={"l1.classifier": True, "l1.judge": False})}
+    (problem,) = degradation_problems("C7", off)
+    assert problem.startswith("C7: guard stages not live: ") and "l1.judge" in problem
+    assert "l2.llm" in problem and "l3b.llm" in problem and "l4.llm" in problem
+
+    bare = {**v2_meta("C4"), "guard": {"active_layers": ["l3b", "l5"], "missing_live_stages": []}}
+    (problem,) = degradation_problems("C4", bare)
+    assert problem == "C4: guard stages not live: l1.classifier, l3b.llm (no live_stages recorded)"
+
+    # a config that needs no stage has nothing to verify
+    for config in ("C0T", "C3", "C6"):
+        bare = {**v2_meta(config), "guard": {**v2_meta(config)["guard"], "live_stages": {}}}
+        assert degradation_problems(config, bare) == [], config
 
 
 def test_the_report_refuses_a_v2_run_whose_c1_ran_the_v1_meaning(tmp_path: Path) -> None:
