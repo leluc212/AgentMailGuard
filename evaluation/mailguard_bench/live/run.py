@@ -303,6 +303,7 @@ def drafting_consumer_problems(
     workers: Sequence[GuardWorker],
     consumers: Mapping[str, int | None],
     lane_queues: Sequence[str],
+    scheme: str = DEFAULT_SCHEME,
 ) -> list[str]:
     """Why the stack is not in the state ``config`` needs; empty when it is.
 
@@ -319,8 +320,8 @@ def drafting_consumer_problems(
     if guarded and not ours:
         problems.append(
             f"no live guard-worker for {config} in run {run_id}: start `python -m "
-            f"evaluation.mailguard_bench.live.guard_worker --config {config} --run {run_id} "
-            "--model-profile ...` and wait until it consumes"
+            f"evaluation.mailguard_bench.live.guard_worker --config {config} --scheme {scheme} "
+            f"--run {run_id} --model-profile ...` and wait until it consumes"
         )
     problems.extend(
         f"{worker.describe()} is alive and would draft {config}'s e-mails; stop it ({worker.path})"
@@ -1001,7 +1002,13 @@ def guard_worker_is_attaching(
 
 
 async def check_drafting_consumers(
-    *, live: LiveDeps, settings: AppSettings, config: str, run_id: str, lanes: Sequence[str]
+    *,
+    live: LiveDeps,
+    settings: AppSettings,
+    config: str,
+    run_id: str,
+    lanes: Sequence[str],
+    scheme: str = DEFAULT_SCHEME,
 ) -> list[str]:
     """``drafting_consumer_problems``, given the time a starting guard-worker needs.
 
@@ -1022,6 +1029,7 @@ async def check_drafting_consumers(
             workers=workers,
             consumers=consumers,
             lane_queues=lanes,
+            scheme=scheme,
         )
         if (
             not problems
@@ -1067,7 +1075,12 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     run_dir = live.results_root / args.run
     lanes = live.resolve_lanes(settings)
     problems = await check_drafting_consumers(
-        live=live, settings=settings, config=args.config, run_id=args.run, lanes=lanes
+        live=live,
+        settings=settings,
+        config=args.config,
+        run_id=args.run,
+        lanes=lanes,
+        scheme=args.scheme,
     )
     if problems:
         for problem in problems:

@@ -219,6 +219,21 @@ def test_a_guarded_config_refuses_to_start_without_its_guard_worker() -> None:
     assert "no live guard-worker for C3" in problem and "r1" in problem
 
 
+def test_the_missing_worker_hint_carries_the_scheme_of_the_run() -> None:
+    # A v1 run told to start a worker without --scheme would get a v2 worker (the default),
+    # which the runner then refuses as a mismatch.
+    for scheme in ("v1", "v2"):
+        (problem,) = drafting_consumer_problems(
+            config="C3",
+            run_id="r1",
+            workers=[],
+            consumers=dict.fromkeys(LANES, 1),
+            lane_queues=LANES,
+            scheme=scheme,
+        )
+        assert f"--scheme {scheme}" in problem
+
+
 def test_a_guarded_config_refuses_another_configs_guard_worker() -> None:
     problems = _problems("C3", [_worker(config="C1", pid=555)], dict.fromkeys(LANES, 1))
 
