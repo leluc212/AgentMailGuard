@@ -220,10 +220,13 @@ class GuardedDraftingService(DraftingService):
                 nor already DRAFTED. Raised before the guard or any model is called.
             UnpersistableDraftError: If the draft cannot be persisted.
             RateLimitedError: If a guard LLM stage hit HTTP 429. Nothing is persisted, the job
-                stays GENERATING and the AI-worker consumer's retry ladder takes it. Any other
-                guard-layer failure is kept in the audit line's ``guard_errors``: the retry
-                ladder waits 30 s to 30 min, and v1 made those cases error rows (a weaker guard is
-                never a defence), so the feeder turns a non-empty ``guard_errors`` into one.
+                stays GENERATING and the AI-worker consumer's retry ladder takes it. A guard AI
+                step that failed and fell back to its cheap result is not an error when the
+                installed guard marks it (ADR-0012 decision 4): it is kept in the audit line's
+                ``guard_fallbacks`` and the row stays scored. Any other guard failure (a layer
+                crash, or a guard that does not mark fallbacks) is kept in ``guard_errors``: the
+                retry ladder waits 30 s to 30 min, and v1 made those cases error rows, so the
+                feeder turns a non-empty ``guard_errors`` into one.
             LLMError: Any generation failure, including ``UnvalidatedDraftError``; nothing is
                 persisted and the job stays GENERATING, as for DraftingService.
         """
@@ -307,6 +310,8 @@ class GuardedDraftingService(DraftingService):
                         "guard_config": self.guard.config,
                         "guard_outcome": str(outcome_kind),
                         "guard_errors": len(execution.guard_errors),
+                        # None: the installed guard does not mark its failed AI steps.
+                        "guard_fallbacks": _count_or_none(execution.record.get("guard_fallbacks")),
                     }
                 },
             )
@@ -471,3 +476,8 @@ class GuardedDraftingService(DraftingService):
             ],
             "guard_errors": list(execution.guard_errors),
         }
+
+
+def _count_or_none(recorded: object) -> int | None:
+    """The length of a recorded list, or None when the guard recorded nothing (no key)."""
+    return len(recorded) if isinstance(recorded, list) else None

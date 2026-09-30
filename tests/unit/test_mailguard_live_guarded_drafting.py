@@ -700,6 +700,26 @@ async def test_failed_guard_ai_steps_are_audited_per_layer_and_the_job_is_drafte
 @pytest.mark.skipif(
     not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
 )
+async def test_the_draft_persisted_log_counts_the_guard_fallbacks_next_to_the_errors(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # CLAUDE.md 3.5: a processing step's structured log carries what it recorded. A fallback is
+    # scored, not an error, so it needs its own count beside guard_errors.
+    rig = await _rig(tmp_path)
+    rig.guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
+
+    with caplog.at_level(logging.INFO):
+        await rig.service.draft(rig.job, rig.context(), category="support")
+
+    (record,) = [r for r in caplog.records if r.getMessage() == "draft_persisted"]
+    fields = record.fields  # type: ignore[attr-defined]
+    assert fields["guard_fallbacks"] == 1
+    assert fields["guard_errors"] == 0
+
+
+@pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
 async def test_an_l2_answer_without_the_schema_sets_l2_llm_schema_fallback_in_the_audit(
     tmp_path: Path,
 ) -> None:
