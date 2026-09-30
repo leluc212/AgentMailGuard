@@ -32,31 +32,15 @@ from typing import Any
 from evaluation.mailguard_bench.case_adapter import PreparedCase
 from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.resilience import RateLimitedError, text_is_rate_limited
+from evaluation.mailguard_bench.scoring import AiStepFallback
 from packages.llm.generator import GenerationResult, SinglePassGenerator
 from packages.llm.protocol import ChatMessage
 
 L3B_LAYER = "l3b_document_scanner"
-L2_LAYER = "l2_intent_extractor"
-# A fallback reason that says the model's answer did not carry the schema: prose instead of a JSON
-# object, or a JSON object without the schema's required fields (the guard's ``fallback_reason``).
-SCHEMA_FALLBACK_REASONS = frozenset({"non_json", "schema_missing"})
 
 
 def _value(obj: Any) -> str:
     return str(getattr(obj, "value", obj))
-
-
-@dataclass(frozen=True)
-class AiStepFallback:
-    """One AI step of a guard layer that failed and left the layer on its cheap result."""
-
-    layer: str
-    reason: str  # timeout | non_json | schema_missing | invalid_fields | error
-    error: str
-
-    def to_dict(self) -> dict[str, str]:
-        """The shape a row and an audit line record."""
-        return {"layer": self.layer, "reason": self.reason, "error": self.error}
 
 
 @dataclass(frozen=True)
@@ -81,9 +65,7 @@ class AiStepFailures:
     @property
     def l2_schema_fallback(self) -> bool:
         """True when L2's model answer did not carry the schema (Amendment 1, C.1)."""
-        return any(
-            f.layer == L2_LAYER and f.reason in SCHEMA_FALLBACK_REASONS for f in self.fallbacks
-        )
+        return any(f.is_l2_schema_fallback for f in self.fallbacks)
 
 
 def classify_ai_step_failures(verdicts: Iterable[Any]) -> AiStepFailures:
