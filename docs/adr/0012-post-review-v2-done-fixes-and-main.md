@@ -47,12 +47,15 @@ a first commit.
    models; the tooling refuses such a choice.
 8. **How the work is done:** Sonnet 5.5 builders in workflows, test-first with an adversarial review
    per change; pushes to `desktop-live` as work lands; `main` only at the end.
-9. **The teammate benchmark kit** (owner round, 2026-09-30 22:38): the teammate uses Windows 11 with an
-   NVIDIA GPU (about 24 GB) and about 8 GB of system RAM (to be confirmed), has admin rights, and runs all
+9. **The teammate benchmark kit** (owner round, 2026-09-30 22:38): the teammate uses a Windows 11 laptop
+   (Intel Core i7-13700HX, 24 GB RAM, NVIDIA RTX 4050 Laptop GPU with 6 GB, about 63 GB of free disk), has
+   admin rights, and runs all
    three models as we did: gpt-4o-mini by API, Qwen2.5-7B and Llama-3.1-8B locally. The kit is WSL2-first
    (WSL2 Ubuntu plus Docker Desktop with WSL integration, everything run inside Ubuntu), with a separate
    guide for running natively on Windows. The teammate uses their own API keys; results come back the way
-   ours do (run folders and the status page committed to a branch).
+   ours do (run folders and the status page committed to a branch). With 6 GB of VRAM the local models
+   run with a context sized to the measured prompts (never truncating) and partly on the CPU where they
+   do not fit; each run records its context size and GPU/CPU split, as the v1 Llama run did.
 10. **Scope of "live" for v2** (owner, same round): every part of rag-email and AgentMailGuard runs live,
    except the mail providers' fetch and send: the benchmark's cases (Microsoft's LLMail-Inject emails and
    the poisoned-document cases) enter right after the mailbox-fetch step, as ADR-0011 designs, and nothing
