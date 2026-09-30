@@ -196,3 +196,17 @@ def test_a_torn_meta_file_is_not_a_scheme(tmp_path: Path) -> None:
     _meta(tmp_path, "C0", "{not json")
     _meta(tmp_path, "C1", {"scheme": "v2"})
     assert scheme.folder_scheme(tmp_path) == "v2"
+
+
+def test_the_live_configs_leave_out_the_v1_ablation() -> None:
+    assert scheme.live_configs_for("v1") == scheme.V1_CONFIGS
+    assert scheme.live_configs_for("v2") == scheme.V2_CONFIGS
+    assert not set(scheme.ABLATION_CONFIGS) & set(scheme.live_configs_for("v1"))
+    with pytest.raises(ValueError, match="unknown config scheme"):
+        scheme.live_configs_for("v3")
+
+
+def test_require_live_config_names_the_scheme_and_its_live_configs() -> None:
+    scheme.require_live_config("v1", "C3")
+    with pytest.raises(ValueError, match=r"C3-L1.*live.*v1.*C0, C0T, C1, C2, C3"):
+        scheme.require_live_config("v1", "C3-L1")

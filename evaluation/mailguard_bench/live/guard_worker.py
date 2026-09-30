@@ -83,8 +83,8 @@ from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
     SCHEME_KEY,
     SCHEMES,
-    require_config,
     require_folder_scheme,
+    require_live_config,
 )
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AIWorkerSettings, EmbeddingSettings, RetrievalSettings
@@ -375,7 +375,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     try:
-        require_config(args.scheme, args.config)
+        require_live_config(args.scheme, args.config)
     except ValueError as exc:
         parser.error(str(exc))
     if args.config == NATIVE_CONFIG:

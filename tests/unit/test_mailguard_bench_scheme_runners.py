@@ -208,6 +208,18 @@ def test_the_live_runner_refuses_a_config_the_scheme_does_not_have() -> None:
     assert parse_args(["--config", "C2", "--run", "r", "--scheme", "v1", *profile]).scheme == "v1"
 
 
+def test_the_live_runner_refuses_a_v1_ablation_config() -> None:
+    # The live v1 configs are C0, C0T, C1, C2 and C3. C3-L1 .. C3-L5 are in-process ablations: a
+    # live C3-L1 would drop L1 and also L3b's and L4's AI stages, a guard nobody designed.
+    profile = ["--model-profile", "qwen2.5-7b"]
+    for config in scheme.ABLATION_CONFIGS:
+        with pytest.raises(SystemExit):
+            parse_args(["--config", config, "--run", "r", "--scheme", "v1", *profile])
+    for config in scheme.V1_CONFIGS:
+        argv = ["--config", config, "--run", "r", "--scheme", "v1", *profile]
+        assert parse_args(argv).config == config
+
+
 def _live_meta(config: str, *argv: str) -> dict[str, Any]:
     args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", *argv])
     args.guard_model = "qwen2.5:7b-instruct"
@@ -311,6 +323,16 @@ def test_the_worker_serves_the_guarded_configs_of_its_scheme() -> None:
         guard_worker.parse_args(["--config", "C2", "--run", "r", "--scheme", "v1", *profile]).scheme
         == "v1"
     )
+
+
+def test_the_worker_refuses_a_v1_ablation_config() -> None:
+    profile = ["--model-profile", "gpt-4o-mini"]
+    for config in scheme.ABLATION_CONFIGS:
+        with pytest.raises(SystemExit):
+            guard_worker.parse_args(["--config", config, "--run", "r", "--scheme", "v1", *profile])
+    for config in ("C0T", "C1", "C2", "C3"):
+        argv = ["--config", config, "--run", "r", "--scheme", "v1", *profile]
+        assert guard_worker.parse_args(argv).config == config
 
 
 def test_the_workers_fingerprint_carries_the_scheme() -> None:

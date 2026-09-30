@@ -118,6 +118,32 @@ def require_config(scheme: str, config: str) -> None:
         )
 
 
+def live_configs_for(scheme: str) -> tuple[str, ...]:
+    """The configs a live run (live runner, guard-worker) takes in ``scheme``.
+
+    v1's remove-one ablation (C3-L1 .. C3-L5) is in-process only: its presets switch L3b's and
+    L4's AI stages off, so a live one would be a weaker guard than live C3 and was never designed.
+
+    Raises:
+        ValueError: If ``scheme`` is neither v1 nor v2.
+    """
+    return V1_CONFIGS if scheme == SCHEME_V1 else configs_for(scheme)
+
+
+def require_live_config(scheme: str, config: str) -> None:
+    """Fail unless a live run of ``scheme`` takes ``config``.
+
+    Raises:
+        ValueError: Naming the scheme and its live configs.
+    """
+    known = live_configs_for(scheme)
+    if config not in known:
+        raise ValueError(
+            f"config {config!r} cannot run live in scheme {scheme}; its live configs are "
+            f"{', '.join(known)}"
+        )
+
+
 def target_config(scheme: str) -> str:
     """The config whose guard ASR the target line is judged on: the full guard."""
     configs_for(scheme)

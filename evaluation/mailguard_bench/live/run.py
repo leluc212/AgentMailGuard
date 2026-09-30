@@ -129,8 +129,8 @@ from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
     SCHEME_KEY,
     SCHEMES,
-    require_config,
     require_folder_scheme,
+    require_live_config,
 )
 from packages.broker.publisher import MessagePublisher
 from packages.broker.routing import load_categories_from_yaml
@@ -240,7 +240,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.set_defaults(guard_model=DEFAULT_GUARD_MODEL)
     args = parser.parse_args(argv)
     try:
-        require_config(args.scheme, args.config)
+        require_live_config(args.scheme, args.config)
     except ValueError as exc:
         parser.error(str(exc))
     return args
