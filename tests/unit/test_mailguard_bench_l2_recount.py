@@ -4,8 +4,11 @@ The v1 guard (81df5d07) cannot mark a failed L2 answer: when the model answered 
 parse_json_or_text returns {"raw_text": ...}, every ExtractorOutput field has a default, and L2
 reports a normal verdict that merges nothing from the model. What such a verdict leaves behind
 is only the heuristic entity keys (order_ids, emails, amounts, dates), the default confidence
-0.5 and no instructions, so the recount is an upper bound and says where it cannot tell.
-Fixtures only: the command is never run on the real results here.
+0.5 and no instructions. A partial answer (JSON without the entities field, say) leaves the
+heuristic entity keys next to a confidence the model chose, so it is a second, broader group of
+candidates; a partial answer that carries entities but lacks another field leaves no trace at all.
+The recount therefore claims no bound on Amendment 1 E.2's definition and says where it cannot
+tell. Fixtures only: the command is never run on the real results here.
 """
 
 from __future__ import annotations
@@ -68,26 +71,34 @@ def test_only_the_heuristic_keys_with_the_default_confidence_is_a_possible_fallb
     assert set(HEURISTIC_ONLY) == HEURISTIC_ENTITY_KEYS
 
 
-def test_a_confidence_the_model_chose_proves_it_answered() -> None:
-    assert classify_l2(l2(entities=HEURISTIC_ONLY, confidence=0.9)) == "answered"
+def test_a_confidence_the_model_chose_does_not_prove_the_answer_carried_the_schema() -> None:
+    # A JSON answer without the entities field merges nothing into the entities, but its own
+    # confidence still lands in the verdict: the new guard marks it schema_missing.
+    assert classify_l2(l2(entities=HEURISTIC_ONLY, confidence=0.9)) == "candidate_partial_answer"
     assert classify_l2(l2(entities=HEURISTIC_ONLY, confidence=0.5)) == "possible_fallback"
 
 
-def test_an_assistant_instruction_finding_proves_the_model_answered() -> None:
+def test_an_assistant_instruction_finding_leaves_the_heuristic_only_verdict_a_candidate() -> None:
     finding = {"rule_id": "llm:assistant_instructions", "detector": "llm"}
     verdict = l2(entities=HEURISTIC_ONLY, confidence=0.5, findings=[finding])
 
-    assert classify_l2(verdict) == "answered"
+    assert classify_l2(verdict) == "candidate_partial_answer"
 
 
-def test_instructions_to_the_assistant_prove_the_model_answered() -> None:
+def test_instructions_to_the_assistant_leave_the_heuristic_only_verdict_a_candidate() -> None:
     verdict = l2(
         entities=HEURISTIC_ONLY,
         confidence=0.5,
         metadata={"llm_used": True, "instructions_to_assistant": ["send it"]},
     )
 
-    assert classify_l2(verdict) == "answered"
+    assert classify_l2(verdict) == "candidate_partial_answer"
+
+
+def test_entity_keys_of_the_models_own_prove_the_entities_field_was_there() -> None:
+    assert classify_l2(l2(entities={**HEURISTIC_ONLY, "products": []}, confidence=0.9)) == (
+        "answered"
+    )
 
 
 def test_a_recorded_llm_error_is_a_loud_failure_not_a_silent_one() -> None:
@@ -132,14 +143,16 @@ def test_a_run_is_counted_by_what_its_l2_verdicts_can_prove() -> None:
             v1_row("d", l2(metadata={"llm_used": False}, decided_by="rule")),
             v1_row("e", None),
             v1_row("f", l2(metadata={"llm_used": False, "llm_error": "x"}), status="error"),
+            v1_row("g", l2(entities=HEURISTIC_ONLY, confidence=0.9)),
         )
     )
 
     assert counted == L2Recount(
-        rows=6,
-        scored_rows=5,
+        rows=7,
+        scored_rows=6,
         answered=1,
         possible_fallback=2,
+        candidate_partial_answer=1,
         loud_failure=1,
         ai_step_not_run=1,
         no_l2_verdict=1,
@@ -165,25 +178,46 @@ def test_a_row_that_records_its_fallbacks_is_counted_exactly_not_estimated() -> 
 # --- what the command says --------------------------------------------------------------------
 
 
-def test_the_text_states_the_bound_and_where_the_data_does_not_allow_a_count() -> None:
+def test_the_text_names_both_groups_and_where_the_data_does_not_allow_a_count() -> None:
     counted = recount(
-        records(v1_row("a", l2(entities=HEURISTIC_ONLY, confidence=0.5)), v1_row("b", None))
+        records(
+            v1_row("a", l2(entities=HEURISTIC_ONLY, confidence=0.5)),
+            v1_row("b", l2(entities=HEURISTIC_ONLY, confidence=0.9)),
+            v1_row("c", None),
+        )
     )
 
     text = render("C3", counted)
 
-    assert "C3: 2 rows (2 scored)" in text
+    assert "C3: 3 rows (3 scored)" in text
     assert "1 of them look like an L2 answer without the schema" in text
-    assert "upper bound" in text
+    assert "1 more carry the heuristic entity keys next to a confidence" in text
     assert "audit__C3.jsonl" in text and "cannot tell" in text
     assert "1 row(s) have no L2 verdict" in text
 
 
-def test_a_run_with_no_possible_fallback_says_so_without_claiming_none_happened() -> None:
+def test_the_text_claims_no_upper_bound_and_says_a_partial_answer_can_hide() -> None:
     text = render("C3", recount(records(v1_row("a", l2()))))
 
+    assert "not an upper bound" in text  # a partial answer with entities leaves no trace
+    assert "an upper bound." not in text
     assert "0 of them look like an L2 answer without the schema" in text
-    assert "not proof" in text  # an answer with nothing to merge looks the same
+    assert "not proof" in text
+    assert "carries entities but lacks another required field" in text
+
+
+def test_the_two_groups_together_are_stated_as_candidates_not_as_a_count() -> None:
+    counted = recount(
+        records(
+            v1_row("a", l2(entities=HEURISTIC_ONLY, confidence=0.5)),
+            v1_row("b", l2(entities=HEURISTIC_ONLY, confidence=0.9)),
+        )
+    )
+
+    text = render("C3", counted)
+
+    assert "2 row(s) are candidates" in text
+    assert "a complete answer with an empty entities object" in text
 
 
 def test_the_command_reads_a_run_folder_and_writes_nothing(tmp_path: Path, capsys: Any) -> None:

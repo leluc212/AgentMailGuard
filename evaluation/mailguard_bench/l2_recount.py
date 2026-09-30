@@ -3,13 +3,23 @@
     python -m evaluation.mailguard_bench.l2_recount --run-dir evaluation/results/mailguard_bench/RUN
         [--config C3]
 
-The v1 guard (AgentMailGuard 81df5d07) cannot mark a failed L2 answer. When the model answers
-in prose, ``parse_json_or_text`` returns ``{"raw_text": ...}``; every ``ExtractorOutput`` field
-has a default, so L2 reports a normal verdict that merged nothing from the model. Its stored
-verdict then holds only the heuristic entity keys (``order_ids``, ``emails``, ``amounts``,
-``dates``), the default confidence 0.5 and no instructions, next to ``llm_used: true``. A real
-answer usually leaves more: entity keys of its own, a confidence it chose, a finding or
-instructions. So the count is an upper bound: an answer with nothing to merge looks the same.
+The v1 guard (AgentMailGuard 81df5d07) cannot mark a failed L2 answer. Its ``ExtractorOutput``
+gives every field a default, so an answer that does not carry the schema is accepted and merged
+as far as it goes; the new guard requires every field and marks such an answer ``schema_missing``
+(or ``non_json`` for prose). Two groups of stored verdicts are told apart:
+
+* ``possible_fallback``: only the heuristic entity keys (``order_ids``, ``emails``, ``amounts``,
+  ``dates``), the default confidence 0.5 and no instructions, next to ``llm_used: true``. That is
+  what prose (``{"raw_text": ...}``) or an empty JSON object leaves.
+* ``candidate_partial_answer``: only the heuristic entity keys but a confidence, a finding or
+  instructions the model chose. That is what a JSON answer without the ``entities`` field leaves;
+  a complete answer with an empty ``entities`` object looks the same.
+
+Neither is an upper bound on Amendment 1 E.2's definition ("the answer did not carry the schema"):
+a partial answer that carries ``entities`` but lacks another required field (``user_intent``,
+``requested_actions``, ``contains_assistant_instructions``, ``instructions_to_assistant``,
+``confidence``) leaves no trace in a v1 row. The two groups together are the rows that can be
+answers without the entities field or without the whole schema; a low or zero number is not proof.
 
 What the stored data cannot show is said in the output: the guard's own ``audit__<config>.jsonl``
 is its L5 policy log (severity, score and decider per layer), and a row without an L2 verdict
@@ -38,6 +48,7 @@ LLM_FINDING_RULE = "llm:assistant_instructions"
 
 ANSWERED = "answered"
 POSSIBLE_FALLBACK = "possible_fallback"
+CANDIDATE_PARTIAL = "candidate_partial_answer"
 LOUD_FAILURE = "loud_failure"
 AI_STEP_NOT_RUN = "ai_step_not_run"
 NO_L2_VERDICT = "no_l2_verdict"
@@ -48,8 +59,10 @@ def classify_l2(verdict: Mapping[str, Any] | None) -> str:
 
     Returns:
         ``no_l2_verdict`` (nothing stored), ``loud_failure`` (the guard recorded ``llm_error``),
-        ``ai_step_not_run`` (``llm_used`` is not true), ``answered`` (the verdict carries data
-        only a model answer has) or ``possible_fallback`` (only what a prose answer leaves).
+        ``ai_step_not_run`` (``llm_used`` is not true), ``answered`` (the verdict carries entity
+        keys of the model's own, so its answer had the ``entities`` field),
+        ``possible_fallback`` (only what a prose answer leaves) or ``candidate_partial_answer``
+        (heuristic entity keys only, next to data the model chose).
     """
     if verdict is None:
         return NO_L2_VERDICT
@@ -60,13 +73,14 @@ def classify_l2(verdict: Mapping[str, Any] | None) -> str:
         return AI_STEP_NOT_RUN
     entities = verdict.get("entities") or {}
     findings = verdict.get("findings") or []
+    if not set(entities) <= HEURISTIC_ENTITY_KEYS:
+        return ANSWERED
     model_data = (
-        not set(entities) <= HEURISTIC_ENTITY_KEYS
-        or verdict.get("confidence") != DEFAULT_CONFIDENCE
+        verdict.get("confidence") != DEFAULT_CONFIDENCE
         or bool(metadata.get("instructions_to_assistant"))
         or any(isinstance(f, Mapping) and f.get("rule_id") == LLM_FINDING_RULE for f in findings)
     )
-    return ANSWERED if model_data else POSSIBLE_FALLBACK
+    return CANDIDATE_PARTIAL if model_data else POSSIBLE_FALLBACK
 
 
 @dataclass(frozen=True)
@@ -82,6 +96,7 @@ class L2Recount:
     scored_rows: int
     answered: int
     possible_fallback: int
+    candidate_partial_answer: int
     loud_failure: int
     ai_step_not_run: int
     no_l2_verdict: int
@@ -94,6 +109,7 @@ def recount(records: Sequence[RawRecord]) -> L2Recount:
     counts = {
         ANSWERED: 0,
         POSSIBLE_FALLBACK: 0,
+        CANDIDATE_PARTIAL: 0,
         LOUD_FAILURE: 0,
         AI_STEP_NOT_RUN: 0,
         NO_L2_VERDICT: 0,
@@ -111,6 +127,7 @@ def recount(records: Sequence[RawRecord]) -> L2Recount:
         scored_rows=sum(1 for r in records if r.ok),
         answered=counts[ANSWERED],
         possible_fallback=counts[POSSIBLE_FALLBACK],
+        candidate_partial_answer=counts[CANDIDATE_PARTIAL],
         loud_failure=counts[LOUD_FAILURE],
         ai_step_not_run=counts[AI_STEP_NOT_RUN],
         no_l2_verdict=counts[NO_L2_VERDICT],
@@ -121,15 +138,24 @@ def recount(records: Sequence[RawRecord]) -> L2Recount:
 
 def render(config: str, counted: L2Recount) -> str:
     """The recount as plain text, with what the stored rows do not allow said out loud."""
-    judged = counted.answered + counted.possible_fallback
+    judged = counted.answered + counted.possible_fallback + counted.candidate_partial_answer
+    candidates = counted.possible_fallback + counted.candidate_partial_answer
     lines = [
         f"{config}: {counted.rows} rows ({counted.scored_rows} scored).",
         f"L2's AI step ran without a recorded failure in {judged} row(s); "
         f"{counted.possible_fallback} of them look like an L2 answer without the schema (only the "
         "heuristic entity keys order_ids, emails, amounts and dates, the default confidence 0.5 "
-        f"and no instructions); the other {counted.answered} carry data only a model answer has.",
-        "This is an upper bound, not a count: a genuine answer with nothing to merge looks the "
-        "same, so a low or zero number is not proof that no schema fallback happened.",
+        f"and no instructions); {counted.candidate_partial_answer} more carry the heuristic "
+        "entity keys next to a confidence, a finding or instructions the model chose (a partial "
+        "answer without the entities field looks like this; so does a complete answer with an "
+        f"empty entities object); the other {counted.answered} carry entity keys of the model's "
+        "own.",
+        f"{candidates} row(s) are candidates for an L2 answer without the entities field or "
+        "without the whole schema. This is not an upper bound on 'the answer did not carry the "
+        "schema': a partial answer that carries entities but lacks another required field "
+        "(user_intent, requested_actions, contains_assistant_instructions, "
+        "instructions_to_assistant, confidence) leaves no trace in a v1 row, so a low or zero "
+        "number is not proof that no schema fallback happened.",
     ]
     if counted.recorded_rows:
         lines.append(
