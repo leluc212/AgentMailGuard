@@ -62,6 +62,7 @@ def test_the_live_runner_takes_the_documented_options() -> None:
     assert args.concurrency == 1 and args.limit is None
     assert args.case_timeout_s == DEFAULT_CASE_TIMEOUT_S == 300.0
     assert args.retry_errors is False and args.allow_degraded is False and args.api_url is None
+    assert args.allow_dirty is False
 
 
 def test_every_option_can_be_set() -> None:
@@ -69,11 +70,12 @@ def test_every_option_can_be_set() -> None:
         [
             "--config", "C0T", "--run", "r", "--model-profile", "gpt-4o-mini", "--limit", "5",
             "--concurrency", "2", "--case-timeout-s", "120", "--retry-errors",
-            "--allow-degraded", "--api-url", "http://api.test:8000",
+            "--allow-degraded", "--allow-dirty", "--api-url", "http://api.test:8000",
         ]
     )  # fmt: skip
     assert (args.limit, args.concurrency, args.case_timeout_s) == (5, 2, 120.0)
     assert args.retry_errors and args.allow_degraded and args.api_url == "http://api.test:8000"
+    assert args.allow_dirty
 
 
 @pytest.mark.parametrize(
@@ -491,11 +493,18 @@ def test_the_reranker_fingerprint_follows_the_settings() -> None:
     assert reranker_facts(WithModel()) == {"enabled": True, "model": "cross-encoder/another-model"}
 
 
-class FakeDocker:
-    """``docker ps`` and ``docker inspect`` over a scripted set of compose containers."""
+CHECKOUT_HEAD = "a" * 40
+"""The commit the fake checkout is at, and the revision label its fake images carry."""
 
-    def __init__(self, containers: Mapping[str, str | list[str]]) -> None:
+
+class FakeDocker:
+    """``docker ps``, ``docker inspect`` and ``docker image inspect`` over scripted containers."""
+
+    def __init__(
+        self, containers: Mapping[str, str | list[str]], revisions: Mapping[str, str] | None = None
+    ) -> None:
         self.containers = containers
+        self.revisions = revisions or {}  # image id -> its revision label (default: the checkout)
         self.calls: list[list[str]] = []
 
     def __call__(self, args: Sequence[str]) -> str:
@@ -507,6 +516,10 @@ class FakeDocker:
         ]
         if args[1] == "ps":
             return "".join(f"cid{i}\n" for i in range(len(rows)))
+        if args[1] == "image":  # `docker image inspect --format ... IMAGE...`: the revision label
+            return "".join(
+                f"{image} {self.revisions.get(image, CHECKOUT_HEAD)}\n" for image in args[5:]
+            )
         return "".join(f"{service} {image}\n" for service, image in rows)
 
 
@@ -576,6 +589,64 @@ def test_no_compose_containers_at_all_is_a_stack_that_is_down() -> None:
         service_images(lambda args: "", config="C0")
 
 
+def test_the_revision_of_each_app_image_is_read_from_its_label() -> None:
+    from evaluation.mailguard_bench.live.run import image_revisions
+
+    docker = FakeDocker(APP_IMAGES, {"sha256:aaa": "b" * 40})
+    images = {"api": "sha256:aaa", "ai-worker": "sha256:eee"}
+
+    revisions = image_revisions(docker, images)
+
+    assert revisions == {"api": "b" * 40, "ai-worker": CHECKOUT_HEAD}
+    (inspect,) = docker.calls
+    assert inspect[:3] == ["docker", "image", "inspect"]
+    assert "org.opencontainers.image.revision" in inspect[4]
+    assert inspect[5:] == ["sha256:aaa", "sha256:eee"]
+
+
+def test_images_built_from_the_checkout_are_accepted() -> None:
+    from evaluation.mailguard_bench.live.run import require_current_images
+
+    require_current_images({"api": CHECKOUT_HEAD, "ai-worker": CHECKOUT_HEAD}, head=CHECKOUT_HEAD)
+
+
+def test_an_image_built_from_another_commit_is_refused_and_named() -> None:
+    """The containers draft C0 and triage, the host runner and guard-worker run the checkout:
+    after a `git pull` with no rebuild they would be two different programs under one commit."""
+    from evaluation.mailguard_bench.live.run import LiveRunError, require_current_images
+
+    with pytest.raises(LiveRunError) as caught:
+        require_current_images(
+            {"api": CHECKOUT_HEAD, "ai-worker": "b" * 40, "triage-worker": "b" * 40},
+            head=CHECKOUT_HEAD,
+        )
+
+    text = str(caught.value)
+    assert "ai-worker" in text and "triage-worker" in text
+    assert "b" * 12 in text and CHECKOUT_HEAD[:12] in text
+    assert "bench-setup" in text  # the fix
+
+
+@pytest.mark.parametrize("label", ["", "unknown", "<no value>"])
+def test_an_image_built_without_a_commit_is_refused_with_the_fix(label: str) -> None:
+    from evaluation.mailguard_bench.live.run import LiveRunError, require_current_images
+
+    with pytest.raises(LiveRunError, match="bench-setup"):
+        require_current_images({"api": label}, head=CHECKOUT_HEAD)
+
+
+def test_the_checkout_is_dirty_when_a_tracked_file_is_modified() -> None:
+    from evaluation.mailguard_bench.live.run import checkout_is_dirty
+
+    clean = FakeCommands(FakeDocker({}), dirty="")
+    dirty = FakeCommands(FakeDocker({}), dirty=" M packages/retrieval/rerank.py\n")
+
+    assert checkout_is_dirty(clean, Path("/repo")) is False
+    assert checkout_is_dirty(dirty, Path("/repo")) is True
+    status = next(call for call in dirty.calls if "status" in call)
+    assert "--untracked-files=no" in status  # the run's own result folders are not code
+
+
 def test_a_command_returns_its_output_and_a_failure_says_what_failed() -> None:
     from evaluation.mailguard_bench.live.run import LiveRunError, run_command
 
@@ -593,14 +664,20 @@ SERVICE_ENVIRONMENT = (
 
 
 class FakeCommands:
-    """``docker`` and ``systemctl show ollama`` over scripted output; any other program is missing.
+    """``docker``, ``git`` and ``systemctl show ollama`` over scripted output; any other is missing.
 
     ``environment`` is what the ollama service is configured with; None is a machine without
     systemd (or without that unit), where ``systemctl`` fails.
     """
 
-    def __init__(self, docker: FakeDocker, environment: str | None = SERVICE_ENVIRONMENT) -> None:
-        self.docker, self.environment = docker, environment
+    def __init__(
+        self,
+        docker: FakeDocker,
+        environment: str | None = SERVICE_ENVIRONMENT,
+        *,
+        dirty: str = "",
+    ) -> None:
+        self.docker, self.environment, self.dirty = docker, environment, dirty
         self.calls: list[list[str]] = []
 
     def __call__(self, args: Sequence[str]) -> str:
@@ -609,6 +686,10 @@ class FakeCommands:
         self.calls.append(list(args))
         if args[0] == "docker":
             return self.docker(args)
+        if args[0] == "git" and "rev-parse" in args:
+            return f"{CHECKOUT_HEAD}\n"
+        if args[0] == "git" and "status" in args:  # `git status --porcelain`: what is modified
+            return self.dirty
         if args[0] == "systemctl" and self.environment is not None:
             return f"Environment={self.environment}\n"
         raise LiveRunError(f"{args[0]} not found")
@@ -802,10 +883,20 @@ def test_an_ollama_that_cannot_be_reached_stops_the_run() -> None:
 
 # --- the run meta and its fingerprint ----------------------------------------------------
 
-LIVE_KEYS = ("transport", "reranker", "triage", "guard_llm_stages", "service_images", "ollama")
+LIVE_KEYS = (
+    "transport",
+    "reranker",
+    "triage",
+    "guard_llm_stages",
+    "service_images",
+    "service_revisions",
+    "rag_email_dirty",
+    "ollama",
+)
 TRIAGE = {"mode": "live", "ml_sha256": "m" * 64, "rules_sha256": "r" * 64}
 OLLAMA = {"version": "0.13.5", "context_length": 32768, "keep_alive": "30m"}
 IMAGES = {"ai-worker": "sha256:eee", "api": "sha256:aaa"}
+REVISIONS = {"ai-worker": "a" * 40, "api": "a" * 40}
 L1_MODEL_BYTES = b"l1 classifier"
 L1_MODEL_SHA256 = hashlib.sha256(L1_MODEL_BYTES).hexdigest()
 GUARD_MODEL = "qwen2.5:7b-instruct"
@@ -922,12 +1013,14 @@ def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
         guard = GuardDescription(C3_FACTS, dict(C3_FACTS["live_stages"]), [])
     parts: dict[str, Any] = {
         "args": args,
-        "settings": AppSettings(),
+        "settings": AppSettings(_env_file=None),  # not the machine's own `.env`
         "cases_sha256": "s" * 64,
         "guard": guard,
         "rag_email_commit": "a" * 40,
         "triage": TRIAGE,
         "service_images": IMAGES,
+        "service_revisions": REVISIONS,
+        "rag_email_dirty": False,
         "ollama": OLLAMA,
     }
     return build_live_meta(**{**parts, **overrides})
@@ -953,10 +1046,16 @@ def test_the_fingerprint_records_whether_retrieval_filters_by_category() -> None
     # a resume or a later config under the other setting is refused like any other change.
     from packages.core.settings import AppSettings, RetrievalSettings
 
-    on = _meta("C3")
-    off = _meta(
-        "C3", settings=AppSettings(retrieval=RetrievalSettings(category_filter_enabled=False))
-    )
+    # Both values are explicit: the benchmark's own `.env` sets RETRIEVAL__CATEGORY_FILTER_ENABLED
+    # =false (docs/BENCHMARK.md), and a test that took the default from the environment would fail
+    # on the machines that follow the guide.
+    def settings(enabled: bool) -> AppSettings:
+        return AppSettings(
+            _env_file=None, retrieval=RetrievalSettings(category_filter_enabled=enabled)
+        )
+
+    on = _meta("C3", settings=settings(True))
+    off = _meta("C3", settings=settings(False))
 
     assert on["fingerprint"]["retrieval"]["category_filter"] is True
     assert off["fingerprint"]["retrieval"]["category_filter"] is False
@@ -1004,6 +1103,14 @@ def test_every_live_fact_is_in_the_fingerprint_and_none_of_them_is_none() -> Non
     assert all(fingerprint[key] is not None for key in LIVE_KEYS)
 
 
+def test_the_meta_names_the_images_commit_and_whether_the_tree_was_dirty() -> None:
+    meta = _meta("C0", rag_email_dirty=True)
+
+    assert meta["service_revisions"] == REVISIONS and meta["rag_email_dirty"] is True
+    assert meta["fingerprint"]["service_revisions"] == REVISIONS
+    assert meta["fingerprint"]["rag_email_dirty"] is True
+
+
 def test_c0_has_no_guard_stages_but_its_fingerprint_is_still_complete() -> None:
     meta = _meta("C0")
 
@@ -1037,6 +1144,8 @@ def test_a_changed_live_fact_refuses_a_resume(tmp_path: Path) -> None:
 
     for changed in (
         {"service_images": {**IMAGES, "api": "sha256:new"}},
+        {"service_revisions": {**REVISIONS, "api": "b" * 40}},
+        {"rag_email_dirty": True},
         {"ollama": {**OLLAMA, "context_length": 4096}},
         {"triage": {**TRIAGE, "rules_sha256": "x" * 64}},
     ):
@@ -2294,6 +2403,58 @@ async def test_a_resume_with_other_settings_is_refused_before_anything_runs(
         await run(args, _live_deps(live_env, world, pool, docker=rebuilt))
 
     assert pool.opened is False
+
+
+async def test_the_meta_of_a_run_names_the_checkout_and_the_images_built_from_it(
+    live_env: Path,
+) -> None:
+    world, _, deps = _new_run(live_env)
+    world.scenarios = dict(SCENARIOS)
+
+    assert await run(_run_args(live_env), deps) == 0
+
+    meta = json.loads((live_env / "results" / "r1" / "raw" / "C0.meta.json").read_text("utf-8"))
+    assert meta["rag_email_commit"] == CHECKOUT_HEAD and meta["rag_email_dirty"] is False
+    assert set(meta["service_revisions"].values()) == {CHECKOUT_HEAD}
+    assert "ai-worker" in meta["service_revisions"]
+
+
+async def test_the_run_refuses_containers_built_from_another_commit_than_the_checkout(
+    live_env: Path,
+) -> None:
+    """After a `git pull` with no `make bench-setup` the containers (C0's drafting, triage,
+    retrieval) run the old code while the runner and the guard-worker run the new."""
+    stale = FakeDocker(APP_IMAGES, {"sha256:eee": "b" * 40})  # the ai-worker image is older
+    world, pool, deps = _new_run(live_env, docker=stale)
+
+    with pytest.raises(LiveRunError, match="ai-worker.*bench-setup"):
+        await run(_run_args(live_env), deps)
+
+    assert not (live_env / "results").exists() and pool.opened is False
+    assert world.received == {}
+
+
+async def test_the_run_refuses_a_checkout_with_modified_tracked_files(
+    live_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    commands = FakeCommands(FakeDocker(APP_IMAGES), dirty=" M packages/triage/cascade.py\n")
+    world, pool, deps = _new_run(live_env, commands=commands)
+
+    with pytest.raises(LiveRunError, match="uncommitted.*--allow-dirty"):
+        await run(_run_args(live_env), deps)
+
+    assert not (live_env / "results").exists() and pool.opened is False
+
+
+async def test_allow_dirty_runs_a_modified_checkout_and_the_meta_says_so(live_env: Path) -> None:
+    commands = FakeCommands(FakeDocker(APP_IMAGES), dirty=" M packages/triage/cascade.py\n")
+    world, _, deps = _new_run(live_env, commands=commands)
+    world.scenarios = dict(SCENARIOS)
+
+    assert await run(_run_args(live_env, "C0", "--allow-dirty"), deps) == 0
+
+    meta = json.loads((live_env / "results" / "r1" / "raw" / "C0.meta.json").read_text("utf-8"))
+    assert meta["rag_email_dirty"] is True
 
 
 # --- a guarded config ----------------------------------------------------------------------

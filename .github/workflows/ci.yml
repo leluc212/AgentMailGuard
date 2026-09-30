@@ -76,6 +76,44 @@ jobs:
           GMAIL_CLIENT_SECRET: ""
           MS_GRAPH_CLIENT_SECRET: ""
 
+  guard-unit-tests:
+    name: Unit Tests with the AgentMailGuard overlay (Zero Credentials)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the subtree pin is checked against git objects
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # About 260 unit tests import the guard and are skipped by the job above; with agentmailguard/
+      # on the import path they run (fake models, no network, no classifier). Main carries the guard
+      # as a subtree; a branch without it has nothing to overlay.
+      - name: Run every unit test with the guard on the import path
+        run: |
+          if [ -f agentmailguard/mailguard/__init__.py ]; then
+            make mailguard-unit
+          else
+            echo "no agentmailguard/ subtree on this branch: nothing to overlay"
+          fi
+        env:
+          OPENAI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          GOOGLE_API_KEY: ""
+          COHERE_API_KEY: ""
+          GMAIL_CLIENT_SECRET: ""
+          MS_GRAPH_CLIENT_SECRET: ""
+
   integration-tests:
     name: Integration Tests (Ephemeral Containers)
     runs-on: ubuntu-latest

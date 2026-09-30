@@ -120,6 +120,7 @@ class FakeHost:
         self.exits: dict[str, int] = {}  # label -> exit code
         # The image the ai-worker container was created from; a rebuild is a new value.
         self.image_id = "sha256:" + "1" * 64
+        self.head = "a" * 40  # the commit of the checkout `git rev-parse HEAD` reads
 
     # commands ------------------------------------------------------------------------------
     def run(self, command: Sequence[str], *, cwd: Path) -> int:
@@ -153,6 +154,8 @@ class FakeHost:
         hooked = self.capture_hook(cmd)
         if hooked is not None:
             return hooked
+        if cmd[:3] == ["git", "rev-parse", "HEAD"]:
+            return CommandResult(0, f"{self.head}\n" if self.head else "")
         if cmd[:3] == ["docker", "compose", "ps"]:
             services = [a for a in cmd[3:] if not a.startswith("-")] or [
                 "api",
@@ -205,6 +208,8 @@ class FakeHost:
 
 def label(cmd: list[str]) -> str:
     if cmd[0] == "docker":
+        if "build" in cmd[:3]:
+            return "docker compose build"
         if "up" in cmd:  # after the --env-file pairs
             return "docker compose up"
         return " ".join(cmd[:4])

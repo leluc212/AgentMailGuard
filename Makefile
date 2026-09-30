@@ -1,4 +1,4 @@
-.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-prep-check mailguard-smoke mailguard-probe mailguard-test mailguard-cases mailguard-bench mailguard-bench-test mailguard-report mailguard-analyses
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-prep-check mailguard-smoke mailguard-probe mailguard-test mailguard-unit mailguard-cases mailguard-bench mailguard-bench-test mailguard-report mailguard-analyses
 
 UV ?= uv
 
@@ -26,7 +26,8 @@ help:
 	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
 	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
-	@echo "  mailguard-test - Guard-side unit tests under the AgentMailGuard overlay (fake models, no network)"
+	@echo "  mailguard-test - ONE guard-side unit file (tests/unit/test_mailguard_bench_guard.py) under the AgentMailGuard overlay (fake models, no network); the whole suite is mailguard-unit"
+	@echo "  mailguard-unit - The WHOLE unit suite under the AgentMailGuard overlay (fake models, no network, no classifier): runs the ~260 tests that plain pytest skips for want of the guard; CI runs it on the committed agentmailguard/ (run it before main and before a benchmark)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
 	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|...|C7 [SCHEME=v2|v1] - Benchmark on the real rag-email path. Scheme v2 (default): C0 no guard, C0T guard template with no layer, C1 L1+L5, C2 L2+L5, C3 L3+L5, C4 L3b+L5, C5 L4+L5, C6 L5 alone, C7 every layer. SCHEME=v1 reproduces the published runs: C0, C0T, C1, C2, C3 (every layer), C3-L1..C3-L5 (C3 minus one layer). Owner-run, live model (task 7.19, 7.20; not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
@@ -40,7 +41,7 @@ help:
 
 up:
 	@if [ -f docker-compose.yml ]; then \
-		docker compose up -d --build; \
+		GIT_COMMIT=$$(git rev-parse HEAD 2>/dev/null || echo unknown) docker compose up -d --build; \
 	else \
 		echo "[INFO] docker-compose.yml will be created in Task 0.3."; \
 	fi
@@ -212,6 +213,9 @@ mailguard-probe:
 
 mailguard-test:
 	$(MAILGUARD_UV) python -m pytest tests/unit/test_mailguard_bench_guard.py -v
+
+mailguard-unit:
+	$(MAILGUARD_UV) python -m pytest tests/unit -q
 
 mailguard-cases:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.build_cases

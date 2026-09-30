@@ -372,6 +372,10 @@ make mailguard-cases
 
 This builds, or verifies against the committed `evaluation/datasets/mailguard/manifest.json`, the pinned case set (`cases.jsonl` is git-ignored, so a fresh checkout needs this before any `mailguard-bench`). The first `make mailguard-bench` of a `RUN` copies it into the run folder (`cases.jsonl`, `case_manifest.json`), and every later run of that `RUN` must bring the same set, so C0, C0T and C3 are paired on exactly the same emails.
 
+### 9.2a Run the whole unit suite with the guard (no model calls)
+
+Plain `make test-unit` and CI's first unit job skip about 260 tests that import the guard (the v2 layer wiring, the live guarded drafting, the guard stages, the report and scoring numbers). Run them before a merge to main and before a benchmark: `make mailguard-unit` (the guard on the import path, fake models, no network, no classifier). CI runs the same on the committed `agentmailguard/`. `make mailguard-test` runs one file only.
+
 ### 9.3 Check before spending quota
 
 In AI Studio, read the requests-per-minute and requests-per-day limits for `gemma-4-26b-a4b-it` (the Gemini API shows limits per project there). Then run:
@@ -681,6 +685,7 @@ docker compose ps api triage-worker knowledge-worker ai-worker     # wait until 
 - `FAIL the shell sets ...` means a variable exported in your shell would win over the file (step 1). Unset it and run again; the message names the setting, never its value.
 - `FAIL the guard-worker and the runner are host processes ...` means `.env` (or the shell) would give them other settings than the containers get: it lists each setting and what it must be (a 500 ms retrieval budget from an old `.env`, a summarizer model, a `ROUTING__CONFIGURED_CONSUMERS` list, a missing embedding line, a missing or `true` `RETRIEVAL__CATEGORY_FILTER_ENABLED`). Fix `.env` as in step 1 and run again; nothing is written until it agrees.
 - **Never run `make up`, or `docker compose up` without both `--env-file` flags, between two configs of one `RUN`.** It recreates the app containers from `.env` alone and drops this model's settings. `docker compose stop` and `docker compose start` keep a container's settings, and step 4 uses only those.
+- **The images name their commit.** `make up` and `make bench-setup` label every image with the commit of the checkout (`org.opencontainers.image.revision`), and `live.run` refuses, naming the services, when an image was built from another commit than the checkout's HEAD or when a tracked file is modified (`--allow-dirty` lets a smoke run through and the meta records `rag_email_dirty`). After a commit or a `git pull`, run `make up` (or `make bench-setup`) once before the next run; the meta also records `service_revisions`.
 - The next model gets its own `stack_env` run and command before its preflight; that recreates the four containers.
 
 **4. Which process drafts.**
@@ -700,6 +705,8 @@ docker compose cp ai-worker:/app/.cache/reranker .cache/reranker      # works on
 ```
 
 Do it again after every rebuild of the images (`make up`, `docker compose up --build`): a rebuilt image may carry another revision of the model. `make bench-setup` and `make bench-run` do both parts themselves. They copy when `.cache/reranker` is missing, or when the marker `.cache/reranker.image-id` beside it names another image than the `ai-worker` container was created from, and they stop with a `FAIL` that names the command and the fix when the copy fails; a campaign of C0 alone does not copy. The variable goes on the guard-worker's command line only (see `run_config`), never into `.env`, the shell, the runner or a container, so step 1's rule that nothing `RETRIEVAL__*` is exported still holds. To check that the host loads the copy with no network: `uv run python -c "from packages.retrieval.rerank import CrossEncoderReranker as R; R(model_dir='.cache/reranker').warm_up(); print('ok reranker model loads offline')"`.
+
+The guard-worker also counts tokens with the BPE encoding `cl100k_base`, which the image bakes in for C0 and the host downloads into its temp folder on first use. On a host with no cached copy and no network the worker used to fall back to a word heuristic for its whole life, with other counts than C0's; it now refuses to start (`FAIL the tokenizer encoding cl100k_base could not be loaded`). Fix the network, or copy the image's cache (`docker compose cp ai-worker:/app/.cache/tiktoken <folder>`) and start the worker with `TIKTOKEN_CACHE_DIR=<folder>`.
 
 The guard-worker runs the ai-worker's own code with the guard around the one generation call, until it gets `SIGTERM`, and while alive it keeps `raw/guard_worker.<config>.pid` in the `RUN` folder, which is where the runner looks. Set the helpers below once per model (from the repo root). `mg` is the Make targets' overlay, with the pinned commit read from the Makefile and the guard directory and the L1 classifier directory taken from `MAILGUARD_DIR` and `MAILGUARD_ARTIFACTS` when you set them (defaults as in the Makefile: `./agentmailguard` and `evaluation/mailguard_bench/pinned` when they exist, else `../AgentMailGuard-bench` and `../AgentMailGuard-bench-artifacts`); `run_config` does the switch and the run for one config, and keeps the guard-worker's output in `$R/raw/guard-worker.<config>.log`:
 

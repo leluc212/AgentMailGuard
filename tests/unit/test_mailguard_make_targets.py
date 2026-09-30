@@ -36,6 +36,35 @@ def test_no_mailguard_target_runs_in_ci() -> None:
     assert not [t for t in ci_prerequisites() if t.startswith("mailguard")]
 
 
+def test_the_whole_unit_suite_can_run_under_the_guard_overlay() -> None:
+    """About 260 unit tests import the guard (module-level importorskip) and are skipped by plain
+    `pytest tests/unit`: the v2 scheme's layer wiring, the live guarded drafting, the guard stages
+    and the report and scoring numbers. `make mailguard-unit` runs them all with the guard on the
+    import path; it is not part of `make ci`, which has no guard (see CI for the job)."""
+    assert "mailguard-unit" in targets() and "mailguard-unit" in phony()
+    assert recipe("mailguard-unit").strip() == "$(MAILGUARD_UV) python -m pytest tests/unit -q"
+    assert "mailguard-unit" not in ci_prerequisites()
+
+
+def test_mailguard_test_says_which_tests_it_runs() -> None:
+    """Its old help text, `Guard-side unit tests`, read as if it ran them all: it runs one file."""
+    (help_line,) = re.findall(r'@echo "  mailguard-test - (.*)"', MAKEFILE)
+    assert "test_mailguard_bench_guard.py" in help_line and "mailguard-unit" in help_line
+    assert "mailguard-unit - " in MAKEFILE
+
+
+def test_ci_runs_the_guard_dependent_unit_tests_against_the_guard_in_the_repo() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
+    job = workflow["jobs"]["guard-unit-tests"]
+    steps = "\n".join(str(step.get("run", "")) for step in job["steps"])
+    assert "make mailguard-unit" in steps
+    assert "agentmailguard/mailguard/__init__.py" in steps  # the subtree that main will carry
+    checkout = next(step for step in job["steps"] if "checkout" in str(step.get("uses", "")))
+    assert checkout["with"]["fetch-depth"] == 0  # the subtree pin is checked against git objects
+
+
 def test_report_target_runs_the_module_from_the_repo_root_with_the_worktree() -> None:
     assert "mailguard-report" in targets() and "mailguard-report" in phony()
     body = recipe("mailguard-report")

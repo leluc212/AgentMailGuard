@@ -298,6 +298,8 @@ def _live_meta(config: str, *argv: str) -> dict[str, Any]:
         rag_email_commit="a" * 40,
         triage=TRIAGE,
         service_images=IMAGES,
+        service_revisions=dict.fromkeys(IMAGES, "a" * 40),
+        rag_email_dirty=False,
         ollama=OLLAMA,
     )
 

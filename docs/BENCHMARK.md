@@ -270,7 +270,7 @@ The doctor changes nothing. It runs only read-only Docker commands.
 make bench-setup
 ```
 
-`make bench-setup` checks the guard is at the pinned commit, checks the pinned inputs (the classifier included), runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything.
+`make bench-setup` checks the guard is at the pinned commit, checks the pinned inputs (the classifier included), runs the guard's smoke test (no model calls) and brings the stack up and waits until every container is healthy. **The first time is slow and needs the network**: the images are built and the reranker model is downloaded into them. Later runs do not download anything. The images are labelled with the commit of your checkout. **Run `make bench-setup` again after every `git pull` (or any change to the repository)**: `make bench-run` refuses, and names the services, when a container was built from another commit than your checkout, or when a tracked file is modified, because the containers and the runner would then be different programs under one commit.
 
 ### D4. One model at a time
 

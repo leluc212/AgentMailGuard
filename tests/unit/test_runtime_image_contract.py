@@ -143,6 +143,30 @@ def test_image_bakes_the_bpe_encoding() -> None:
     assert text.index(fetch) > text.index("RUN uv sync --locked --no-dev\n")
 
 
+def test_the_image_carries_the_commit_it_was_built_from() -> None:
+    """A benchmark run names the commit it ran; the containers must say theirs (ADR-0012).
+
+    The label is the OCI revision label, set from the GIT_COMMIT build argument, and every app
+    service's build passes that argument, so a rebuild after `git pull` changes the label.
+    """
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "ARG GIT_COMMIT=unknown" in text
+    assert "LABEL org.opencontainers.image.revision=$GIT_COMMIT" in text
+    # after the heavy layers: a new commit must not bust the dependency and model layers
+    assert text.index("LABEL org.opencontainers.image.revision") > text.index("COPY migrations/")
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    build = compose["x-app-build"]
+    assert build["args"]["GIT_COMMIT"] == "${GIT_COMMIT:-unknown}"
+
+
+def test_make_up_labels_the_images_with_the_checkouts_commit() -> None:
+    """`make up` rebuilds the images too (runbook 9.9 step 1): without the commit they would read
+    `unknown` and `make bench-run` would refuse them."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    up = makefile.split("\nup:\n", 1)[1].split("\ndown:", 1)[0]
+    assert "GIT_COMMIT=$$(git rev-parse HEAD" in up and "docker compose up -d --build" in up
+
+
 def _image_env_names() -> set[str]:
     """The variables the Dockerfile sets with ENV (the ``A=b`` form and the ``A b`` form)."""
     names: set[str] = set()

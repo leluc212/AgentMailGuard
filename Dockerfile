@@ -52,6 +52,12 @@ RUN uv sync --locked --no-dev
 ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 RUN /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
+# The commit the image was built from, so a benchmark run can refuse containers that are not the
+# checkout it runs (evaluation/mailguard_bench/live/run.py). Last on purpose: a new commit then
+# rebuilds no layer above. `make bench-setup` passes it; a plain build reads "unknown".
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$GIT_COMMIT
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \

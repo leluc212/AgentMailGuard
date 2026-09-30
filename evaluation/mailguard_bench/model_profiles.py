@@ -19,6 +19,7 @@ environment or `.env` (the environment wins) and never written to a file.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,6 +88,32 @@ PROFILES: dict[str, ModelProfile] = {
 }
 
 BENCH_MODELS: frozenset[str] = frozenset(profile.model for profile in PROFILES.values())
+
+
+_QUANT = re.compile(r"[-:_.]q\d+(?:_[a-z0-9]+)*$")
+_DATE = re.compile(r"[-_]?(?:\d{4}-\d{2}-\d{2}|\d{8})")
+_NOISE_TOKENS = frozenset({"instruct", "chat", "it", "latest", "fp16", "bf16"})
+
+
+def model_key(name: str) -> str:
+    """A model's family and size, without the spelling: ``qwen2.5:7b-instruct-q4_K_M``,
+    ``Qwen2.5-7B-Instruct`` and ``qwen2.5:7b`` are all ``qwen2.57b``.
+
+    Drops the provider prefix, a date suffix, a quantisation tag and ``instruct``/``chat``/
+    ``latest``, lowercases and joins what is left, so variants of one model compare equal while
+    another size or version (``gpt-4o`` against ``gpt-4o-mini``) does not.
+    """
+    text = name.strip().lower().rsplit("/", 1)[-1]
+    text = _DATE.sub("", _QUANT.sub("", text))
+    tokens = [t for t in re.split(r"[-:_\s]+", text) if t and t not in _NOISE_TOKENS]
+    return "".join(tokens)
+
+
+def benchmarked_model_names() -> frozenset[str]:
+    """Every name a model under test goes by: its profile names and its model ids."""
+    return frozenset(
+        name.lower() for profile in PROFILES.values() for name in (profile.name, profile.model)
+    )
 
 
 def get_profile(name: str) -> ModelProfile:

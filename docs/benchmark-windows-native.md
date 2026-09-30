@@ -166,6 +166,8 @@ uv @mg evaluation.mailguard_bench.kit.campaign package --run 2026-10-02-gpt4omin
 
 `--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`, which Microsoft's reference describes as taking minutes; I did not read that `0` means never).
 
+After every `git pull` run `kit.campaign setup` again: the images are labelled with the commit they were built from, and `run` refuses containers built from another commit than your checkout (or a checkout with a modified tracked file).
+
 If you installed `make`, `make bench-doctor`, `make bench-setup` and `make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live` do the same as the commands above, with the three variables set by the Makefile itself.
 
 ---
