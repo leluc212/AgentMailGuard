@@ -334,22 +334,72 @@ class TestPredictWorker:
         assert (await first).rerank_applied and second.rerank_applied
         assert model.calls == 2 and model.max_running == 1
 
-    async def test_a_queued_predict_is_dropped_when_its_rerank_times_out(self) -> None:
+    async def test_time_spent_queued_behind_another_job_is_not_charged_to_the_budget(self) -> None:
+        """Two jobs reranking at once are normal (prefetch > 1): each predict fits the budget.
+
+        Each predict takes 0.3 s against a 0.5 s budget. The second job's predict only starts
+        once the first ends, so it finishes 0.6 s after the job asked. The budget is for the
+        rerank itself, so both are reranked and neither falls back to RRF order (R11.5).
+        """
+        model = _PredictModel(seconds=0.3)
+        service = self._service(model, timeout_seconds=0.5)
+
+        results = await asyncio.gather(*(service.rerank("q", self.POOL) for _ in range(3)))
+
+        assert [r.rerank_applied for r in results] == [True, True, True]
+        assert all(r.fallback_reason is None for r in results)
+        assert all(r.latency_ms < 500 for r in results), "latency is the rerank's own time"
+        assert model.calls == 3 and model.max_running == 1
+
+    async def test_a_predict_over_budget_still_falls_back_for_the_job_that_ran_it(self) -> None:
+        """The clock starts when the rerank does: a slow predict is still cut off (R11.5)."""
+        model = _PredictModel(seconds=0.3)
+        reranker = self._reranker(model)
+        service = RerankService(reranker, timeout_seconds=0.1)
+
+        result = await service.rerank("q", self.POOL)
+        await self._idle(reranker)
+
+        assert not result.rerank_applied and "Timeout" in (result.fallback_reason or "")
+
+    async def test_jobs_behind_an_over_budget_predict_fall_back_and_do_not_hang(self) -> None:
+        """A predict that runs past the budget is abandoned, so the jobs behind it wait at most
+        that budget and then fall back at once (busy): nobody waits on a stuck predict."""
         model = _PredictModel(blocked=True)
-        service = self._service(model, timeout_seconds=5)
+        reranker = self._reranker(model)
+        service = RerankService(reranker, timeout_seconds=0.1)
         try:
-            first = asyncio.create_task(service.rerank("q", self.POOL))
-            await _until(lambda: model.calls == 1, "the first predict to start")
-            second = await service.rerank("q", self.POOL, timeout=0.05)  # queued behind it
+            results = await asyncio.wait_for(
+                asyncio.gather(*(service.rerank("q", self.POOL) for _ in range(3))), timeout=3
+            )
         finally:
             model.gate.set()
-        first_result = await first
-        await asyncio.sleep(0.05)  # the worker is free now: it would start a queued predict here
-        third = await service.rerank("q", self.POOL)
+        await self._idle(reranker)
 
-        assert not second.rerank_applied and "Timeout" in (second.fallback_reason or "")
-        assert first_result.rerank_applied and third.rerank_applied
-        assert model.calls == 2, "the queued predict of the timed-out rerank never started"
+        assert [r.rerank_applied for r in results] == [False, False, False]
+        assert model.calls == 1, "only the first predict ever started"
+
+    async def test_a_queued_predict_is_dropped_when_its_rerank_is_cancelled(self) -> None:
+        """The reranker's own guarantee: a cancelled rerank's predict never starts if it waits.
+
+        RerankService now lets one rerank at a time reach the reranker, so this is tested on the
+        reranker itself, where a predict can still queue behind another (two callers of it).
+        """
+        model = _PredictModel(blocked=True)
+        reranker = self._reranker(model)
+        try:
+            first = asyncio.create_task(reranker.rerank("q", self.POOL))
+            await _until(lambda: model.calls == 1, "the first predict to start")
+            with pytest.raises(TimeoutError):  # queued behind it
+                await asyncio.wait_for(reranker.rerank("q", self.POOL), timeout=0.05)
+        finally:
+            model.gate.set()
+        first_ranked = await first
+        await asyncio.sleep(0.05)  # the worker is free now: it would start a queued predict here
+        third = await reranker.rerank("q", self.POOL)
+
+        assert [c.chunk_id for c in first_ranked] == ["bb", "a"] and len(third) == 2
+        assert model.calls == 2, "the queued predict of the cancelled rerank never started"
 
     async def test_after_a_timeout_the_next_rerank_falls_back_at_once_and_starts_no_predict(
         self,

@@ -62,7 +62,6 @@ from evaluation.mailguard_bench.live.stack_env import (
 )
 from evaluation.mailguard_bench.meaning import reader_model_problems
 from evaluation.mailguard_bench.model_profiles import (
-    BENCH_MODELS,
     PROFILES,
     ModelProfile,
     ModelProfileError,
@@ -1008,25 +1007,6 @@ def check_gpu(nvidia_smi: str | None, *, local_model: bool | None) -> Result:
 # --- the reader --------------------------------------------------------------------------------
 
 
-_QUANT = re.compile(r"[-:_.]q\d+(?:_[a-z0-9]+)*$")
-_DATE = re.compile(r"[-_]?(?:\d{4}-\d{2}-\d{2}|\d{8})")
-_NOISE_TOKENS = frozenset({"instruct", "chat", "it", "latest", "fp16", "bf16"})
-
-
-def model_key(name: str) -> str:
-    """A model's family and size, without the spelling: ``qwen2.5:7b-instruct-q4_K_M``,
-    ``Qwen2.5-7B-Instruct`` and ``qwen2.5:7b`` are all ``qwen2.57b``.
-
-    Drops the provider prefix, a date suffix, a quantisation tag and ``instruct``/``chat``/
-    ``latest``, lowercases and joins what is left, so variants of one model compare equal while
-    another size or version (``gpt-4o`` against ``gpt-4o-mini``) does not.
-    """
-    text = name.strip().lower().rsplit("/", 1)[-1]
-    text = _DATE.sub("", _QUANT.sub("", text))
-    tokens = [t for t in re.split(r"[-:_\s]+", text) if t and t not in _NOISE_TOKENS]
-    return "".join(tokens)
-
-
 def check_reader(reader: str | None, profile: ModelProfile | None) -> Result:
     """The meaning column's reader is chosen and not a benchmarked model (ADR-0012 d. 7)."""
     if not reader:
@@ -1038,17 +1018,7 @@ def check_reader(reader: str | None, profile: ModelProfile | None) -> Result:
             "(ADR-0012 decision 7), and pass it as --reader <model>",
         )
     run_meta = {"this run": {"generation_model": profile.model}} if profile else {}
-    problems = reader_model_problems(reader, run_meta)
-    if not problems:
-        # ADR-0012 decision 7 is about the model, not the string: a tag, a date or a quantisation
-        # of a benchmarked model is that model
-        key = model_key(reader)
-        for benchmarked in sorted(BENCH_MODELS):
-            if key and key == model_key(benchmarked):
-                problems.append(
-                    f"reader model {reader!r} is a variant of the benchmarked model "
-                    f"{benchmarked!r}; the reader must be independent of the models under test"
-                )
+    problems = reader_model_problems(reader, run_meta)  # ADR-0012 decision 7, variants too
     if problems:
         return Result(
             Status.FAIL,

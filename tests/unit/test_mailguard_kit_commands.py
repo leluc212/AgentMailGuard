@@ -98,15 +98,32 @@ def test_setup_checks_the_guard_and_the_pins_then_smokes_then_brings_the_stack_u
     ctx = with_guard(bench, guard)
     assert run_setup(ctx) == 0
     assert calls == [bench.repo]  # the pinned inputs of THIS checkout
-    assert sequence(bench.host) == ["guard_smoke", "docker compose up", COPY_MODEL]
-    up = next(p for k, p in bench.host.events if k == "run" and p[0] == "docker")
-    assert up == ["docker", "compose", "up", "-d", "--build"]  # what `make up` runs
+    assert sequence(bench.host) == [
+        "guard_smoke",
+        "docker compose build",
+        "docker compose up",
+        COPY_MODEL,
+    ]
+    build, up, *_ = (p for k, p in bench.host.events if k == "run" and p[0] == "docker")
+    # the images say which commit they were built from: the run refuses any other (live.run)
+    assert build == ["docker", "compose", "build", "--build-arg", f"GIT_COMMIT={bench.host.head}"]
+    assert up == ["docker", "compose", "up", "-d"]  # built just now: nothing builds again
     smoke = next(p for k, p in bench.host.events if k == "run" and p[0] != "docker")
     assert smoke == ["py", "-m", "evaluation.mailguard_bench.guard_smoke"]  # no --live-probe
     ps = [
         p for k, p in bench.host.events if k == "capture" and p[:3] == ["docker", "compose", "ps"]
     ]
     assert ps and "api" not in ps[0]  # the whole project, not four services
+
+
+def test_setup_builds_nothing_when_the_checkouts_commit_cannot_be_read(
+    bench: Bench, guard: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_pinned(monkeypatch)
+    bench.host.head = ""  # `git rev-parse HEAD` printed nothing: no commit, or not a checkout
+    assert run_setup(with_guard(bench, guard)) == 1
+    assert any("commit" in line and "git rev-parse HEAD" in line for line in bench.err)
+    assert not any(k == "run" and p[0] == "docker" for k, p in bench.host.events)
 
 
 def test_setup_copies_the_reranker_model_out_of_the_image_once_the_stack_is_healthy(

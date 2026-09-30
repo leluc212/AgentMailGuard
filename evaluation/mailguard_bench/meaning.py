@@ -43,7 +43,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
+from evaluation.mailguard_bench.model_profiles import (
+    BENCH_MODELS,
+    benchmarked_model_names,
+    model_key,
+)
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.scheme import SCHEME_V1, SCHEME_V2, configs_for, folder_scheme
@@ -550,21 +554,26 @@ def reader_model_problems(
 ) -> list[str]:
     """Why ``reader_model`` may not read this run (empty when it may).
 
-    The reader must be independent of the models under test: not a benchmarked model, and not
-    the generation model of any config of the run.
+    The reader must be independent of the models under test (ADR-0012 decision 7): not a
+    benchmarked model, and not the generation model of any config of the run. It is the model
+    that is refused, not the string: a tag, a date, a quantisation or a provider prefix
+    (``qwen2.5:7b``, ``gpt-4o-mini-2024-07-18``, ``openai/gpt-4o-mini``) and a profile name
+    (``qwen2.5-7b``) name the same model.
     """
     name = reader_model.strip().lower()
-    if name in {model.lower() for model in BENCH_MODELS}:
+    key = model_key(reader_model)
+    benchmarked_keys = {model_key(model) for model in BENCH_MODELS}
+    if name in benchmarked_model_names() or (key and key in benchmarked_keys):
         return [
-            f"reader model {reader_model!r} is a benchmarked model; the reader must be "
-            "independent of the models under test"
+            f"reader model {reader_model!r} is a benchmarked model (or a variant of one); the "
+            "reader must be independent of the models under test"
         ]
     used = {
         str(m["generation_model"]).strip().lower()
         for m in run_meta.values()
         if m.get("generation_model")
     }
-    if name in used:
+    if name in used or (key and key in {model_key(model) for model in used}):
         return [f"reader model {reader_model!r} is the generation model of this run"]
     return []
 

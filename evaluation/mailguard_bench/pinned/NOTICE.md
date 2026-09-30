@@ -44,8 +44,15 @@ reports `train_rows` 19463 and version `l1_injection_clf_v1`. The training code
 (`training/`, the classifier and `mailguard/datasets/`) is identical at the v2 guard commit
 1a3ef62b7368703c22c3f90111abdde0678d5617, so either commit builds the same kind of model.
 The file is a joblib pickle: load it only with scikit-learn 1.9.1 (`make bench-doctor` refuses
-any other version). The LLMail-Inject texts in its corpus come from the half of the challenge
-data that is not used by the benchmark cases.
+any other version). Train and test are separate for the attack emails only: the LLMail-Inject
+attacks in the corpus come from the half of the challenge data that the benchmark cases do not
+use (disjoint by exact text; near-duplicates exist across the halves). The benign emails are not
+separate: the corpus takes every email of the challenge's `emails_for_fp_tests.json` as a
+negative (source `llmail_fp`), and the 150 benign benchmark cases are drawn from that same file.
+A run's `analysis/leakage.json` counts the overlap at cosine 0.9 or more: in the published
+2026-09-29-gpt4omini run, 138 of the 150 benign cases are near-duplicates of training rows, and
+for the attacks 151 of 300 against the training half and 123 of 300 against the training rows the
+classifier saw. The benign false-positive rate is therefore optimistic.
 
 Training corpus sources (from the guard's registry):
 
@@ -56,7 +63,7 @@ Training corpus sources (from the guard's registry):
 | xTRam1/safe-guard-prompt-injection | **none declared** (see below) | https://huggingface.co/datasets/xTRam1/safe-guard-prompt-injection |
 | Lakera/gandalf_ignore_instructions | MIT | https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions |
 | TrustAIRLab/in-the-wild-jailbreak-prompts | MIT | https://huggingface.co/datasets/TrustAIRLab/in-the-wild-jailbreak-prompts |
-| LLMail-Inject phase 2 (training half) | MIT | https://huggingface.co/datasets/microsoft/llmail-inject-challenge |
+| LLMail-Inject phase 2 (attacks: training half; benign negatives: `emails_for_fp_tests.json`, see above) | MIT | https://huggingface.co/datasets/microsoft/llmail-inject-challenge |
 | BIPIA (Microsoft) | MIT | https://github.com/microsoft/BIPIA |
 | InjecAgent (UIUC Kang Lab) | MIT | https://github.com/uiuc-kang-lab/InjecAgent |
 | SetFit/enron_spam (ham half; Enron corpus) | public domain (FERC release) | https://huggingface.co/datasets/SetFit/enron_spam |

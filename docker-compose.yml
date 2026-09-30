@@ -79,6 +79,9 @@ x-model-hosts: &model-hosts
 x-app-build: &app-build
   context: .
   dockerfile: Dockerfile
+  args:
+    # The commit the image is labelled with; `make bench-setup` sets it, a plain build reads unknown
+    GIT_COMMIT: ${GIT_COMMIT:-unknown}
 
 x-after-init: &after-init
   init:
