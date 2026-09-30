@@ -10,7 +10,7 @@ Host process, run like the v1 runner: from the repo root, as a module, so rag-em
 and `evaluation` win over the guard's packages of the same name:
 
     MAILGUARD_DIR=... MAILGUARD_COMMIT=... MAILGUARD_ARTIFACTS=... \\
-      uv run --with-editable ../AgentMailGuard-bench \\
+      uv run --with-editable $MAILGUARD_DIR \\
       python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|...|C7 --run RUN \\
         --model-profile M [--scheme v2|v1]
 

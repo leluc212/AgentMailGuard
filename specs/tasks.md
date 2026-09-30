@@ -918,6 +918,13 @@
   - Build: take the full-guard config from `scheme.target_config(scheme)` in `analyses.py`, `examples.py`, `first_layer.py` and the report's restated lines; decide with the owner which v2 analyses make sense per layer (first catching layer of C7, near-duplicate-free C7 guard ASR, worked examples of C7 against C0); tests first, on fake rows; v1 folders keep byte-identical output (the goldens).
   - _Requirements: R22.12_
 
+- [~] **7.24 Single-repository layout (AgentMailGuard under `agentmailguard/`)**
+  - Decision: ADR-0012 decision 6 (after the final merge the guard is committed inside this repository as a git subtree with full history). The benchmark kit (7.23) and the Make targets must work in that layout and in today's separate-worktree layout with the same names, so the owner's teammate clones one repository and needs no sibling checkout.
+  - Scope: `guard_env.worktree_info` / `require_pinned_worktree` verify a subtree by tree id (`git rev-parse HEAD:agentmailguard` equals the pinned commit's tree, `git status --porcelain -- agentmailguard` empty, ignored files not counted) and a worktree by HEAD as before; the v1 and v2 tree ids sit next to the pinned commits, so a shallow clone verifies; the commit that reaches run metas and manifests is the pinned guard commit (any commit whose tree the subdirectory holds: `MAILGUARD_COMMIT` or the explicit argument, not only the v1 and v2 pins), never the enclosing repository's HEAD; `make mailguard-prep` writes to `MAILGUARD_PREP_OUT`, never into the pinned directory; `amg.resolve_mailguard_dir` uses the Makefile's default (`guard_env.default_guard_dir`); the Makefile defaults `MAILGUARD_DIR` to `./agentmailguard` and `MAILGUARD_ARTIFACTS` to `evaluation/mailguard_bench/pinned` when they exist, and `mailguard-worktree` only verifies the pin in the subtree layout; `ruff`, `mypy`, `pytest`, `.dockerignore` and uv never see the subtree; the guard's top-level `services` and `evaluation` never shadow rag-email's (`require_module_origins` now demands the origin under rag-email's own `<name>/` directory, because a subtree copy is under the repository root too).
+  - Done: the code, the Make defaults, the tooling excludes, `tests/unit/test_mailguard_single_repo_layout.py`, runbook section 9, and a rehearsal of the merge in a disposable clone (`git subtree add`, then ruff, mypy, the unit suite with and without the overlay, `guard_smoke`).
+  - Left: the final merge itself (owner decision, ADR-0012 decision 6), and then removing the worktree layout text once no machine uses it.
+  - _Requirements: R22.12, R24.5_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -1000,9 +1007,9 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

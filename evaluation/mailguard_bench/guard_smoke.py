@@ -40,6 +40,7 @@ from evaluation.mailguard_bench.guard_env import (
     REPO_ROOT,
     GuardEnvError,
     GuardPaths,
+    checkout_line,
     guard_paths_from_env,
     guard_provider_env,
     l1_artifact,
@@ -142,7 +143,7 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     paths = guard_paths_from_env(os.environ)
     info = require_pinned_worktree(paths.root, paths.commit)
-    print(f"ok worktree {info.path} @ {info.commit} (clean)")
+    print(checkout_line(info))
     origins = require_module_origins(REPO_ROOT, paths.root)
     print(f"ok imports services/evaluation from rag-email, mailguard from {origins['mailguard']}")
     model_path, digest = l1_artifact(paths)

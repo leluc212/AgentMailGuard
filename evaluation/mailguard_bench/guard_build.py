@@ -21,13 +21,12 @@ explicit ``GuardConfig`` layer flags (``scheme.V2_LAYERS``), never from a preset
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from evaluation.mailguard_bench.counting import CountingProvider
-from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, sha256_file
+from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, checkout_commit, sha256_file
 
 # re-exported: report.py, runner.py and the tests import them from here
 from evaluation.mailguard_bench.scheme import ABLATION_CONFIGS as ABLATION_CONFIGS
@@ -58,15 +57,14 @@ FULL_GUARD_CONFIG = "C3"
 """The config that runs the whole guard: the live v2 benchmark also gives it the LLM stages."""
 
 
-def git_head(path: Path) -> str | None:
-    """HEAD of the checkout at ``path``, or None outside git."""
-    completed = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return (completed.stdout.strip() or None) if completed.returncode == 0 else None
+def git_head(path: Path, expected_commit: str | None = None) -> str | None:
+    """HEAD of the checkout at ``path``, or None outside git.
+
+    For a guard subtree (task 7.24) the pinned commit whose tree it holds instead (see
+    ``guard_env.checkout_commit``: ``expected_commit``, else ``MAILGUARD_COMMIT``), None if none:
+    the enclosing repository's HEAD is not the guard's commit.
+    """
+    return checkout_commit(path, expected_commit)
 
 
 @dataclass

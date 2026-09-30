@@ -72,6 +72,8 @@ exclude = [
     "build",
     "dist",
 ]
+# The AgentMailGuard subtree (task 7.24) keeps its own pyproject and its own checks.
+extend-exclude = ["agentmailguard"]
 
 [tool.ruff.format]
 # Markdown documents (plans, specs, audits) often hold paste-in code fragments that the
@@ -86,6 +88,19 @@ ignore = []
 minversion = "8.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+# pytest's own defaults plus the AgentMailGuard subtree (task 7.24), which has tests of its own.
+norecursedirs = [
+    "*.egg",
+    ".*",
+    "_darcs",
+    "build",
+    "CVS",
+    "dist",
+    "node_modules",
+    "venv",
+    "{arch}",
+    "agentmailguard",
+]
 asyncio_mode = "auto"
 
 [tool.mypy]
@@ -96,4 +111,5 @@ plugins = ["pydantic.mypy"]
 exclude = [
     "^\\.agent/",
     "^\\.venv/",
+    "^agentmailguard/",
 ]
