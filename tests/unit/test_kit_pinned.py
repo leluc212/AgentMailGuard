@@ -249,7 +249,9 @@ def test_the_notice_names_the_question_datasets_behind_the_poisoned_cases() -> N
     assert "https://microsoft.github.io/msmarco/" in notice
     assert "attack-prag-hotpotqa-" in notice and "attack-prag-nq-" in notice
     assert "attack-prag-msmarco-" in notice
-    assert "owner" in notice.lower() and "decide" in notice.lower()
+    # the owner decided to publish them with this attribution (ADR-0012 decision 17)
+    assert "ADR-0012 decision 17" in notice and "published" in notice
+    assert "The owner has to\ndecide" not in notice
 
 
 def test_the_notice_says_which_training_texts_overlap_the_benchmark_and_which_do_not() -> None:

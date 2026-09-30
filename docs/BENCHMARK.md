@@ -161,7 +161,7 @@ git config --global core.autocrlf input
 mkdir -p ~/work && cd ~/work
 git clone https://github.com/leluc212/AgentMailGuard.git rag-email
 cd rag-email
-git checkout <BRANCH>        # the owner tells you the branch name; after the merge it is main
+git checkout main            # the benchmark lives on main
 ```
 
 `core.autocrlf input` means: never convert line endings when files are checked out. The repository also has a `.gitattributes` file that keeps every text file LF on every machine. If the repository is private, the owner has to give your GitHub account access, and GitHub asks you to sign in on `git clone`.
