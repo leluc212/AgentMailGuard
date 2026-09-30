@@ -68,7 +68,9 @@ OpenRouter documents are accepted) and `response_metadata: true`, which sends
 attempt number (above 1 means the router fell back), the generation id, tokens, cost and finish
 reason. The provider does not judge the match: a judge stage that raised on a mismatch would only
 fall back and stay scored. The caller that pinned the provider reads `provenance` and treats a
-different provider, an attempt above 1 or missing metadata as an error of the case.
+different provider, an attempt above 1 or a response that names no provider as an error of the case.
+The provider is read from `openrouter_metadata` first; when that is absent, from the top-level
+`provider` field of the response body. `provenance.provider_source` records which one was used.
 
 ## Layer design notes
 

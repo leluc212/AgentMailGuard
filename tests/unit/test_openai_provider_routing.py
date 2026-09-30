@@ -186,6 +186,39 @@ async def test_the_served_provider_is_read_from_the_summary_without_endpoint_det
     assert result.provenance.served_provider == "Phala"
 
 
+async def test_the_served_provider_falls_back_to_the_top_level_provider_field() -> None:
+    body = completion(provider="CoreWeave")
+    del body["openrouter_metadata"]
+    rec = Recorder(body)
+    result = await provider(rec, provider_routing=PIN, response_metadata=True).generate(
+        messages=MESSAGES
+    )
+
+    assert result.provenance is not None
+    assert result.provenance.served_provider == "CoreWeave"
+    assert result.provenance.attempt is None  # only the metadata numbers attempts
+    assert result.provenance.provider_source == "response.provider"
+
+
+async def test_the_metadata_wins_over_the_top_level_provider_field() -> None:
+    rec = Recorder(completion(provider="Somebody Else"))
+    result = await provider(rec, response_metadata=True).generate(messages=MESSAGES)
+
+    assert result.provenance is not None
+    assert result.provenance.served_provider == "CoreWeave"
+    assert result.provenance.provider_source == "openrouter_metadata.endpoints"
+
+
+async def test_the_summary_is_named_as_the_source_when_it_is_the_one_used() -> None:
+    body = completion()
+    body["openrouter_metadata"] = {"summary": "available=1, selected=Phala", "attempt": 1}
+    rec = Recorder(body)
+    result = await provider(rec, response_metadata=True).generate(messages=MESSAGES)
+
+    assert result.provenance is not None
+    assert result.provenance.provider_source == "openrouter_metadata.summary"
+
+
 async def test_an_http_error_still_raises_with_the_body() -> None:
     rec = Recorder({"error": {"code": 402, "message": "no credit"}}, status=402)
     with pytest.raises(LLMResponseError, match="402"):

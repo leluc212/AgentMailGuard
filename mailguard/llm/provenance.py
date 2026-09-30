@@ -48,19 +48,30 @@ def validate_provider_routing(routing: Mapping[str, Any]) -> dict[str, Any]:
     return dict(routing)
 
 
-def _served_provider(metadata: Mapping[str, Any]) -> str | None:
+def _served_provider(
+    data: Mapping[str, Any], metadata: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """The served provider and which field it came from, or ``(None, None)``.
+
+    The router's metadata is read first (endpoint entry, then its summary). Without it, the
+    top-level ``provider`` field OpenRouter puts on a chat-completion body is the fallback, so
+    one unconfirmed shape does not make a pinned route unverifiable.
+    """
     endpoints = metadata.get("endpoints")
     available = endpoints.get("available") if isinstance(endpoints, Mapping) else None
     if isinstance(available, list):
         for entry in available:
             if isinstance(entry, Mapping) and entry.get("selected") and entry.get("provider"):
-                return str(entry["provider"])
+                return str(entry["provider"]), "openrouter_metadata.endpoints"
     summary = metadata.get("summary")
     if isinstance(summary, str):
         found = _SELECTED.search(summary)
         if found:
-            return found.group(1).strip()
-    return None
+            return found.group(1).strip(), "openrouter_metadata.summary"
+    top_level = data.get("provider")
+    if isinstance(top_level, str) and top_level.strip():
+        return top_level.strip(), "response.provider"
+    return None, None
 
 
 def parse_provenance(
@@ -78,9 +89,11 @@ def parse_provenance(
     finish = first.get("finish_reason") if isinstance(first, Mapping) else None
     generation_id = data.get("id") or headers.get(GENERATION_ID_HEADER)
     summary = metadata.get("summary")
+    served, source = _served_provider(data, metadata)
     return CallProvenance(
         requested_model=requested_model,
-        served_provider=_served_provider(metadata),
+        served_provider=served,
+        provider_source=source,
         attempt=attempt if isinstance(attempt, int) and not isinstance(attempt, bool) else None,
         summary=summary if isinstance(summary, str) else None,
         generation_id=str(generation_id) if generation_id else None,

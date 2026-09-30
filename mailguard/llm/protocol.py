@@ -39,6 +39,9 @@ class CallProvenance:
     completion_tokens: int = 0
     cost: float | None = None
     finish_reason: str | None = None
+    # the response field that named the provider: openrouter_metadata.endpoints | .summary,
+    # or response.provider (the body's top-level field, used when the metadata has none)
+    provider_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
