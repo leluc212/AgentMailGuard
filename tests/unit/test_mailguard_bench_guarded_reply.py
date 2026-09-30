@@ -25,7 +25,10 @@ from evaluation.mailguard_bench.case_adapter import (  # noqa: E402
     to_normalized_message,
 )
 from evaluation.mailguard_bench.guard_build import build_guard  # noqa: E402
-from evaluation.mailguard_bench.guarded_reply import GuardedCaseExecutor  # noqa: E402
+from evaluation.mailguard_bench.guarded_reply import (  # noqa: E402
+    GuardedCaseExecutor,
+    guard_marks_fallbacks,
+)
 from evaluation.mailguard_bench.resilience import RateLimitedError  # noqa: E402
 from packages.domain.entities import ContextPackage  # noqa: E402
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator  # noqa: E402
@@ -240,6 +243,17 @@ async def test_a_rate_limited_guard_stage_raises_instead_of_degrading(tmp_path: 
         await executor.execute(_prepared(BENIGN))
 
 
+# The guard at 1a3ef62 marks a failed AI step (llm_fallback) and keeps the email scored (ADR-0012
+# decision 4); the v1 guard (81df5d07) only writes llm_error, which stays an error row.
+V1_GUARD_ONLY = pytest.mark.skipif(
+    guard_marks_fallbacks(), reason="the installed guard marks failed AI steps (llm_fallback)"
+)
+MARKING_GUARD_ONLY = pytest.mark.skipif(
+    not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
+)
+
+
+@V1_GUARD_ONLY
 async def test_any_other_guard_llm_failure_is_a_guard_error(tmp_path: Path) -> None:
     executor, _, guard = _executor("C3", tmp_path)
     guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
@@ -249,6 +263,7 @@ async def test_any_other_guard_llm_failure_is_a_guard_error(tmp_path: Path) -> N
     assert any(e.startswith("guard_llm:") for e in execution.guard_errors)
 
 
+@V1_GUARD_ONLY
 async def test_a_guard_answer_that_fails_its_schema_is_a_guard_error(tmp_path: Path) -> None:
     # generate() returns, then call_structured raises LLMSchemaValidationError; the stage
     # keeps its cheap verdict and writes only metadata["llm_error"] (Review Focus 2).
@@ -261,6 +276,7 @@ async def test_a_guard_answer_that_fails_its_schema_is_a_guard_error(tmp_path: P
     assert execution.record["guard_llm"]["calls"] >= 1
 
 
+@V1_GUARD_ONLY
 async def test_a_schema_failure_row_is_an_error_not_ok(tmp_path: Path) -> None:
     from evaluation.mailguard_bench.results import ResultStore
     from evaluation.mailguard_bench.runner import run_cases
@@ -291,6 +307,101 @@ async def test_a_429_seen_only_in_llm_error_metadata_is_rate_limited(tmp_path: P
         return report, draft, bundle
 
     executor.pipeline.run = run_then_mark  # pipeline is typed Any: no ignore needed
+
+    with pytest.raises(RateLimitedError):
+        await executor.execute(_prepared(BENIGN))
+
+
+@V1_GUARD_ONLY
+async def test_the_v1_guard_leaves_no_fallback_facts_in_the_record(tmp_path: Path) -> None:
+    executor, _, _ = _executor("C3", tmp_path)
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert "guard_fallbacks" not in execution.record
+    assert "l2_llm_schema_fallback" not in execution.record
+
+
+@MARKING_GUARD_ONLY
+async def test_a_healthy_guard_records_an_empty_fallback_list(tmp_path: Path) -> None:
+    executor, _, _ = _executor("C3", tmp_path)
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.record["guard_fallbacks"] == []
+    assert execution.record["l2_llm_schema_fallback"] is False
+    assert execution.guard_errors == ()
+
+
+@MARKING_GUARD_ONLY
+async def test_an_answer_that_fails_its_schema_is_a_recorded_fallback_not_an_error(
+    tmp_path: Path,
+) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner = GuardFakeLLM(default_response=GUARD_INVALID, model_name="fake:fake")
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()
+    fallbacks = execution.record["guard_fallbacks"]
+    assert [f["layer"] for f in fallbacks] == ["l2_intent_extractor"]
+    assert fallbacks[0]["reason"] == "invalid_fields"
+    assert execution.record["l2_llm_schema_fallback"] is False  # fields were there, mistyped
+    assert execution.record["final_draft"] is not None  # the case is scored like any other
+
+
+@MARKING_GUARD_ONLY
+async def test_a_prose_answer_from_l2_is_flagged_as_an_l2_schema_fallback(tmp_path: Path) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner = GuardFakeLLM(
+        default_response={"raw_text": "I cannot help with that."}, model_name="fake:fake"
+    )
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()
+    reasons = {f["layer"]: f["reason"] for f in execution.record["guard_fallbacks"]}
+    assert reasons["l2_intent_extractor"] == "non_json"
+    assert execution.record["l2_llm_schema_fallback"] is True
+
+
+@MARKING_GUARD_ONLY
+async def test_a_transport_failure_of_an_ai_step_is_a_recorded_fallback(tmp_path: Path) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()  # the counted provider error is not a second failure
+    assert [f["reason"] for f in execution.record["guard_fallbacks"]] == ["error"]
+    assert execution.record["guard_llm"]["calls"] >= 1
+
+
+@MARKING_GUARD_ONLY
+async def test_a_schema_failure_row_is_scored_ok_when_the_guard_marks_it(tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.results import ResultStore
+    from evaluation.mailguard_bench.runner import run_cases
+
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner = GuardFakeLLM(default_response=GUARD_INVALID, model_name="fake:fake")
+    prepared = _prepared(BENIGN)
+
+    async def execute(_case: EvalCase) -> dict[str, Any]:
+        execution = await executor.execute(prepared)
+        return {**execution.record, "guard_errors": list(execution.guard_errors)}
+
+    store = ResultStore(tmp_path / "r.jsonl")
+    await run_cases([prepared.case], execute, store, config_name="C3", run_id="r")
+
+    row = store.latest_records()[prepared.case.case_id]
+    assert row["status"] == "ok"
+    assert row["result"]["guard_fallbacks"][0]["layer"] == "l2_intent_extractor"
+
+
+@MARKING_GUARD_ONLY
+async def test_a_429_in_a_marked_fallback_is_still_rate_limited(tmp_path: Path) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 429: quota"))
 
     with pytest.raises(RateLimitedError):
         await executor.execute(_prepared(BENIGN))
