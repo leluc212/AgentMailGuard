@@ -125,22 +125,22 @@ class DraftingService:
         outcome = await self.persistence.persist_drafted(draft)
         if outcome.created:
             self._count_generated(outcome.draft, category)
-            logger.info(
-                "draft_persisted",
-                extra={
-                    "fields": {
-                        "draft_id": str(outcome.draft.id),
-                        "job_id": str(outcome.job.id),
-                        "category": category or UNKNOWN_CATEGORY,
-                        "model_tier": outcome.draft.model_tier,
-                        "escalation_reason": outcome.draft.escalation_reason,
-                        "input_tokens": outcome.draft.input_tokens,
-                        "output_tokens": outcome.draft.output_tokens,
-                        "cost_estimate": outcome.draft.cost_estimate,
-                        "citation_mismatch": outcome.draft.citation_mismatch,
-                    }
-                },
-            )
+            fields: dict[str, object] = {
+                "draft_id": str(outcome.draft.id),
+                "job_id": str(outcome.job.id),
+                "category": category or UNKNOWN_CATEGORY,
+                "model_tier": outcome.draft.model_tier,
+                "escalation_reason": outcome.draft.escalation_reason,
+                "input_tokens": outcome.draft.input_tokens,
+                "output_tokens": outcome.draft.output_tokens,
+                "cost_estimate": outcome.draft.cost_estimate,
+                "citation_mismatch": outcome.draft.citation_mismatch,
+            }
+            if result.provenance:
+                # A routed model (OpenRouter): which provider served each call of the job. The
+                # draft row has no column for it, so the structured log is where it is kept.
+                fields["llm_provenance"] = [call.to_dict() for call in result.provenance]
+            logger.info("draft_persisted", extra={"fields": fields})
         return DraftingOutcome(draft=outcome.draft, job=outcome.job, created=outcome.created)
 
     def _count_generated(self, draft: GeneratedDraft, category: str | None) -> None:

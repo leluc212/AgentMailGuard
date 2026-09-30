@@ -66,12 +66,16 @@ def create_llm_provider(
         base_url = kwargs.pop("base_url", settings.openai_base_url)
         api_key = kwargs.pop("api_key", settings.openai_api_key)
         timeout_s = kwargs.pop("timeout_s", settings.timeout_s)
+        provider_routing = kwargs.pop("provider_routing", settings.openai_provider_routing)
+        response_metadata = kwargs.pop("response_metadata", settings.openai_response_metadata)
         return OpenAILLMProvider(
             base_url=base_url,
             api_key=api_key,
             model_map=model_map,
             timeout_s=timeout_s,
             client=client,
+            provider_routing=provider_routing,
+            response_metadata=response_metadata,
             **kwargs,
         )
 

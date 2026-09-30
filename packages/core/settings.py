@@ -226,6 +226,33 @@ GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/opena
 _GOOGLE_MODEL_MARKERS = ("gemini", "gemma")
 
 
+class ProviderRouting(BaseModel):
+    """OpenRouter's ``provider`` request object, limited to the keys a pin needs.
+
+    A pinned route sends ``order`` (one provider slug), ``allow_fallbacks: false`` and
+    ``require_parameters: true``, plus ``quantizations`` when the endpoint reports its precision
+    (Qwen2.5-7B's only provider reports ``unknown``, so a filter would exclude it). OpenRouter's
+    schema refuses unknown provider keys, so this model refuses them too.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    order: list[str] = Field(min_length=1, description="Provider slugs, tried in order")
+    allow_fallbacks: bool = Field(
+        default=False, description="False: an unavailable provider is an error, never a substitute"
+    )
+    require_parameters: bool = Field(
+        default=True, description="Route only to endpoints that support every request parameter"
+    )
+    quantizations: list[str] | None = Field(
+        default=None, description="Accepted precisions, e.g. ['bf16']; None: no filter"
+    )
+
+    def request_object(self) -> dict[str, Any]:
+        """The value of the request body's ``provider`` field."""
+        return self.model_dump(exclude_none=True)
+
+
 class LLMTiersSettings(BaseModel):
     """Tiered LLM routing, provider configuration, and token price table.
 
@@ -241,6 +268,20 @@ class LLMTiersSettings(BaseModel):
         default=OPENAI_DEFAULT_BASE_URL,
         description=(
             f"OpenAI-compatible API base URL; the Gemini API uses {GEMINI_OPENAI_BASE_URL} (R14.7)"
+        ),
+    )
+    openai_provider_routing: ProviderRouting | None = Field(
+        default=None,
+        description=(
+            "OpenRouter provider routing sent as the request's `provider` object (JSON); pins the "
+            "serving provider. Blank = not routed (R14.7)"
+        ),
+    )
+    openai_response_metadata: bool = Field(
+        default=False,
+        description=(
+            "Ask the router for its metadata (X-OpenRouter-Metadata: enabled) so each call "
+            "records which provider served it; required with a routing pin"
         ),
     )
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
@@ -296,6 +337,8 @@ class LLMTiersSettings(BaseModel):
         "strong_model",
         "fallback_model",
         "price_table",
+        "openai_provider_routing",
+        "openai_response_metadata",
         mode="before",
     )
     @classmethod
@@ -309,6 +352,16 @@ class LLMTiersSettings(BaseModel):
         if isinstance(value, str) and not value.strip() and info.field_name is not None:
             return cls.model_fields[info.field_name].get_default(call_default_factory=True)
         return value
+
+    @model_validator(mode="after")
+    def validate_route_is_verifiable(self) -> "LLMTiersSettings":
+        """A provider pin is only a pin when each response can be checked against it."""
+        if self.openai_provider_routing is not None and not self.openai_response_metadata:
+            raise ValueError(
+                "LLM__OPENAI_PROVIDER_ROUTING pins a provider, so LLM__OPENAI_RESPONSE_METADATA "
+                "must be true: without the router's metadata the served provider is unknown"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_openai_endpoint_matches_models(self) -> "LLMTiersSettings":
