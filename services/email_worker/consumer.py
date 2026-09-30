@@ -19,7 +19,7 @@ from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
 
 from packages.broker.consumer import BaseConsumer, FatalError
 from packages.broker.envelope import JobEnvelope
-from packages.core.settings import BrokerSettings, RetryLadderSettings
+from packages.core.settings import BrokerSettings, ObjectStorageSettings, RetryLadderSettings
 from packages.core.storage import StorageProtocol
 from packages.db.job import JobStore
 from packages.domain.state_machine import JobState
@@ -51,6 +51,7 @@ class EmailNormalizationConsumer(BaseConsumer):
         triage_routing_key: str | None = None,
         shutdown_coordinator: GracefulShutdownCoordinator | None = None,
         job_store: JobStore | None = None,
+        object_storage_settings: ObjectStorageSettings | None = None,
     ) -> None:
         settings = broker_settings or BrokerSettings()
         super().__init__(
@@ -65,6 +66,10 @@ class EmailNormalizationConsumer(BaseConsumer):
         self.persister = persister
         self.storage_client = storage_client
         self.job_store = job_store
+        # Where attachments and HTML bodies are offloaded (R4.1, R5.8).
+        storage_settings = object_storage_settings or ObjectStorageSettings()
+        self.attachments_bucket = storage_settings.bucket_attachments
+        self.html_bucket = storage_settings.bucket_html
         self.triage_exchange = triage_exchange or settings.exchange_email_triage
         self.triage_routing_key = triage_routing_key or settings.queue_triage
 
@@ -137,6 +142,8 @@ class EmailNormalizationConsumer(BaseConsumer):
             raw_mime=raw_mime,
             context=context,
             storage_client=self.storage_client,
+            attachments_bucket=self.attachments_bucket,
+            html_bucket=self.html_bucket,
         )
 
         # 3. Idempotent persistence into database (R4.8, R4.9 - never discard!)

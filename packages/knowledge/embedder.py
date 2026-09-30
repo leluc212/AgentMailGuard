@@ -89,6 +89,34 @@ class Embedder(Protocol):
         ...
 
 
+def _in_input_order(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order response items by ``index``, or keep the response order unless all are indexed.
+
+    OpenAI returns one indexed item per input, in input order. Some OpenAI-compatible endpoints
+    (Google's, for gemini-embedding-001) leave ``index`` out or null; the response order is the
+    input order there too, so it is the fallback when any item cannot be placed by index.
+    """
+    try:
+        indexed = [(int(item["index"]), item) for item in items]
+    except (KeyError, TypeError, ValueError):
+        return items
+    return [item for _, item in sorted(indexed, key=lambda pair: pair[0])]
+
+
+def _prompt_tokens(data: dict[str, Any]) -> int:
+    """Prompt tokens the provider reported, or 0 when ``usage`` is missing or unusable (R9.11).
+
+    Nothing is estimated: a made-up count would enter ``embedding_tokens_total`` as if metered.
+    """
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    try:
+        return int(usage.get("prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 class HttpEmbedder(Embedder):
     """OpenAI-compatible HTTP embedding client with micro-batching and retries."""
 
@@ -251,8 +279,7 @@ class HttpEmbedder(Embedder):
                 data = response.json()
 
                 # Extract and order embeddings
-                items = data.get("data", [])
-                items.sort(key=lambda x: int(x.get("index", 0)))
+                items = _in_input_order(data.get("data", []))
                 embeddings = [item["embedding"] for item in items]
 
                 # Validate vector dimensionality (R5.10)
@@ -263,8 +290,7 @@ class HttpEmbedder(Embedder):
                             f"configured dimension {self._dimension} at index {idx}"
                         )
 
-                tokens = int(data.get("usage", {}).get("prompt_tokens", 0))
-                return embeddings, tokens
+                return embeddings, _prompt_tokens(data)
 
             except httpx.TimeoutException as exc:
                 if attempt < self._max_retries:

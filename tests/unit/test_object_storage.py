@@ -1,11 +1,18 @@
 """Unit tests for object storage key conventions and in-memory fake client (R5.8)."""
 
+from __future__ import annotations
+
+import sys
+from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from packages.core import storage
+from packages.core.settings import ObjectStorageSettings
 from packages.core.storage import (
     FakeObjectStorageClient,
+    MinioObjectStorageClient,
     ObjectKeyBuilder,
     ObjectNotFoundError,
     get_storage_client,
@@ -116,3 +123,77 @@ async def test_fake_object_storage_lifecycle() -> None:
     # 8. Presigned URL on missing object raises ObjectNotFoundError
     with pytest.raises(ObjectNotFoundError):
         await client.get_presigned_url(bucket, key)
+
+
+class RecordingMinio:
+    """Stands in for the minio SDK client: every bucket is missing until it is made."""
+
+    instances: list[RecordingMinio] = []
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        self.made: list[str] = []
+        RecordingMinio.instances.append(self)
+
+    def bucket_exists(self, bucket: str) -> bool:
+        return bucket in self.made
+
+    def make_bucket(self, bucket: str) -> None:
+        self.made.append(bucket)
+
+
+@pytest.fixture
+def recording_minio(monkeypatch: pytest.MonkeyPatch) -> type[RecordingMinio]:
+    RecordingMinio.instances = []
+    monkeypatch.setattr(storage, "Minio", RecordingMinio)
+    return RecordingMinio
+
+
+def test_html_bucket_setting_defaults_to_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R4.1, R5.8: parsed HTML bodies have their own configurable bucket."""
+    assert ObjectStorageSettings().bucket_html == "html"
+    monkeypatch.setenv("OBJECT_STORAGE__BUCKET_HTML", "email-html")
+    from packages.core.settings import AppSettings
+
+    assert AppSettings(_env_file=None).object_storage.bucket_html == "email-html"
+
+
+async def test_bootstrap_creates_the_html_bucket(recording_minio: type[RecordingMinio]) -> None:
+    """Without it the first message with an HTML part hit NoSuchBucket (R4.1)."""
+    settings = ObjectStorageSettings(bucket_html="html-test")
+    client = MinioObjectStorageClient(settings)
+
+    created = await client.bootstrap_buckets()
+
+    expected = ["raw-mime", "attachments", "knowledge-docs", "html-test"]
+    assert client.configured_buckets == expected
+    assert created == expected
+    assert recording_minio.instances[0].made == expected
+
+
+async def test_bootstrap_is_idempotent(recording_minio: type[RecordingMinio]) -> None:
+    client = MinioObjectStorageClient(ObjectStorageSettings())
+    await client.bootstrap_buckets()
+
+    assert await client.bootstrap_buckets() == []
+
+
+def test_storage_cli_bootstrap_creates_the_configured_html_bucket(
+    recording_minio: type[RecordingMinio],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`python -m packages.core.storage_cli bootstrap` reads OBJECT_STORAGE__BUCKET_HTML."""
+    monkeypatch.setenv("OBJECT_STORAGE__BUCKET_HTML", "html-cli")
+    monkeypatch.setattr(sys, "argv", ["storage_cli", "bootstrap"])
+
+    storage.main()
+
+    assert "html-cli" in recording_minio.instances[0].made
+    assert "html-cli" in capsys.readouterr().out
+
+
+async def test_fake_client_has_the_html_bucket_from_the_start() -> None:
+    client = FakeObjectStorageClient(ObjectStorageSettings(bucket_html="html-test"))
+
+    assert set(client.buckets) == {"raw-mime", "attachments", "knowledge-docs", "html-test"}
+    assert await client.bootstrap_buckets() == []

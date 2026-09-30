@@ -4,12 +4,14 @@ Requirements:
 - R10.7: SearchBackend interface abstraction.
 - R10.8: Return for every candidate its lexical rank, vector rank, fused score,
   and source metadata.
+- R10.10: Report a filtered ANN query that came back short, per call.
 - R12.3: Verbatim injection of exact identifiers into lexical query.
 - specs/design.md §5.5: Candidate and RetrievalQuery data models.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -104,3 +106,17 @@ class Candidate:
     vector_score: float | None = None
     fused_score: float | None = None
     rerank_score: float | None = None
+
+
+class BranchCandidates(list[Candidate]):
+    """The candidates one search branch returned, plus what the branch noticed on the way.
+
+    A plain list to every caller. ``underfilled`` is True when a filtered ANN query returned
+    fewer candidates than asked although the tenant holds more (R10.10, design.md §5.5). A
+    backend that cannot tell returns an ordinary list, and the retriever records the flag as
+    unknown rather than guessing False.
+    """
+
+    def __init__(self, candidates: Iterable[Candidate] = (), *, underfilled: bool = False) -> None:
+        super().__init__(candidates)
+        self.underfilled = underfilled

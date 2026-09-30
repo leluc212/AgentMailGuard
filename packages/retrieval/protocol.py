@@ -52,5 +52,9 @@ class SearchBackend(Protocol):
             - vector_rank populated (1..top_n)
             - vector_score populated (similarity score, e.g. 1 - cosine_distance)
             - lexical_rank and lexical_score set to None
+
+            A backend that can tell whether a filtered ANN query came back short returns
+            ``BranchCandidates`` with ``underfilled`` set (R10.10); the retriever records the
+            flag as unknown for a plain list.
         """
         ...

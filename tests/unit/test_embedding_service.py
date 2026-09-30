@@ -296,6 +296,140 @@ class TestHttpEmbedder:
         assert after == before + 42
 
 
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
+def _marked_vector(marker: float, dimension: int = 1536) -> list[float]:
+    """A vector whose first element identifies it, so a test can tell the order apart."""
+    return [marker] + [0.5] * (dimension - 1)
+
+
+def _gemini_embedder(response: dict[str, Any], seen: list[httpx.Request] | None = None) -> Any:
+    """HttpEmbedder configured like the Gemini run, answering every request with ``response``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        return httpx.Response(status_code=200, json=response)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return HttpEmbedder(
+        base_url=GEMINI_BASE_URL,
+        model_name="gemini-embedding-001",
+        dimension=1536,
+        client=client,
+        metrics=create_pipeline_metrics(),
+    )
+
+
+class TestCompatibleEndpointResponseShapes:
+    """OpenAI-compatible endpoints differ from OpenAI in ``index`` and ``usage`` (R5.10, R9.11).
+
+    Google's endpoint returns both shapes (verified 2026-09-29 with gemini-embedding-001 at
+    ``dimensions: 1536``); OpenAI documents the response order as the input order anyway.
+    """
+
+    @pytest.mark.asyncio
+    async def test_request_names_the_model_and_dimension(self) -> None:
+        seen: list[httpx.Request] = []
+        embedder = _gemini_embedder(
+            {"data": [{"embedding": _marked_vector(1.0)}], "usage": {"prompt_tokens": 3}}, seen
+        )
+
+        await embedder.embed_texts(["one"])
+
+        assert seen[0].url.path == "/v1beta/openai/embeddings"
+        body = json.loads(seen[0].content)
+        assert (body["model"], body["dimensions"]) == ("gemini-embedding-001", 1536)
+
+    @pytest.mark.asyncio
+    async def test_items_without_index_keep_the_response_order(self) -> None:
+        response = {"data": [{"embedding": _marked_vector(m)} for m in (1.0, 2.0, 3.0)]}
+        embedder = _gemini_embedder(response)
+
+        result = await embedder.embed_texts(["a", "b", "c"])
+
+        assert [vec[0] for vec in result.embeddings] == [1.0, 2.0, 3.0]
+
+    @pytest.mark.asyncio
+    async def test_items_with_a_null_index_keep_the_response_order(self) -> None:
+        response = {"data": [{"index": None, "embedding": _marked_vector(m)} for m in (1.0, 2.0)]}
+        embedder = _gemini_embedder(response)
+
+        result = await embedder.embed_texts(["a", "b"])
+
+        assert [vec[0] for vec in result.embeddings] == [1.0, 2.0]
+
+    @pytest.mark.asyncio
+    async def test_items_with_only_some_indexes_keep_the_response_order(self) -> None:
+        response = {
+            "data": [
+                {"index": 1, "embedding": _marked_vector(1.0)},
+                {"embedding": _marked_vector(2.0)},
+                {"index": 0, "embedding": _marked_vector(3.0)},
+            ]
+        }
+        embedder = _gemini_embedder(response)
+
+        result = await embedder.embed_texts(["a", "b", "c"])
+
+        assert [vec[0] for vec in result.embeddings] == [1.0, 2.0, 3.0]
+
+    @pytest.mark.asyncio
+    async def test_indexed_items_are_still_ordered_by_index(self) -> None:
+        response = {
+            "data": [
+                {"index": 2, "embedding": _marked_vector(30.0)},
+                {"index": 0, "embedding": _marked_vector(10.0)},
+                {"index": 1, "embedding": _marked_vector(20.0)},
+            ],
+            "usage": {"prompt_tokens": 9, "total_tokens": 9},
+        }
+        embedder = _gemini_embedder(response)
+
+        result = await embedder.embed_texts(["a", "b", "c"])
+
+        assert [vec[0] for vec in result.embeddings] == [10.0, 20.0, 30.0]
+        assert result.token_count == 9
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            pytest.param(None, id="null"),
+            pytest.param({}, id="empty"),
+            pytest.param({"total_tokens": 7}, id="no-prompt-tokens"),
+            pytest.param({"prompt_tokens": None}, id="null-prompt-tokens"),
+            pytest.param("unknown", id="not-an-object"),
+        ],
+    )
+    async def test_a_response_without_usable_usage_counts_no_tokens(self, usage: Any) -> None:
+        response: dict[str, Any] = {"data": [{"embedding": _marked_vector(1.0)}], "usage": usage}
+        embedder = _gemini_embedder(response)
+
+        result = await embedder.embed_texts(["a"])
+
+        assert len(result.embeddings) == 1
+        assert result.token_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_response_without_a_usage_key_counts_no_tokens(self) -> None:
+        embedder = _gemini_embedder({"data": [{"embedding": _marked_vector(1.0)}]})
+
+        result = await embedder.embed_texts(["a"])
+
+        assert result.token_count == 0
+        counter = embedder._metrics.embedding_tokens_total.labels(model="gemini-embedding-001")
+        assert counter._value.get() == 0  # nothing is fabricated for the cost counter
+
+    @pytest.mark.asyncio
+    async def test_dimension_is_still_validated_without_index(self) -> None:
+        embedder = _gemini_embedder({"data": [{"embedding": [0.1] * 768}]})
+
+        with pytest.raises(EmbeddingDimensionMismatchError, match="dimension 768"):
+            await embedder.embed_texts(["a"])
+
+
 class TestFakeEmbedder:
     """Verify deterministic FakeEmbedder for CI and testing."""
 

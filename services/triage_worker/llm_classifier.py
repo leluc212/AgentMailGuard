@@ -13,7 +13,7 @@ import logging
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from packages.domain.entities import Classification, NormalizedMessage
 from packages.domain.rules import EmailContext
@@ -63,12 +63,29 @@ Routing guidelines:
 """
 
 
+def _strict_wire_schema(schema: dict[str, Any]) -> None:
+    """Shape the generated schema for OpenAI Structured Outputs, ``strict: true`` (R6.1, R6.3).
+
+    Strict mode rejects an object that may carry extra keys, a property missing from ``required``
+    and a ``default``. The optional values (``priority``, ``reasoning``) are therefore required and
+    nullable on the wire, while parsing stays lenient: extra keys are ignored and a null or
+    omitted priority is the default.
+    """
+    properties: dict[str, Any] = schema["properties"]
+    for prop in properties.values():
+        prop.pop("default", None)
+    schema["required"] = list(properties)
+    schema["additionalProperties"] = False
+
+
 class LLMTriageOutput(BaseModel):
     """Structured JSON schema for Stage 3 LLM email classification."""
 
+    model_config = ConfigDict(json_schema_extra=_strict_wire_schema)
+
     category: str = Field(description="One of the 9 canonical email categories")
     intent: str = Field(description="Fine-grained user intent, e.g. password_reset, demo_request")
-    priority: Literal["urgent", "high", "normal", "low"] = Field(
+    priority: Literal["urgent", "high", "normal", "low"] | None = Field(
         default="normal",
         description="Business priority level based on urgency cues",
     )
@@ -223,7 +240,7 @@ class LLMTriageClassifier:
             return Classification(
                 category=parsed.category,
                 intent=parsed.intent,
-                priority=parsed.priority,
+                priority=parsed.priority or "normal",
                 reply_required=parsed.reply_required,
                 workflow_hint=parsed.workflow_hint,
                 retrieval_required=parsed.retrieval_required,

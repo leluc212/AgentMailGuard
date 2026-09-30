@@ -2,7 +2,8 @@
 
 Ensures:
 - R8.2: Short threads below thresholds trigger zero LLM calls.
-- R8.3: Threshold-triggered summarization extracts topic, intent, summary, q[], res[].
+- R8.3: Threshold-triggered summarization extracts topic, intent, summary, q[], res[],
+  on the configured summarizer model, or the FAST tier when none is configured.
 - R8.4: Saves summarized_through_message_id to avoid regenerating summary on every message.
 - R8.6: Thread state versioning and persistence via ThreadStateStore.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 import copy
 import logging
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from packages.context.policy import (
@@ -34,12 +36,17 @@ def _to_uuid(val: UUID | str) -> UUID:
 
 @dataclass(frozen=True)
 class SummarizationResult:
-    """Outcome of thread summarization execution."""
+    """Outcome of thread summarization execution.
+
+    ``model`` names the model the provider reports it used; it is None when nothing was
+    summarized.
+    """
 
     summarized: bool
     thread_state: ThreadState | None
     verbatim_messages: list[NormalizedMessage]
     decision: SummarizationDecision
+    model: str | None = None
 
 
 class ThreadSummarizer:
@@ -56,6 +63,8 @@ class ThreadSummarizer:
         self.llm = llm
         self.store = store
         self.settings = settings
+        # None (unset or blank in the environment) leaves the FAST tier model in charge (R8.3)
+        self.model = settings.summarizer_model
         self.token_counter = token_counter or TokenCounter()
         self.policy = policy or SummarizationPolicy(settings, self.token_counter)
 
@@ -123,17 +132,19 @@ class ThreadSummarizer:
                 decision=decision,
             )
 
-        # 4. Generate structured summary using fast LLM tier (R8.3)
+        # 4. Generate structured summary on the configured model, else the fast LLM tier (R8.3)
         prompt_messages = self._format_conversation_for_summary(
             messages=decision.messages_to_summarize,
             current_state=current_state,
         )
 
+        params: dict[str, Any] = {"model": self.model} if self.model else {}
         llm_result = await self.llm.generate(
             messages=prompt_messages,
             schema=THREAD_SUMMARY_SCHEMA,
             tier=ModelTier.FAST,
             temperature=0.0,
+            **params,
         )
 
         payload = llm_result.content
@@ -176,4 +187,5 @@ class ThreadSummarizer:
             thread_state=saved_state,
             verbatim_messages=messages,
             decision=decision,
+            model=llm_result.model,
         )

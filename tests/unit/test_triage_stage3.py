@@ -6,14 +6,18 @@ generation, multi-type context coercion, sync/async wrappers, and safe default f
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
 from packages.domain.entities import EmailAddress, NormalizedMessage
 from packages.domain.rules import EmailContext
+from packages.llm.client import HttpLLMProvider
 from packages.llm.fake import FakeLLMProvider
 from packages.llm.protocol import LLMTimeoutError, ModelTier
 from services.triage_worker.llm_classifier import (
@@ -262,3 +266,156 @@ class TestLLMTriageClassifier:
         assert fallback.decided_by == "default"
         assert fallback.raw["review_flag"] is True
         assert fallback.raw["error"] == "All 3 stages failed"
+
+
+SCHEMA_TYPES = {"string", "number", "integer", "boolean", "object", "array", "null"}
+"""Types OpenAI Structured Outputs supports (plus enums and anyOf, checked structurally)."""
+
+# The schema this classifier sent before the strict-mode fix (pydantic's default output).
+PRE_FIX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string"},
+        "priority": {"type": "string", "default": "normal"},
+        "reasoning": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+    },
+    "required": ["category"],
+}
+
+
+def allows_null(node: dict[str, Any]) -> bool:
+    """True when a property schema accepts JSON null (type list or an anyOf branch)."""
+    declared = node.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    return "null" in types or any(allows_null(branch) for branch in node.get("anyOf", []))
+
+
+def strict_mode_violations(node: dict[str, Any], path: str = "$") -> list[str]:
+    """Violations of OpenAI Structured Outputs ``strict: true`` in a JSON schema.
+
+    Rules (developers.openai.com, Structured Outputs and function calling, checked 2026-09-29):
+    every object sets ``additionalProperties: false`` and lists every property in ``required``;
+    an optional value is required and nullable; only the supported types; no ``default``.
+    """
+    found: list[str] = []
+    if "default" in node:
+        found.append(f"{path}: default is not permitted")
+    declared = node.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    found += [
+        f"{path}: unsupported type {t!r}" for t in types if t is not None and t not in SCHEMA_TYPES
+    ]
+    if "object" in types or "properties" in node:
+        properties: dict[str, Any] = node.get("properties", {})
+        required = set(node.get("required", []))
+        if node.get("additionalProperties") is not False:
+            found.append(f"{path}: additionalProperties must be false")
+        if required != set(properties):
+            found.append(f"{path}: required misses {sorted(set(properties) - required)}")
+        for name, child in properties.items():
+            found += strict_mode_violations(child, f"{path}.{name}")
+    for child in node.get("anyOf", []):
+        found += strict_mode_violations(child, f"{path}|anyOf")
+    if isinstance(node.get("items"), dict):
+        found += strict_mode_violations(node["items"], f"{path}[]")
+    for name, child in node.get("$defs", {}).items():
+        found += strict_mode_violations(child, f"{path}.$defs.{name}")
+    return found
+
+
+STRICT_ANSWER: dict[str, Any] = {
+    "category": "billing",
+    "intent": "refund_request",
+    "priority": "high",
+    "reply_required": True,
+    "workflow_hint": "ai",
+    "retrieval_required": True,
+    "confidence": 0.87,
+    "reasoning": "Customer asks for a refund of a duplicate charge.",
+}
+
+
+class TestStrictResponseSchema:
+    """The schema sent with ``strict: true`` meets OpenAI Structured Outputs (R6.1, R6.3)."""
+
+    def test_checker_flags_the_schema_sent_before_the_fix(self) -> None:
+        """The rule checker is not vacuous: it rejects the old shape for the recorded reasons."""
+        found = strict_mode_violations(PRE_FIX_SCHEMA)
+        assert "$: additionalProperties must be false" in found
+        assert "$: required misses ['priority', 'reasoning']" in found
+        assert "$.priority: default is not permitted" in found
+
+    def test_schema_meets_the_strict_mode_rules(self) -> None:
+        assert strict_mode_violations(LLMTriageOutput.model_json_schema()) == []
+
+    def test_root_is_an_object_not_a_union(self) -> None:
+        schema = LLMTriageOutput.model_json_schema()
+        assert schema["type"] == "object"
+        assert "anyOf" not in schema
+
+    def test_every_property_is_required_and_optional_ones_are_nullable(self) -> None:
+        schema = LLMTriageOutput.model_json_schema()
+        optional = {n for n, f in LLMTriageOutput.model_fields.items() if not f.is_required()}
+        assert optional == {"priority", "reasoning"}
+        assert set(schema["required"]) == set(LLMTriageOutput.model_fields)
+        for name, prop in schema["properties"].items():
+            assert allows_null(prop) is (name in optional), name
+
+    def test_parsing_stays_lenient(self) -> None:
+        """Extra keys are ignored and an omitted or null priority is the default (R6.3)."""
+        lenient = {k: v for k, v in STRICT_ANSWER.items() if k not in ("priority", "reasoning")}
+        assert LLMTriageOutput.model_validate({**lenient, "explanation": "extra"}).priority == (
+            "normal"
+        )
+        assert LLMTriageOutput.model_validate({**STRICT_ANSWER, "priority": None}).priority is None
+
+    @pytest.mark.asyncio
+    async def test_strict_shaped_answer_maps_to_classification(
+        self, sample_context: EmailContext
+    ) -> None:
+        provider = FakeLLMProvider(default_response=STRICT_ANSWER)
+        classification = await LLMTriageClassifier(provider=provider).classify(sample_context)
+
+        assert (classification.category, classification.intent) == ("billing", "refund_request")
+        assert classification.priority == "high"
+        assert classification.workflow_hint == "ai"
+        assert classification.confidence == 0.87
+        assert classification.decided_by == "llm"
+        assert classification.raw["reasoning"] == STRICT_ANSWER["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_null_optionals_map_to_the_defaults(self, sample_context: EmailContext) -> None:
+        answer = {**STRICT_ANSWER, "priority": None, "reasoning": None}
+        provider = FakeLLMProvider(default_response=answer)
+        classification = await LLMTriageClassifier(provider=provider).classify(sample_context)
+
+        assert classification.priority == "normal"
+        assert classification.raw["reasoning"] is None
+
+    @pytest.mark.asyncio
+    async def test_request_carries_a_strict_schema_the_api_accepts(
+        self, sample_context: EmailContext
+    ) -> None:
+        """Through the real HTTP provider: what goes on the wire is ``strict`` and rule-clean."""
+        sent: list[dict[str, Any]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(json.loads(request.content))
+            body = {
+                "choices": [
+                    {"message": {"content": json.dumps(STRICT_ANSWER)}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 40, "completion_tokens": 30},
+            }
+            return httpx.Response(200, json=body)
+
+        provider = HttpLLMProvider(
+            api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+        classification = await LLMTriageClassifier(provider=provider).classify(sample_context)
+
+        assert len(sent) == 1
+        json_schema = sent[0]["response_format"]["json_schema"]
+        assert json_schema["strict"] is True
+        assert strict_mode_violations(json_schema["schema"]) == []
+        assert classification.category == "billing"

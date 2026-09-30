@@ -86,7 +86,9 @@ class AnthropicLLMProvider(LLMProvider):
     ) -> LLMResult:
         """Execute a completion request against the Anthropic Messages API."""
         start_time = time.perf_counter()
-        model = self.resolve_model(tier)
+        # A ``model`` param replaces the tier's model (the summarizer's, R8.3). Taken out of
+        # ``params`` so the payload and ``LLMResult.model`` cannot name different models.
+        model: str = params.pop("model", None) or self.resolve_model(tier)
 
         # Separate system messages from conversational messages per Anthropic API spec
         system_parts = [m.content for m in messages if m.role == "system"]

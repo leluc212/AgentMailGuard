@@ -140,7 +140,9 @@ class FakeLLMProvider(LLMProvider):
         output_tokens = max(1, len(str(content)) // 4)
 
         elapsed_ms = max(1, int((time.perf_counter() - start_time) * 1000))
-        if tier in (ModelTier.FAST, ModelTier.ROUTINE):
+        if params.get("model"):  # like the real providers, a ``model`` param names the model used
+            model_name = str(params["model"])
+        elif tier in (ModelTier.FAST, ModelTier.ROUTINE):
             model_name = "fake-fast-model"
         else:
             model_name = "fake-strong-model"

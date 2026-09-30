@@ -21,7 +21,7 @@ from uuid import UUID
 
 import asyncpg
 
-from packages.retrieval.models import Candidate, RetrievalQuery
+from packages.retrieval.models import BranchCandidates, Candidate, RetrievalQuery
 
 if TYPE_CHECKING:
     from packages.observability.metrics import PipelineMetrics
@@ -53,6 +53,8 @@ class PostgresSearchBackend:
         self.default_ef_search = default_ef_search
         self.widened_ef_search = widened_ef_search
         self.dim = dim
+        # Sticky and shared by every call on this backend; the per-call answer is the
+        # ``underfilled`` flag of the BranchCandidates that ``vector`` returns.
         self.last_retrieval_underfilled: bool = False
 
     def _format_vector(self, vec: Sequence[float]) -> list[float]:
@@ -187,7 +189,11 @@ class PostgresSearchBackend:
             return [self._row_to_candidate(r, lexical_only=True) for r in rows]
 
     async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[Candidate]:
-        """Execute pgvector similarity search with under-fill mitigation (R10.1, R10.4, R10.10)."""
+        """Execute pgvector similarity search with under-fill mitigation (R10.1, R10.4, R10.10).
+
+        The candidates come back as ``BranchCandidates`` whose ``underfilled`` flag says whether
+        this call's ANN query returned fewer rows than the tenant holds (it is then widened).
+        """
         org_id = q.organization_id
         if not org_id or not q.query_vector:
             return []
@@ -233,6 +239,7 @@ class PostgresSearchBackend:
               AND ($3::text IS NULL OR d.category = $3);
         """
 
+        underfilled = False
         async with self.pool.acquire() as conn:
             # Prime pgvector extension GUCs in connection if needed
             await conn.execute("SELECT '[0]'::vector;")
@@ -257,6 +264,7 @@ class PostgresSearchBackend:
                 total_avail_int = int(total_available or 0)
 
                 if total_avail_int > len(rows):
+                    underfilled = True
                     self.last_retrieval_underfilled = True
                     if self.metrics is not None:
                         try:
@@ -296,7 +304,10 @@ class PostgresSearchBackend:
                         except Exception:
                             pass
 
-            return [self._row_to_candidate(r, vector_only=True) for r in rows]
+            return BranchCandidates(
+                (self._row_to_candidate(r, vector_only=True) for r in rows),
+                underfilled=underfilled,
+            )
 
     async def hybrid(
         self,

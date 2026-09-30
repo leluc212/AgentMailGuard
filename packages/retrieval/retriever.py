@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from packages.retrieval.models import Candidate, RetrievalQuery
+from packages.retrieval.models import BranchCandidates, Candidate, RetrievalQuery
 from packages.retrieval.protocol import SearchBackend
 from packages.retrieval.rrf import DEFAULT_RRF_K, fuse_lexical_and_vector
 
@@ -59,6 +59,9 @@ class RetrievalResult:
     vector_latency_ms: float = 0.0
     total_latency_ms: float = 0.0
     query_vector_dimension: int | None = None  # length of the vector searched, None if none
+    # The vector branch's filtered ANN query came back short although the tenant holds more (it
+    # was widened, R10.10). None when unknown: the backend cannot tell or the branch failed.
+    retrieval_underfilled: bool | None = None
 
 
 class HybridRetriever:
@@ -331,6 +334,14 @@ class HybridRetriever:
             with contextlib.suppress(Exception):
                 self.metrics.retrieval_latency_ms.labels(mode=mode).observe(total_latency)
 
+        # Per call, from the vector branch's own answer (R10.10): a backend that cannot tell
+        # returns a plain list, and a failed branch has no answer, so both stay unknown.
+        vec_underfilled: bool | None = (
+            vec_candidates.underfilled
+            if not vec_failed and isinstance(vec_candidates, BranchCandidates)
+            else None
+        )
+
         return RetrievalResult(
             candidates=fused,
             retrieval_degraded=retrieval_degraded,
@@ -343,4 +354,5 @@ class HybridRetriever:
             vector_latency_ms=vec_latency,
             total_latency_ms=total_latency,
             query_vector_dimension=vector_dimension,
+            retrieval_underfilled=vec_underfilled,
         )
