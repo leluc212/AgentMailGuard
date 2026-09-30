@@ -461,6 +461,45 @@ def test_pinned_problems_become_one_failure_each_named() -> None:
     assert "cases.jsonl is missing" in result.detail and "sha256 a" in result.detail
 
 
+def test_a_missing_classifier_is_a_failure_that_says_to_ask_the_owner() -> None:
+    """ADR-0012 decision 15: the classifier is not in git, so the fix is not `git checkout`."""
+    assert doctor.check_classifier(None).status is Status.OK
+    problem = pinned.classifier_problem(Path("/nowhere"))
+    assert problem is not None
+    result = doctor.check_classifier(problem)
+    assert result.status is Status.FAIL and result.check == "L1 classifier"
+    assert "l1_injection_clf_v1.joblib is missing" in result.detail
+    assert result.hint == (
+        "ask the owner for l1_injection_clf_v1.joblib (it is not in git, see NOTICE.md), "
+        "put it in evaluation/mailguard_bench/pinned/; "
+        f"its sha256 must be {pinned.PINNED.classifier.sha256}"
+    )
+    assert "git checkout" not in result.detail + result.hint
+
+
+def test_a_classifier_with_another_sha256_is_the_same_failure() -> None:
+    result = doctor.check_classifier(f"{pinned.PINNED.classifier.path} has sha256 {'0' * 64}")
+    assert result.status is Status.FAIL and "0" * 64 in result.detail
+    assert "ask the owner" in result.hint
+
+
+def test_the_committed_inputs_and_the_classifier_are_separate_checks() -> None:
+    assert doctor.check_pinned([]).status is Status.OK
+    assert "classifier" not in doctor.check_pinned([]).detail
+    hint = doctor.check_pinned(["cases.jsonl is missing"]).hint
+    assert "git checkout" in hint  # these do ship in git
+    world = good_world(classifier_problem=lambda: "x is missing")
+    results = by_check(doctor.run_checks(world, model_profile=None, reader=None))
+    assert results["pinned inputs"].status is Status.OK
+    assert results["L1 classifier"].status is Status.FAIL
+
+
+def test_the_real_machine_reads_the_committed_inputs_and_the_classifier_apart() -> None:
+    world = doctor.real_world()
+    assert world.pinned_problems is pinned.verify_committed
+    assert world.classifier_problem is pinned.classifier_problem
+
+
 def test_scikit_learn_version_is_a_failure_with_the_reason() -> None:
     assert doctor.check_sklearn("1.9.1").status is Status.OK
     bad = doctor.check_sklearn("1.8.0")
@@ -813,6 +852,30 @@ def test_the_shell_wins_over_the_makefile_as_make_does() -> None:
     assert result.status is Status.OK and folder in result.detail
 
 
+REAL_MAKEFILE = (pinned.REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+
+def test_the_real_makefile_default_follows_the_classifier_where_the_teammate_put_it() -> None:
+    """The Makefile reads pinned/ only when the joblib is there, else the sibling folder."""
+    pinned_dir = f"{ROOT}/evaluation/mailguard_bench/pinned"
+    present = doctor.check_artifacts(
+        {}, REAL_MAKEFILE, ROOT, _sha_table({f"{pinned_dir}/{JOBLIB}": PINNED_SHA})
+    )
+    assert present.status is Status.OK and pinned_dir in present.detail
+    absent = doctor.check_artifacts({}, REAL_MAKEFILE, ROOT, _sha_table({}))
+    assert absent.status is Status.FAIL
+    assert "/home/u/work/AgentMailGuard-bench-artifacts" in absent.detail
+    assert "ask the owner" in absent.hint and "evaluation/mailguard_bench/pinned" in absent.hint
+
+
+def test_a_conditional_the_doctor_does_not_understand_is_not_guessed_at() -> None:
+    other = "ifeq ($(X),1)\nMAILGUARD_ARTIFACTS ?= /a\nelse\nMAILGUARD_ARTIFACTS ?= /b\nendif\n"
+    result = doctor.check_artifacts({}, other, ROOT, _sha_table({}))
+    assert result.status is Status.WARN
+    # the pair the Makefile has, but no way to tell whether the classifier is there
+    assert doctor.makefile_artifacts_default(REAL_MAKEFILE, ROOT) is None
+
+
 def test_the_real_sha256_reader_returns_none_for_a_missing_file(tmp_path: Path) -> None:
     assert doctor._file_sha256(tmp_path / "nope") is None
     (tmp_path / "f").write_bytes(b"abc")
@@ -875,6 +938,7 @@ def good_world(**overrides: object) -> World:
         "installed_sklearn": "1.9.1",
         "require_guard": lambda path, commit: None,
         "pinned_problems": lambda: [],
+        "classifier_problem": lambda: None,
         "file_sha256": lambda path: PINNED_SHA,
     }
     base.update(overrides)

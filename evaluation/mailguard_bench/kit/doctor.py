@@ -146,6 +146,7 @@ class World:
     installed_sklearn: str | None
     require_guard: Callable[[Path, str], object]
     pinned_problems: Callable[[], list[str]]
+    classifier_problem: Callable[[], str | None]
     file_sha256: Callable[[Path], str | None]
 
 
@@ -602,12 +603,12 @@ def check_guard(require: Callable[[Path, str], object], directory: Path, commit:
 
 
 def check_pinned(problems: Sequence[str]) -> Result:
-    """The shipped cases and classifier match their pinned sha256."""
+    """The inputs that ship in git (cases, manifest, metrics, SHA256SUMS) are intact."""
     if not problems:
         return Result(
             Status.OK,
             "pinned inputs",
-            "cases.jsonl, manifest.json and the L1 classifier match their pinned sha256",
+            "cases.jsonl, manifest.json and SHA256SUMS match their pinned sha256",
         )
     return Result(
         Status.FAIL,
@@ -618,29 +619,78 @@ def check_pinned(problems: Sequence[str]) -> Result:
     )
 
 
+def check_classifier(problem: str | None) -> Result:
+    """The L1 classifier the owner sent is in ``pinned/`` with the pinned sha256.
+
+    It is not in git (ADR-0012 decision 15), so a missing or different file is fixed by asking
+    the owner, never by ``git checkout``.
+    """
+    if problem is None:
+        return Result(
+            Status.OK,
+            "L1 classifier",
+            f"{pinned.PINNED.classifier.path.name} matches its pinned sha256",
+        )
+    return Result(Status.FAIL, "L1 classifier", problem, pinned.classifier_fix())
+
+
 ARTIFACTS_ENV = "MAILGUARD_ARTIFACTS"
-_ARTIFACTS_ASSIGNMENT = re.compile(rf"^{ARTIFACTS_ENV}\s*(?:\?=|:=|=)\s*(.*?)\s*(?:#.*)?$", re.M)
 _ABSPATH = re.compile(r"\$\(abspath\s+([^()$]*)\)")
+_ARTIFACTS_LINE = re.compile(rf"^{ARTIFACTS_ENV}\s*(?:\?=|:=|=)\s*(.*?)\s*(?:#.*)?$")
+_WILDCARD_IF = re.compile(
+    r"^ifneq\s*\(\s*\$\(wildcard\s+([^()$]*(?:\$\(CURDIR\)[^()$]*)?)\)\s*,\s*\)\s*$"
+)
 _ARTIFACTS_HINT = (
-    f'`export {ARTIFACTS_ENV}="$PWD/{pinned.PINNED.classifier.path.parent.as_posix()}"` in the '
-    f"shell that runs make (native Windows: {NATIVE_GUIDE}, section 3); {GUIDE}, D1"
+    f"put {pinned.PINNED.classifier.path.name} (from the owner, it is not in git) in "
+    f"{pinned.PINNED.classifier.path.parent.as_posix()}/: the Makefile reads it from there when it "
+    f'is there; or `export {ARTIFACTS_ENV}="<folder holding it>"` in the shell that runs make '
+    f"(native Windows: {NATIVE_GUIDE}, section 3); {GUIDE}, D1"
 )
 
 
-def makefile_artifacts_default(makefile_text: str | None, repo_root: Path) -> Path | None:
+def _expand(value: str, repo_root: Path) -> str | None:
+    """A Makefile path made of ``$(CURDIR)``, ``$(abspath ...)`` and literals; None otherwise."""
+    value = value.replace("$(CURDIR)", repo_root.as_posix())
+    value = _ABSPATH.sub(lambda m: posixpath.normpath(m.group(1).strip()), value)
+    return None if not value or "$" in value else value
+
+
+def makefile_artifacts_default(
+    makefile_text: str | None,
+    repo_root: Path,
+    exists: Callable[[Path], bool] | None = None,
+) -> Path | None:
     """The folder the Makefile's ``MAILGUARD_ARTIFACTS ?=`` line names, when it is a plain path.
 
-    Only ``$(CURDIR)`` and ``$(abspath ...)`` are understood; anything else (a conditional, a
+    Understood: one plain assignment, and the Makefile's own pair
+
+        ifneq ($(wildcard <file>),)
+        MAILGUARD_ARTIFACTS ?= <folder when the file is there>
+        else
+        MAILGUARD_ARTIFACTS ?= <folder otherwise>
+        endif
+
+    where ``exists`` says whether ``<file>`` is there. Anything else (another conditional, a
     function) is not guessed at: the answer is None.
     """
-    match = _ARTIFACTS_ASSIGNMENT.search(makefile_text or "")
-    if not match:
-        return None
-    value = match.group(1).replace("$(CURDIR)", repo_root.as_posix())
-    value = _ABSPATH.sub(lambda m: posixpath.normpath(m.group(1).strip()), value)
-    if not value or "$" in value:
-        return None
-    return Path(value)
+    lines = (makefile_text or "").splitlines()
+    for index, line in enumerate(lines):
+        match = _ARTIFACTS_LINE.match(line)
+        if not match:
+            continue
+        previous = lines[index - 1].strip() if index else ""
+        if not previous.startswith(("if", "else")):
+            value = _expand(match.group(1), repo_root)
+            return Path(value) if value else None
+        guard = _WILDCARD_IF.match(previous)
+        otherwise = _ARTIFACTS_LINE.match(lines[index + 2]) if index + 2 < len(lines) else None
+        if not (guard and exists and otherwise and lines[index + 1].strip() == "else"):
+            return None
+        probe = _expand(guard.group(1), repo_root)
+        chosen = match.group(1) if probe and exists(Path(probe)) else otherwise.group(1)
+        value = _expand(chosen, repo_root)
+        return Path(value) if value else None
+    return None
 
 
 def check_artifacts(
@@ -651,15 +701,18 @@ def check_artifacts(
 ) -> Result:
     """The classifier the runners read (``MAILGUARD_ARTIFACTS``) is the pinned one.
 
-    ``make`` takes the variable from the shell first, then from the Makefile's default; so does
-    this check, and it prints the folder it resolved. ``check_pinned`` verifies the copy in git,
-    this verifies the copy the run will load.
+    ``make`` takes the variable from the shell first, then from the Makefile's default (the pinned
+    folder when the classifier is in it, else the folder beside the repository); so does this
+    check, and it prints the folder it resolved. ``check_classifier`` verifies the copy in
+    ``pinned/``, this verifies the copy the run will load.
     """
     name = pinned.PINNED.classifier.path.name
     source = f"${ARTIFACTS_ENV}"
     folder: Path | None = Path(environ[ARTIFACTS_ENV]) if environ.get(ARTIFACTS_ENV) else None
     if folder is None:
-        folder = makefile_artifacts_default(makefile_text, repo_root)
+        folder = makefile_artifacts_default(
+            makefile_text, repo_root, lambda probe: file_sha256(probe) is not None
+        )
         source = "the Makefile's default"
     if folder is None:
         return Result(
@@ -676,7 +729,7 @@ def check_artifacts(
             "classifier directory",
             f"{folder / name} is missing (folder from {source}); the runners would not find the "
             "pinned L1 classifier",
-            f"point the runners at the copy in git: {_ARTIFACTS_HINT}",
+            f"ask the owner for it, then {_ARTIFACTS_HINT}",
         )
     if found != pinned.PINNED.classifier.sha256:
         return Result(
@@ -684,7 +737,7 @@ def check_artifacts(
             "classifier directory",
             f"{folder / name} (folder from {source}) has sha256 {found}, the pinned one is "
             f"{pinned.PINNED.classifier.sha256}; the runs would use another classifier",
-            f"point the runners at the copy in git: {_ARTIFACTS_HINT}",
+            f"use the owner's file: {_ARTIFACTS_HINT}",
         )
     return Result(
         Status.OK,
@@ -1022,6 +1075,7 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
     commit = world.environ.get("MAILGUARD_COMMIT") or DEFAULT_MAILGUARD_COMMIT
     results.append(check_guard(world.require_guard, guard_dir, commit))
     results.append(check_pinned(world.pinned_problems()))
+    results.append(check_classifier(world.classifier_problem()))
     results.append(
         check_artifacts(world.environ, world.read_text(root / "Makefile"), root, world.file_sha256)
     )
@@ -1106,7 +1160,8 @@ def real_world() -> World:
         python_version=(sys.version_info[0], sys.version_info[1], sys.version_info[2]),
         installed_sklearn=pinned.installed_scikit_learn(),
         require_guard=require_pinned_worktree,
-        pinned_problems=pinned.verify,
+        pinned_problems=pinned.verify_committed,
+        classifier_problem=pinned.classifier_problem,
         file_sha256=_file_sha256,
     )
 
