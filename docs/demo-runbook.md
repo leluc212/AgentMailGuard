@@ -326,10 +326,19 @@ Every command below runs from the repo root. `RUN` names the run folder `evaluat
 
 **Do not tune on these results.** If you change a rule, threshold or prompt in AgentMailGuard after seeing a result, rerun everything under a new `RUN` and keep both reports (spec §5).
 
+**The pinned guard commit.** AgentMailGuard runs from a detached worktree at one commit, and the Makefile's `MAILGUARD_COMMIT` says which. Two pins exist (ADR-0012 decision 3):
+
+| Benchmark | `MAILGUARD_COMMIT` | What it is | Guarded prompt |
+|---|---|---|---|
+| **v2** (§9.9, the default now) | `1a3ef62b7368703c22c3f90111abdde0678d5617` | v1's guard plus the visible fallback of the AI stages (`llm_fallback`, `llm_fallback_reason`, `llm_error`) and the L5 fix that the strictest matching rule wins | `guarded.v2`: the trusted system instructions carry rag-email's reply-format rules |
+| **v1** (§9.2 to §9.8, published results) | `81df5d07b15b5bb3d1ecf3aae556df01e304cbe0` | the guard the v1 numbers were produced with | `guarded.v1`: no reply-format rules (the cause of Llama's greeting-only drafts) |
+
+`make mailguard-worktree` creates the worktree at the pinned commit, or checks an existing one and stops with `FAIL ... is not at MAILGUARD_COMMIT` when it is at another. A machine that already has the v1 worktree at `81df5d07` (`../AgentMailGuard-bench` on the owner's desktop) needs a second directory for v2: `make mailguard-worktree MAILGUARD_DIR=$PWD/../AgentMailGuard-v2`, and `MAILGUARD_DIR` set to it for every later command (§9.9's helper reads it). To run the v1 runner again, point `MAILGUARD_DIR` at a worktree of `81df5d07` and set `MAILGUARD_COMMIT=81df5d07b15b5bb3d1ecf3aae556df01e304cbe0` on the command line (`make mailguard-bench RUN=... CONFIG=C3 MAILGUARD_COMMIT=81df5d07b15b5bb3d1ecf3aae556df01e304cbe0 MAILGUARD_DIR=...`); it runs, and the runner refuses a worktree at any other commit. That reruns v1's harness against v1's guard, but with today's rag-email code, so its guarded rows say `guarded.v2`; to reproduce the published v1 numbers exactly, also check out the rag-email commit in that run's `manifest.json`. Every run's meta records the guard commit and the guarded prompt version, both are part of its settings fingerprint, and the report refuses a `RUN` whose configs differ in either, so v1 and v2 numbers are never mixed.
+
 ### 9.1 Once per machine
 
 ```bash
-make mailguard-worktree   # detached worktree of feature/mailguard-defense-stack at the pinned commit, ../AgentMailGuard-bench
+make mailguard-worktree   # creates or checks the detached worktree of feature/mailguard-defense-stack at the pinned commit (v2: 1a3ef62), ../AgentMailGuard-bench
 make mailguard-prep       # ~332 MB LLMail-Inject download + PoisonedRAG files, the L1 corpus and the L1 classifier (network, no API key)
 ls ../AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib
 make mailguard-smoke      # offline wiring check, no model call
@@ -560,6 +569,7 @@ What is different from §9.8:
 
 - **One model at a time.** The containers carry one model's settings, so the three models run one after another, not in parallel (the two local ones would share one GPU anyway).
 - **One config at a time.** The lane queues have exactly one drafting consumer: the `ai-worker` container for C0, the guard-worker (a host process of this repo) for C0T, C1, C2 and C3. The live runner refuses to start unless exactly the expected one is active.
+- **The guard is pinned to `1a3ef62b7368703c22c3f90111abdde0678d5617`** (the Makefile's default `MAILGUARD_COMMIT`; ADR-0012 decision 3), not to v1's `81df5d07`. Its worktree is `../AgentMailGuard-bench` unless `MAILGUARD_DIR` says otherwise: the owner's desktop keeps v1's worktree at `81df5d07` there, so use another directory for v2 (§9, "The pinned guard commit"). The guarded configs also use the `guarded.v2` prompt, so a v1 and a v2 row never meet in one report.
 - **No Make targets for the v2 steps.** The commands below run the modules under the same overlay as the Make targets (the pinned AgentMailGuard worktree over rag-email's environment). This section is written for the Linux desktop; the Windows and WSL path was not exercised.
 
 | `M` (`--model-profile`) | `RUN` | Model | Endpoint | LLM key in `.env` | `WORKERS` |
@@ -647,14 +657,14 @@ docker compose ps api triage-worker knowledge-worker ai-worker     # wait until 
 | `C3` (required) | the guard-worker: every layer on, all four LLM stages | stopped | running for `C3` |
 | `C1`, `C2` (optional) | the guard-worker, reduced ablation (§9.6) | stopped | running for that config |
 
-The guard-worker is a host process. It runs the ai-worker's own code with the guard around the one generation call, until it gets `SIGTERM`, and while alive it keeps `raw/guard_worker.<config>.pid` in the `RUN` folder, which is where the runner looks. Set the helpers below once per model (from the repo root). `mg` is the Make targets' overlay, with the pinned commit read from the Makefile; `run_config` does the switch and the run for one config, and keeps the guard-worker's output in `$R/raw/guard-worker.<config>.log`:
+The guard-worker is a host process. It runs the ai-worker's own code with the guard around the one generation call, until it gets `SIGTERM`, and while alive it keeps `raw/guard_worker.<config>.pid` in the `RUN` folder, which is where the runner looks. Set the helpers below once per model (from the repo root). `mg` is the Make targets' overlay, with the pinned commit read from the Makefile and the worktree taken from `MAILGUARD_DIR` when you set it (default `../AgentMailGuard-bench`); `run_config` does the switch and the run for one config, and keeps the guard-worker's output in `$R/raw/guard-worker.<config>.log`:
 
 ```bash
 mg() {
-  MAILGUARD_DIR="$PWD/../AgentMailGuard-bench" \
+  MAILGUARD_DIR="${MAILGUARD_DIR:-$PWD/../AgentMailGuard-bench}" \
   MAILGUARD_COMMIT="$(sed -n 's/^MAILGUARD_COMMIT ?= //p' Makefile)" \
   MAILGUARD_ARTIFACTS="$PWD/../AgentMailGuard-bench-artifacts" \
-  uv run --project "$PWD" --with-editable "$PWD/../AgentMailGuard-bench" "$@"
+  uv run --project "$PWD" --with-editable "${MAILGUARD_DIR:-$PWD/../AgentMailGuard-bench}" "$@"
 }
 M=qwen2.5-7b RUN=2026-09-29-qwen25-live WORKERS=1     # one row of the table above
 R=evaluation/results/mailguard_bench/$RUN

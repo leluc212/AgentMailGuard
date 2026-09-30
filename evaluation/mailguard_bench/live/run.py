@@ -62,6 +62,7 @@ from evaluation.mailguard_bench.guard_env import (
     require_pinned_worktree,
     sha256_file,
 )
+from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live.cleanup import (
     CleanupOutcome,
     MinioObjectAdmin,
@@ -613,6 +614,7 @@ def guard_worker_expectations(
         "model_profile": args.model_profile,
         "guard_model": args.guard_model,
         "mailguard_commit": paths.commit,
+        "guarded_prompt_version": GUARDED_PROMPT_VERSION,
         "l1_model_sha256": sha256_file(l1_model) if l1_model.exists() else None,
         "embedding": embedding_facts(settings.embedding),
         "reranker": reranker_facts(settings.retrieval),
@@ -756,6 +758,7 @@ def build_live_meta(
         "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
         "rag_email_commit": rag_email_commit,
         "mailguard_commit": guard.facts["mailguard_commit"],
+        "guarded_prompt_version": GUARDED_PROMPT_VERSION,  # C0 too: see runner.run
         **generation_meta(settings.llm),
         **scoring_meta(settings.llm.price_table),  # ADR-0012 2(d), 2(e)
         "guard_models": None if args.config == NATIVE_CONFIG else args.guard_model,

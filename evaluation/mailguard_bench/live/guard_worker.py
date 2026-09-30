@@ -72,6 +72,7 @@ from evaluation.mailguard_bench.guard_env import (
     require_module_origins,
     require_pinned_worktree,
 )
+from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
@@ -98,6 +99,7 @@ FINGERPRINT_KEYS = (
     "guard_model",
     "guard_llm_stages",
     "mailguard_commit",
+    "guarded_prompt_version",
     "l1_model_sha256",
     "live_layers",
     "embedding",
@@ -275,6 +277,7 @@ def worker_meta(
         "guard_model": guard_model,
         "guard_llm_stages": {"l3b_llm": stages[0], "l4_llm": stages[1]},
         "mailguard_commit": facts["mailguard_commit"],
+        "guarded_prompt_version": GUARDED_PROMPT_VERSION,
         "l1_model_sha256": facts["l1_model_sha256"],
         "live_layers": facts["live_layers"],
         "embedding": embedding_facts(settings.embedding),

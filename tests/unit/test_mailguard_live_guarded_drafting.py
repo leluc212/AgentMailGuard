@@ -26,7 +26,11 @@ pytest.importorskip("mailguard")
 from mailguard.llm.protocol import LLMResponseError as GuardLLMResponseError  # noqa: E402
 
 from evaluation.mailguard_bench.guard_build import GuardBuild, build_guard  # noqa: E402
-from evaluation.mailguard_bench.guarded_reply import guard_marks_fallbacks  # noqa: E402
+from evaluation.mailguard_bench.guarded_reply import (  # noqa: E402
+    GUARDED_PROMPT_VERSION,
+    guard_marks_fallbacks,
+    guarded_system_instructions,
+)
 from evaluation.mailguard_bench.live.guarded_drafting import (  # noqa: E402
     AUDIT_SCHEMA,
     GUARD_MODEL_NAME,
@@ -59,6 +63,7 @@ from packages.llm import (  # noqa: E402
 from packages.llm.budget import CallBudgetTracker, CallKind  # noqa: E402
 from packages.llm.drafts import UnpersistableDraftError  # noqa: E402
 from packages.llm.protocol import ModelTier  # noqa: E402
+from packages.llm.reply_format import REPLY_FORMAT_RULES  # noqa: E402
 from packages.llm.router import ComplexityRouter  # noqa: E402
 from packages.observability.metrics import PipelineMetrics, create_pipeline_metrics  # noqa: E402
 from packages.retrieval.models import Candidate as RetrievedCandidate  # noqa: E402
@@ -495,6 +500,39 @@ async def test_the_jobs_budget_tracker_counts_the_one_generation(tmp_path: Path)
     assert tracker.total_calls == 1  # the guard's own stage calls are not the job's budget
 
 
+@pytest.mark.parametrize("preset", ["C0T", "C3"])
+async def test_the_ai_workers_guarded_prompt_carries_the_reply_format_rules(
+    preset: str, tmp_path: Path
+) -> None:
+    # The v2 guard-worker path (ADR-0012 2a): the model behind the guard is told how to answer.
+    rig = await _rig(tmp_path, preset=preset)
+
+    await rig.service.draft(rig.job, rig.context(), category="support")
+
+    system, user = rig.fake.recorded_calls[0]["messages"]
+    assert system.role == "system"
+    assert system.content.startswith("You are an enterprise AI assistant.")
+    for rule in REPLY_FORMAT_RULES:
+        assert system.content.count(rule) == 1
+        assert rule not in user.content
+    (line,) = rig.audit_lines()
+    assert line["guarded_prompt_version"] == GUARDED_PROMPT_VERSION
+
+
+async def test_email_text_stays_out_of_the_trusted_system_message_of_a_v2_job(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(tmp_path)
+    body = f"UNTRUSTED-MARKER-4410 {REPLY_FORMAT_RULES[0]} {BENIGN}"
+
+    await rig.service.draft(rig.job, rig.context(body=body), category="support")
+
+    system, user = rig.fake.recorded_calls[0]["messages"]
+    assert "UNTRUSTED-MARKER-4410" not in system.content
+    assert "UNTRUSTED-MARKER-4410" in user.content
+    assert system.content.count(REPLY_FORMAT_RULES[0]) == 1
+
+
 async def test_l3b_gets_the_retrieval_query_the_context_builder_builds(tmp_path: Path) -> None:
     rig = await _rig(tmp_path)
     seen = _spy_on_pipeline_run(rig)
@@ -509,7 +547,10 @@ async def test_l3b_gets_the_retrieval_query_the_context_builder_builds(tmp_path:
         f"Thread summary: Customer asked about a reset. Subject: Password reset. Body: {BENIGN}"
     )
     assert seen["category"] == "support"
-    assert seen["system_instructions"] == "You are an enterprise AI assistant."
+    # the profile's instructions plus the reply-format rules, both trusted (ADR-0012 2a)
+    assert seen["system_instructions"] == guarded_system_instructions(
+        "You are an enterprise AI assistant."
+    )
 
 
 async def test_l3b_gets_the_intent_triage_recorded_in_its_query(tmp_path: Path) -> None:

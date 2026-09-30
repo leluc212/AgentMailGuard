@@ -98,11 +98,13 @@ FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
 # Settings every compared config must share (spec Q6: "same model, same settings").
 # preset, guard, live_layers, guard_models and degraded_allowed differ by design. transport,
 # reranker and triage are the live pipeline's (task 7.20); a v1 meta has none of them, so they
-# are equal (None) across the configs of a v1 run.
+# are equal (None) across the configs of a v1 run. guarded_prompt_version is the prompt of the
+# guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix.
 SHARED_SETTINGS = (
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",
+    "guarded_prompt_version",
     "generation_model",
     "generation",
     "l1_model_sha256",

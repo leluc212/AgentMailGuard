@@ -71,7 +71,11 @@ from evaluation.mailguard_bench.guard_env import (
     require_pinned_worktree,
     sha256_file,
 )
-from evaluation.mailguard_bench.guarded_reply import CaseExecution, GuardedCaseExecutor
+from evaluation.mailguard_bench.guarded_reply import (
+    GUARDED_PROMPT_VERSION,
+    CaseExecution,
+    GuardedCaseExecutor,
+)
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
@@ -432,6 +436,7 @@ FINGERPRINT_KEYS = (
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",
+    "guarded_prompt_version",
     "generation_model",
     "generation",
     "guard_models",
@@ -627,6 +632,9 @@ async def run(args: argparse.Namespace) -> int:
         "case_sets": list(ABLATION_SETS if args.config in ("C1", "C2") else FULL_RUN_SETS),
         "rag_email_commit": git_head(REPO_ROOT),
         "mailguard_commit": guard_facts["mailguard_commit"],
+        # every config of a run records it, C0 too (it runs no guard prompt): the configs of one
+        # run share the harness that built them, and a guarded.v1 row never meets a v2 one
+        "guarded_prompt_version": GUARDED_PROMPT_VERSION,
         **generation_meta(llm),
         **scoring_meta(llm.price_table),  # ADR-0012 2(d), 2(e): the report reads them back
         "guard_models": None if guard is None else args.guard_model,
