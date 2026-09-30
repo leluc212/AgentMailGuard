@@ -8,9 +8,16 @@ provider and the guard's `openai` backend reach it by base URL alone:
     llama-3.1-8b-local  Ollama on the owner's desktop no key (4-bit build, like Qwen's)
     qwen2.5-7b          Ollama on the owner's desktop no key (BENCH_OLLAMA_BASE_URL moves the host)
     gemma-4-26b         Gemini API (the first test run) key from LLM__OPENAI_API_KEY
+    qwen2.5-7b-openrouter    OpenRouter, Phala pinned      key from BENCH_OPENROUTER_API_KEY
+    llama-3.1-8b-openrouter  OpenRouter, CoreWeave bf16    key from BENCH_OPENROUTER_API_KEY
 
-Llama-3.1-8B runs only on the desktop's Ollama (owner decision 2026-09-29, evening): the
-OpenRouter profile was removed after its account had no credit.
+Llama-3.1-8B ran only on the desktop's Ollama (owner decision 2026-09-29, evening): the first
+OpenRouter profile was removed after its account had no credit. The two ``-openrouter`` profiles
+are work package R4 (parked; the owner decides at the 2026-10-01 meeting whether the route is
+used, ADR-0012 decision 9). Each pins ONE provider with fallbacks off and structured-output
+support required, asks OpenRouter for its routing metadata, and so records the provider that
+served every call (``packages/llm/provenance.py``). Their results are not comparable with the
+local 4-bit runs, and reports say so.
 
 `profile_env` returns the rag-email settings for the process; keys are read from the
 environment or `.env` (the environment wins) and never written to a file.
@@ -24,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import dotenv_values
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class ModelProfileError(ValueError):
@@ -42,6 +51,24 @@ class ModelProfile:
     output_per_m: float
     base_url_env: str | None = None
     fixed_api_key: str | None = None
+    provider_pin: str | None = None
+    """The one provider slug the route is pinned to (OpenRouter ``provider.order``)."""
+    quantizations: tuple[str, ...] = ()
+    """Precisions the pinned endpoint may serve; empty when it reports none (Phala: unknown)."""
+
+    @property
+    def routing(self) -> dict[str, object] | None:
+        """OpenRouter's ``provider`` request object for this profile; None when not routed."""
+        if self.provider_pin is None:
+            return None
+        routing: dict[str, object] = {
+            "order": [self.provider_pin],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+        }
+        if self.quantizations:
+            routing["quantizations"] = list(self.quantizations)
+        return routing
 
 
 PROFILES: dict[str, ModelProfile] = {
@@ -83,6 +110,30 @@ PROFILES: dict[str, ModelProfile] = {
             base_url_env="BENCH_OLLAMA_BASE_URL",
             fixed_api_key="ollama",
         ),
+        # Work package R4 (parked). Slugs, providers and prices from OpenRouter's live API,
+        # 2026-09-30. Qwen has ONE provider (Phala, precision undisclosed), so no precision filter
+        # (it would exclude it). Only CoreWeave lists structured outputs for Llama, at bf16.
+        ModelProfile(
+            name="qwen2.5-7b-openrouter",
+            model="qwen/qwen-2.5-7b-instruct",
+            base_url=OPENROUTER_BASE_URL,
+            api_key_env="BENCH_OPENROUTER_API_KEY",
+            input_per_m=0.10,
+            output_per_m=0.20,
+            base_url_env="BENCH_OPENROUTER_BASE_URL",
+            provider_pin="phala",
+        ),
+        ModelProfile(
+            name="llama-3.1-8b-openrouter",
+            model="meta-llama/llama-3.1-8b-instruct",
+            base_url=OPENROUTER_BASE_URL,
+            api_key_env="BENCH_OPENROUTER_API_KEY",
+            input_per_m=0.22,
+            output_per_m=0.22,
+            base_url_env="BENCH_OPENROUTER_BASE_URL",
+            provider_pin="coreweave",
+            quantizations=("bf16",),
+        ),
     )
 }
 
@@ -116,6 +167,7 @@ def profile_env(profile: ModelProfile, environ: Mapping[str, str]) -> dict[str, 
             raise ModelProfileError(
                 f"model profile {profile.name!r} needs its key in {profile.api_key_env} (.env)"
             )
+    routing = profile.routing
     price_table = {
         profile.model: {"input_per_m": profile.input_per_m, "output_per_m": profile.output_per_m}
     }
@@ -127,6 +179,10 @@ def profile_env(profile: ModelProfile, environ: Mapping[str, str]) -> dict[str, 
         "LLM__STRONG_MODEL": profile.model,
         "LLM__FALLBACK_MODEL": profile.model,
         "LLM__PRICE_TABLE": json.dumps(price_table),
+        # Always stated, blank when not routed: the host processes take these over `.env`, so a
+        # routing line left there by an OpenRouter run cannot reach a run on another endpoint.
+        "LLM__OPENAI_PROVIDER_ROUTING": json.dumps(routing) if routing is not None else "",
+        "LLM__OPENAI_RESPONSE_METADATA": "true" if routing is not None else "",
     }
 
 

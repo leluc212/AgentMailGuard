@@ -40,8 +40,13 @@ from evaluation.mailguard_bench.model_profiles import PROFILES, ModelProfileErro
 
 GEMINI_KEY = "gemini-key-000"
 OPENAI_KEY = "sk-openai-000"
+OPENROUTER_KEY = "sk-or-000"
 # What `with_dot_env` yields for a .env holding both keys (demo-runbook §9.8 step 3).
-DOT_ENV = {"BENCH_OPENAI_API_KEY": OPENAI_KEY, "LLM__OPENAI_API_KEY": GEMINI_KEY}
+DOT_ENV = {
+    "BENCH_OPENAI_API_KEY": OPENAI_KEY,
+    "BENCH_OPENROUTER_API_KEY": OPENROUTER_KEY,
+    "LLM__OPENAI_API_KEY": GEMINI_KEY,
+}
 # Plus what §9.9 step 1 has the owner keep there for the host processes. The guard-worker and the
 # runner read .env and the shell, never .env.stack, so these must say what the containers get.
 HOST_ENV = {
@@ -845,6 +850,7 @@ def test_the_dot_env_of_step_1_is_what_the_host_check_accepts_for_every_model() 
     )
     keys = {
         "BENCH_OPENAI_API_KEY": OPENAI_KEY,
+        "BENCH_OPENROUTER_API_KEY": OPENROUTER_KEY,
         "LLM__OPENAI_API_KEY": GEMINI_KEY,
         "EMBEDDING__API_KEY": GEMINI_KEY,  # "the same Gemini key"
     }
@@ -1044,3 +1050,79 @@ def test_c0_switches_the_container_on_and_starts_no_guard_worker(tmp_path: Path)
     assert calls[0] == "docker compose start ai-worker"
     assert calls[-1] == "runner not-ready C0"  # not-ready: no stand-in guard-worker ever ran
     assert not _pid_file(tmp_path, "C0").exists()
+
+
+# --- the OpenRouter route (work package R4) ------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter"])
+def test_an_openrouter_profile_renders_its_key_endpoint_and_pin_for_the_containers(
+    name: str,
+) -> None:
+    profile = get_profile(name)
+    values = render_stack_env(profile, DOT_ENV)
+
+    assert values["LLM__OPENAI_API_KEY"] == OPENROUTER_KEY  # not .env's Gemini key
+    assert values["LLM__OPENAI_BASE_URL"] == "https://openrouter.ai/api/v1"  # a public host
+    assert values["LLM__FAST_MODEL"] == profile.model
+    assert values["BENCH_SUMMARIZER_MODEL"] == profile.model
+    assert json.loads(values["LLM__OPENAI_PROVIDER_ROUTING"]) == profile.routing
+    assert values["LLM__OPENAI_RESPONSE_METADATA"] == "true"
+    # The embedding is still Gemini's, with the Gemini key: only the LLM moved to OpenRouter.
+    assert values["EMBEDDING__API_KEY"] == GEMINI_KEY
+
+
+def test_the_routing_json_survives_the_env_file_format() -> None:
+    values = render_stack_env(get_profile("llama-3.1-8b-openrouter"), DOT_ENV)
+    text = format_env_file(values)
+    line = next(row for row in text.splitlines() if row.startswith("LLM__OPENAI_PROVIDER_ROUTING="))
+    assert json.loads(line.split("=", 1)[1].strip("'")) == json.loads(
+        values["LLM__OPENAI_PROVIDER_ROUTING"]
+    )
+
+
+def test_a_profile_that_is_not_routed_renders_blank_routing_over_a_stale_one() -> None:
+    # Blank, not missing: Compose then forwards '' (the settings read it as unset) instead of
+    # leaving whatever an earlier OpenRouter run left in .env.
+    values = render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV)
+    assert values["LLM__OPENAI_PROVIDER_ROUTING"] == ""
+    assert values["LLM__OPENAI_RESPONSE_METADATA"] == ""
+
+
+def test_the_routing_settings_are_forwarded_only_when_set() -> None:
+    environment = _compose()["x-app-env"]
+    for name in ("LLM__OPENAI_PROVIDER_ROUTING", "LLM__OPENAI_RESPONSE_METADATA"):
+        assert name in environment and environment[name] is None
+
+
+@pytest.mark.parametrize("name", ["qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter"])
+def test_the_host_check_agrees_with_an_openrouter_dot_env(name: str) -> None:
+    profile = get_profile(name)
+    assert host_env_problems(render_stack_env(profile, HOST_ENV), HOST_ENV) == []
+
+
+def test_main_for_an_openrouter_profile_writes_the_pin_and_says_so_without_the_key(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["--model-profile", "llama-3.1-8b-openrouter"]) == 0
+    captured = capsys.readouterr()
+    route_line = next(
+        line for line in captured.out.splitlines() if line.strip().startswith("route")
+    )
+    assert "coreweave" in route_line and "bf16" in route_line and "fallbacks off" in route_line
+    for secret in (OPENROUTER_KEY, GEMINI_KEY):
+        assert secret not in captured.out + captured.err
+    written = dotenv_values(cli_repo / ".env.stack", interpolate=False)
+    assert written["LLM__OPENAI_API_KEY"] == OPENROUTER_KEY
+    assert json.loads(written["LLM__OPENAI_PROVIDER_ROUTING"] or "")["order"] == ["coreweave"]
+    assert written["LLM__OPENAI_RESPONSE_METADATA"] == "true"
+    assert COMMAND in captured.out.splitlines()
+
+
+def test_main_for_an_unrouted_profile_prints_no_route_line(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["--model-profile", "gpt-4o-mini"]) == 0
+    assert not any(
+        line.strip().startswith("route") for line in capsys.readouterr().out.splitlines()
+    )

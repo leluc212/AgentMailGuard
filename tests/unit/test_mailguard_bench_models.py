@@ -30,7 +30,14 @@ GUARD_MODELS_YAML = Path("evaluation/mailguard_bench/guard_models.yaml")
 
 
 def test_every_benchmark_model_has_a_profile() -> None:
-    assert set(PROFILES) == {"gemma-4-26b", "gpt-4o-mini", "llama-3.1-8b-local", "qwen2.5-7b"}
+    assert set(PROFILES) == {
+        "gemma-4-26b",
+        "gpt-4o-mini",
+        "llama-3.1-8b-local",
+        "qwen2.5-7b",
+        "qwen2.5-7b-openrouter",
+        "llama-3.1-8b-openrouter",
+    }
     assert get_profile("gpt-4o-mini").model == "gpt-4o-mini"
     assert get_profile("llama-3.1-8b-local").model == "llama3.1:8b"
     assert get_profile("qwen2.5-7b").model == "qwen2.5:7b-instruct"
@@ -88,6 +95,100 @@ def test_local_llama_runs_on_the_same_ollama_as_qwen_with_no_key() -> None:
         get_profile("llama-3.1-8b-local"), {"BENCH_OLLAMA_BASE_URL": "http://10.0.0.5:11434/v1/"}
     )
     assert moved["LLM__OPENAI_BASE_URL"] == "http://10.0.0.5:11434/v1"
+
+
+OPENROUTER_ENV = {"BENCH_OPENROUTER_API_KEY": "sk-or-test"}
+
+
+def test_the_openrouter_profiles_name_the_slugs_prices_and_the_key_variable() -> None:
+    qwen = get_profile("qwen2.5-7b-openrouter")
+    llama = get_profile("llama-3.1-8b-openrouter")
+    assert qwen.model == "qwen/qwen-2.5-7b-instruct"
+    assert llama.model == "meta-llama/llama-3.1-8b-instruct"
+    assert (qwen.input_per_m, qwen.output_per_m) == (0.10, 0.20)
+    assert (llama.input_per_m, llama.output_per_m) == (0.22, 0.22)
+    assert qwen.api_key_env == llama.api_key_env == "BENCH_OPENROUTER_API_KEY"
+    assert qwen.base_url == llama.base_url == "https://openrouter.ai/api/v1"
+    assert qwen.model in BENCH_MODELS and llama.model in BENCH_MODELS
+
+
+def test_a_missing_openrouter_key_names_its_variable() -> None:
+    with pytest.raises(ModelProfileError, match="BENCH_OPENROUTER_API_KEY"):
+        profile_env(get_profile("llama-3.1-8b-openrouter"), {})
+
+
+def test_qwen_pins_phala_with_no_precision_filter() -> None:
+    # Phala reports Qwen's quantization as "unknown": a quantizations filter would exclude it.
+    env = profile_env(get_profile("qwen2.5-7b-openrouter"), OPENROUTER_ENV)
+    assert env["LLM__OPENAI_BASE_URL"] == "https://openrouter.ai/api/v1"
+    assert env["LLM__OPENAI_API_KEY"] == "sk-or-test"
+    for tier in ("LLM__FAST_MODEL", "LLM__STRONG_MODEL", "LLM__FALLBACK_MODEL"):
+        assert env[tier] == "qwen/qwen-2.5-7b-instruct"
+    assert json.loads(env["LLM__OPENAI_PROVIDER_ROUTING"]) == {
+        "order": ["phala"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+    }
+    assert env["LLM__OPENAI_RESPONSE_METADATA"] == "true"
+    assert json.loads(env["LLM__PRICE_TABLE"]) == {
+        "qwen/qwen-2.5-7b-instruct": {"input_per_m": 0.10, "output_per_m": 0.20}
+    }
+
+
+def test_llama_pins_coreweave_at_bf16() -> None:
+    env = profile_env(get_profile("llama-3.1-8b-openrouter"), OPENROUTER_ENV)
+    assert json.loads(env["LLM__OPENAI_PROVIDER_ROUTING"]) == {
+        "order": ["coreweave"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "quantizations": ["bf16"],
+    }
+    assert json.loads(env["LLM__PRICE_TABLE"])["meta-llama/llama-3.1-8b-instruct"] == {
+        "input_per_m": 0.22,
+        "output_per_m": 0.22,
+    }
+
+
+def test_the_openrouter_base_url_can_be_moved() -> None:
+    env = profile_env(
+        get_profile("qwen2.5-7b-openrouter"),
+        {**OPENROUTER_ENV, "BENCH_OPENROUTER_BASE_URL": "http://localhost:9999/api/v1/"},
+    )
+    assert env["LLM__OPENAI_BASE_URL"] == "http://localhost:9999/api/v1"
+
+
+def test_the_settings_a_profile_renders_load_into_a_pinned_llm_client() -> None:
+    from packages.core.settings import AppSettings
+
+    env = profile_env(get_profile("llama-3.1-8b-openrouter"), OPENROUTER_ENV)
+    with patch.dict(os.environ, env):
+        llm = AppSettings(_env_file=None).llm
+    assert llm.openai_provider_routing is not None
+    assert llm.openai_provider_routing.order == ["coreweave"]
+    assert llm.openai_response_metadata is True
+    assert llm.price_table["meta-llama/llama-3.1-8b-instruct"].output_per_m == 0.22
+
+
+@pytest.mark.parametrize("name", ["gpt-4o-mini", "qwen2.5-7b", "llama-3.1-8b-local", "gemma-4-26b"])
+def test_an_unrouted_profile_clears_any_routing_left_in_dot_env(name: str) -> None:
+    # A routing line kept in .env from an OpenRouter run would otherwise reach a run on OpenAI
+    # (host processes take the profile's settings over .env): the profile states "not routed".
+    env = profile_env(get_profile(name), {"BENCH_OPENAI_API_KEY": "k", "LLM__OPENAI_API_KEY": "k"})
+    assert env["LLM__OPENAI_PROVIDER_ROUTING"] == ""
+    assert env["LLM__OPENAI_RESPONSE_METADATA"] == ""
+
+
+def test_the_guard_registry_pins_each_openrouter_model_as_its_profile_does() -> None:
+    # One route in two files: the profile drives rag-email's calls, guard_models.yaml the
+    # guard judges. A drift would run the two roles on different endpoints in one run.
+    registered = yaml.safe_load(GUARD_MODELS_YAML.read_text(encoding="utf-8"))["models"]
+    for name in ("qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter"):
+        profile = get_profile(name)
+        env = profile_env(profile, OPENROUTER_ENV)
+        spec = registered[profile.model]
+        assert spec["provider_routing"] == json.loads(env["LLM__OPENAI_PROVIDER_ROUTING"])
+        assert spec["response_metadata"] is True
+        assert spec["json_mode"] == "json_object"
 
 
 def test_the_gemma_profile_reuses_the_existing_gemini_settings() -> None:
