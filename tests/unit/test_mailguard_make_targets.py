@@ -51,6 +51,7 @@ def test_analyses_target_scores_then_analyses_then_reports() -> None:
     steps = re.findall(r"-m (evaluation\.mailguard_bench\.\w+)", recipe("mailguard-analyses"))
     assert steps == [
         "evaluation.mailguard_bench.report",
+        "evaluation.mailguard_bench.scheme",  # v2 has no no-API analyses: the recipe branches
         "evaluation.mailguard_bench.analyses",
         "evaluation.mailguard_bench.report",
     ]
@@ -188,3 +189,63 @@ def test_the_v2_run_loop_of_the_runbook_runs_every_v2_config_twice() -> None:
     assert "--scheme v1" in v2 or "SCHEME=v1" in v2  # how a v1 name is run live is said
     assert "make mailguard-report RUN=$RUN" in v2  # v2 has no no-API analyses
     assert "81df5d07" in RUNBOOK and "SCHEME=v1" in RUNBOOK  # how v1 is reproduced
+
+
+def _run_analyses_target(tmp_path: Path, scheme: str | None) -> tuple[int, list[str], str]:
+    """Run ``make mailguard-analyses`` against a stub python; return its code, steps and output.
+
+    The stub answers the scheme command for real and records every other module it is asked to
+    run, so the recipe's own branching is what is tested. No model, no guard, no network.
+    """
+    import shlex
+    import sys
+
+    run = tmp_path / "run"
+    (run / "raw").mkdir(parents=True)
+    if scheme:
+        (run / "raw" / "C3.meta.json").write_text(f'{{"scheme": "{scheme}"}}', encoding="utf-8")
+    log = tmp_path / "steps.log"
+    stub = tmp_path / "py.sh"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'case "$2" in\n'
+        f'  evaluation.mailguard_bench.scheme) cd {shlex.quote(str(REPO))} && '
+        f'exec {shlex.quote(sys.executable)} "$@";;\n'
+        f'  *) echo "$2" >> {shlex.quote(str(log))};;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    done = subprocess.run(
+        [
+            "make",
+            "-C",
+            str(REPO),
+            "mailguard-analyses",
+            "RUN=run",
+            f"MAILGUARD_RUN_DIR={run}",
+            f"MAILGUARD_PY={stub}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    steps = log.read_text(encoding="utf-8").split() if log.exists() else []
+    return done.returncode, steps, done.stdout + done.stderr
+
+
+def test_analyses_on_a_v1_run_still_scores_analyses_then_reports(tmp_path: Path) -> None:
+    for scheme in (None, "v1"):  # a folder from before the schemes is v1
+        code, steps, _ = _run_analyses_target(tmp_path / str(scheme), scheme)
+        assert code == 0
+        assert [s.rsplit(".", 1)[1] for s in steps] == ["report", "analyses", "report"]
+
+
+def test_analyses_on_a_v2_run_writes_the_report_and_ends_cleanly(tmp_path: Path) -> None:
+    # the no-API analyses read C3 as the full guard, which is C7 in v2 (task 7.23): they refuse a
+    # v2 folder, so the target must not reach them and then fail after the report is written
+    code, steps, output = _run_analyses_target(tmp_path, "v2")
+
+    assert code == 0
+    assert [s.rsplit(".", 1)[1] for s in steps] == ["report"]
+    assert "scheme v2" in output and "7.23" in output

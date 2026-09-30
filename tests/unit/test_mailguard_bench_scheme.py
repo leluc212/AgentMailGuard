@@ -210,3 +210,30 @@ def test_require_live_config_names_the_scheme_and_its_live_configs() -> None:
     scheme.require_live_config("v1", "C3")
     with pytest.raises(ValueError, match=r"C3-L1.*live.*v1.*C0, C0T, C1, C2, C3"):
         scheme.require_live_config("v1", "C3-L1")
+
+
+def _meta_file(run: Path, name: str, **meta: object) -> None:
+    (run / "raw").mkdir(parents=True, exist_ok=True)
+    (run / "raw" / f"{name}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def test_the_scheme_command_prints_the_scheme_of_a_run_folder(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _meta_file(tmp_path / "v2run", "C7", scheme="v2")
+    _meta_file(tmp_path / "oldrun", "C3", preset="C3")  # no scheme key: v1
+    for name, want in (("v2run", "v2"), ("oldrun", "v1"), ("empty", "none")):
+        assert scheme.main(["--run-dir", str(tmp_path / name)]) == 0
+        assert capsys.readouterr().out.strip() == want
+
+
+def test_the_scheme_command_fails_on_a_folder_that_mixes_schemes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _meta_file(tmp_path, "C3", scheme="v2")
+    _meta_file(tmp_path, "C3-L1", scheme="v1")
+
+    assert scheme.main(["--run-dir", str(tmp_path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith("FAIL") and "mixes" in captured.err

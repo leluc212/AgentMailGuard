@@ -23,8 +23,10 @@ docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md Amendment 2; R22.1
 
 from __future__ import annotations
 
+import argparse
 import json
-from collections.abc import Mapping
+import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -252,3 +254,25 @@ def require_folder_scheme(run_dir: Path, scheme: str) -> None:
             f"run is scheme {scheme}: a run folder never mixes config schemes. Use a new RUN, or "
             f"pass --scheme {sorted(set(other.values()))[0]} to continue that one"
         )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``python -m evaluation.mailguard_bench.scheme --run-dir DIR``: print the folder's scheme.
+
+    Prints ``v1``, ``v2`` or ``none`` (no meta yet) and returns 0; a folder that mixes the
+    schemes prints ``FAIL ...`` on stderr and returns 1. The Make targets branch on it.
+    """
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument("--run-dir", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        found = folder_scheme(args.run_dir)
+    except SchemeMixError as exc:
+        print(f"FAIL {exc}", file=sys.stderr)
+        return 1
+    print(found or "none")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

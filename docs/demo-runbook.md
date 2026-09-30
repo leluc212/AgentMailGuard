@@ -321,9 +321,9 @@ C1 and C2 (a reduced ablation, §9.6) are optional extras. The target is **C3 AS
 ```
 make mailguard-cases ─▶ evaluation/datasets/mailguard/  (300 attacks + 150 benign + 100 RAG, seed 20260930)
         │                  copied into the run folder by the first mailguard-bench of a RUN
-        ├─▶ make mailguard-bench CONFIG=C0  ─▶ raw/C0.jsonl   (rag-email's own generate_draft, no AgentMailGuard code)
-        ├─▶ make mailguard-bench CONFIG=C0T ─▶ raw/C0T.jsonl  (one generation call, guard template, no layer)
-        ├─▶ make mailguard-bench CONFIG=C3  ─▶ raw/C3.jsonl   (guard layers + one generation call)
+        ├─▶ make mailguard-bench SCHEME=v1 CONFIG=C0  ─▶ raw/C0.jsonl   (rag-email's own generate_draft, no AgentMailGuard code)
+        ├─▶ make mailguard-bench SCHEME=v1 CONFIG=C0T ─▶ raw/C0T.jsonl  (one generation call, guard template, no layer)
+        ├─▶ make mailguard-bench SCHEME=v1 CONFIG=C3  ─▶ raw/C3.jsonl   (guard layers + one generation call)
         │
         ▼
 make mailguard-analyses ─▶ report.md  ("C3 ASR ≤ 5 %: met / not met", FPR, C0 and C0T ASR, McNemar C0 vs C3
@@ -804,7 +804,7 @@ mg python -m evaluation.mailguard_bench.meaning --run-dir $R --reader-model "$RE
 make mailguard-report RUN=$RUN                                                    # rebuilds report.md with the meaning-based column
 ```
 
-Use `make mailguard-report`, not `make mailguard-analyses`, for a scheme-v2 `RUN`: the no-API analyses (leakage restatement, first catching layer, worked examples) read C3 as the full guard, which is C7 in v2, so they refuse a v2 folder, and a v2 report has no `analyses.md` (specs/tasks.md 7.20). `meaning` asks the reader for a verdict on every scored attack draft of every config and writes `analysis/meaning__<config>.jsonl`. How to read `report.md`:
+Use `make mailguard-report`, not `make mailguard-analyses`, for a scheme-v2 `RUN` (`mailguard-analyses` writes the report, notes that the analyses are v1-only and ends without running them): the no-API analyses (leakage restatement, first catching layer, worked examples) read C3 as the full guard, which is C7 in v2, so they refuse a v2 folder, and a v2 report has no `analyses.md` (specs/tasks.md 7.20). `meaning` asks the reader for a verdict on every scored attack draft of every config and writes `analysis/meaning__<config>.jsonl`. How to read `report.md`:
 
 | Number | What it counts |
 |---|---|
