@@ -72,6 +72,7 @@ from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.runmeta import prices_from_meta, strict_utility_from_meta
+from evaluation.mailguard_bench.scheme import SCHEME_KEY, scheme_of_meta
 from evaluation.mailguard_bench.scoring import (
     FAIL_CLOSED_KIND,
     LIVE_TRANSPORT,
@@ -99,8 +100,10 @@ FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
 # preset, guard, live_layers, guard_models and degraded_allowed differ by design. transport,
 # reranker and triage are the live pipeline's (task 7.20); a v1 meta has none of them, so they
 # are equal (None) across the configs of a v1 run. guarded_prompt_version is the prompt of the
-# guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix.
+# guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix. scheme
+# is the config scheme (scheme.py): a meta without it is v1, so old and new v1 metas agree.
 SHARED_SETTINGS = (
+    "scheme",
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",
@@ -204,13 +207,17 @@ def consistency_problems(
     """
     problems: list[str] = []
     for key in SHARED_SETTINGS:
+
+        def shared(meta: Mapping[str, Any], key: str = key) -> Any:
+            return scheme_of_meta(meta) if key == SCHEME_KEY else meta.get(key)
+
         values = {
-            c: json.dumps(m.get(key), sort_keys=True, default=str) for c, m in run_meta.items()
+            c: json.dumps(shared(m), sort_keys=True, default=str) for c, m in run_meta.items()
         }
         if len(set(values.values())) > 1:
             problems.append(
                 f"configs ran with different {key}: "
-                + ", ".join(f"{c}={run_meta[c].get(key)!r}" for c in values)
+                + ", ".join(f"{c}={shared(run_meta[c])!r}" for c in values)
             )
     for config, rows in records.items():
         want = (run_meta.get(config) or {}).get("generation_model")

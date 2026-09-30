@@ -11,16 +11,19 @@ and `evaluation` win over the guard's packages of the same name:
 
     MAILGUARD_DIR=... MAILGUARD_COMMIT=... MAILGUARD_ARTIFACTS=... \\
       uv run --with-editable ../AgentMailGuard-bench \\
-      python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|C2|C3 --run RUN \\
-        --model-profile M
+      python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|...|C7 --run RUN \\
+        --model-profile M [--scheme v2|v1]
 
 It applies the model profile (keys from the environment or ``.env``, as the runner does), builds
 the guard for the config on the profile's model, and runs ``build_consumers(...,
-drafting_factory=...)`` until SIGTERM (WorkerRuntime drains the consumers first). C3 turns
-L3b's and L4's LLM stages on (``guard_build.live_guard_llm_stages``); C0T, C1 and C2 keep them
-off. Only one of these workers, or the ai-worker container, may consume the lane queues at a
-time, so it refuses to start while another guard-worker is alive (pid files under every run
-folder). Files, all in ``<run_dir>/raw``:
+drafting_factory=...)`` until SIGTERM (WorkerRuntime drains the consumers first). The optional
+LLM stages follow the scheme (``guard_build.live_guard_llm_stages``): in v1 C3 turns L3b's and L4's
+on and C0T, C1 and C2 keep them off; in v2 a config turns on the AI stage of each layer it lists
+(C4 L3b's, C5 L4's, C7 both). The scheme (``--scheme``, default v2) is recorded in the meta and the
+fingerprint, and a folder that holds the other scheme is refused. Only one of these workers, or
+the ai-worker container, may consume the lane queues at a time, so it refuses to start while
+another guard-worker is alive (pid files under every run folder). Files, all in
+``<run_dir>/raw``:
 
     guard_worker.<config>.pid        this process's pid, while it is alive (the feeder reads it)
     guard_worker.<config>.meta.json  what this worker is, for the runner to check against its own:
@@ -58,7 +61,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from evaluation.mailguard_bench.guard_build import (
-    BENCH_PRESETS,
+    NATIVE_CONFIG,
     GuardBuild,
     build_guard,
     live_guard_llm_stages,
@@ -76,6 +79,13 @@ from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
+from evaluation.mailguard_bench.scheme import (
+    DEFAULT_SCHEME,
+    SCHEME_KEY,
+    SCHEMES,
+    require_config,
+    require_folder_scheme,
+)
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AIWorkerSettings, EmbeddingSettings, RetrievalSettings
 from packages.db.migrator import verify_database_vector_dimension
@@ -95,6 +105,7 @@ V2_EMBEDDING_DIMENSION = 1536
 """The embedding every v2 run shares, and the one the knowledge-worker container embeds the
 knowledge base with (package F's stack_env renders the same two values into the containers)."""
 FINGERPRINT_KEYS = (
+    "scheme",
     "model_profile",
     "guard_model",
     "guard_llm_stages",
@@ -271,6 +282,7 @@ def worker_meta(
         "schema": META_SCHEMA,
         "run_id": args.run,
         "config": args.config,
+        SCHEME_KEY: args.scheme,
         "pid": os.getpid(),
         "started_at": datetime.now(UTC).isoformat(),
         "model_profile": args.model_profile,
@@ -340,8 +352,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--config",
         required=True,
-        choices=BENCH_PRESETS,
         help="the guarded config this worker drafts for (C0 is the ai-worker container)",
+    )
+    parser.add_argument(
+        "--scheme",
+        choices=SCHEMES,
+        default=DEFAULT_SCHEME,
+        help="what the config names mean (ADR-0012 decision 11); new runs are v2. A run folder "
+        "never mixes the two",
     )
     parser.add_argument(
         "--run", required=True, help="files go to results/mailguard_bench/<run>/raw"
@@ -355,10 +373,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help=f"health/metrics port on {HOST}"
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        require_config(args.scheme, args.config)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.config == NATIVE_CONFIG:
+        parser.error("C0 is rag-email's own path, drafted by the ai-worker container: no guard")
+    return args
 
 
 async def run(args: argparse.Namespace) -> int:
+    run_dir = RESULTS_ROOT / args.run
+    # Before any setting is read or file written: a folder holds one config scheme.
+    require_folder_scheme(run_dir, args.scheme)
     updates, guard_model = resolve_profile(
         args.model_profile, with_dot_env(os.environ), DEFAULT_GUARD_MODEL
     )
@@ -372,8 +400,7 @@ async def run(args: argparse.Namespace) -> int:
     llm = settings.llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
 
-    run_dir = RESULTS_ROOT / args.run
-    l3b_llm, l4_llm = live_guard_llm_stages(args.config)
+    l3b_llm, l4_llm = live_guard_llm_stages(args.config, args.scheme)
     guard = build_guard(
         args.config,
         model_name=guard_model,
@@ -381,6 +408,7 @@ async def run(args: argparse.Namespace) -> int:
         l1_model_path=paths.l1_model,
         l3b_llm=l3b_llm,
         l4_llm=l4_llm,
+        scheme=args.scheme,
     )
     missing = guard.missing_live_stages()
     if missing:

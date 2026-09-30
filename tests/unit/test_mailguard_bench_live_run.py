@@ -870,6 +870,7 @@ def _worker_meta(
         "schema": "mailguard-guard-worker.v1",
         "run_id": "r1",
         "config": config,
+        "scheme": "v1",  # the published meanings of C0..C3, which these tests describe
         "pid": pid,
         "started_at": "2026-09-30T08:00:00+00:00",
         "model_profile": "qwen2.5-7b",
@@ -896,7 +897,9 @@ def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
     from evaluation.mailguard_bench.live.run import GuardDescription, build_live_meta
     from packages.core.settings import AppSettings
 
-    args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args = parse_args(
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+    )
     args.guard_model = "qwen2.5:7b-instruct"
     if config == "C0":
         guard = GuardDescription({**C3_FACTS, "preset": None, "live_layers": None}, {}, [])
@@ -1049,7 +1052,9 @@ def _worker_setup(
         json.dumps(_worker_meta(config, pid=pid, run_dir=run_dir, overrides=overrides, **kwargs)),
         encoding="utf-8",
     )
-    args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args = parse_args(
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+    )
     args.guard_model = GUARD_MODEL  # what apply_model_profile makes of the profile
     return {
         "meta_file": meta_file,
@@ -1808,6 +1813,7 @@ def _run_args(tmp_path: Path, config: str = "C0", *extra: str) -> Any:
     return parse_args(
         [
             *("--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"),
+            *("--scheme", "v1"),  # these runs use the published C0/C3 meanings; extra may override
             *("--case-dir", str(case_dir), "--case-timeout-s", "5"),
             *extra,
         ]

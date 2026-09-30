@@ -28,8 +28,10 @@ from typing import Any
 
 from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, sha256_file
+
+# re-exported: report.py, runner.py and the tests import them from here
+from evaluation.mailguard_bench.scheme import ABLATION_CONFIGS as ABLATION_CONFIGS
 from evaluation.mailguard_bench.scheme import (
-    ABLATION_CONFIGS,
     FULL_LAYERS,
     SCHEME_V1,
     SCHEME_V2,
@@ -40,7 +42,7 @@ from evaluation.mailguard_bench.scheme import (
     v2_llm_stages,
     v2_required_stages,
 )
-from evaluation.mailguard_bench.scheme import LAYER_ABLATIONS as LAYER_ABLATIONS  # re-export
+from evaluation.mailguard_bench.scheme import LAYER_ABLATIONS as LAYER_ABLATIONS
 
 NATIVE_CONFIG = "C0"
 # benchmark config -> AgentMailGuard GuardConfig preset

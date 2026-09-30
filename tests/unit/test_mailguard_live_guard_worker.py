@@ -164,13 +164,26 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
 
 
 def _main(*argv: str) -> int:
-    return guard_worker.main(list(argv))
+    """`main` with the published (scheme v1) meanings unless a test passes ``--scheme``."""
+    scheme = [] if "--scheme" in argv else ["--scheme", "v1"]
+    return guard_worker.main([*scheme, *argv])
 
 
-def _start(*extra: str, config: str = "C3", run: str = "r1", profile: str = "gpt-4o-mini") -> int:
-    """`main` for a worker whose profile key the test provides."""
+def _start(
+    *extra: str,
+    config: str = "C3",
+    run: str = "r1",
+    profile: str = "gpt-4o-mini",
+    scheme: str = "v1",
+) -> int:
+    """`main` for a worker whose profile key the test provides.
+
+    Most tests here describe the published (scheme v1) meanings, where C3 is the full guard.
+    """
     os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
-    return _main("--config", config, "--run", run, "--model-profile", profile, *extra)
+    return _main(
+        "--config", config, "--scheme", scheme, "--run", run, "--model-profile", profile, *extra
+    )
 
 
 def _meta(rig: Rig, config: str = "C3", run: str = "r1") -> dict[str, Any]:
@@ -183,7 +196,7 @@ def _meta(rig: Rig, config: str = "C3", run: str = "r1") -> dict[str, Any]:
 
 
 def test_the_worker_serves_one_guarded_config() -> None:
-    profile = ["--model-profile", "gpt-4o-mini"]
+    profile = ["--model-profile", "gpt-4o-mini", "--scheme", "v1"]
     for config in ("C0T", "C1", "C2", "C3"):
         args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
         assert args.config == config
