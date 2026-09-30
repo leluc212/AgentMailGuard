@@ -45,6 +45,7 @@ from evaluation.mailguard_bench.artifacts import (
     MeaningSummary,
     RateCI,
     ReportInputs,
+    ServiceFailures,
     build_manifest,
     git_head,
     guard_escalated,
@@ -98,6 +99,8 @@ from evaluation.mailguard_bench.scheme_report import (
 from evaluation.mailguard_bench.scoring import (
     FAIL_CLOSED_KIND,
     LIVE_TRANSPORT,
+    RETRIEVAL_DEGRADED_KIND,
+    TRIAGE_STAGE_FAILURE_KIND,
     RawRecord,
     read_raw,
     real_benign_drafts,
@@ -360,7 +363,7 @@ def _errors_in(errors: Sequence[RawRecord], ids: set[str]) -> int:
 
 # Keys of a ConfigSummary that only a v2 run has: a v1 run's summary.json keeps the keys it had
 # when published, so a regenerated one differs from the published one in no key.
-V2_ONLY_SUMMARY_KEYS = ("utility_legacy", "sensitivity")
+V2_ONLY_SUMMARY_KEYS = ("utility_legacy", "sensitivity", "service_failures")
 
 
 def summary_entry(summary: ConfigSummary) -> dict[str, Any]:
@@ -382,6 +385,15 @@ def _fail_closed_attacks_in(
         if e.case_id in ids
         and e.error_kind == FAIL_CLOSED_KIND
         and cases[e.case_id].get("kind") == "attack"
+    )
+
+
+def _service_failures_in(errors: Sequence[RawRecord], ids: set[str]) -> ServiceFailures:
+    """Error rows among ``ids`` that a live-service failure changed, by kind (Amendment 3)."""
+    in_table = [e for e in errors if e.case_id in ids]
+    return ServiceFailures(
+        triage_stage_failure=sum(e.error_kind == TRIAGE_STAGE_FAILURE_KIND for e in in_table),
+        retrieval_degraded=sum(e.error_kind == RETRIEVAL_DEGRADED_KIND for e in in_table),
     )
 
 
@@ -708,6 +720,7 @@ def build_report(
                 n_errors=_errors_in(errors[c], ids),
                 meaning=meaning_of(c, ids),
                 fail_closed_attacks=_fail_closed_attacks_in(errors[c], ids, cases),
+                service_failures=_service_failures_in(errors[c], ids),
             )
             for c in names
         }

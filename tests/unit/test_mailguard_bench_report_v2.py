@@ -15,6 +15,7 @@ from evaluation.mailguard_bench.artifacts import (
     LayerFallbacks,
     RateCI,
     Sensitivity,
+    ServiceFailures,
     metrics_rows,
     render_report,
     summarize_config,
@@ -378,3 +379,76 @@ def test_a_live_summary_entry_keeps_them() -> None:
 
     assert entry["utility_legacy"]["successes"] == 140
     assert entry["sensitivity"]["fail_closed"] == 10
+
+
+# --- error rows a live-service failure changed (task 7.26; Amendment 3) -------------------------
+
+
+def test_a_live_summary_carries_the_counts_of_the_two_service_failure_kinds() -> None:
+    s = summarize_config(
+        "C3", [], metrics=METRICS, n_errors=3, service_failures=ServiceFailures(2, 1)
+    )
+
+    assert s.service_failures == ServiceFailures(triage_stage_failure=2, retrieval_degraded=1)
+    assert s.asr.total == 0  # they are errors: nothing of them is scored, so nothing is defended
+
+
+def test_a_table_with_no_live_rows_and_no_service_failure_has_no_counts() -> None:
+    assert (
+        summarize_config("C3", [], metrics=METRICS, service_failures=ServiceFailures(0, 0))
+    ).service_failures is None  # a v1 table keeps the summary it always had
+
+
+def test_the_report_counts_both_kinds_per_config_next_to_the_error_count() -> None:
+    llmail = {
+        "C0": replace(
+            live_summary("C0", PIPELINE_40_300, GUARD_40_280),
+            n_errors=0,
+            service_failures=ServiceFailures(0, 0),
+        ),
+        "C3": replace(
+            live_summary("C3", PIPELINE_7_300, GUARD_7_280),
+            n_errors=5,
+            service_failures=ServiceFailures(2, 1),
+        ),
+    }
+
+    text = render_report(live_inputs(llmail=llmail))
+
+    lines = text.splitlines()
+    errors = next(i for i, line in enumerate(lines) if line.startswith("| Errors (excluded) |"))
+    assert lines[errors].endswith("| 0 | 5 |")
+    assert lines[errors + 1] == "| of which triage stage failure (retried) | 0 | 2 |"
+    assert lines[errors + 2] == "| of which retrieval degraded (retried) | 0 | 1 |"
+
+
+def test_a_table_without_the_counts_prints_no_such_rows() -> None:
+    text = render_report(live_inputs())
+
+    assert "of which triage stage failure" not in text and "retrieval degraded" not in text
+
+
+def test_the_service_failure_counts_reach_metrics_csv() -> None:
+    c3 = replace(
+        live_summary("C3", PIPELINE_7_300, GUARD_7_280), service_failures=ServiceFailures(2, 1)
+    )
+
+    rows = metrics_rows({"llmail": {"C3": c3}}, {}, {})
+
+    by_metric = {r["metric"]: r["value"] for r in rows if r["metric"].endswith("_errors")}
+    assert by_metric == {"triage_stage_failure_errors": 2, "retrieval_degraded_errors": 1}
+
+
+def test_a_v1_summary_entry_omits_the_service_failure_counts() -> None:
+    assert "service_failures" not in summary_entry(summary("C3", RateCI(7, 300, 0, 1)))
+
+
+def test_a_live_summary_entry_keeps_the_service_failure_counts() -> None:
+    live = replace(
+        live_summary("C3", PIPELINE_7_300, GUARD_7_280), service_failures=ServiceFailures(2, 1)
+    )
+
+    assert summary_entry(live)["service_failures"] == {
+        "triage_stage_failure": 2,
+        "retrieval_degraded": 1,
+    }

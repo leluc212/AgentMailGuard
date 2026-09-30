@@ -38,7 +38,11 @@ from uuid import UUID
 from evaluation.mailguard_bench.case_adapter import EvalCase
 from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
 from evaluation.mailguard_bench.live.feeder import Deadline, FedCase, Sleep
-from evaluation.mailguard_bench.scoring import FAIL_CLOSED_KIND
+from evaluation.mailguard_bench.scoring import (
+    FAIL_CLOSED_KIND,
+    RETRIEVAL_DEGRADED_KIND,
+    TRIAGE_STAGE_FAILURE_KIND,
+)
 from packages.broker.routing import format_routing_key
 from packages.context.builder import DefaultInstructionProvider
 from packages.core.idempotency import derive_idempotency_key
@@ -84,6 +88,17 @@ NATIVE_PROMPT_MODE = "native"
 _AUDIT_ID_KEYS = frozenset({"message_id", "organization_id", "config"})
 
 
+RETRIEVAL_DEGRADED_CAUSE = (
+    "the query embedding failed or ran out of its budget, or a search branch failed; the "
+    "ai-worker or guard-worker log names which"
+)
+STAGE_ERROR_CHARS = 200
+"""How much of one stage's error a service-failure message carries."""
+DEFAULT_DECIDER = "default"
+"""``classification_result.decided_by`` of triage's safe default (R6.11); a test keeps it equal
+to the cascade's own value."""
+
+
 LaneConsumers = Callable[[str], Awaitable[int | None]]
 """The consumers attached to a lane queue, from a passive declare; None if it does not exist."""
 UnconsumedCheck = Callable[[Job], Awaitable[bool]]
@@ -103,6 +118,18 @@ class FailClosedValidationError(PipelineJobError):
     """
 
     error_kind = FAIL_CLOSED_KIND
+
+
+class TriageStageFailureError(PipelineJobError):
+    """Triage fell back to its safe default because a stage failed with an error (R6.11)."""
+
+    error_kind = TRIAGE_STAGE_FAILURE_KIND
+
+
+class RetrievalDegradedError(PipelineJobError):
+    """Retrieval ran degraded: the context the draft was built from lacks a search branch."""
+
+    error_kind = RETRIEVAL_DEGRADED_KIND
 
 
 class AuditMissingError(RuntimeError):
@@ -182,6 +209,27 @@ async def wait_for_job(
             detail += f"; last error: {current.last_error[:LAST_ERROR_CHARS]}"
         deadline.check(f"waiting for job {job.id} ({detail})")
         await sleep(min(poll_interval_s, deadline.remaining()))
+
+
+def triage_stage_failures(classification: ClassificationResultRow | None) -> list[str]:
+    """The stage errors behind a safe-default triage, each as ``<stage>: <error>``; else none.
+
+    Triage reaches its safe default (R6.11) two ways, and the persisted classification tells them
+    apart (R6.7): every stage abstained (below its threshold, or no rule matched), or at least one
+    failed with an error, which the default's ``raw.stages_attempted`` records in that stage's
+    ``error``. A classification a stage decided is never a failed triage, whatever an earlier stage
+    did.
+    """
+    if classification is None or classification.decided_by != DEFAULT_DECIDER:
+        return []
+    attempts = (classification.raw or {}).get("stages_attempted")
+    if not isinstance(attempts, list):
+        return []
+    return [
+        f"{attempt.get('stage')}: {str(attempt['error'])[:STAGE_ERROR_CHARS]}"
+        for attempt in attempts
+        if isinstance(attempt, Mapping) and attempt.get("error")
+    ]
 
 
 def _transitions(events: list[ProcessingEvent]) -> list[ProcessingEvent]:
@@ -510,6 +558,8 @@ class LiveCollector:
             CaseTimeoutError: If the job is not terminal in time.
             PipelineJobError: If the job failed.
             FailClosedValidationError: If it was dead-lettered for an invalid draft (R16.3).
+            TriageStageFailureError: If triage fell back to its safe default after a stage error.
+            RetrievalDegradedError: If the ai-worker's context build says retrieval degraded.
             ContextEventMissingError: If a job reached CONTEXT_READY with no ``context_built``.
             AuditMissingError: If a guarded case was drafted and has no audit line.
         """
@@ -552,6 +602,7 @@ class LiveCollector:
             if job.message_id is not None
             else None
         )
+        self._raise_on_service_failure(case, job, classification, context)
         drafts = await self.stores.drafts.list_drafts_for_job(job.id, job.organization_id)
         draft = drafts[0] if drafts else None
         audit = await self._audit(job, fed, case, reached_drafting)
@@ -586,6 +637,39 @@ class LiveCollector:
             "timings_ms": timings,
         }
         return record
+
+    @staticmethod
+    def _raise_on_service_failure(
+        case: EvalCase,
+        job: Job,
+        classification: ClassificationResultRow | None,
+        context: Mapping[str, Any] | None,
+    ) -> None:
+        """Make a row that a live-service failure changed an error row (task 7.26, ADR-0012 13).
+
+        Raised before the audit line is waited for and before any result is built: the case is
+        re-run by the retry pass once the service is back, and a row scored from a fallback
+        would pass for a real result.
+
+        Raises:
+            TriageStageFailureError: If triage fell back to its safe default after a stage error.
+            RetrievalDegradedError: If the latest ``context_built`` event says retrieval degraded.
+        """
+        failures = triage_stage_failures(classification)
+        degraded = bool(context is not None and context.get("retrieval_degraded") is True)
+        prefix = f"case {case.case_id}: job {job.id}"
+        if failures:
+            message = (
+                f"{prefix}: triage fell back to its safe default after a stage failed with an "
+                f"error ({'; '.join(failures)})"
+            )
+            if degraded:
+                message += "; retrieval degraded too (" + RETRIEVAL_DEGRADED_CAUSE + ")"
+            raise TriageStageFailureError(message)
+        if degraded:
+            raise RetrievalDegradedError(
+                f"{prefix}: retrieval degraded ({RETRIEVAL_DEGRADED_CAUSE})"
+            )
 
     def _unconsumed_check(self) -> UnconsumedCheck | None:
         """One case's test for "this QUEUED job will never be picked up"; None without a probe.

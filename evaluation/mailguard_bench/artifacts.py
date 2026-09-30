@@ -128,6 +128,21 @@ class ConfigSummary:
     utility_legacy: RateCI | None = None
     # The ASRs with fail_closed_validation rows counted as "no draft"; live runs only.
     sensitivity: Sensitivity | None = None
+    # The error rows a live-service failure changed, by kind (Amendment 3); live runs only.
+    service_failures: ServiceFailures | None = None
+
+
+@dataclass(frozen=True)
+class ServiceFailures:
+    """The error rows of one config and table that a live-service failure changed.
+
+    Triage fell back to its safe default after a stage failed with an error, or retrieval ran
+    degraded (ADR-0012 decision 13). They are error rows: never scored, never defended, re-run by
+    the retry pass, and excluded from the headline when they are still errors after it.
+    """
+
+    triage_stage_failure: int
+    retrieval_degraded: int
 
 
 @dataclass(frozen=True)
@@ -282,6 +297,7 @@ def summarize_config(
     n_errors: int = 0,
     meaning: MeaningSummary | None = None,
     fail_closed_attacks: int = 0,
+    service_failures: ServiceFailures | None = None,
 ) -> ConfigSummary:
     """Summarise scored ``CaseResult`` rows with AgentMailGuard's ``summarize``.
 
@@ -296,11 +312,23 @@ def summarize_config(
         meaning: The config's meaning-based column on the same table, when it was read.
         fail_closed_attacks: Attack error rows of kind ``fail_closed_validation`` on the same
             table, for the sensitivity of a live run's ASRs.
+        service_failures: The table's error rows of the two live-service failure kinds; kept on
+            the summary only for a live table or a non-zero count, so a v1 table is unchanged.
     """
     proportion = metrics.Proportion
     attacks = [r for r in results if r.kind == "attack"]
     benign = [r for r in results if r.kind == "benign"]
     empty = RateCI(0, 0, 0.0, 0.0)
+    counts = (
+        service_failures
+        if service_failures is not None
+        and (
+            service_failures.triage_stage_failure
+            or service_failures.retrieval_degraded
+            or any("reached_drafting" in r.extra for r in results)
+        )
+        else None
+    )
     if not results:
         # A live table whose attacks all failed closed has no scored row but still owes its
         # sensitivity line (fail_closed_attacks is 0 for a v1 run, which has none).
@@ -320,6 +348,7 @@ def summarize_config(
                 if fail_closed_attacks
                 else None
             ),
+            service_failures=counts,
         )
     summary = metrics.summarize(results)
     scenarios: dict[str, Any] = {}
@@ -384,6 +413,7 @@ def summarize_config(
             if guard_asr is not None or fail_closed_attacks
             else None
         ),
+        service_failures=counts,
     )
 
 
@@ -681,6 +711,23 @@ def metrics_rows(
             for vector, r in s.by_vector.items():
                 rows.append(_rate_row(table, config, "ASR", f"vector={vector}", r))
             rows.append(_value_row(table, config, "errors", s.n_errors))
+            if s.service_failures is not None:
+                rows.append(
+                    _value_row(
+                        table,
+                        config,
+                        "triage_stage_failure_errors",
+                        s.service_failures.triage_stage_failure,
+                    )
+                )
+                rows.append(
+                    _value_row(
+                        table,
+                        config,
+                        "retrieval_degraded_errors",
+                        s.service_failures.retrieval_degraded,
+                    )
+                )
     for config, counts in (triage or {}).items():
         for kind, by_bucket in (("attack", counts.attacks), ("benign", counts.benign)):
             for bucket in TRIAGE_BUCKETS:
@@ -997,6 +1044,24 @@ def _side_by_side(title: str, by_config: Mapping[str, ConfigSummary]) -> list[st
         if legacy_utility:
             rows.append((LEGACY_UTILITY_ROW, [_cell(s.utility_legacy) for s in by_config.values()]))
     rows.append(("Errors (excluded)", [str(s.n_errors) for s in by_config.values()]))
+    if any(s.service_failures is not None for s in by_config.values()):
+        # the two error kinds a live-service failure gives a row (Amendment 3): part of the count
+        # above, and re-run by the retry pass
+        for label, field_name in (
+            ("of which triage stage failure (retried)", "triage_stage_failure"),
+            ("of which retrieval degraded (retried)", "retrieval_degraded"),
+        ):
+            rows.append(
+                (
+                    label,
+                    [
+                        "n/a"
+                        if s.service_failures is None
+                        else str(getattr(s.service_failures, field_name))
+                        for s in by_config.values()
+                    ],
+                )
+            )
     if any(s.poison_retrieved is not None for s in by_config.values()):
         rows.append(("Poison retrieved", [_cell(s.poison_retrieved) for s in by_config.values()]))
     meanings = [s.meaning for s in by_config.values()]
