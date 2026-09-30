@@ -34,6 +34,16 @@ class TokenCounter:
             )
             self._encoding = None
 
+    @property
+    def uses_bpe(self) -> bool:
+        """True when counts come from the BPE encoding, False when they are the word heuristic.
+
+        The heuristic is the fallback for an encoding that could not be loaded (no cache and no
+        network). Its numbers differ from the BPE's, so a caller that must count as another
+        process does checks this instead of assuming.
+        """
+        return self._encoding is not None
+
     def count_tokens(self, text: str) -> int:
         """Count the number of tokens in the provided text string."""
         if not text:

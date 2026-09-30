@@ -324,6 +324,18 @@ async def build_guarded_components(
     embedder = get_embedder(settings.embedding, metrics=res.metrics)
     start_token_counter_warmup()
     counter = await asyncio.to_thread(TokenCounter)
+    if not counter.uses_bpe:
+        # C0 is drafted in the ai-worker container, whose image bakes the encoding in. On a host
+        # with no cache and no network TokenCounter falls back to a word heuristic for the whole
+        # life of this process, and the summarization trigger, the compression and the router's
+        # thresholds would see other numbers than C0's.
+        raise ValueError(
+            f"the tokenizer encoding {counter.encoding_name} could not be loaded, so this "
+            "guard-worker would count tokens differently from the ai-worker container "
+            "(see the WARNING above). tiktoken downloads it on first use into the temp folder: "
+            "check the network, or set TIKTOKEN_CACHE_DIR to a folder that holds it "
+            "(`docker compose cp ai-worker:/app/.cache/tiktoken <folder>` copies the image's)"
+        )
     # Looked up here, not imported, so a test can replace it; typed loosely because the
     # drafting_factory keyword belongs to build_consumers itself (design contract, work package A).
     build_consumers: Callable[..., list[AIWorkerConsumer]] = ai_main.build_consumers

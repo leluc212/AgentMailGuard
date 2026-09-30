@@ -21,6 +21,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -622,6 +623,28 @@ def test_main_names_a_missing_profile_key_and_starts_nothing(
 
 # ------------------------------------------------------------------ the composition
 
+THE_COUNTER = SimpleNamespace(uses_bpe=True, encoding_name="cl100k_base")
+"""A stand-in for the TokenCounter a guard-worker built with its BPE encoding."""
+
+
+def _fake_tiktoken(monkeypatch: pytest.MonkeyPatch, *, loads: bool = True) -> None:
+    """A tiktoken whose encoding loads (or fails, as it does with no network and no cache)."""
+
+    class Encoding:
+        def encode(self, text: str, disallowed_special: object = ()) -> list[int]:
+            return list(range(len(text.split())))
+
+    def get_encoding(name: str) -> Encoding:
+        if not loads:
+            raise ConnectionError("cannot download the encoding")
+        return Encoding()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "tiktoken",
+        SimpleNamespace(get_encoding=get_encoding),
+    )
+
 
 class _Consumer:
     """What build_guarded_components takes from an AIWorkerConsumer."""
@@ -632,6 +655,37 @@ class _Consumer:
 
     async def start(self) -> None:
         self.started = True
+
+
+async def test_a_guard_worker_whose_tokenizer_did_not_load_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """C0 counts tokens with the BPE encoding baked into the ai-worker image. On a host with no
+    cache and no network tiktoken fails and TokenCounter falls back to a word heuristic for the
+    whole life of the worker: the summarization trigger, the compression and the router's
+    thresholds would then see other numbers than C0's. It refuses instead (and says the fix)."""
+    res = fake_worker_resources(AIWorkerSettings(_env_file=None))
+
+    async def verify(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
+    monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
+    _fake_tiktoken(monkeypatch, loads=False)
+    built: list[object] = []
+
+    def build_consumers(*_a: object, **_k: object) -> list[object]:
+        built.append(1)
+        return []
+
+    monkeypatch.setattr(ai_main, "build_consumers", build_consumers)
+
+    with pytest.raises(ValueError, match=r"cl100k_base.*TIKTOKEN_CACHE_DIR"):
+        await guard_worker.build_guarded_components(
+            res, guard=_stub_guard("C3"), audit_path=tmp_path / "audit__C3.jsonl"
+        )
+
+    assert built == [], "no lane consumer is built on a counter that differs from C0's"
 
 
 async def test_the_components_are_the_ai_workers_with_the_guarded_drafting_factory(
@@ -647,7 +701,7 @@ async def test_the_components_are_the_ai_workers_with_the_guarded_drafting_facto
 
     monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
     monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: warmed.append(True))
-    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: "the-counter")
+    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: THE_COUNTER)
     provider = _Model()
     consumers = [_Consumer(provider), _Consumer(provider)]
     seen: dict[str, Any] = {}
@@ -664,7 +718,7 @@ async def test_the_components_are_the_ai_workers_with_the_guarded_drafting_facto
 
     assert checked == [settings.embedding.dimension] and warmed == [True]  # as build_components
     assert seen["res"] is res
-    assert seen["kwargs"]["token_counter"] == "the-counter"
+    assert seen["kwargs"]["token_counter"] is THE_COUNTER
     assert seen["kwargs"]["embedder"] is not None
     factory = seen["kwargs"]["drafting_factory"]
     parts: dict[str, Any] = {
@@ -704,7 +758,7 @@ async def test_the_echo_check_builds_its_query_with_the_same_retrieval_settings_
 
     monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
     monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
-    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: "the-counter")
+    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: THE_COUNTER)
     seen: dict[str, Any] = {}
 
     def build_consumers(_res: Any, **kwargs: Any) -> list[_Consumer]:
@@ -747,6 +801,7 @@ async def test_the_real_build_consumers_gives_every_lane_the_one_guarded_draftin
 
     monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
     monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
+    _fake_tiktoken(monkeypatch)  # the real TokenCounter, with an encoding that needs no download
     real_build_consumers = ai_main.build_consumers
     built: list[AIWorkerConsumer] = []
 
@@ -786,7 +841,7 @@ async def test_a_worker_with_no_lane_has_nothing_to_start_and_closes_the_guards_
 
     monkeypatch.setattr(guard_worker, "verify_database_vector_dimension", verify)
     monkeypatch.setattr(guard_worker, "start_token_counter_warmup", lambda: None)
-    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: "the-counter")
+    monkeypatch.setattr(guard_worker, "TokenCounter", lambda: THE_COUNTER)
     monkeypatch.setattr(ai_main, "build_consumers", lambda *_a, **_k: [])
     guard = _stub_guard("C1")
 
