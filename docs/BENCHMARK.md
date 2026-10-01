@@ -185,19 +185,48 @@ nano .env
 Keep it to exactly these lines. **Edit the line that is already in the file; do not add a second line with the same name.** `<...>` is where you paste your own value.
 
 ```dotenv
-BENCH_OPENAI_API_KEY=<your OpenAI key>          # gpt-4o-mini only
-LLM__OPENAI_API_KEY=<your Gemini API key>       # embeddings for EVERY run
+BENCH_OPENAI_API_KEY=<your OpenAI key>              # gpt-4o-mini
+BENCH_OPENROUTER_API_KEY=<your OpenRouter key>      # Qwen2.5-7B and Llama-3.1-8B
 EMBEDDING__MOCK=false
-EMBEDDING__MODEL_NAME=gemini-embedding-001
+EMBEDDING__MODEL_NAME=text-embedding-3-small        # the embedding: your choice, see below
 EMBEDDING__DIMENSION=1536
-EMBEDDING__BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-EMBEDDING__API_KEY=<the same Gemini key>
+EMBEDDING__BASE_URL=https://api.openai.com/v1
+EMBEDDING__API_KEY=<the key of that embedding endpoint>
 RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000
-RETRIEVAL__CATEGORY_FILTER_ENABLED=false        # the benchmark only: each case files its documents under its own category
+RETRIEVAL__CATEGORY_FILTER_ENABLED=false            # the benchmark only: each case files its documents under its own category
 LLM__TIMEOUT_S=60
 ```
 
-(`BENCH_OPENAI_API_KEY` is a new line: add it. The others already exist in `.env.example`, some with other values.)
+(`BENCH_OPENAI_API_KEY` and `BENCH_OPENROUTER_API_KEY` are new lines: add them. The others already exist in `.env.example`, some with other values.)
+
+### The embedding: your choice, the same for all three models
+
+The embedding model turns the case documents and the queries into vectors. **You choose it** (ADR-0014), with four rules:
+
+- any OpenAI-compatible `/embeddings` endpoint, with its own key in `EMBEDDING__API_KEY` (never an LLM key);
+- `EMBEDDING__DIMENSION=1536`, and the model must return 1536 numbers, natively or because the kit sends `dimensions: 1536` with each request. 1536 is the width of the database column; another width needs a database migration, so the kit refuses it;
+- `EMBEDDING__MOCK=false`: the benchmark never uses the fake embedder;
+- **the same embedding model for all three models**: a different one changes what retrieval finds, and the three runs could no longer be compared. Every run records it (`embedding` in its meta, `manifest.json` and the report's "Run setup" section), and a resumed run refuses another one.
+
+Two worked examples (only the four lines that differ):
+
+```dotenv
+# OpenAI text-embedding-3-small (1536 numbers natively), with your OpenAI key
+EMBEDDING__MODEL_NAME=text-embedding-3-small
+EMBEDDING__BASE_URL=https://api.openai.com/v1
+EMBEDDING__API_KEY=<your OpenAI key>
+EMBEDDING__DIMENSION=1536
+```
+
+```dotenv
+# Gemini gemini-embedding-001 at 1536 (Google returns 3072 unless asked for fewer), with a Gemini API key
+EMBEDDING__MODEL_NAME=gemini-embedding-001
+EMBEDDING__BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+EMBEDDING__API_KEY=<your Gemini API key>
+EMBEDDING__DIMENSION=1536
+```
+
+A run embeds about 6,000 to 10,000 times (the knowledge documents of the 100 RAG cases in every config, plus one query per drafted email that retrieves), in bursts of up to about 150 a minute at concurrency 2. A free Gemini key (1,000 requests a day when Google last published the number) runs out inside the first config: with Gemini, link billing to the project first and read its limits in AI Studio. With OpenAI the key's usage tier sets the limit.
 
 Two lines must **not** be in `.env`. A fresh copy of `.env.example` has neither, but check (this prints nothing when you are clear):
 
@@ -205,7 +234,7 @@ Two lines must **not** be in `.env`. A fresh copy of `.env.example` has neither,
 grep -nE '^(SUMMARIZATION__SUMMARIZER_MODEL|ROUTING__CONFIGURED_CONSUMERS)=' .env | cut -d= -f1
 ```
 
-And none of these may be **exported in your shell** (a variable exported in the shell beats the `.env` file, so the Gemini key could end up as the OpenAI key of a run). This must print nothing:
+And none of these may be **exported in your shell** (a variable exported in the shell beats the `.env` file, so another endpoint's key could end up as the LLM key of a run). This must print nothing:
 
 ```bash
 env | grep -E '^(LLM__|EMBEDDING__|RETRIEVAL__|SUMMARIZATION__|ROUTING__|BENCH_SUMMARIZER_MODEL)' | cut -d= -f1
@@ -216,7 +245,7 @@ If it prints names, find the `export` in `~/.bashrc` or `~/.profile`, remove it 
 To see that your key lines are there without showing a value:
 
 ```bash
-grep -nE '^(BENCH_OPENAI_API_KEY|LLM__OPENAI_API_KEY|EMBEDDING__API_KEY)=.' .env | cut -d= -f1
+grep -nE '^(BENCH_OPENAI_API_KEY|BENCH_OPENROUTER_API_KEY|EMBEDDING__API_KEY)=.' .env | cut -d= -f1
 ```
 
 **Never share `.env`.** The kit never prints a key, and `make bench-package` refuses to write the results zip if a key of yours appears in any file of the run.

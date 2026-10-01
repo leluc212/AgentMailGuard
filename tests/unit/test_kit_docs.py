@@ -19,7 +19,6 @@ from evaluation.mailguard_bench.kit.doctor import HttpResult
 from evaluation.mailguard_bench.live import stack_env
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT
 from evaluation.mailguard_bench.model_profiles import PROFILES
-from packages.core.settings import GEMINI_OPENAI_BASE_URL
 
 GUIDE = (REPO_ROOT / "docs" / "BENCHMARK.md").read_text(encoding="utf-8")
 NATIVE = (REPO_ROOT / "docs" / "benchmark-windows-native.md").read_text(encoding="utf-8")
@@ -29,24 +28,60 @@ def _fenced(text: str, language: str) -> list[str]:
     return re.findall(rf"```{language}\n(.*?)```", text, flags=re.DOTALL)
 
 
-def test_the_env_block_is_the_runbooks_and_agrees_with_the_stack_env() -> None:
-    [block] = [b for b in _fenced(GUIDE, "dotenv") if "EMBEDDING__MOCK" in b]
+def _dotenv_values(block: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in block.splitlines():
         name, _, rest = line.partition("=")
         if name and not name.startswith("#"):
             values[name] = rest.split("#")[0].strip()
+    return values
+
+
+def _with_keys(values: dict[str, str]) -> dict[str, str]:
+    """The guide's lines with each ``<placeholder>`` replaced by a stand-in key."""
+    return {k: (f"key-for-{k}" if v.startswith("<") else v) for k, v in values.items()}
+
+
+def test_the_env_block_is_the_runbooks_and_agrees_with_the_stack_env() -> None:
+    [block] = [b for b in _fenced(GUIDE, "dotenv") if "EMBEDDING__MOCK" in b]
+    values = _dotenv_values(block)
     assert set(values) == {
         "BENCH_OPENAI_API_KEY",
-        stack_env.EMBEDDING_KEY_ENV,
+        "BENCH_OPENROUTER_API_KEY",
         *stack_env.HOST_MUST_SET,
     }
     assert values["EMBEDDING__MOCK"] == "false"
-    assert values["EMBEDDING__MODEL_NAME"] == stack_env.EMBEDDING_MODEL
     assert values["EMBEDDING__DIMENSION"] == str(stack_env.EMBEDDING_DIMENSION)
-    assert values["EMBEDDING__BASE_URL"] == GEMINI_OPENAI_BASE_URL
     assert values["RETRIEVAL__RETRIEVAL_TIMEOUT_MS"] == str(stack_env.RETRIEVAL_TIMEOUT_MS)
     assert float(values["LLM__TIMEOUT_S"]) == stack_env.DEFAULT_LLM_TIMEOUT_S
+    environ = _with_keys(values)
+    # Every profile the guide runs (the Gemma test profile needs a key the guide does not ask for).
+    for name, profile in PROFILES.items():
+        if profile.api_key_env is not None and profile.api_key_env not in values:
+            continue
+        rendered = stack_env.render_stack_env(profile, environ)
+        assert stack_env.host_env_problems(rendered, environ) == [], name
+
+
+def test_both_embedding_examples_render_at_the_vector_columns_width() -> None:
+    # ADR-0014: the embedding is the runner's choice; the guide shows OpenAI's and Gemini's.
+    examples = [
+        _dotenv_values(b)
+        for b in _fenced(GUIDE, "dotenv")
+        if "EMBEDDING__MODEL_NAME" in b and "EMBEDDING__MOCK" not in b
+    ]
+    assert sorted(e["EMBEDDING__MODEL_NAME"] for e in examples) == [
+        "gemini-embedding-001",
+        "text-embedding-3-small",
+    ]
+    [base] = [b for b in _fenced(GUIDE, "dotenv") if "EMBEDDING__MOCK" in b]
+    for example in examples:
+        assert set(example) == set(stack_env.EMBEDDING_SETTINGS)
+        environ = _with_keys({**_dotenv_values(base), **example})
+        rendered = stack_env.render_stack_env(PROFILES["gpt-4o-mini"], environ)
+        assert rendered["EMBEDDING__MODEL_NAME"] == example["EMBEDDING__MODEL_NAME"]
+        assert rendered["EMBEDDING__DIMENSION"] == "1536"
+        assert stack_env.host_env_problems(rendered, environ) == []
 
 
 def test_the_two_old_lines_the_guide_names_are_the_ones_the_doctor_refuses() -> None:

@@ -48,7 +48,8 @@ NEEDS_DRAFTING_FACTORY = pytest.mark.skipif(
 )
 GEMINI_HOST = "generativelanguage.googleapis.com"
 # The host-side .env lines of docs/demo-runbook.md 9.9: the guard-worker is a host process and
-# must embed queries as the knowledge-worker container embedded the knowledge base.
+# must embed queries as the knowledge-worker container embedded the knowledge base. The embedding
+# is the runner's choice (ADR-0014); Gemini's is one of the two worked examples.
 V2_EMBEDDING_ENV = {
     "EMBEDDING__MOCK": "false",
     "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
@@ -437,6 +438,8 @@ def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
             "https://e.test/v1",
             "embedding",
         ),
+        # A resumed or retried config keeps the embedding model it started with (ADR-0014).
+        ("EMBEDDING__MODEL_NAME", "gemini-embedding-001", "text-embedding-3-small", "embedding"),
     ],
 )
 def test_a_restart_under_other_settings_is_refused(
@@ -517,12 +520,34 @@ def test_main_refuses_the_mock_embedder(rig: Rig, capsys: pytest.CaptureFixture[
     assert "EMBEDDING__MOCK" in err
 
 
-def test_main_refuses_another_embedding_model(rig: Rig, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_takes_the_embedding_model_of_the_runners_choice(rig: Rig) -> None:
+    # No embedding model is hard-wired: any stated one at 1536 starts, and the meta records it.
     os.environ["EMBEDDING__MODEL_NAME"] = "text-embedding-3-small"
+    os.environ["EMBEDDING__BASE_URL"] = "https://api.openai.com/v1"
+
+    assert _start() == 0
+
+    embedding = _meta(rig)["embedding"]
+    assert (embedding["model"], embedding["base_url_host"]) == (
+        "text-embedding-3-small",
+        "api.openai.com",
+    )
+
+
+@pytest.mark.parametrize(
+    "setting", ["EMBEDDING__MODEL_NAME", "EMBEDDING__BASE_URL", "EMBEDDING__API_KEY"]
+)
+def test_main_refuses_an_embedding_setting_left_to_its_code_default(
+    rig: Rig, capsys: pytest.CaptureFixture[str], setting: str
+) -> None:
+    # Unstated, the host would embed with the code default while the containers refuse to
+    # start without it: the two would never embed alike.
+    del os.environ[setting]
 
     err = _refused(rig, capsys)
 
-    assert "EMBEDDING__MODEL_NAME" in err and "gemini-embedding-001" in err
+    assert f"{setting} is not set" in err
+    assert V2_EMBEDDING_ENV["EMBEDDING__API_KEY"] not in err
 
 
 def test_main_refuses_another_embedding_dimension(

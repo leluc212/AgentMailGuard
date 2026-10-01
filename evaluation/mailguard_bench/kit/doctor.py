@@ -52,12 +52,16 @@ from evaluation.mailguard_bench.guard_env import (
 from evaluation.mailguard_bench.kit import pinned
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT as GUARD_WORKER_PORT
 from evaluation.mailguard_bench.live.stack_env import (
+    EMBEDDING_DIMENSION,
     EMBEDDING_KEY_ENV,
+    EMBEDDING_SETTINGS,
     HOST_MUST_NOT_SET,
     SUMMARIZER_MODEL_ENV,
     SUMMARIZER_MODEL_SETTING,
     StackEnvError,
+    embedding_problems,
     host_env_problems,
+    parse_flag,
     render_stack_env,
 )
 from evaluation.mailguard_bench.meaning import reader_model_problems
@@ -454,11 +458,11 @@ def check_env_encoding(env_text: str | None) -> Result | None:
 def check_env_keys(environ: Mapping[str, str], profile: ModelProfile | None) -> list[Result]:
     """Each key the run needs is set or not set, reported by name only.
 
-    The embeddings always need the Gemini key (``LLM__OPENAI_API_KEY``, and the same value in
-    ``EMBEDDING__API_KEY``). A model profile adds its own key, if it has one. Without a profile,
-    every profile's key is listed, and a missing one is a warning naming its profile.
+    The embeddings always need their own key, ``EMBEDDING__API_KEY`` (the endpoint is the
+    runner's choice). A model profile adds its own key, if it has one. Without a profile, every
+    profile's key is listed, and a missing one is a warning naming its profile.
     """
-    always = (EMBEDDING_KEY_ENV, "EMBEDDING__API_KEY")
+    always = (EMBEDDING_KEY_ENV,)
     required: list[tuple[str, str | None]] = [(name, None) for name in always]
     optional: list[tuple[str, str | None]] = []
     if profile is not None:
@@ -495,18 +499,50 @@ def check_env_keys(environ: Mapping[str, str], profile: ModelProfile | None) -> 
     return results
 
 
+def check_embedding(environ: Mapping[str, str]) -> Result:
+    """The embedding of the runner's choice is fully stated, 1536 wide and live (part C).
+
+    Checks the settings by name: ``EMBEDDING__MODEL_NAME``, ``EMBEDDING__BASE_URL``,
+    ``EMBEDDING__API_KEY`` and ``EMBEDDING__DIMENSION`` set, the dimension 1536 (the knowledge
+    vector column), and ``EMBEDDING__MOCK`` false. No model or endpoint is assumed; no value is
+    printed but the model's name and the endpoint's host.
+    """
+    problems = embedding_problems(environ)
+    if parse_flag(environ.get("EMBEDDING__MOCK") or "") is not False:
+        problems.append(
+            "EMBEDDING__MOCK must be false (the benchmark never uses the fake embedder)"
+        )
+    if problems:
+        return Result(
+            Status.FAIL,
+            "embedding",
+            "; ".join(problems),
+            f"set {', '.join(EMBEDDING_SETTINGS)} and EMBEDDING__MOCK=false in .env: any "
+            f"OpenAI-compatible /embeddings endpoint that returns {EMBEDDING_DIMENSION}-dimension "
+            f"vectors, the same model for every model you run ({GUIDE}, part C)",
+        )
+    host = urlsplit(environ["EMBEDDING__BASE_URL"].strip()).hostname or "an unparsed URL"
+    return Result(
+        Status.OK,
+        "embedding",
+        f"{environ['EMBEDDING__MODEL_NAME'].strip()} at {host}, {EMBEDDING_DIMENSION} "
+        "dimensions; use the same one for every model of the comparison",
+    )
+
+
 def check_env_settings(environ: Mapping[str, str], profile: ModelProfile | None) -> Result:
     """The host processes read what the containers get (runbook 9.9 step 1).
 
     Reuses the stack env's own comparison. A wrong value is reported as what the setting must be;
     the found value is never printed.
     """
-    if not (environ.get(EMBEDDING_KEY_ENV) or "").strip():
+    if embedding_problems(environ):
         return Result(
             Status.FAIL,
             ".env settings",
-            f"cannot be compared with the containers' settings until {EMBEDDING_KEY_ENV} is set",
-            f"set the Gemini key in .env ({GUIDE}, part C)",
+            "cannot be compared with the containers' settings until the embedding settings are "
+            "complete (see the embedding check)",
+            f"set the embedding lines in .env ({GUIDE}, part C)",
         )
     stand_in = ModelProfile(
         name="any",
@@ -1105,6 +1141,7 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
     merged = merge_env(env_text, world.environ)
     if env_text is not None:
         results.extend(check_env_keys(merged, profile))
+        results.append(check_embedding(merged))
         results.append(check_env_settings(merged, profile))
     results.append(check_shell_exports(world.environ))
     results.append(check_old_env_lines(env_text))

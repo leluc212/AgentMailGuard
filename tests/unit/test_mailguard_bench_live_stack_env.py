@@ -38,24 +38,37 @@ from evaluation.mailguard_bench.live.stack_env import (
 )
 from evaluation.mailguard_bench.model_profiles import PROFILES, ModelProfileError, get_profile
 
-GEMINI_KEY = "gemini-key-000"
+EMBED_KEY = "embed-key-000"
+LLM_KEY = "llm-key-000"  # a key .env may hold as LLM__OPENAI_API_KEY (the reader's, Gemma's)
 OPENAI_KEY = "sk-openai-000"
 OPENROUTER_KEY = "sk-or-000"
-# What `with_dot_env` yields for a .env holding both keys (demo-runbook §9.8 step 3).
+# The embedding is the runner's choice (ADR-0014): any OpenAI-compatible endpoint returning
+# 1536-dimension vectors. Here OpenAI's text-embedding-3-small; GEMINI_EMBEDDING is the other
+# worked example of docs/BENCHMARK.md.
+EMBEDDING_ENV = {
+    "EMBEDDING__MODEL_NAME": "text-embedding-3-small",
+    "EMBEDDING__BASE_URL": "https://api.openai.com/v1",
+    "EMBEDDING__API_KEY": EMBED_KEY,
+    "EMBEDDING__DIMENSION": "1536",
+}
+GEMINI_EMBEDDING = {
+    "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
+    "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "EMBEDDING__API_KEY": "gemini-key-000",
+    "EMBEDDING__DIMENSION": "1536",
+}
+# What `with_dot_env` yields for a .env holding the keys and the embedding (runbook §9.9 step 1).
 DOT_ENV = {
     "BENCH_OPENAI_API_KEY": OPENAI_KEY,
     "BENCH_OPENROUTER_API_KEY": OPENROUTER_KEY,
-    "LLM__OPENAI_API_KEY": GEMINI_KEY,
+    "LLM__OPENAI_API_KEY": LLM_KEY,
+    **EMBEDDING_ENV,
 }
 # Plus what §9.9 step 1 has the owner keep there for the host processes. The guard-worker and the
 # runner read .env and the shell, never .env.stack, so these must say what the containers get.
 HOST_ENV = {
     **DOT_ENV,
     "EMBEDDING__MOCK": "false",
-    "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
-    "EMBEDDING__DIMENSION": "1536",
-    "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "EMBEDDING__API_KEY": GEMINI_KEY,
     "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
     "RETRIEVAL__CATEGORY_FILTER_ENABLED": "false",
     "LLM__TIMEOUT_S": "60",
@@ -85,7 +98,7 @@ def test_a_hosted_profile_renders_its_own_endpoint_key_and_model_for_every_tier(
     values = render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV)
     assert values["LLM__PROVIDER"] == "openai"
     assert values["LLM__OPENAI_BASE_URL"] == "https://api.openai.com/v1"
-    assert values["LLM__OPENAI_API_KEY"] == OPENAI_KEY  # the profile's key, not .env's Gemini key
+    assert values["LLM__OPENAI_API_KEY"] == OPENAI_KEY  # the profile's key, not .env's LLM key
     for tier in ("LLM__FAST_MODEL", "LLM__STRONG_MODEL", "LLM__FALLBACK_MODEL"):
         assert values[tier] == "gpt-4o-mini"
     assert json.loads(values["LLM__PRICE_TABLE"])["gpt-4o-mini"] == {
@@ -120,19 +133,60 @@ def test_the_summarizer_uses_the_benchmarked_model_for_every_profile(name: str) 
 
 
 @pytest.mark.parametrize("name", sorted(PROFILES))
-def test_the_embedding_is_gemini_at_1536_with_the_key_from_dot_env_for_every_model(
-    name: str,
+@pytest.mark.parametrize("embedding", [EMBEDDING_ENV, GEMINI_EMBEDDING], ids=["openai", "gemini"])
+def test_the_embedding_is_the_runners_own_for_every_model(
+    name: str, embedding: dict[str, str]
 ) -> None:
-    values = render_stack_env(get_profile(name), DOT_ENV)
+    # Whatever the model under test, the containers embed with the runner's endpoint and key,
+    # never the profile's LLM key: one embedding for every model of a comparison (ADR-0014).
+    values = render_stack_env(get_profile(name), {**DOT_ENV, **embedding})
+    assert {name: values[name] for name in embedding} == embedding
     assert values["EMBEDDING__MOCK"] == "false"
-    assert values["EMBEDDING__MODEL_NAME"] == "gemini-embedding-001"
-    assert values["EMBEDDING__DIMENSION"] == "1536"
-    assert values["EMBEDDING__BASE_URL"] == (
-        "https://generativelanguage.googleapis.com/v1beta/openai"
-    )
-    # The Gemini key from .env, also when the model under test is OpenAI's: sending the OpenAI
-    # key to Google (or the reverse) would fail every embedding call of the run.
-    assert values["EMBEDDING__API_KEY"] == GEMINI_KEY
+
+
+def test_the_fake_embedder_never_reaches_the_containers() -> None:
+    # LIVE ONLY: a .env that still says EMBEDDING__MOCK=true (the example's default) does not
+    # switch the containers to the fake; the host check names it for the host processes.
+    environ = {**HOST_ENV, "EMBEDDING__MOCK": "true"}
+    values = render_stack_env(get_profile("gpt-4o-mini"), environ)
+    assert values["EMBEDDING__MOCK"] == "false"
+    assert [p.split()[0] for p in host_env_problems(values, environ)] == ["EMBEDDING__MOCK"]
+
+
+@pytest.mark.parametrize(
+    "setting",
+    ["EMBEDDING__MODEL_NAME", "EMBEDDING__BASE_URL", "EMBEDDING__API_KEY", "EMBEDDING__DIMENSION"],
+)
+@pytest.mark.parametrize("blank", [None, "  "])
+def test_a_missing_embedding_setting_is_refused_by_name(setting: str, blank: str | None) -> None:
+    environ = {k: v for k, v in DOT_ENV.items() if k != setting}
+    if blank is not None:
+        environ[setting] = blank
+    with pytest.raises(StackEnvError, match=setting) as raised:
+        render_stack_env(get_profile("gpt-4o-mini"), environ)
+    assert EMBED_KEY not in str(raised.value)
+
+
+def test_the_embedding_key_is_embedding_api_key_alone() -> None:
+    # An LLM key in .env (or the profile's) never stands in for the embedding key.
+    environ = {k: v for k, v in DOT_ENV.items() if k != "EMBEDDING__API_KEY"}
+    with pytest.raises(StackEnvError, match="EMBEDDING__API_KEY"):
+        render_stack_env(get_profile("gemma-4-26b"), environ)
+
+
+@pytest.mark.parametrize("width", ["768", "3072", "1536.5", "wide"])
+def test_an_embedding_width_other_than_the_vector_column_is_refused(width: str) -> None:
+    with pytest.raises(StackEnvError, match="EMBEDDING__DIMENSION must be 1536") as raised:
+        render_stack_env(get_profile("gpt-4o-mini"), {**DOT_ENV, "EMBEDDING__DIMENSION": width})
+    assert "migration" in str(raised.value)
+
+
+def test_a_loopback_embedding_endpoint_is_reached_through_the_host_alias() -> None:
+    environ = {**HOST_ENV, "EMBEDDING__BASE_URL": "http://localhost:11434/v1/"}
+    values = render_stack_env(get_profile("gpt-4o-mini"), environ)
+    assert values["EMBEDDING__BASE_URL"] == "http://host.docker.internal:11434/v1"
+    # The host reaches the same endpoint as localhost: no disagreement.
+    assert host_env_problems(values, environ) == []
 
 
 def test_retrieval_gets_a_budget_for_a_hosted_embedding_call_and_the_reranker_is_on() -> None:
@@ -180,16 +234,18 @@ def test_the_llm_timeout_is_the_benchmark_runs_60_seconds_and_can_be_changed() -
         render_stack_env(profile, DOT_ENV, llm_timeout_s=0)
 
 
-@pytest.mark.parametrize("environ", [{}, {"LLM__OPENAI_API_KEY": "  "}])
-def test_a_missing_gemini_key_fails_and_names_the_variable(environ: dict[str, str]) -> None:
-    # Ollama needs no LLM key, but every run embeds with Gemini, whose key lives in .env.
-    with pytest.raises(StackEnvError, match="LLM__OPENAI_API_KEY"):
+@pytest.mark.parametrize("environ", [{}, {"LLM__OPENAI_API_KEY": LLM_KEY}])
+def test_a_local_model_still_needs_the_embedding_key(environ: dict[str, str]) -> None:
+    # Ollama needs no LLM key, but every run embeds with the runner's endpoint and its own key.
+    with pytest.raises(StackEnvError, match="EMBEDDING__API_KEY"):
         render_stack_env(get_profile("qwen2.5-7b"), environ)
 
 
 def test_a_missing_profile_key_fails_as_the_profile_does() -> None:
     with pytest.raises(ModelProfileError, match="BENCH_OPENAI_API_KEY"):
-        render_stack_env(get_profile("gpt-4o-mini"), {"LLM__OPENAI_API_KEY": GEMINI_KEY})
+        render_stack_env(
+            get_profile("gpt-4o-mini"), {**EMBEDDING_ENV, "LLM__OPENAI_API_KEY": LLM_KEY}
+        )
 
 
 def test_the_env_file_quotes_every_value_literally_and_reads_back_unchanged() -> None:
@@ -343,10 +399,6 @@ def test_a_dot_env_that_says_what_the_containers_get_has_no_disagreement(name: s
         ("RETRIEVAL__RETRIEVAL_TIMEOUT_MS", "500"),
         ("LLM__TIMEOUT_S", "15.0"),
         ("EMBEDDING__MOCK", "true"),
-        ("EMBEDDING__MODEL_NAME", "text-embedding-3-small"),
-        ("EMBEDDING__DIMENSION", "768"),
-        ("EMBEDDING__BASE_URL", "https://api.openai.com/v1"),
-        ("EMBEDDING__API_KEY", "not-the-gemini-key"),
         ("RETRIEVAL__RERANK_ENABLED", "false"),
         ("RETRIEVAL__RERANK_MODEL", "other/cross-encoder"),
         ("RETRIEVAL__RERANK_TIMEOUT_MS", "50"),
@@ -367,10 +419,6 @@ def test_a_dot_env_that_disagrees_with_the_containers_is_named(setting: str, sta
     "setting",
     [
         "EMBEDDING__MOCK",
-        "EMBEDDING__MODEL_NAME",
-        "EMBEDDING__DIMENSION",
-        "EMBEDDING__BASE_URL",
-        "EMBEDDING__API_KEY",
         "LLM__TIMEOUT_S",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
         "RETRIEVAL__CATEGORY_FILTER_ENABLED",
@@ -378,8 +426,8 @@ def test_a_dot_env_that_disagrees_with_the_containers_is_named(setting: str, sta
 )
 def test_a_dot_env_that_leaves_out_a_setting_the_host_must_state_is_named(setting: str) -> None:
     # Unset on the host means the code default (a mock embedder, 15 s, the category filter on),
-    # not the container's value; the vector column's width is stated too rather than left to a
-    # default (R5.10).
+    # not the container's value. The four embedding choices are refused before this check, by
+    # the rendering itself (test_a_missing_embedding_setting_is_refused_by_name).
     problems = _problems("qwen2.5-7b", {k: v for k, v in HOST_ENV.items() if k != setting})
     assert len(problems) == 1 and problems[0].startswith(setting), problems
 
@@ -394,7 +442,8 @@ def test_a_dot_env_that_leaves_out_a_setting_the_host_must_state_is_named(settin
         {"LLM__TIMEOUT_S": "060"},
         {"EMBEDDING__MOCK": "False"},
         {"EMBEDDING__MOCK": "0"},
-        {"EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+        {"EMBEDDING__BASE_URL": "https://api.openai.com/v1/"},
+        {"EMBEDDING__DIMENSION": "1536.0"},
         {"RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "03000"},
         {"RETRIEVAL__CATEGORY_FILTER_ENABLED": "False"},
         {"RETRIEVAL__CATEGORY_FILTER_ENABLED": "0"},
@@ -433,7 +482,6 @@ def test_every_disagreement_is_listed_at_once() -> None:
     old_example = {
         **DOT_ENV,
         "EMBEDDING__MOCK": "true",
-        "EMBEDDING__DIMENSION": "1536",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "500",
         "RETRIEVAL__CATEGORY_FILTER_ENABLED": "true",
         "LLM__TIMEOUT_S": "15.0",
@@ -443,9 +491,6 @@ def test_every_disagreement_is_listed_at_once() -> None:
     named = {problem.split(" ")[0] for problem in _problems("qwen2.5-7b", old_example)}
     assert {
         "EMBEDDING__MOCK",
-        "EMBEDDING__MODEL_NAME",
-        "EMBEDDING__BASE_URL",
-        "EMBEDDING__API_KEY",
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS",
         "RETRIEVAL__CATEGORY_FILTER_ENABLED",
         "LLM__TIMEOUT_S",
@@ -462,7 +507,7 @@ def test_a_disagreement_names_settings_and_never_echoes_a_value_or_a_key() -> No
         "SUMMARIZATION__SUMMARIZER_MODEL": "host-only-model",
     }
     text = " ".join(_problems("qwen2.5-7b", environ))
-    for secret in ("host-side-key-123", "host-only-model", GEMINI_KEY, OPENAI_KEY):
+    for secret in ("host-side-key-123", "host-only-model", EMBED_KEY, OPENAI_KEY):
         assert secret not in text
 
 
@@ -502,11 +547,16 @@ def test_main_writes_the_file_prints_the_command_and_never_a_key(
     captured = capsys.readouterr()
     assert COMMAND in captured.out.splitlines()
     assert any(line.strip().startswith("host") for line in captured.out.splitlines())
-    for secret in (OPENAI_KEY, GEMINI_KEY):
+    for secret in (OPENAI_KEY, EMBED_KEY, LLM_KEY):
         assert secret not in captured.out + captured.err
     written = dotenv_values(cli_repo / ".env.stack", interpolate=False)
     assert written["LLM__OPENAI_API_KEY"] == OPENAI_KEY
-    assert written["EMBEDDING__API_KEY"] == GEMINI_KEY
+    assert written["EMBEDDING__API_KEY"] == EMBED_KEY
+    assert written["EMBEDDING__MODEL_NAME"] == "text-embedding-3-small"
+    embedding_line = next(
+        line for line in captured.out.splitlines() if line.strip().startswith("embedding")
+    )
+    assert "text-embedding-3-small at api.openai.com, 1536 dimensions" in embedding_line
     assert written["BENCH_SUMMARIZER_MODEL"] == "gpt-4o-mini"
     assert "SUMMARIZATION__SUMMARIZER_MODEL" not in written
     assert written["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "false"
@@ -523,7 +573,7 @@ def test_main_reads_keys_from_dot_env_but_the_environment_wins(
     assert main(["--model-profile", "gpt-4o-mini"]) == 0
     written = dotenv_values(cli_repo / ".env.stack", interpolate=False)
     assert written["LLM__OPENAI_API_KEY"] == "sk-from-the-environment"
-    assert written["EMBEDDING__API_KEY"] == GEMINI_KEY  # only the shell's own value moved
+    assert written["EMBEDDING__API_KEY"] == EMBED_KEY  # only the shell's own value moved
 
 
 def test_main_names_only_the_stack_file_when_there_is_no_dot_env(
@@ -532,22 +582,22 @@ def test_main_names_only_the_stack_file_when_there_is_no_dot_env(
     (cli_repo / ".env").unlink()
     # Everything in the shell: the host processes read it from there, and the shell values equal
     # the rendered ones (a shell value is compared as text: "60.0", not "60"), so nothing
-    # conflicts (the Gemma profile's LLM key is the Gemini key).
+    # conflicts (the Gemma profile's LLM key is .env's LLM__OPENAI_API_KEY).
     for name, value in {**HOST_ENV, "LLM__TIMEOUT_S": "60.0"}.items():
         monkeypatch.setenv(name, value)
     assert main(["--model-profile", "gemma-4-26b"]) == 0
     assert "docker compose --env-file .env.stack up -d --no-deps" in capsys.readouterr().out
 
 
-def test_an_exported_gemini_key_is_refused_for_another_profile_because_the_shell_would_win(
+def test_an_exported_llm_key_is_refused_for_another_profile_because_the_shell_would_win(
     cli_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Compose would hand the containers the shell's Gemini key as their LLM key, so a GPT-4o-mini
-    # run would send it to api.openai.com. The message names the setting, not the key.
-    monkeypatch.setenv("LLM__OPENAI_API_KEY", GEMINI_KEY)
+    # Compose would hand the containers the shell's key as their LLM key, so a GPT-4o-mini run
+    # would send another endpoint's key to api.openai.com. The message names the setting only.
+    monkeypatch.setenv("LLM__OPENAI_API_KEY", LLM_KEY)
     assert main(["--model-profile", "gpt-4o-mini"]) == 1
     err = capsys.readouterr().err
-    assert "LLM__OPENAI_API_KEY" in err and GEMINI_KEY not in err
+    assert "LLM__OPENAI_API_KEY" in err and LLM_KEY not in err
     assert not (cli_repo / ".env.stack").exists()
 
 
@@ -610,20 +660,28 @@ def test_an_exported_host_only_setting_is_refused_too(
 def test_a_dot_env_without_the_host_settings_is_refused_naming_them(
     cli_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Only the keys: the host processes would embed with the mock embedder while the knowledge
-    # worker container embedded the corpus with Gemini.
+    # The keys and the embedding only: the host processes would embed with the mock embedder
+    # while the knowledge-worker container embedded the corpus with the runner's model.
     (cli_repo / ".env").write_text(
         "".join(f"{name}={value}\n" for name, value in DOT_ENV.items()), encoding="utf-8"
     )
     assert main(["--model-profile", "qwen2.5-7b"]) == 1
     err = capsys.readouterr().err
-    for name in (
-        "EMBEDDING__MOCK",
-        "EMBEDDING__MODEL_NAME",
-        "LLM__TIMEOUT_S",
-        "RETRIEVAL__CATEGORY_FILTER_ENABLED",
-    ):
+    for name in ("EMBEDDING__MOCK", "LLM__TIMEOUT_S", "RETRIEVAL__CATEGORY_FILTER_ENABLED"):
         assert name in err
+    assert not (cli_repo / ".env.stack").exists()
+
+
+def test_a_dot_env_without_an_embedding_is_refused_naming_each_setting(
+    cli_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # No embedding is assumed: the runner chooses it, and each missing setting is named.
+    (cli_repo / ".env").write_text(_dot_env(**dict.fromkeys(EMBEDDING_ENV)), encoding="utf-8")
+    assert main(["--model-profile", "gpt-4o-mini"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL ")
+    for name in EMBEDDING_ENV:
+        assert f"{name} is not set" in err
     assert not (cli_repo / ".env.stack").exists()
 
 
@@ -631,7 +689,7 @@ def test_a_dot_env_without_the_host_settings_is_refused_naming_them(
     ("dot_env", "profile", "variable"),
     [
         ("LLM__OPENAI_API_KEY=g\n", "gpt-4o-mini", "BENCH_OPENAI_API_KEY"),
-        ("BENCH_OPENAI_API_KEY=o\n", "gpt-4o-mini", "LLM__OPENAI_API_KEY"),
+        ("BENCH_OPENAI_API_KEY=o\nLLM__OPENAI_API_KEY=g\n", "gpt-4o-mini", "EMBEDDING__API_KEY"),
     ],
 )
 def test_main_fails_naming_the_missing_key_and_writes_nothing(
@@ -877,9 +935,9 @@ def test_every_v2_key_is_in_the_configuration_reference(key: str) -> None:
     assert f"`{key}`" in _read("docs/configuration.md"), key
 
 
-def test_the_gemini_embedding_example_matches_what_the_stack_env_renders() -> None:
+def test_the_embedding_example_renders_as_written() -> None:
     example = dict(re.findall(r"^# (EMBEDDING__[A-Z_]+)=(\S+)$", _read(".env.example"), re.M))
-    rendered = render_stack_env(get_profile("gpt-4o-mini"), DOT_ENV)
+    rendered = render_stack_env(get_profile("gpt-4o-mini"), {**DOT_ENV, **example})
     for name in ("EMBEDDING__MOCK", "EMBEDDING__MODEL_NAME", "EMBEDDING__BASE_URL"):
         assert example[name] == rendered[name], name
     # The key line is a <placeholder>, never a key.
@@ -921,14 +979,16 @@ def test_the_dot_env_of_step_1_is_what_the_host_check_accepts_for_every_model() 
     keys = {
         "BENCH_OPENAI_API_KEY": OPENAI_KEY,
         "BENCH_OPENROUTER_API_KEY": OPENROUTER_KEY,
-        "LLM__OPENAI_API_KEY": GEMINI_KEY,
-        "EMBEDDING__API_KEY": GEMINI_KEY,  # "the same Gemini key"
+        "EMBEDDING__API_KEY": EMBED_KEY,
     }
     assert set(keys) <= set(parsed), "step 1 must name the keys as placeholders"
     assert parsed["RETRIEVAL__CATEGORY_FILTER_ENABLED"] == "false"  # the benchmark's value
     environ = {name: value for name, value in parsed.items() if value is not None}
     environ.update(keys)
     for name in sorted(PROFILES):
+        key = PROFILES[name].api_key_env
+        if key is not None and key not in keys:
+            continue  # the Gemma test profile: its LLM key is not a benchmark line
         assert _problems(name, environ) == [], name
     # Lines the owner must not keep (an older .env has them; the fresh example does not).
     for name in HOST_ONLY:
@@ -980,10 +1040,10 @@ def test_the_preflight_probe_agrees_between_the_container_and_the_host_when_dot_
     container = _run_probe(tmp_path / "container", container_env)
     host = _run_probe(tmp_path / "host", {}, profile.name, dot_env=DOT_ENV_TEXT)
     assert host == container
-    # It reads real settings: the model, the Gemini embedding, the budget and the lanes.
+    # It reads real settings: the model, the runner's embedding, the budget and the lanes.
     for fact in (
         profile.model,
-        "gemini-embedding-001",
+        "text-embedding-3-small",
         "1536",
         "3000",
         "category filter: False",
@@ -1189,14 +1249,15 @@ def test_an_openrouter_profile_renders_its_key_endpoint_and_pin_for_the_containe
     profile = get_profile(name)
     values = render_stack_env(profile, DOT_ENV)
 
-    assert values["LLM__OPENAI_API_KEY"] == OPENROUTER_KEY  # not .env's Gemini key
+    assert values["LLM__OPENAI_API_KEY"] == OPENROUTER_KEY  # not .env's LLM__OPENAI_API_KEY
     assert values["LLM__OPENAI_BASE_URL"] == "https://openrouter.ai/api/v1"  # a public host
     assert values["LLM__FAST_MODEL"] == profile.model
     assert values["BENCH_SUMMARIZER_MODEL"] == profile.model
     assert json.loads(values["LLM__OPENAI_PROVIDER_ROUTING"]) == profile.routing
     assert values["LLM__OPENAI_RESPONSE_METADATA"] == "true"
-    # The embedding is still Gemini's, with the Gemini key: only the LLM moved to OpenRouter.
-    assert values["EMBEDDING__API_KEY"] == GEMINI_KEY
+    # The embedding stays the runner's, with its own key: only the LLM moved to OpenRouter.
+    assert values["EMBEDDING__API_KEY"] == EMBED_KEY
+    assert values["EMBEDDING__MODEL_NAME"] == EMBEDDING_ENV["EMBEDDING__MODEL_NAME"]
 
 
 def test_the_routing_json_survives_the_env_file_format() -> None:
@@ -1237,7 +1298,7 @@ def test_main_for_an_openrouter_profile_writes_the_pin_and_says_so_without_the_k
         line for line in captured.out.splitlines() if line.strip().startswith("route")
     )
     assert "coreweave" in route_line and "bf16" in route_line and "fallbacks off" in route_line
-    for secret in (OPENROUTER_KEY, GEMINI_KEY):
+    for secret in (OPENROUTER_KEY, EMBED_KEY):
         assert secret not in captured.out + captured.err
     written = dotenv_values(cli_repo / ".env.stack", interpolate=False)
     assert written["LLM__OPENAI_API_KEY"] == OPENROUTER_KEY

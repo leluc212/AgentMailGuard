@@ -20,16 +20,17 @@ import pytest
 from evaluation.mailguard_bench.kit.campaign import KitContext, RunOptions
 from evaluation.mailguard_bench.kit.system import CommandResult
 
-GEMINI_KEY = "gemini-key-000"
+EMBED_KEY = "embed-key-000"  # the embedding endpoint's key (here Gemini's, one worked example)
+LLM_KEY = "llm-key-000"  # an LLM__OPENAI_API_KEY kept in .env; no profile of these tests uses it
 OPENAI_KEY = "sk-openai-000"
 HOST_ENV = {
     "BENCH_OPENAI_API_KEY": OPENAI_KEY,
-    "LLM__OPENAI_API_KEY": GEMINI_KEY,
+    "LLM__OPENAI_API_KEY": LLM_KEY,
     "EMBEDDING__MOCK": "false",
     "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
     "EMBEDDING__DIMENSION": "1536",
     "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "EMBEDDING__API_KEY": GEMINI_KEY,
+    "EMBEDDING__API_KEY": EMBED_KEY,
     "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
     "RETRIEVAL__CATEGORY_FILTER_ENABLED": "false",
     "LLM__TIMEOUT_S": "60",

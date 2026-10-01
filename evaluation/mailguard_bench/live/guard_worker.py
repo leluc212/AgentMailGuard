@@ -38,9 +38,11 @@ another guard-worker is alive (pid files under every run folder). Files, all in
 
 Like a runner resume (``runner.check_resume``), a restart of the same RUN/CONFIG under another
 model or other settings is refused: its drafts and audit lines would mix both into one run. It
-also refuses to start unless the embedding is the one the knowledge base was embedded with: as a
-host process it reads ``.env``, not the stack env the containers get, and a fake or another
-embedder would make every guarded config's retrieval meaningless without an error.
+also refuses to start unless the embedding is the runner's live one, every setting of it stated:
+as a host process it reads ``.env``, not the stack env the containers get (which ``stack_env``
+renders from the same lines), and a fake embedder or a code default would make every guarded
+config's retrieval meaningless without an error. The embedding model and its endpoint's host are
+in the fingerprint, so a restart under another embedding is refused.
 
 The guard's audit is AgentMailGuard's own (ADR-0010); rag-email adds no defence logic here.
 """
@@ -78,6 +80,7 @@ from evaluation.mailguard_bench.guard_env import (
 from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live import process
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
+from evaluation.mailguard_bench.live.stack_env import EMBEDDING_DIMENSION, embedding_problems
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
 from evaluation.mailguard_bench.route import expected_guard_route
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
@@ -103,10 +106,6 @@ DEFAULT_PORT = 8014
 """Health and metrics port; the ai-worker container's 8004 is not published to the host."""
 HOST = "127.0.0.1"
 META_SCHEMA = "mailguard-guard-worker.v1"
-V2_EMBEDDING_MODEL = "gemini-embedding-001"
-V2_EMBEDDING_DIMENSION = 1536
-"""The embedding every v2 run shares, and the one the knowledge-worker container embeds the
-knowledge base with (package F's stack_env renders the same two values into the containers)."""
 FINGERPRINT_KEYS = (
     "scheme",
     "model_profile",
@@ -194,32 +193,31 @@ def pid_file(path: Path) -> Iterator[None]:
         path.unlink(missing_ok=True)
 
 
-def require_v2_embedding(embedding: EmbeddingSettings) -> None:
-    """Refuse an embedding other than the one the knowledge base was embedded with.
+def require_v2_embedding(embedding: EmbeddingSettings, environ: Mapping[str, str]) -> None:
+    """Refuse an embedding other than the runner's live one, the one the containers got.
 
     The guard-worker is a host process: it reads the embedding settings from ``.env``, while the
-    knowledge-worker container gets them from the stack env. Without the runbook's Gemini lines
-    EMBEDDING__MOCK stays true, and every guarded config would embed its queries with the fake
-    embedder, at the right dimension, against a knowledge base Gemini embedded: retrieval would be
-    meaningless and no layer would say so.
+    knowledge-worker container gets them from the stack env, which ``stack_env`` renders from the
+    same ``.env`` lines. Every one of them must be stated there (``environ``, the shell over
+    ``.env``): left out, a setting falls back to its code default here (the fake embedder, or
+    another model) while the containers refuse to start, so the guarded configs would embed their
+    queries unlike the knowledge base and no layer would say so.
 
     Raises:
         GuardEnvError: Naming every setting that is wrong and the value it needs.
     """
-    problems: list[str] = []
+    problems = embedding_problems(environ)
     if embedding.mock:
         problems.append("EMBEDDING__MOCK is true (the fake embedder), expected false")
-    if embedding.model_name != V2_EMBEDDING_MODEL:
+    if embedding.dimension != EMBEDDING_DIMENSION and not any(
+        p.startswith("EMBEDDING__DIMENSION") for p in problems
+    ):
         problems.append(
-            f"EMBEDDING__MODEL_NAME is {embedding.model_name!r}, expected {V2_EMBEDDING_MODEL!r}"
-        )
-    if embedding.dimension != V2_EMBEDDING_DIMENSION:
-        problems.append(
-            f"EMBEDDING__DIMENSION is {embedding.dimension}, expected {V2_EMBEDDING_DIMENSION}"
+            f"EMBEDDING__DIMENSION is {embedding.dimension}, expected {EMBEDDING_DIMENSION}"
         )
     if problems:
         raise GuardEnvError(
-            "the embedding is not the one the knowledge base is embedded with: "
+            "the embedding is not the runner's live one that the knowledge base is embedded with: "
             + "; ".join(problems)
             + " (the host-side .env lines of docs/demo-runbook.md 9.9)"
         )
@@ -415,7 +413,7 @@ async def run(args: argparse.Namespace) -> int:
     require_module_origins(REPO_ROOT, paths.root)
     require_no_other_guard_worker(RESULTS_ROOT)
     settings = AIWorkerSettings()
-    require_v2_embedding(settings.embedding)
+    require_v2_embedding(settings.embedding, with_dot_env(os.environ))
     llm = settings.llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
 

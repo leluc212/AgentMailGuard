@@ -15,6 +15,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -31,7 +32,7 @@ from evaluation.mailguard_bench.model_profiles import get_profile
 
 GB = 10**9
 SECRET = "sk-THE-SECRET-VALUE-1234567890"
-GEMINI = "AIza-THE-GEMINI-KEY-0987654321"
+EMBED_KEY = "emb-THE-EMBEDDING-KEY-0987654321"
 COMPOSE = """
 services:
   postgres:
@@ -52,12 +53,11 @@ services:
 def ok_env_text(**extra: str) -> str:
     values = {
         "BENCH_OPENAI_API_KEY": SECRET,
-        "LLM__OPENAI_API_KEY": GEMINI,
         "EMBEDDING__MOCK": "false",
-        "EMBEDDING__MODEL_NAME": "gemini-embedding-001",
+        "EMBEDDING__MODEL_NAME": "text-embedding-3-small",
         "EMBEDDING__DIMENSION": "1536",
-        "EMBEDDING__BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "EMBEDDING__API_KEY": GEMINI,
+        "EMBEDDING__BASE_URL": "https://api.openai.com/v1",
+        "EMBEDDING__API_KEY": EMBED_KEY,
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": "3000",
         "RETRIEVAL__CATEGORY_FILTER_ENABLED": "false",
         "LLM__TIMEOUT_S": "60",
@@ -297,11 +297,12 @@ def test_keys_are_reported_by_name_only() -> None:
     results = doctor.check_env_keys(environ, get_profile("gpt-4o-mini"))
     by = by_check(results)
     assert by["env BENCH_OPENAI_API_KEY"].detail == "set"
-    assert by["env LLM__OPENAI_API_KEY"].detail == "set"
     assert by["env EMBEDDING__API_KEY"].detail == "set"
+    # The embedding key is EMBEDDING__API_KEY alone: no LLM key is required for it.
+    assert "env LLM__OPENAI_API_KEY" not in by
     assert all(r.status is Status.OK for r in results)
     rendered = "\n".join(line for r in results for line in r.lines())
-    assert SECRET not in rendered and GEMINI not in rendered
+    assert SECRET not in rendered and EMBED_KEY not in rendered
 
 
 def test_a_missing_key_is_a_failure_that_names_it() -> None:
@@ -350,21 +351,55 @@ def test_wrong_settings_are_named_with_what_they_must_be_and_no_secret() -> None
     assert result.status is Status.FAIL
     assert "RETRIEVAL__RETRIEVAL_TIMEOUT_MS must be 3000" in result.detail
     assert "EMBEDDING__MOCK must be false" in result.detail
-    assert "EMBEDDING__API_KEY must be the Gemini key" in result.detail
     assert "another-key-value-xyz" not in "\n".join(result.lines())
-    assert GEMINI not in "\n".join(result.lines())
+    assert EMBED_KEY not in "\n".join(result.lines())
 
 
-def test_a_missing_embedding_line_is_a_failure() -> None:
-    environ = doctor.merge_env(ok_env_text(EMBEDDING__DIMENSION=""), {})
-    result = doctor.check_env_settings(environ, None)
-    assert result.status is Status.FAIL and "EMBEDDING__DIMENSION" in result.detail
+@pytest.mark.parametrize(
+    "setting",
+    ["EMBEDDING__MODEL_NAME", "EMBEDDING__BASE_URL", "EMBEDDING__API_KEY", "EMBEDDING__DIMENSION"],
+)
+def test_a_missing_embedding_line_is_a_failure_that_names_it(setting: str) -> None:
+    environ = doctor.merge_env(ok_env_text(**{setting: ""}), {})
+    result = doctor.check_embedding(environ)
+    assert result.status is Status.FAIL and f"{setting} is not set" in result.detail
+    assert EMBED_KEY not in "\n".join(result.lines())
+    # The comparison with the containers waits for a complete embedding and says why.
+    settings = doctor.check_env_settings(environ, None)
+    assert settings.status is Status.FAIL and "embedding check" in settings.detail
 
 
-def test_settings_cannot_be_compared_without_the_gemini_key() -> None:
-    environ = doctor.merge_env(ok_env_text(LLM__OPENAI_API_KEY=""), {})
-    result = doctor.check_env_settings(environ, get_profile("gpt-4o-mini"))
-    assert result.status is Status.FAIL and "LLM__OPENAI_API_KEY" in result.detail
+@pytest.mark.parametrize(
+    ("model", "url"),
+    [
+        ("text-embedding-3-small", "https://api.openai.com/v1"),
+        ("gemini-embedding-001", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    ],
+)
+def test_any_embedding_of_the_runners_choice_at_1536_passes(model: str, url: str) -> None:
+    environ = doctor.merge_env(
+        ok_env_text(EMBEDDING__MODEL_NAME=model, EMBEDDING__BASE_URL=url), {}
+    )
+    result = doctor.check_embedding(environ)
+    assert result.status is Status.OK
+    assert model in result.detail and str(urlsplit(url).hostname) in result.detail
+    assert EMBED_KEY not in "\n".join(result.lines())
+    assert doctor.check_env_settings(environ, get_profile("gpt-4o-mini")).status is Status.OK
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ({"EMBEDDING__DIMENSION": "3072"}, "EMBEDDING__DIMENSION must be 1536"),
+        ({"EMBEDDING__MOCK": "true"}, "EMBEDDING__MOCK must be false"),
+        ({"EMBEDDING__MOCK": ""}, "EMBEDDING__MOCK must be false"),
+    ],
+)
+def test_another_width_or_the_fake_embedder_is_a_failure(
+    change: dict[str, str], named: str
+) -> None:
+    result = doctor.check_embedding(doctor.merge_env(ok_env_text(**change), {}))
+    assert result.status is Status.FAIL and named in result.detail
 
 
 def test_exported_setting_prefixes_fail_by_name() -> None:
@@ -1091,7 +1126,7 @@ def test_a_broken_machine_reports_each_problem_and_leaks_no_secret() -> None:
         assert statuses[name].status is Status.FAIL, name
     assert statuses["repository disk"].status is Status.WARN
     rendered = "\n".join(line for r in results for line in r.lines())
-    assert SECRET not in rendered and GEMINI not in rendered
+    assert SECRET not in rendered and EMBED_KEY not in rendered
     assert SECRET[:6] not in rendered
 
 

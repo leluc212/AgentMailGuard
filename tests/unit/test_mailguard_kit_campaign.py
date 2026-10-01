@@ -33,7 +33,7 @@ from evaluation.mailguard_bench.kit.campaign import (
 from evaluation.mailguard_bench.kit.system import CommandResult
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
     COPY_MODEL,
-    GEMINI_KEY,
+    EMBED_KEY,
     HOST_ENV,
     OPENAI_KEY,
     REPORTS,
@@ -881,7 +881,7 @@ def test_dry_run_prints_every_command_and_touches_nothing(bench: Bench) -> None:
         assert needle in printed, needle
     # A kit run is scheme v2, and the no-API analyses refuse a v2 folder (task 7.23).
     assert "evaluation.mailguard_bench.analyses" not in printed
-    assert GEMINI_KEY not in printed and OPENAI_KEY not in printed
+    assert EMBED_KEY not in printed and OPENAI_KEY not in printed
     assert "WARN" not in printed  # nothing ran, so there are no error rows to warn about
 
 
@@ -977,5 +977,5 @@ def test_the_leak_scan_finds_a_key_at_the_very_end_of_a_large_file(
     # A key is found wherever it sits in a file, even at the very end without a newline.
     run_dir = bench.results_root / RUN
     (run_dir / "raw").mkdir(parents=True)
-    (run_dir / "raw" / "x.log").write_bytes(b"a" * 100_000 + GEMINI_KEY.encode())
+    (run_dir / "raw" / "x.log").write_bytes(b"a" * 100_000 + EMBED_KEY.encode())
     assert campaign.run_package(bench.ctx, RUN) == 1

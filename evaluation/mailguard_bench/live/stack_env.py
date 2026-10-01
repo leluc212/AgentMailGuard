@@ -23,9 +23,18 @@ What the file holds, the same for every run apart from the model:
   made before task 7.20 still holds SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini (the example
   set it) and the ai-worker now honours that setting, so Compose must never read the setting's
   own name from .env.
-- Gemini ``gemini-embedding-001`` at 1536 dimensions for every run. Its key is the Gemini key
-  kept in .env as LLM__OPENAI_API_KEY, which is not the LLM key of a profile such as
-  GPT-4o-mini; it is read at run time and never written to a tracked file.
+- The embedding of the runner's choice (ADR-0014): ``EMBEDDING__MODEL_NAME``,
+  ``EMBEDDING__BASE_URL``, ``EMBEDDING__API_KEY`` and ``EMBEDDING__DIMENSION`` are read from the
+  shell over .env and rendered as they are (a loopback base URL is pointed at the host, as the
+  LLM's is), with ``EMBEDDING__MOCK=false`` forced: the benchmark never embeds with the fake
+  embedder. Any OpenAI-compatible ``/embeddings`` endpoint that returns 1536-dimension vectors
+  serves, natively or through the ``dimensions`` parameter the embedder sends (OpenAI
+  ``text-embedding-3-small``, Gemini ``gemini-embedding-001`` at 1536). The dimension must be
+  1536: that is the width of the knowledge vector column (``migrations/0001_core_schema``), and
+  another width needs a migration. A missing setting is refused by name; the key is
+  ``EMBEDDING__API_KEY`` alone and is never printed or written to a tracked file. Every run of a
+  comparison must use the same embedding model; each run records it (``embedding`` in its meta,
+  fingerprint and manifest).
 - The retrieval budget for a hosted embedding call, the reranker settings, and the retrieval
   category filter switched off. The case knowledge documents are uploaded under the case's own
   category while live triage chooses the category retrieval filters by, so with the filter on a
@@ -73,12 +82,21 @@ from evaluation.mailguard_bench.model_profiles import (
     profile_env,
     with_dot_env,
 )
-from packages.core.settings import GEMINI_OPENAI_BASE_URL
 
 CONTAINER_HOST_ALIAS = "host.docker.internal"
-EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIMENSION = 1536
-EMBEDDING_KEY_ENV = "LLM__OPENAI_API_KEY"
+"""The width of the knowledge vector column (``VECTOR(1536)``, migrations/0001_core_schema); the
+startup check R5.10 refuses any other ``EMBEDDING__DIMENSION``, and another width needs a
+migration, which the benchmark does not make."""
+EMBEDDING_KEY_ENV = "EMBEDDING__API_KEY"
+"""The embedding endpoint's key: this setting alone, never an LLM key."""
+EMBEDDING_SETTINGS = (
+    "EMBEDDING__MODEL_NAME",
+    "EMBEDDING__BASE_URL",
+    EMBEDDING_KEY_ENV,
+    "EMBEDDING__DIMENSION",
+)
+"""The embedding settings the runner chooses; each must be set (shell or .env)."""
 # Not SUMMARIZATION__SUMMARIZER_MODEL: docker-compose.yml maps this name to it (see above).
 SUMMARIZER_MODEL_ENV = "BENCH_SUMMARIZER_MODEL"
 RETRIEVAL_TIMEOUT_MS = 3000
@@ -161,6 +179,54 @@ def container_url(url: str) -> str:
     return urlunsplit(parts._replace(netloc=netloc))
 
 
+def _dimension_is_required(text: str) -> bool:
+    try:
+        return float(text) == EMBEDDING_DIMENSION
+    except ValueError:
+        return False
+
+
+def embedding_problems(environ: Mapping[str, str]) -> list[str]:
+    """What is missing or wrong in the runner's embedding settings; empty when they serve.
+
+    ``environ`` is the shell over .env. Blank counts as unset. Each problem names the setting and
+    never repeats its value, which may be a key.
+    """
+    problems = [
+        f"{name} is not set" for name in EMBEDDING_SETTINGS if not (environ.get(name) or "").strip()
+    ]
+    dimension = (environ.get("EMBEDDING__DIMENSION") or "").strip()
+    if dimension and not _dimension_is_required(dimension):
+        problems.append(
+            f"EMBEDDING__DIMENSION must be {EMBEDDING_DIMENSION}, the width of the knowledge "
+            "vector column (another width needs a migration)"
+        )
+    return problems
+
+
+def embedding_env(environ: Mapping[str, str]) -> dict[str, str]:
+    """The containers' embedding settings: the runner's own, with the fake embedder off.
+
+    Raises:
+        StackEnvError: Naming every embedding setting that is missing or wrong.
+    """
+    problems = embedding_problems(environ)
+    if problems:
+        raise StackEnvError(
+            "the embedding is the runner's choice and is read from .env (or the shell): "
+            + "; ".join(problems)
+            + ". Any OpenAI-compatible /embeddings endpoint that returns "
+            f"{EMBEDDING_DIMENSION}-dimension vectors serves (docs/BENCHMARK.md part C)"
+        )
+    return {
+        "EMBEDDING__MOCK": "false",  # LIVE ONLY: never the fake embedder
+        "EMBEDDING__MODEL_NAME": environ["EMBEDDING__MODEL_NAME"].strip(),
+        "EMBEDDING__DIMENSION": str(EMBEDDING_DIMENSION),
+        "EMBEDDING__BASE_URL": container_url(environ["EMBEDDING__BASE_URL"].strip().rstrip("/")),
+        EMBEDDING_KEY_ENV: environ[EMBEDDING_KEY_ENV].strip(),
+    }
+
+
 def render_stack_env(
     profile: ModelProfile,
     environ: Mapping[str, str],
@@ -169,33 +235,24 @@ def render_stack_env(
 ) -> dict[str, str]:
     """The settings the app containers need for one benchmark model.
 
-    ``environ`` is the process environment over .env (`with_dot_env`). The embedding is the
-    same for every model, and its key is the Gemini key kept in .env as LLM__OPENAI_API_KEY,
-    which is not the LLM key of a profile such as GPT-4o-mini.
+    ``environ`` is the process environment over .env (`with_dot_env`). The LLM settings come
+    from the profile; the embedding settings are the runner's own (``embedding_env``), the same
+    for every model of a comparison.
 
     Raises:
         ModelProfileError: If the profile needs a key that ``environ`` does not hold.
-        StackEnvError: If the Gemini embedding key is missing or the timeout is too small.
+        StackEnvError: If an embedding setting is missing or wrong, or the timeout is too small.
     """
     if llm_timeout_s < MIN_LLM_TIMEOUT_S:
         raise StackEnvError(f"LLM__TIMEOUT_S must be at least {MIN_LLM_TIMEOUT_S} seconds")
     llm = profile_env(profile, environ)
-    embedding_key = (environ.get(EMBEDDING_KEY_ENV) or "").strip()
-    if not embedding_key:
-        raise StackEnvError(
-            f"{EMBEDDING_KEY_ENV} is empty; every run embeds with Gemini, and its key is read "
-            "from that variable in .env"
-        )
+    embedding = embedding_env(environ)
     return {
         **llm,
         "LLM__OPENAI_BASE_URL": container_url(llm["LLM__OPENAI_BASE_URL"]),
         "LLM__TIMEOUT_S": str(float(llm_timeout_s)),
         SUMMARIZER_MODEL_ENV: profile.model,
-        "EMBEDDING__MOCK": "false",
-        "EMBEDDING__MODEL_NAME": EMBEDDING_MODEL,
-        "EMBEDDING__DIMENSION": str(EMBEDDING_DIMENSION),
-        "EMBEDDING__BASE_URL": GEMINI_OPENAI_BASE_URL,
-        "EMBEDDING__API_KEY": embedding_key,
+        **embedding,
         "RETRIEVAL__RETRIEVAL_TIMEOUT_MS": str(RETRIEVAL_TIMEOUT_MS),
         "RETRIEVAL__CATEGORY_FILTER_ENABLED": CATEGORY_FILTER_ENABLED,
         "TRIAGE__CATEGORY_RETRIEVAL_FLOOR": CATEGORY_RETRIEVAL_FLOOR,
@@ -215,6 +272,16 @@ def describe_route(routing: Mapping[str, Any]) -> str:
     parts.append("fallbacks off" if routing.get("allow_fallbacks") is False else "fallbacks ON")
     parts.append("every call records the provider that served it")
     return ", ".join(parts)
+
+
+def describe_embedding(values: Mapping[str, str]) -> str:
+    """One line for the operator: the embedding model, its endpoint's host and width; no key."""
+    host = urlsplit(values["EMBEDDING__BASE_URL"]).hostname or values["EMBEDDING__BASE_URL"]
+    return (
+        f"embedding {values['EMBEDDING__MODEL_NAME']} at {host}, "
+        f"{values['EMBEDDING__DIMENSION']} dimensions (the runner's choice; the same for every "
+        "model of a comparison)"
+    )
 
 
 def format_env_file(values: Mapping[str, str], *, header: str = "") -> str:
@@ -318,7 +385,7 @@ def shell_conflicts(values: Mapping[str, str], process_env: Mapping[str, str]) -
     return [name for name, value in values.items() if process_env.get(name, value) != value]
 
 
-def _flag(text: str) -> bool | None:
+def parse_flag(text: str) -> bool | None:
     lowered = text.strip().lower()
     if lowered in _TRUE:
         return True
@@ -329,18 +396,19 @@ def _agree(name: str, host: str, container: str) -> bool:
     """Whether the host's spelling of a setting means what the containers get.
 
     The settings parse a number as a number (``60`` is ``60.0``), accept several spellings of
-    a flag, and the embedder ignores a trailing slash on the base URL.
+    a flag, and the embedder ignores a trailing slash on the base URL. A loopback base URL on the
+    host is the host alias in a container: the same endpoint.
     """
     if name in _FLAG_SETTINGS:
-        parsed = _flag(host)
-        return parsed is not None and parsed == _flag(container)
+        parsed = parse_flag(host)
+        return parsed is not None and parsed == parse_flag(container)
     if name in _NUMBER_SETTINGS:
         try:
             return float(host) == float(container)
         except ValueError:
             return False
     if name in _URL_SETTINGS:
-        return host.rstrip("/") == container.rstrip("/")
+        return container_url(host.rstrip("/")) == container.rstrip("/")
     return host == container
 
 
@@ -359,11 +427,7 @@ def host_env_problems(values: Mapping[str, str], environ: Mapping[str, str]) -> 
             continue
         if not host and name in HOST_MAY_OMIT:
             continue
-        must = (
-            f"the Gemini key (the value of {EMBEDDING_KEY_ENV})"
-            if name in _SECRET_SETTINGS
-            else values[name]
-        )
+        must = "set (the embedding key)" if name in _SECRET_SETTINGS else values[name]
         problems.append(
             f"{name} must be {must}" if name in HOST_MUST_SET else f"{name} must be unset or {must}"
         )
@@ -500,9 +564,9 @@ def run(argv: Sequence[str] | None = None) -> None:
     )
     if values.get("LLM__OPENAI_PROVIDER_ROUTING"):
         print(f"   route     {describe_route(json.loads(values['LLM__OPENAI_PROVIDER_ROUTING']))}")
+    print(f"   {describe_embedding(values)}")
     print(
-        f"   embedding {values['EMBEDDING__MODEL_NAME']}, {values['EMBEDDING__DIMENSION']} "
-        f"dimensions; retrieval budget {values['RETRIEVAL__RETRIEVAL_TIMEOUT_MS']} ms; "
+        f"   retrieval budget {values['RETRIEVAL__RETRIEVAL_TIMEOUT_MS']} ms; "
         f"reranker {values['RETRIEVAL__RERANK_MODEL']}"
     )
     print(

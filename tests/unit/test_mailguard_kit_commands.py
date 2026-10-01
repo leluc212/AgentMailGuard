@@ -26,7 +26,7 @@ from evaluation.mailguard_bench.kit.campaign import (
 )
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
     COPY_MODEL,
-    GEMINI_KEY,
+    EMBED_KEY,
     OPENAI_KEY,
     REPORTS,
     REPORTS_V1,
@@ -329,7 +329,7 @@ def _populate(bench: Bench) -> Path:
         "analysis/x.jsonl": "{}",
         # None of these may travel; a stray copy of the stack env is the danger.
         ".env": f"K={OPENAI_KEY}\n",
-        "raw/.env.stack": f"EMBEDDING__API_KEY={GEMINI_KEY}\n",
+        "raw/.env.stack": f"EMBEDDING__API_KEY={EMBED_KEY}\n",
         "raw/.kit-stamp.C3": "",
     }
     for name, text in files.items():
@@ -356,7 +356,7 @@ def test_the_zip_holds_the_run_folder_with_raw_and_the_kit_log_and_no_env_file(
         f"{RUN}/analysis/x.jsonl",
     }
     blob = b"".join(zipfile.ZipFile(archive).read(n) for n in names)
-    assert OPENAI_KEY.encode() not in blob and GEMINI_KEY.encode() not in blob
+    assert OPENAI_KEY.encode() not in blob and EMBED_KEY.encode() not in blob
 
 
 def test_the_zip_is_refused_when_a_key_is_in_any_file(bench: Bench) -> None:
