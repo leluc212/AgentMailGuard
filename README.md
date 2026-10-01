@@ -120,7 +120,7 @@ Needs Docker Engine with Compose v2, make, and the classifier in `pinned/`. Linu
 
 | Key | Needed for |
 |---|---|
-| `EMBEDDING__API_KEY`, with `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__DIMENSION=1536` and `EMBEDDING__MOCK=false` | Embeddings, every live run: an OpenAI-compatible endpoint of your choice, the same for every model of a comparison |
+| `EMBEDDING__API_KEY`, with `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__DIMENSION=1536` and `EMBEDDING__MOCK=false` | Embeddings, every live run: an OpenAI-compatible endpoint of your choice that accepts the `dimensions` parameter (not `text-embedding-ada-002`), the same for every model of a comparison |
 | `BENCH_OPENAI_API_KEY` | `gpt-4o-mini` |
 | `BENCH_OPENROUTER_API_KEY` (and optionally `BENCH_OPENROUTER_BASE_URL`) | `qwen2.5-7b-openrouter` (pinned to Phala), `llama-3.1-8b-openrouter` (pinned to CoreWeave, `bf16`) |
 | `BENCH_OLLAMA_BASE_URL` (optional) | the local profiles `qwen2.5-7b`, `llama-3.1-8b-local` (not used on 2026-10-02): Ollama serves them, no key |
@@ -246,7 +246,7 @@ rag-email reads its settings through Pydantic Settings from the environment and 
 | `LLM__OPENAI_RESPONSE_METADATA` | `false` | asks OpenRouter which provider served each call; required (`true`) with a pin |
 | `EMBEDDING__MOCK` | `true` | `true` is the offline fake embedder; `false` calls the endpoint below |
 | `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY` | `https://api.openai.com/v1`, none | any OpenAI-compatible `/embeddings` endpoint, and its own key |
-| `EMBEDDING__DIMENSION` | `1536` | sent as `dimensions`; must equal the `VECTOR(1536)` column, or every service refuses to start (R5.10) |
+| `EMBEDDING__DIMENSION` | `1536` | sent as `dimensions` with every request, so the endpoint must accept that parameter (OpenAI `text-embedding-3-*` and Gemini `gemini-embedding-001` do; `text-embedding-ada-002` does not and fails every call); must equal the `VECTOR(1536)` column, or every service refuses to start (R5.10) |
 | `EMBEDDING__TIMEOUT_S` | `10.0` | per-call embedding timeout |
 
 With `LLM__PROVIDER=openai`, a Gemini or Gemma model name on the default OpenAI URL is refused at startup. Compose forwards to every app container `LLM__PROVIDER`, `LLM__OPENAI_API_KEY`, `LLM__ANTHROPIC_API_KEY`, `LLM__OPENAI_BASE_URL`, the three tier models, `LLM__PRICE_TABLE`, `EMBEDDING__MOCK`, `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY`, and, only when set, `LLM__TIMEOUT_S`, `LLM__OPENAI_PROVIDER_ROUTING`, `LLM__OPENAI_RESPONSE_METADATA` and `EMBEDDING__DIMENSION`. It does not forward `LLM__LOCAL_*` or `LLM__ANTHROPIC_BASE_URL`, and the summarizer model reaches the containers only as `BENCH_SUMMARIZER_MODEL` (an older `.env`'s `SUMMARIZATION__SUMMARIZER_MODEL` line is never read by a container). Inside a container `localhost` is the container: an endpoint on the host is `host.docker.internal` (mapped for `api`, `triage-worker`, `knowledge-worker` and `ai-worker`), and a host Ollama must listen on the Docker bridge (runbook section 9.9 step 2). Every key and default: [docs/configuration.md](docs/configuration.md).

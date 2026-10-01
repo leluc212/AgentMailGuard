@@ -110,10 +110,10 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 
 #### The live benchmark's embedding: the runner's choice (tasks 7.20, 7.29; ADR-0014)
 
-The live v2 benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint that returns 1536-dimension vectors serves, natively or through the `dimensions` parameter the embedder sends with every request (`packages/knowledge/embedder.py`). Two worked examples:
+The live v2 benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint serves if it **accepts the `dimensions` parameter** and returns 1536-dimension vectors: the embedder sends `dimensions` with every request whenever `EMBEDDING__DIMENSION` is set (`packages/knowledge/embedder.py`), and the benchmark always sets it. OpenAI documents the parameter for `text-embedding-3` and later models; Google's endpoint accepted it for `gemini-embedding-001` (checked 2026-09-29). A model that is 1536 wide natively but rejects the parameter, such as OpenAI `text-embedding-ada-002`, fails every call, and neither `make bench-doctor` nor `stack_env` can tell before a run (they check the settings by name). Two worked examples:
 
 ```dotenv
-# OpenAI text-embedding-3-small (1536 natively)
+# OpenAI text-embedding-3-small (1536 wide, accepts dimensions)
 EMBEDDING__MOCK=false
 EMBEDDING__MODEL_NAME=text-embedding-3-small
 EMBEDDING__DIMENSION=1536

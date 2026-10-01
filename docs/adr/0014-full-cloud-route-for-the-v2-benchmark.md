@@ -62,17 +62,19 @@ was 1,000 a day).
    none is a result) cannot be resumed at the new pin.
 5. **The embedding is the runner's choice.** One embedding model of the runner's choice, 1536
    dimensions, the same for every run of a comparison, recorded with each run. Any OpenAI-compatible
-   `/embeddings` endpoint that returns 1536-dimension vectors serves, natively or through the
-   `dimensions` parameter the embedder sends (for example OpenAI `text-embedding-3-small`, or Gemini
-   `gemini-embedding-001` at 1536). The settings are `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`,
-   `EMBEDDING__API_KEY` (the embedding key, never an LLM key) and `EMBEDDING__DIMENSION=1536` (the
-   `VECTOR(1536)` column; another width needs a migration, out of scope), with `EMBEDDING__MOCK=false`
-   forced. The stack env, the guard-worker and the doctor refuse a missing setting by name. Each
-   config's meta and fingerprint record the model, the width and the endpoint's host, so a resumed or
-   retried run refuses another embedding; `manifest.json` and the report's `## Run setup` repeat it.
-   No code reads several runs, so the minimal sound check across models is that each run states its
-   embedding and the guides require one model for a comparison; within a run the report already
-   refuses configs whose embedding differs.
+   `/embeddings` endpoint serves if it accepts the `dimensions` parameter, which the embedder sends
+   with every request, and returns 1536-dimension vectors (for example OpenAI `text-embedding-3-small`,
+   or Gemini `gemini-embedding-001` at 1536). A model that is 1536 wide natively but rejects the
+   parameter (OpenAI `text-embedding-ada-002`; OpenAI documents `dimensions` for `text-embedding-3` and
+   later only) fails every call; omitting the parameter for such models would be a code change of its
+   own. The settings are `EMBEDDING__MODEL_NAME`, `EMBEDDING__BASE_URL`, `EMBEDDING__API_KEY` (the
+   embedding key, never an LLM key) and `EMBEDDING__DIMENSION=1536` (the `VECTOR(1536)` column; another
+   width needs a migration, out of scope), with `EMBEDDING__MOCK=false` forced. The stack env, the
+   guard-worker and the doctor refuse a missing setting by name. Each config's meta and fingerprint
+   record the model, the width and the endpoint's host, so a resumed or retried run refuses another
+   embedding; `manifest.json` and the report's `## Run setup` repeat it. No code reads several runs, so
+   the minimal sound check across models is that each run states its embedding and the guides require
+   one model for a comparison; within a run the report already refuses configs whose embedding differs.
 6. **The meaning reader is the runner's choice too**, served by `LLM__*` given on the `bench-report`
    command line; it may not be a benchmarked model (ADR-0012 decision 7), which now also covers the
    OpenRouter ids and profile names.

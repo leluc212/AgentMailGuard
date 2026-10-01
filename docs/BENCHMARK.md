@@ -23,7 +23,7 @@ This guide is for the teammate who runs the benchmark on a Windows 11 laptop. Yo
 
 - **An OpenAI API key** with credit on the account (for `gpt-4o-mini`). It goes in `.env` as `BENCH_OPENAI_API_KEY`. Check your usage tier (platform.openai.com, Settings, Organization, Limits): on Tier 1 (`$5` paid) `gpt-4o-mini` is capped at 10,000 requests a day, and one full `gpt-4o-mini` run makes about 8,000 to 11,000. Tier 2 (`$50` paid) has no daily cap listed; otherwise expect to finish the run the next day (a run resumes, D5).
 - **An OpenRouter API key with credit**, for Qwen2.5-7B and Llama-3.1-8B. It goes in `.env` as `BENCH_OPENROUTER_API_KEY`. Part E sets it up (credit, a per-key limit, the privacy settings that must allow the two pinned providers).
-- **An embedding endpoint of your choice** and its key, `EMBEDDING__API_KEY` (part C): for example your OpenAI key with `text-embedding-3-small`, or a Gemini key with `gemini-embedding-001`. Use the same one for all three models. A free Gemini key is not enough (part C).
+- **An embedding endpoint of your choice** and its key, `EMBEDDING__API_KEY` (part C): for example your OpenAI key with `text-embedding-3-small`, or a Gemini key with `gemini-embedding-001`. It must accept the `dimensions` parameter (part C; OpenAI's `text-embedding-ada-002` does not). Use the same one for all three models. A free Gemini key is not enough (part C).
 - **The Layer-1 classifier file, `l1_injection_clf_v1.joblib`, from the owner.** It is **not in git** (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed, see `evaluation/mailguard_bench/pinned/NOTICE.md`). The owner sends it to you privately. It is 28 MB. Do not put it in a public link, a chat group or the repository. You place it in step D1.
 - **Disk:** the doctor warns below 25 GB free: the Docker images and the run folders are the big parts.
 - **A charger and a laptop that stays awake** for the whole run (part A, last step).
@@ -208,14 +208,14 @@ LLM__TIMEOUT_S=60
 The embedding model turns the case documents and the queries into vectors. **You choose it** (ADR-0014), with four rules:
 
 - any OpenAI-compatible `/embeddings` endpoint, with its own key in `EMBEDDING__API_KEY` (never an LLM key);
-- `EMBEDDING__DIMENSION=1536`, and the model must return 1536 numbers, natively or because the kit sends `dimensions: 1536` with each request. 1536 is the width of the database column; another width needs a database migration, so the kit refuses it;
+- `EMBEDDING__DIMENSION=1536`, and the endpoint must **accept the `dimensions` parameter** and return 1536 numbers: the kit sends `dimensions: 1536` with every request, also to a model that is 1536 wide anyway. OpenAI documents the parameter for `text-embedding-3` and later models (`text-embedding-3-small` and `-large`); Google's endpoint took it for `gemini-embedding-001` (checked 2026-09-29). A model that rejects it, such as OpenAI's `text-embedding-ada-002` (1536 wide, but older than the parameter), fails every embedding call. Use one of the two examples below; any other server is at your own risk, because nothing embeds a document before the run's first RAG case (D4). 1536 is the width of the database column; another width needs a database migration, so the kit refuses it;
 - `EMBEDDING__MOCK=false`: the benchmark never uses the fake embedder;
 - **the same embedding model for all three models**: a different one changes what retrieval finds, and the three runs could no longer be compared. Every run records it (`embedding` in its meta, `manifest.json` and the report's "Run setup" section), and a resumed run refuses another one.
 
 Two worked examples (only the four lines that differ):
 
 ```dotenv
-# OpenAI text-embedding-3-small (1536 numbers natively), with your OpenAI key
+# OpenAI text-embedding-3-small (1536 wide, and it accepts `dimensions`), with your OpenAI key
 EMBEDDING__MODEL_NAME=text-embedding-3-small
 EMBEDDING__BASE_URL=https://api.openai.com/v1
 EMBEDDING__API_KEY=<your OpenAI key>

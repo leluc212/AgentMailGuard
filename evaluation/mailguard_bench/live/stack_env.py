@@ -27,9 +27,10 @@ What the file holds, the same for every run apart from the model:
   ``EMBEDDING__BASE_URL``, ``EMBEDDING__API_KEY`` and ``EMBEDDING__DIMENSION`` are read from the
   shell over .env and rendered as they are (a loopback base URL is pointed at the host, as the
   LLM's is), with ``EMBEDDING__MOCK=false`` forced: the benchmark never embeds with the fake
-  embedder. Any OpenAI-compatible ``/embeddings`` endpoint that returns 1536-dimension vectors
-  serves, natively or through the ``dimensions`` parameter the embedder sends (OpenAI
-  ``text-embedding-3-small``, Gemini ``gemini-embedding-001`` at 1536). The dimension must be
+  embedder. Any OpenAI-compatible ``/embeddings`` endpoint serves if it accepts the
+  ``dimensions`` parameter, which the embedder sends with every request, and returns 1536-dimension
+  vectors (OpenAI ``text-embedding-3-small``, Gemini ``gemini-embedding-001`` at 1536; not OpenAI
+  ``text-embedding-ada-002``, which rejects the parameter). The dimension must be
   1536: that is the width of the knowledge vector column (``migrations/0001_core_schema``), and
   another width needs a migration. A missing setting is refused by name; the key is
   ``EMBEDDING__API_KEY`` alone and is never printed or written to a tracked file. Every run of a
