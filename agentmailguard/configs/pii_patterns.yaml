@@ -1,0 +1,80 @@
+# Layer 4 - Output Scanner: sensitive-data patterns applied to LLM drafts.
+#
+# kind        stable identifier used in Redaction.kind and audit logs
+# pattern     Python regex (compiled case-insensitive)
+# severity    low | medium | high | critical  (drives the verdict)
+# validator   optional extra check: luhn (credit cards)
+# redact      whether the match is replaced in the outbound text
+version: 1
+patterns:
+  # ------------------------------------------------------------- secrets
+  - kind: secret.aws_access_key
+    pattern: '\b(AKIA|ASIA)[0-9A-Z]{16}\b'
+    severity: critical
+    redact: true
+  - kind: secret.openai_key
+    pattern: '\bsk-(proj-)?[A-Za-z0-9_-]{20,}\b'
+    severity: critical
+    redact: true
+  - kind: secret.github_token
+    pattern: '\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b'
+    severity: critical
+    redact: true
+  - kind: secret.slack_token
+    pattern: '\bxox[baprs]-[A-Za-z0-9-]{10,}\b'
+    severity: critical
+    redact: true
+  - kind: secret.jwt
+    pattern: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b'
+    severity: high
+    redact: true
+  - kind: secret.private_key
+    pattern: '-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'
+    severity: critical
+    redact: true
+  - kind: secret.password_assignment
+    pattern: '\b(password|passwd|pwd|passcode|api[_ -]?key|secret|token)\s*[:=]\s*[^\s<>]{6,}'
+    severity: high
+    redact: true
+  - kind: secret.otp_code
+    pattern: '\b(otp|one[- ]time (code|password)|verification code|2fa code)\b[^\d\n]{0,20}\b\d{4,8}\b'
+    severity: high
+    redact: true
+
+  # ------------------------------------------------------------- PII
+  - kind: pii.credit_card
+    pattern: '\b(?:\d[ -]?){13,19}\b'
+    severity: critical
+    validator: luhn
+    redact: true
+  - kind: pii.ssn_us
+    pattern: '\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b'
+    severity: high
+    redact: true
+  - kind: pii.iban
+    pattern: '\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}\b'
+    severity: high
+    redact: true
+  - kind: pii.phone
+    pattern: '(?<![\w/])(?:\+?\d{1,3}[ .-]?)?\(?\d{2,4}\)?[ .-]?\d{3,4}[ .-]?\d{3,4}\b'
+    severity: medium
+    redact: true
+  - kind: pii.email
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    severity: medium
+    redact: true
+    # emails belonging to the conversation (customer / organization) are allow-listed at runtime
+  - kind: pii.vn_id_card
+    pattern: '\b0\d{11}\b'
+    severity: medium
+    redact: true
+
+  # ------------------------------------------------------------- internal leakage markers
+  - kind: leak.internal_marker
+    pattern: '\b(INTERNAL ONLY|CONFIDENTIAL|DO NOT SHARE|internal note|staff only)\b'
+    severity: medium
+    redact: false
+  - kind: leak.system_prompt_phrase
+    pattern: '\b(you are (a|an) (helpful|customer support) assistant|system prompt|my instructions (are|say)|SECURITY RULES \(channel isolation\))\b'
+    severity: high
+    redact: false

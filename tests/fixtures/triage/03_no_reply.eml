@@ -1,0 +1,14 @@
+From: "Cloud Identity Service" <no-reply@auth-cloud.com>
+To: "Account Holder" <user@enterprise.com>
+Subject: Security Notification: Sign-in from new device
+Date: Mon, 21 Sep 2026 12:00:00 +0000
+Message-ID: <auth-notice-7819@auth-cloud.com>
+Content-Type: text/plain; charset="utf-8"
+
+Hello,
+
+A new device signed into your enterprise portal account on September 21, 2026, at 12:00 UTC.
+Device: Firefox on Linux x86_64
+IP Address: 198.51.100.42
+
+This is an automated notification from an unattended mailbox. Please do not reply directly to this email.

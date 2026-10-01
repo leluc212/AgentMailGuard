@@ -1,0 +1,138 @@
+from typing import Any
+
+from packages.db.checkpoint import (
+    CheckpointStore,
+    InMemoryCheckpointStore,
+    PostgresCheckpointStore,
+)
+from packages.db.classification import (
+    ClassificationResultRow,
+    ClassificationStore,
+    InMemoryClassificationStore,
+    PostgresClassificationStore,
+)
+from packages.db.connection import create_db_pool, create_pool_from_settings
+from packages.db.draft import (
+    DraftStore,
+    InMemoryDraftStore,
+    PostgresDraftStore,
+)
+from packages.db.idempotency import PostgresIdempotencyBackend
+from packages.db.job import (
+    InMemoryJobStore,
+    JobStore,
+    PostgresJobStore,
+)
+from packages.db.knowledge import (
+    InMemoryKnowledgeStore,
+    KnowledgeStore,
+    PostgresKnowledgeStore,
+)
+from packages.db.mailbox import (
+    InMemoryMailboxStore,
+    MailboxStore,
+    PostgresMailboxStore,
+)
+from packages.db.message import (
+    AttachmentRecord,
+    InMemoryMessageStore,
+    MessageInsertResult,
+    MessageStore,
+    PostgresMessageStore,
+)
+from packages.db.migrator import (
+    Migration,
+    apply_migrations,
+    discover_migrations,
+    get_applied_migrations,
+    get_migration_status,
+    rollback_migrations,
+    verify_database_vector_dimension,
+)
+from packages.db.subscription import (
+    InMemorySubscriptionStore,
+    PostgresSubscriptionStore,
+    SubscriptionStore,
+)
+from packages.db.thread import (
+    InMemoryThreadStore,
+    PostgresThreadStore,
+    ThreadStore,
+)
+from packages.db.thread_state import (
+    InMemoryThreadStateStore,
+    OptimisticLockError,
+    PostgresThreadStateStore,
+    ThreadStateError,
+    ThreadStateNotFoundError,
+    ThreadStateStore,
+)
+
+__all__ = [
+    "AttachmentRecord",
+    "CheckpointStore",
+    "ClassificationResultRow",
+    "ClassificationStore",
+    "DraftStore",
+    "InMemoryCheckpointStore",
+    "InMemoryClassificationStore",
+    "InMemoryDraftStore",
+    "InMemoryJobStore",
+    "InMemoryKnowledgeStore",
+    "InMemoryMailboxStore",
+    "InMemoryMessageStore",
+    "InMemorySubscriptionStore",
+    "InMemoryThreadStateStore",
+    "InMemoryThreadStore",
+    "JobStore",
+    "KnowledgeStore",
+    "MailboxStore",
+    "MessageInsertResult",
+    "MessageStore",
+    "Migration",
+    "OptimisticLockError",
+    "PostgresCheckpointStore",
+    "PostgresClassificationStore",
+    "PostgresDraftStore",
+    "PostgresIdempotencyBackend",
+    "PostgresJobStore",
+    "PostgresKnowledgeStore",
+    "PostgresMailboxStore",
+    "PostgresMessageStore",
+    "PostgresSubscriptionStore",
+    "PostgresThreadStateStore",
+    "PostgresThreadStore",
+    "SeedSummary",
+    "SubscriptionStore",
+    "ThreadStateError",
+    "ThreadStateNotFoundError",
+    "ThreadStateStore",
+    "ThreadStore",
+    "apply_migrations",
+    "create_db_pool",
+    "create_pool_from_settings",
+    "deterministic_embed",
+    "discover_migrations",
+    "get_applied_migrations",
+    "get_migration_status",
+    "rollback_migrations",
+    "seed_database",
+    "verify_database_vector_dimension",
+]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("seed_database", "SeedSummary", "deterministic_embed"):
+        from packages.db.seed import (
+            SeedSummary,
+            deterministic_embed,
+            seed_database,
+        )
+
+        mapping = {
+            "seed_database": seed_database,
+            "SeedSummary": SeedSummary,
+            "deterministic_embed": deterministic_embed,
+        }
+        return mapping[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,0 +1,23 @@
+# Declarative Response Templates Registry (specs/design.md §5.3, R6.14)
+#
+# Templates are matched by (category, intent).
+# When workflow_hint == 'template', the matching template is rendered and
+# transitioned directly to DRAFTED with zero retrieval and zero generation (R6.13).
+# If no matching template exists, the job falls back to workflow_hint='ai' (R6.14).
+
+templates:
+  - id: ack-receipt-v1
+    version: "v1"
+    match:
+      category: acknowledgement
+      intent: receipt_confirmation
+    subject: "Re: {{ subject }}"
+    body: prompts/templates/acknowledgement.v1.txt
+
+  - id: scheduling-ack-v1
+    version: "v1"
+    match:
+      category: scheduling
+      intent: meeting_accepted
+    subject: "Re: {{ subject }}"
+    body: prompts/templates/scheduling_ack.v1.txt

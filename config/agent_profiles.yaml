@@ -1,0 +1,71 @@
+# Declarative Agent Profile Registry Configuration (specs/design.md §5.7, R14.1, R14.2)
+#
+# Profiles provide specialization by configuration rather than chained agents (R14.4).
+# Triage categories map to specialized profiles; unmapped categories fall back to default_profile.
+
+default_profile: general_inquiry
+
+profiles:
+  technical_support:
+    profile: technical_support
+    knowledge_domain: support
+    response_style: professional
+    model_tier: routine
+    context_policy: thread_plus_rag
+    prompt_template: prompts/support.v3.j2
+    output_schema: schemas/reply.v1.json
+    prompt_version: support.v3
+    categories:
+      - support
+      - technical_support
+    category_instructions: "Address technical questions with structured diagnostic steps, verified solutions, and procedural guidance."
+    description: "Specialized profile for software bugs, error codes, and technical troubleshooting."
+
+  billing:
+    profile: billing
+    knowledge_domain: billing
+    response_style: precise_formal
+    model_tier: routine
+    context_policy: thread_plus_rag_plus_business
+    prompt_template: prompts/billing.v3.j2
+    output_schema: schemas/reply.v1.json
+    prompt_version: billing.v3
+    categories:
+      - billing
+      - payment
+      - invoice
+    category_instructions: "Provide clear account, invoice, and payment guidance adhering strictly to transaction records."
+    description: "Specialized profile for invoice discrepancies, payment failures, refunds, and subscriptions."
+
+  sales:
+    profile: sales
+    knowledge_domain: sales
+    response_style: persuasive_professional
+    model_tier: routine
+    context_policy: thread_plus_rag
+    prompt_template: prompts/sales.v3.j2
+    output_schema: schemas/reply.v1.json
+    prompt_version: sales.v3
+    categories:
+      - sales
+      - quote
+      - pricing
+    category_instructions: "Offer product capabilities, tier options, and next steps for procurement or volume licensing."
+    description: "Specialized profile for quote inquiries, demo requests, and enterprise licensing."
+
+  general_inquiry:
+    profile: general_inquiry
+    knowledge_domain: general
+    response_style: polite_helpful
+    model_tier: routine
+    context_policy: thread_plus_rag
+    prompt_template: prompts/general.v3.j2
+    output_schema: schemas/reply.v1.json
+    prompt_version: general.v3
+    categories:
+      - general_inquiry
+      - administration
+      - scheduling
+      - default
+    category_instructions: "Answer inquiries accurately and provide polite, helpful assistance."
+    description: "Default fallback profile for general inquiries, administrative queries, and scheduling."

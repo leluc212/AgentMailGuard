@@ -1,0 +1,16 @@
+From: "DevOps Weekly Digest" <weekly@devopsnews.io>
+To: "Tech Lead" <lead@enterprise.com>
+Subject: DevOps Weekly #412: Async Python & Microservices
+Date: Mon, 21 Sep 2026 11:30:00 +0000
+Message-ID: <newsletter-412@devopsnews.io>
+List-Unsubscribe: <https://devopsnews.io/unsubscribe?id=99281>
+Content-Type: text/plain; charset="utf-8"
+
+Welcome to edition #412 of DevOps Weekly!
+
+Top stories this week:
+1. Scaling asynchronous workers with RabbitMQ and Python 3.12
+2. Database connection pooling best practices
+3. Monitoring pipeline bottlenecks with OpenTelemetry
+
+To stop receiving these emails, click the unsubscribe link above.

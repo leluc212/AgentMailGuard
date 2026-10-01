@@ -1,0 +1,17 @@
+From: Newsletter <news@marketing.com>
+To: Subscriber <subscriber@example.com>
+Subject: Weekly Digest #42
+Date: Thu, 17 Sep 2026 10:00:00 +0000
+Message-ID: <msg_html_02@marketing.com>
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<!DOCTYPE html>
+<html>
+<head><title>Digest</title></head>
+<body>
+  <h1>Weekly Tech Digest</h1>
+  <p>Read the latest news on <a href="https://tech.example.com/ai">AI breakthroughs</a>.</p>
+  <div>Special discount code: TECH2026</div>
+</body>
+</html>

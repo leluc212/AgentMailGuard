@@ -1,0 +1,10 @@
+From: "Mail Delivery Subsystem" <mailer-daemon@mx.enterprise.com>
+To: "Sender" <support@enterprise.com>
+Subject: Delivery Status Notification (Failure)
+Date: Mon, 21 Sep 2026 13:30:00 +0000
+Message-ID: <dsn-fail-99120@mx.enterprise.com>
+Content-Type: text/plain; report-type=delivery-status; charset="utf-8"
+
+The following message to <invalid-address@unknown-domain.example> was undeliverable.
+Diagnostic-Code: smtp; 550 5.1.1 User unknown.
+The message could not be delivered to the recipient.

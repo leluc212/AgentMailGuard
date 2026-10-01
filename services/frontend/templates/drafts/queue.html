@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Pending drafts{% endblock %}
+{% block content %}
+<h1>Pending drafts</h1>
+<form class="filters" method="get" action="/drafts">
+  <label for="category">Category</label>
+  <input id="category" name="category" value="{{ category or '' }}">
+  <div class="actions"><button type="submit">Filter</button></div>
+</form>
+{% if page.items %}
+<table>
+  <caption class="visually-hidden">Drafts waiting for review</caption>
+  <thead>
+    <tr><th scope="col">Subject</th><th scope="col">Category</th><th scope="col">Confidence</th><th scope="col">Created</th></tr>
+  </thead>
+  <tbody>
+  {% for d in page.items %}
+    <tr>
+      <td><a href="/drafts/{{ d.id }}">{{ d.subject or "(no subject)" }}</a></td>
+      <td>{{ d.category or "—" }}</td>
+      <td>{{ "%.2f"|format(d.confidence) if d.confidence is not none else "—" }}</td>
+      <td>{{ d.created_at.strftime("%Y-%m-%d %H:%M") if d.created_at else "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No drafts are waiting for review.</p>
+{% endif %}
+{% if page.next_cursor %}
+<p><a class="button-link" href="/drafts?cursor={{ page.next_cursor|urlencode }}{% if category %}&amp;category={{ category|urlencode }}{% endif %}">Next page</a></p>
+{% endif %}
+{% endblock %}

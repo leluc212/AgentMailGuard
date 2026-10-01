@@ -1,0 +1,23 @@
+# LoRA/QLoRA SFT of the Layer-1 judge on Qwen2.5-7B-Instruct (Apache-2.0).
+base_model: Qwen/Qwen2.5-7B-Instruct
+output_dir: artifacts/lora/qwen2.5-7b-judge-v1
+quantization: 4bit            # QLoRA: fits a 16 GB T4 / Colab; use "none" with >= 24 GB
+max_length: 2048
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+train:
+  epochs: 1
+  lr: 0.0002
+  batch_size: 2
+  grad_accum: 8
+  warmup_ratio: 0.03
+  logging_steps: 20
+  eval_steps: 200
+  save_steps: 200
+train_file: datasets/processed/sft_judge/train.jsonl
+val_file: datasets/processed/sft_judge/val.jsonl
+# After training:  python -m training.finetune_llm_judge --config <this> --merge
+# then see training/EXPORT_OLLAMA.md -> ollama tag mailguard-qwen2.5-7b:v1

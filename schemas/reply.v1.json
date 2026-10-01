@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReplySchemaV1",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "reply",
+        "forward",
+        "escalate",
+        "no_reply"
+      ],
+      "description": "Next outbound action to execute"
+    },
+    "draft": {
+      "type": "string",
+      "description": "Draft reply text content"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Generation confidence score between 0.0 and 1.0"
+    },
+    "knowledge_chunks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of knowledge chunk IDs cited in the draft"
+    },
+    "thread_summary_updated": {
+      "type": "boolean",
+      "description": "Whether thread summary was updated as part of generation"
+    },
+    "model_tier": {
+      "type": "string",
+      "description": "Model tier used for generating the reply"
+    }
+  },
+  "required": [
+    "action",
+    "draft",
+    "confidence",
+    "knowledge_chunks",
+    "thread_summary_updated",
+    "model_tier"
+  ],
+  "additionalProperties": false
+}

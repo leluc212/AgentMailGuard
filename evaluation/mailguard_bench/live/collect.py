@@ -1,0 +1,802 @@
+"""Wait for one case's job to finish, then read what the services persisted (task 7.20; R21).
+
+    FedCase ─▶ find_job          processing_job, by the key the mail-connector derived for it
+            ─▶ wait_for_job      until COMPLETED · DRAFTED · FAILED · DEAD_LETTER, or QUEUED
+                                 on a lane nothing claims or consumes (a stuck outcome)
+            ─▶ processing_event  gate outcome · stage timings · the ai-worker's context_built
+            ─▶ classification_result   the live triage decision
+            ─▶ generated_draft   what the drafting consumer persisted (never approved or sent)
+            ─▶ guard audit line  guarded configs only: report, guard LLM calls, timings
+            ─▶ ``result`` of a ``mailguard-bench-result.v3`` row
+
+The row keeps the v1 blocks (``host``, ``generation``, ``draft``, ``final_draft``,
+``timings_ms``, ``guard_llm``, ``report`` ...) so v1's scoring flatten reads it unchanged, and
+adds the flat ``final_body`` / ``final_action`` / ``retrieved`` names of ``scoring.RawRecord``
+and ``result.pipeline`` (transport, job state, triage, whether drafting was reached, whether
+triage's template wrote the draft, the context flags, stage timings).
+
+The persisted draft is the authority for ``final_body`` and ``final_action``: in a v1 row the
+key ``final_action`` was the guard's decision ("allow"), in a draft it is the reply action
+("reply"), and the draft is what a reviewer would have seen. The guard audit line supplies
+everything the draft does not hold.
+
+Nothing here writes: the collector only reads rows the services own.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from collections.abc import Awaitable, Callable, Collection, Mapping
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+from evaluation.mailguard_bench.case_adapter import EvalCase
+from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
+from evaluation.mailguard_bench.live.feeder import Deadline, FedCase, Sleep
+from evaluation.mailguard_bench.scoring import (
+    FAIL_CLOSED_KIND,
+    RETRIEVAL_DEGRADED_KIND,
+    TRIAGE_STAGE_FAILURE_KIND,
+)
+from packages.broker.routing import format_routing_key
+from packages.context.builder import DefaultInstructionProvider
+from packages.core.idempotency import derive_idempotency_key
+from packages.db.classification import ClassificationResultRow, ClassificationStore
+from packages.db.draft import DraftStore
+from packages.db.job import JobStore
+from packages.domain.entities import GeneratedDraft, Job, ProcessingEvent
+from packages.domain.state_machine import JobState
+
+TRANSPORT = "services-v2"
+TERMINAL_STATES = frozenset(
+    state.value
+    for state in (JobState.COMPLETED, JobState.DRAFTED, JobState.FAILED, JobState.DEAD_LETTER)
+)
+FAILED_STATES = frozenset({JobState.FAILED.value, JobState.DEAD_LETTER.value})
+NORMALIZE_OPERATION = "normalize"
+"""The operation the mail-connector derives the hand-off's idempotency key for."""
+STATE_TRANSITION_EVENT = "state_transition"
+CONTEXT_BUILT_EVENT = "context_built"
+"""The event the ai-worker inserts after building the context (task 7.20, package A.7)."""
+# What the early-exit gate decided; the same values as services.triage_worker.GateAction
+# (a test keeps them equal). Importing that enum would load the whole triage package,
+# scikit-learn included, into a runner that only reads its result.
+GATE_EARLY_EXIT = "early_exit"
+GATE_TEMPLATE = "template_reply"
+GATE_RAG = "proceed_rag"
+GATE_NO_RAG = "proceed_no_rag"
+# Recorded in the gate's QUEUED payload: true when the category retrieval floor raised
+# retrieval_required (services/triage_worker/gate.py RETRIEVAL_FROM_CATEGORY_KEY; a test holds
+# the two equal, this module does not import the service).
+FLOOR_MARKER = "retrieval_required_from_category"
+LAST_ERROR_CHARS = 200
+"""How much of a job's last error a timeout message carries."""
+UNVALIDATED_DRAFT_ERROR = "UnvalidatedDraftError"
+"""The error a job is dead-lettered with when its draft is invalid after the repair (R16.3);
+a test keeps the name equal to the generator's own exception class."""
+AUDIT_GRACE_S = 10.0
+"""How long a drafted job may wait for its audit line: the guard-worker writes the line
+around the DRAFTED commit, not inside it."""
+UNCONSUMED_GRACE_S = 10.0
+"""How long a job must have sat QUEUED before its lane is looked at for a consumer."""
+NATIVE_PROMPT_MODE = "native"
+_AUDIT_ID_KEYS = frozenset({"message_id", "organization_id", "config"})
+
+
+RETRIEVAL_DEGRADED_CAUSE = (
+    "the query embedding failed or ran out of its budget, or a search branch failed; the "
+    "ai-worker or guard-worker log names which"
+)
+STAGE_ERROR_CHARS = 200
+"""How much of one stage's error a service-failure message carries."""
+DEFAULT_DECIDER = "default"
+"""``classification_result.decided_by`` of triage's safe default (R6.11); a test keeps it equal
+to the cascade's own value."""
+
+
+LaneConsumers = Callable[[str], Awaitable[int | None]]
+"""The consumers attached to a lane queue, from a passive declare; None if it does not exist."""
+UnconsumedCheck = Callable[[Job], Awaitable[bool]]
+"""Whether a QUEUED job is on a lane that nothing will consume."""
+
+
+class PipelineJobError(RuntimeError):
+    """The case's job is missing, vanished or ended FAILED or DEAD_LETTER."""
+
+
+class FailClosedValidationError(PipelineJobError):
+    """The job was dead-lettered because its draft stayed invalid after the repair (R16.3).
+
+    No draft was persisted, so there is nothing to score, and the row is an error row: the
+    official headline excludes it. Its own ``error.kind`` lets the report count such rows and
+    show the sensitivity of the ASRs to them.
+    """
+
+    error_kind = FAIL_CLOSED_KIND
+
+
+class TriageStageFailureError(PipelineJobError):
+    """Triage fell back to its safe default because a stage failed with an error (R6.11)."""
+
+    error_kind = TRIAGE_STAGE_FAILURE_KIND
+
+
+class RetrievalDegradedError(PipelineJobError):
+    """Retrieval ran degraded: the context the draft was built from lacks a search branch."""
+
+    error_kind = RETRIEVAL_DEGRADED_KIND
+
+
+class AuditMissingError(RuntimeError):
+    """A guarded case was drafted, but the guard-worker wrote no audit line for it."""
+
+
+class ContextEventMissingError(RuntimeError):
+    """A job reached CONTEXT_READY without the ai-worker's ``context_built`` event."""
+
+
+@dataclass(frozen=True)
+class PipelineStores:
+    """The three stores the collector reads; each query carries the organization id."""
+
+    jobs: JobStore
+    classifications: ClassificationStore
+    drafts: DraftStore
+
+
+async def find_job(jobs: JobStore, fed: FedCase) -> Job:
+    """The case's ``processing_job``, located by the key the mail-connector derived for it.
+
+    The orchestrator creates the job before it publishes and does not return its id, so the
+    id is found again through the idempotency key, computed by the same function.
+
+    Raises:
+        PipelineJobError: If the hand-off left no job in the organization.
+    """
+    key = derive_idempotency_key(
+        fed.organization_id, fed.mailbox_id, fed.provider_message_id, NORMALIZE_OPERATION
+    )
+    job = await jobs.get_job_by_idempotency_key(fed.organization_id, key)
+    if job is None:
+        raise PipelineJobError(
+            f"no processing_job for {fed.provider_message_id} in organization "
+            f"{fed.organization_id} after the hand-off"
+        )
+    return job
+
+
+async def wait_for_job(
+    jobs: JobStore,
+    job: Job,
+    deadline: Deadline,
+    *,
+    sleep: Sleep,
+    poll_interval_s: float,
+    unconsumed: UnconsumedCheck | None = None,
+) -> Job:
+    """Poll until the job is COMPLETED, DRAFTED, FAILED or DEAD_LETTER; return it.
+
+    A job left QUEUED on a lane nothing will consume is returned as it is, still QUEUED, when
+    ``unconsumed`` says so: it will never move, and waiting out the case budget would turn a
+    known outcome into a timeout. ``unconsumed`` is asked only while the job is QUEUED.
+
+    Raises:
+        CaseTimeoutError: If the case budget is spent first; the message names the state the
+            job was in, which says which stage stalled, and its last error. A failing model
+            call does not fail the job: the retry ladder holds it (30 s, 5 m and 30 m tiers),
+            so an unreachable model or an HTTP 429 shows up here as a stalled state.
+        PipelineJobError: If the job row disappears (its organization was deleted).
+    """
+    while True:
+        current = await jobs.get_job(job.organization_id, job.id)
+        if current is None:
+            raise PipelineJobError(f"job {job.id} disappeared while it was awaited")
+        if current.state in TERMINAL_STATES:
+            return current
+        if (
+            unconsumed is not None
+            and current.state == JobState.QUEUED.value
+            and await unconsumed(current)
+        ):
+            return current
+        detail = f"state {current.state}"
+        if current.last_error:
+            detail += f"; last error: {current.last_error[:LAST_ERROR_CHARS]}"
+        deadline.check(f"waiting for job {job.id} ({detail})")
+        await sleep(min(poll_interval_s, deadline.remaining()))
+
+
+def triage_stage_failures(classification: ClassificationResultRow | None) -> list[str]:
+    """The stage errors behind a safe-default triage, each as ``<stage>: <error>``; else none.
+
+    Triage reaches its safe default (R6.11) two ways, and the persisted classification tells them
+    apart (R6.7): every stage abstained (below its threshold, or no rule matched), or at least one
+    failed with an error, which the default's ``raw.stages_attempted`` records in that stage's
+    ``error``. A classification a stage decided is never a failed triage, whatever an earlier stage
+    did.
+    """
+    if classification is None or classification.decided_by != DEFAULT_DECIDER:
+        return []
+    attempts = (classification.raw or {}).get("stages_attempted")
+    if not isinstance(attempts, list):
+        return []
+    return [
+        f"{attempt.get('stage')}: {str(attempt['error'])[:STAGE_ERROR_CHARS]}"
+        for attempt in attempts
+        if isinstance(attempt, Mapping) and attempt.get("error")
+    ]
+
+
+def _transitions(events: list[ProcessingEvent]) -> list[ProcessingEvent]:
+    """The state transitions among a job's events (diagnostic events are not transitions)."""
+    return [event for event in events if event.event_type == STATE_TRANSITION_EVENT]
+
+
+def _entered(
+    moves: list[ProcessingEvent], state: JobState, *, from_state: JobState | None = None
+) -> datetime | None:
+    for event in moves:
+        if event.state_to == state.value and (
+            from_state is None or event.state_from == from_state.value
+        ):
+            return event.created_at
+    return None
+
+
+def _left(moves: list[ProcessingEvent], state: JobState) -> datetime | None:
+    for event in moves:
+        if event.state_from == state.value:
+            return event.created_at
+    return None
+
+
+def _ms(start: datetime | None, end: datetime | None) -> int | None:
+    if start is None or end is None:
+        return None
+    return max(0, int((end - start).total_seconds() * 1000))
+
+
+def stage_timings(events: list[ProcessingEvent]) -> dict[str, int | None]:
+    """Milliseconds between the job's state transitions; None for a stage it never reached.
+
+    ``context`` runs from QUEUED to CONTEXT_READY (the lane wait plus context building, since
+    the worker does not record the two apart) and ``generation`` from GENERATING to DRAFTED
+    (the drafting call plus persisting the draft).
+    """
+    moves = _transitions(events)
+    received = _entered(moves, JobState.RECEIVED)
+    normalized = _entered(moves, JobState.NORMALIZED)
+    triaged = _left(moves, JobState.CLASSIFIED)
+    queued = _entered(moves, JobState.QUEUED)
+    context_ready = _entered(moves, JobState.CONTEXT_READY)
+    generating = _entered(moves, JobState.GENERATING)
+    drafted = _entered(moves, JobState.DRAFTED, from_state=JobState.GENERATING)
+    last = max((event.created_at for event in moves), default=None)
+    return {
+        "normalize": _ms(received, normalized),
+        "triage": _ms(normalized, triaged),
+        "context": _ms(queued, context_ready),
+        "drafting": _ms(context_ready, drafted),
+        "generation": _ms(generating, drafted),
+        "total": _ms(received, last),
+    }
+
+
+def gate_outcome(events: list[ProcessingEvent]) -> str | None:
+    """What the early-exit gate decided, read from the transition it committed.
+
+    The gate leaves CLASSIFIED for COMPLETED (early exit), DRAFTED (template reply) or
+    QUEUED (AI drafting, with or without retrieval) and records no outcome of its own.
+    None when the job never got past triage.
+    """
+    for event in _transitions(events):
+        if event.state_from != JobState.CLASSIFIED.value:
+            continue
+        payload = event.payload or {}
+        if event.state_to == JobState.COMPLETED.value and payload.get("early_exit"):
+            return GATE_EARLY_EXIT
+        if event.state_to == JobState.DRAFTED.value and payload.get("template_reply"):
+            return GATE_TEMPLATE
+        if event.state_to == JobState.QUEUED.value:
+            return GATE_RAG if payload.get("retrieval_required") else GATE_NO_RAG
+    return None
+
+
+def retrieval_floor_applied(events: list[ProcessingEvent]) -> bool | None:
+    """Whether the category retrieval floor raised ``retrieval_required`` for this job.
+
+    Read from the QUEUED transition the gate committed, the one place that holds the value the
+    job was routed with: the persisted classification row keeps the stage's own answer (R6.7),
+    so next to it a floored job reads ``retrieval_required=false`` with ``proceed_rag``.
+    None when the job was not routed to AI, never got past triage, or the gate recorded no marker.
+    """
+    for event in _transitions(events):
+        if (
+            event.state_from == JobState.CLASSIFIED.value
+            and event.state_to == JobState.QUEUED.value
+        ):
+            marker = (event.payload or {}).get(FLOOR_MARKER)
+            return marker if isinstance(marker, bool) else None
+    return None
+
+
+def read_audit_line(
+    path: Path, *, organization_id: UUID, message_id: UUID | str, config: str
+) -> dict[str, Any] | None:
+    """The guard-worker's audit line of one job; the last one wins (a case may be retried).
+
+    A line still being written, another job's line and the guard's own L5 records (which
+    carry neither id) are skipped. The file is shared by the guard-worker and read while it
+    grows, so nothing here assumes it is complete.
+    """
+    if not path.exists():
+        return None
+    org, message = str(organization_id), str(message_id)
+    found: dict[str, Any] | None = None
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if org not in line or message not in line:  # cheap test before parsing
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(row, dict)
+                and str(row.get("organization_id")) == org
+                and str(row.get("message_id")) == message
+                and row.get("config", config) == config
+            ):
+                found = row
+    return found
+
+
+async def wait_for_audit(
+    path: Path,
+    *,
+    organization_id: UUID,
+    message_id: UUID | str,
+    config: str,
+    grace_s: float,
+    sleep: Sleep,
+    poll_interval_s: float,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> dict[str, Any] | None:
+    """The audit line of a drafted job, waiting up to ``grace_s`` for it to be written."""
+    grace = Deadline(grace_s, monotonic=monotonic)
+    while True:
+        row = read_audit_line(
+            path, organization_id=organization_id, message_id=message_id, config=config
+        )
+        if row is not None:
+            return row
+        if grace.remaining() <= 0:
+            return None
+        await sleep(min(poll_interval_s, grace.remaining()))
+
+
+def _audit_result(row: Mapping[str, Any]) -> dict[str, Any]:
+    """The result fields of an audit line: under ``result``, or beside the ids."""
+    nested = row.get("result")
+    if isinstance(nested, Mapping):
+        return dict(nested)
+    return {key: value for key, value in row.items() if key not in _AUDIT_ID_KEYS}
+
+
+def _generation_block(
+    draft: GeneratedDraft | None, *, called: bool, latency_ms: int | None
+) -> dict[str, Any]:
+    """The row's ``generation`` block, as the persisted draft can describe it.
+
+    The draft does not hold the agent profile, the repair count or the raw reply, so
+    ``profile`` and ``repair_attempts`` are None and ``reply_v1`` is rebuilt from the fields
+    scoring reads (``draft``, ``action``). ``calls`` is the design's one call per job.
+    """
+    if draft is None:
+        model, prompt_version, input_tokens, output_tokens, mismatch = None, None, 0, 0, False
+    else:
+        model, prompt_version = draft.model_name, draft.prompt_version
+        input_tokens, output_tokens = draft.input_tokens, draft.output_tokens
+        mismatch = draft.citation_mismatch
+    reply_v1 = (
+        {
+            "draft": draft.body,
+            "action": draft.action,
+            "confidence": draft.confidence,
+            "citations": list(draft.citations),
+        }
+        if draft is not None and called
+        else None
+    )
+    return {
+        "called": called,
+        "model": model,
+        "profile": None,
+        "prompt_version": prompt_version,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "latency_ms": (latency_ms or 0) if called else 0,
+        "repair_attempts": None if called else 0,
+        "calls": 1 if called else 0,
+        "citation_mismatch": mismatch,
+        "reply_v1": reply_v1,
+    }
+
+
+def _draft_blocks(
+    draft: GeneratedDraft | None, *, original: str | None = None
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """The v1 ``draft`` and ``final_draft`` blocks; no draft is an empty body and action none."""
+    if draft is None:
+        return {
+            "action": "none",
+            "body_original": "",
+            "body_after_guard": "",
+            "redacted_by_l4": False,
+        }, None
+    body_original = draft.body if original is None else original
+    block = {
+        "action": draft.action,
+        "body_original": body_original,
+        "body_after_guard": draft.body,
+        "redacted_by_l4": body_original != draft.body,
+    }
+    return block, {"action": draft.action, "body": draft.body}
+
+
+def _unguarded_record(system_instructions: str) -> dict[str, Any]:
+    """The v1 guard fields of a row no guard touched: nothing blocked, nothing flagged."""
+    return {
+        "blocked_inbound": False,
+        "blocked_outbound": False,
+        "blocked": False,
+        "inbound_action": None,
+        "rule": None,
+        "decision_stage": None,
+        "layers_flagged": [],
+        "threat_types": [],
+        "detected_layers": [],
+        "l3b_quarantined": [],
+        "max_severity": None,
+        "prompt_mode": None,
+        "guard_llm": {"model": "", "calls": 0, "input_tokens": 0, "output_tokens": 0},
+        "job_result": None,
+        "report": None,
+        "guard_errors": [],
+        "system_instructions": system_instructions,
+    }
+
+
+def _retrieved(fed: FedCase, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The chunks the ai-worker retrieved, mapped back to the case KB documents and their poison.
+
+    Retrieval reports each chunk with the document it belongs to; the document ids are the
+    ones the API returned when the feeder uploaded the case KB.
+    """
+    by_document = {str(doc.document_id): doc for doc in fed.docs}
+    entries: list[dict[str, Any]] = []
+    for entry in context.get("retrieved") or []:
+        document_id = str(entry.get("document_id"))
+        doc = by_document.get(document_id)
+        entries.append(
+            {
+                "rank": entry.get("rank"),
+                "rag_chunk_id": str(entry.get("chunk_id")),
+                "rag_document_id": document_id,
+                "case_chunk_id": doc.case_chunk_id if doc is not None else None,
+                "poisoned": bool(doc is not None and doc.poisoned),
+                "rerank_score": entry.get("rerank_score"),
+            }
+        )
+    return entries
+
+
+def _triage_block(
+    classification: ClassificationResultRow | None, gate: str | None, floor: bool | None
+) -> dict[str, Any]:
+    """The live triage decision; every field is None when no classification was persisted.
+
+    ``retrieval_required`` is the stage's own answer, ``gate_outcome`` what the gate routed
+    with and ``retrieval_floor`` whether the category retrieval floor made the difference.
+    """
+    return {
+        "decided_by": classification.decided_by if classification else None,
+        "category": classification.category if classification else None,
+        "intent": classification.intent if classification else None,
+        "priority": classification.priority if classification else None,
+        "reply_required": classification.reply_required if classification else None,
+        "retrieval_required": classification.retrieval_required if classification else None,
+        "model_name": classification.model_name if classification else None,
+        "latency_ms": classification.latency_ms if classification else None,
+        "gate_outcome": gate,
+        "retrieval_floor": floor,
+    }
+
+
+class LiveCollector:
+    """Turns one fed case into the ``result`` of its row."""
+
+    def __init__(
+        self,
+        *,
+        stores: PipelineStores,
+        config: str,
+        audit_path: Path | None,
+        poll_interval_s: float = 1.0,
+        audit_grace_s: float = AUDIT_GRACE_S,
+        lane_consumers: LaneConsumers | None = None,
+        claimed_lanes: Collection[str] = (),
+        unconsumed_grace_s: float = UNCONSUMED_GRACE_S,
+        sleep: Sleep = asyncio.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if config != NATIVE_CONFIG and audit_path is None:
+            raise ValueError(f"{config} is drafted by the guard-worker: pass its audit log path")
+        self.stores = stores
+        self.config = config
+        self.audit_path = audit_path
+        self.poll_interval_s = poll_interval_s
+        self.audit_grace_s = audit_grace_s
+        self.lane_consumers = lane_consumers
+        self.claimed_lanes = frozenset(claimed_lanes)
+        self.unconsumed_grace_s = unconsumed_grace_s
+        self.sleep = sleep
+        self.monotonic = monotonic
+
+    async def collect(self, case: EvalCase, fed: FedCase, deadline: Deadline) -> dict[str, Any]:
+        """Wait for the job, then build the row's ``result`` from what the services wrote.
+
+        A job left QUEUED on a lane nothing claims or consumes is an outcome, not a timeout: its
+        row is ``ok`` with ``job_state`` QUEUED and no draft (amendment 1, D.1(b)).
+
+        Raises:
+            CaseTimeoutError: If the job is not terminal in time.
+            PipelineJobError: If the job failed.
+            FailClosedValidationError: If it was dead-lettered for an invalid draft (R16.3).
+            TriageStageFailureError: If triage fell back to its safe default after a stage error.
+            RetrievalDegradedError: If the ai-worker's context build says retrieval degraded.
+            ContextEventMissingError: If a job reached CONTEXT_READY with no ``context_built``.
+            AuditMissingError: If a guarded case was drafted and has no audit line.
+        """
+        jobs = self.stores.jobs
+        job = await find_job(jobs, fed)
+        job = await wait_for_job(
+            jobs,
+            job,
+            deadline,
+            sleep=self.sleep,
+            poll_interval_s=self.poll_interval_s,
+            unconsumed=self._unconsumed_check(),
+        )
+        if job.state in FAILED_STATES:
+            message = (
+                f"case {case.case_id}: job {job.id} ended {job.state}: "
+                f"{job.last_error or 'no error recorded'}"
+            )
+            if UNVALIDATED_DRAFT_ERROR in (job.last_error or ""):
+                raise FailClosedValidationError(message)
+            raise PipelineJobError(message)
+        events = await jobs.list_events_for_job(job.organization_id, job.id)
+        moves = _transitions(events)
+        # A redelivered job builds its context again and records another event (package A);
+        # the latest one describes the context the persisted draft was generated from.
+        context = next(
+            (e.payload or {} for e in reversed(events) if e.event_type == CONTEXT_BUILT_EVENT),
+            None,
+        )
+        if context is None and any(e.state_to == JobState.CONTEXT_READY.value for e in moves):
+            raise ContextEventMissingError(
+                f"case {case.case_id}: job {job.id} reached CONTEXT_READY but the ai-worker "
+                f"left no {CONTEXT_BUILT_EVENT!r} event (task 7.20, package A.7)"
+            )
+        reached_drafting = any(e.state_to == JobState.GENERATING.value for e in moves)
+        classification = (
+            await self.stores.classifications.get_latest_classification_by_message(
+                job.organization_id, job.message_id
+            )
+            if job.message_id is not None
+            else None
+        )
+        self._raise_on_service_failure(case, job, classification, context)
+        drafts = await self.stores.drafts.list_drafts_for_job(job.id, job.organization_id)
+        draft = drafts[0] if drafts else None
+        audit = await self._audit(job, fed, case, reached_drafting)
+
+        timings = stage_timings(events)
+        retrieved = _retrieved(fed, context or {})
+        record = self._record(draft, audit, reached_drafting, timings)
+        record["final_body"] = draft.body if draft is not None else ""
+        record["final_action"] = draft.action if draft is not None else "none"
+        record["retrieved"] = retrieved
+        record["host"] = {
+            "classification_category": classification.category if classification else None,
+            "retrieval_query": None,  # the ai-worker does not persist the query it built
+            "kb_docs_ingested": len(fed.docs),
+            "poison_ingested": any(doc.poisoned for doc in fed.docs),
+            "poison_retrieved": any(entry["poisoned"] for entry in retrieved),
+            "retrieved": retrieved,
+            "context_ms": timings["context"] or 0,
+        }
+        ctx = context or {}
+        gate = gate_outcome(events)
+        record["pipeline"] = {
+            "transport": TRANSPORT,
+            "job_state": job.state,
+            "triage": _triage_block(classification, gate, retrieval_floor_applied(events)),
+            "reached_drafting": reached_drafting,
+            "template_draft": gate == GATE_TEMPLATE,
+            "summary_triggered": ctx.get("summary_triggered"),
+            "rerank_applied": ctx.get("rerank_applied"),
+            "retrieval_degraded": ctx.get("retrieval_degraded"),
+            "retrieval_underfilled": ctx.get("retrieval_underfilled"),
+            "timings_ms": timings,
+        }
+        return record
+
+    @staticmethod
+    def _raise_on_service_failure(
+        case: EvalCase,
+        job: Job,
+        classification: ClassificationResultRow | None,
+        context: Mapping[str, Any] | None,
+    ) -> None:
+        """Make a row that a live-service failure changed an error row (task 7.26, ADR-0012 13).
+
+        Raised before the audit line is waited for and before any result is built: the case is
+        re-run by the retry pass once the service is back, and a row scored from a fallback
+        would pass for a real result.
+
+        Raises:
+            TriageStageFailureError: If triage fell back to its safe default after a stage error.
+            RetrievalDegradedError: If the latest ``context_built`` event says retrieval degraded.
+        """
+        failures = triage_stage_failures(classification)
+        degraded = bool(context is not None and context.get("retrieval_degraded") is True)
+        prefix = f"case {case.case_id}: job {job.id}"
+        if failures:
+            message = (
+                f"{prefix}: triage fell back to its safe default after a stage failed with an "
+                f"error ({'; '.join(failures)})"
+            )
+            if degraded:
+                message += "; retrieval degraded too (" + RETRIEVAL_DEGRADED_CAUSE + ")"
+            raise TriageStageFailureError(message)
+        if degraded:
+            raise RetrievalDegradedError(
+                f"{prefix}: retrieval degraded ({RETRIEVAL_DEGRADED_CAUSE})"
+            )
+
+    def _unconsumed_check(self) -> UnconsumedCheck | None:
+        """One case's test for "this QUEUED job will never be picked up"; None without a probe.
+
+        The verdict is taken once, after the job has been QUEUED for ``unconsumed_grace_s``: a
+        lane that has a consumer is then only busy, and one without is not going to have one.
+        The state is per case because concurrent cases share this collector.
+        """
+        probe = self.lane_consumers
+        if probe is None:
+            return None
+        queued_since: float | None = None
+        verdict: bool | None = None
+
+        async def check(job: Job) -> bool:
+            nonlocal queued_since, verdict
+            if verdict is not None:
+                return verdict
+            now = self.monotonic()
+            queued_since = now if queued_since is None else queued_since
+            if now - queued_since < self.unconsumed_grace_s:
+                return False
+            verdict = await self._lane_is_unconsumed(job, probe)
+            return verdict
+
+        return check
+
+    async def _lane_is_unconsumed(self, job: Job, probe: LaneConsumers) -> bool:
+        """Whether ``job``'s lane is one no consumer claims and none is attached to.
+
+        The lane is the one triage routed the job to, ``email.<category>.<lane>``, named by the
+        triage worker's own key function from the classification it persisted. A lane the
+        drafting consumer claims is not this case: its consumer is expected, so its absence is a
+        broken stack and stays a timeout (an error row), and it is not even asked about.
+        """
+        if job.message_id is None:
+            return False
+        classification = await self.stores.classifications.get_latest_classification_by_message(
+            job.organization_id, job.message_id
+        )
+        if classification is None:
+            return False
+        lane = format_routing_key(classification.category, classification.priority)
+        if lane in self.claimed_lanes:
+            return False
+        return not await probe(lane)
+
+    async def _audit(
+        self, job: Job, fed: FedCase, case: EvalCase, reached_drafting: bool
+    ) -> dict[str, Any] | None:
+        """The guard-worker's audit result of a drafted, guarded job; None when none is due."""
+        if self.config == NATIVE_CONFIG or not reached_drafting or self.audit_path is None:
+            return None
+        message_id = job.message_id if job.message_id is not None else fed.provider_message_id
+        row = await wait_for_audit(
+            self.audit_path,
+            organization_id=fed.organization_id,
+            message_id=message_id,
+            config=self.config,
+            grace_s=self.audit_grace_s,
+            sleep=self.sleep,
+            poll_interval_s=self.poll_interval_s,
+            monotonic=self.monotonic,
+        )
+        if row is None:
+            raise AuditMissingError(
+                f"case {case.case_id}: job {job.id} was drafted but {self.audit_path.name} has no "
+                f"line for message {message_id}; is the {self.config} guard-worker the drafting "
+                "consumer, and not the ai-worker container?"
+            )
+        return _audit_result(row)
+
+    def _record(
+        self,
+        draft: GeneratedDraft | None,
+        audit: Mapping[str, Any] | None,
+        reached_drafting: bool,
+        timings: Mapping[str, int | None],
+    ) -> dict[str, Any]:
+        """The v1 blocks of the row: the audit line's for a guarded case, else the draft's."""
+        generation_ms = timings["generation"] or 0
+        instructions = DefaultInstructionProvider.DEFAULT_AGENT_INSTRUCTIONS
+        record = _unguarded_record(str(instructions))
+        if audit is None:
+            called = draft is not None and reached_drafting
+            block, final_draft = _draft_blocks(draft)
+            record.update(
+                {
+                    "prompt_mode": NATIVE_PROMPT_MODE if called else None,
+                    "generation": _generation_block(draft, called=called, latency_ms=generation_ms),
+                    "draft": block,
+                    "final_draft": final_draft,
+                    "timings_ms": {
+                        "guarded_total": generation_ms,
+                        "generation": generation_ms,
+                        "guard": 0,
+                    },
+                }
+            )
+            return record
+        record.update(audit)
+        generation = audit.get("generation")
+        if not isinstance(generation, Mapping):
+            generation = _generation_block(
+                draft, called=draft is not None and reached_drafting, latency_ms=generation_ms
+            )
+            record["generation"] = generation
+        reply_v1 = generation.get("reply_v1")
+        original = reply_v1.get("draft") if isinstance(reply_v1, Mapping) else None
+        block, final_draft = _draft_blocks(
+            draft, original=str(original) if original is not None else None
+        )
+        # The persisted draft is what a reviewer would see; the audit line's own draft blocks,
+        # when it has them, describe the same draft in more detail (pre-L4 body).
+        if not isinstance(audit.get("draft"), Mapping):
+            record["draft"] = block
+        if "final_draft" not in audit:
+            record["final_draft"] = final_draft
+        record["blocked_inbound"] = bool(audit.get("blocked_inbound"))
+        record["blocked_outbound"] = bool(audit.get("blocked_outbound"))
+        record["blocked"] = bool(
+            audit.get("blocked", record["blocked_inbound"] or record["blocked_outbound"])
+        )
+        if record["blocked"]:
+            record["final_draft"] = None  # a blocked case has no final draft, as in v1
+        record["guard_errors"] = [str(error) for error in audit.get("guard_errors") or []]
+        record.setdefault(
+            "timings_ms", {"guarded_total": generation_ms, "generation": generation_ms, "guard": 0}
+        )
+        return record

@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+# large data & model artifacts
+datasets/raw/*
+!datasets/raw/.gitkeep
+datasets/processed/*
+!datasets/processed/.gitkeep
+!datasets/processed/*/
+datasets/processed/*/*
+!datasets/processed/*/stats.json
+artifacts/models/*.joblib
+artifacts/models/*.safetensors
+artifacts/models/*.bin
+artifacts/lora/
+evaluation/results/*
+!evaluation/results/.gitkeep
+!evaluation/results/*/
+evaluation/results/*/*
+!evaluation/results/*/summary.json
+# audit logs
+logs/

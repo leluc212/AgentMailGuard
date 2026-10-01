@@ -1,0 +1,383 @@
+# Shared application settings (container-side addresses; host tools use .env instead).
+x-app-env: &app-env
+  DATABASE__HOST: postgres
+  DATABASE__PORT: "5432"
+  DATABASE__USER: ${DATABASE__USER:-postgres}
+  DATABASE__PASSWORD: ${DATABASE__PASSWORD:-postgres}
+  DATABASE__NAME: ${DATABASE__NAME:-rag_email}
+  BROKER__HOST: rabbitmq
+  BROKER__PORT: "5672"
+  BROKER__USER: ${BROKER__USER:-guest}
+  BROKER__PASSWORD: ${BROKER__PASSWORD:-guest}
+  BROKER__VHOST: ${BROKER__VHOST:-/}
+  OBJECT_STORAGE__ENDPOINT: minio:9000
+  OBJECT_STORAGE__ACCESS_KEY: ${OBJECT_STORAGE__ACCESS_KEY:-minioadmin}
+  OBJECT_STORAGE__SECRET_KEY: ${OBJECT_STORAGE__SECRET_KEY:-minioadmin}
+  LLM__PROVIDER: ${LLM__PROVIDER:-fake}
+  # Real-provider keys (empty keeps the fake working) and the R15.6 cascade switch.
+  LLM__OPENAI_API_KEY: ${LLM__OPENAI_API_KEY:-}
+  LLM__ANTHROPIC_API_KEY: ${LLM__ANTHROPIC_API_KEY:-}
+  # OpenAI-compatible endpoint (e.g. the Gemini API), its tier models and the per-model price
+  # table (R14.7, R21.6). Blank means "settings default" (packages/core/settings.py), so the
+  # defaults live in one place; a Gemini/Gemma model on the default URL fails fast (R20.6).
+  LLM__OPENAI_BASE_URL: ${LLM__OPENAI_BASE_URL:-}
+  LLM__FAST_MODEL: ${LLM__FAST_MODEL:-}
+  LLM__STRONG_MODEL: ${LLM__STRONG_MODEL:-}
+  LLM__FALLBACK_MODEL: ${LLM__FALLBACK_MODEL:-}
+  LLM__PRICE_TABLE: ${LLM__PRICE_TABLE:-}
+  ROUTER_FORCE_SINGLE_TIER: ${ROUTER_FORCE_SINGLE_TIER:-false}
+  ROUTER_CONFIDENCE_THRESHOLD: ${ROUTER_CONFIDENCE_THRESHOLD:-0.75}
+  EMBEDDING__MOCK: ${EMBEDDING__MOCK:-true}
+  # Same embedding model in every service: the corpus and the queries must match (R5.10).
+  EMBEDDING__MODEL_NAME: ${EMBEDDING__MODEL_NAME:-text-embedding-3-small}
+  EMBEDDING__BASE_URL: ${EMBEDDING__BASE_URL:-https://api.openai.com/v1}
+  EMBEDDING__API_KEY: ${EMBEDDING__API_KEY:-}
+  # Per-branch retrieval budget; the vector branch spends it on query embedding + ANN (R10.9).
+  # 3000 ms leaves room for a hosted embedding call; with 500 ms it could run out and degrade
+  # retrieval to lexical (task 7.20).
+  RETRIEVAL__RETRIEVAL_TIMEOUT_MS: ${RETRIEVAL__RETRIEVAL_TIMEOUT_MS:-3000}
+  # Model that writes thread summaries (R8.3); the ai-worker honours it once set. The containers
+  # get it only from the stack-only name BENCH_SUMMARIZER_MODEL (the live benchmark's stack env
+  # sets it), never from a line of this setting's own name in .env: the .env.example of before
+  # task 7.20 set SUMMARIZATION__SUMMARIZER_MODEL=gpt-4o-mini, and a container that read that
+  # line would ask its endpoint for that model and fail every summary. Blank means unset: the
+  # FAST tier model writes the summary (the settings default).
+  SUMMARIZATION__SUMMARIZER_MODEL: ${BENCH_SUMMARIZER_MODEL:-}
+  # Optional settings of the live benchmark (task 7.20, demo-runbook section 9.9): forwarded when
+  # the host .env, the stack env (.env.stack) or the shell sets them. A value-less key that nothing
+  # resolves reaches Docker as a bare name, which UNSETS the variable in the container, so the
+  # settings default applies. That is right for these keys only because the image sets none of
+  # them. Never add a key here that the Dockerfile sets with ENV: the bare name would erase the
+  # image's value (RETRIEVAL__RERANK_MODEL_DIR, where the reranker model is baked in at build
+  # time, is set by the image alone and deliberately not forwarded). Keep these out of .env as
+  # `NAME=`: a blank value overrides the settings default too.
+  LLM__TIMEOUT_S:
+  EMBEDDING__DIMENSION:
+  RETRIEVAL__RERANK_ENABLED:
+  RETRIEVAL__RERANK_MODEL:
+  RETRIEVAL__RERANK_TIMEOUT_MS:
+  # Filter retrieval by the category triage assigned (R10.4, R12.4; ADR-0013, accepted). Unset means
+  # the settings default, true. The live benchmark's stack env sets false, because its case
+  # documents are filed under the case's own category, which live triage does not always choose.
+  RETRIEVAL__CATEGORY_FILTER_ENABLED:
+  # Business-data lookup deadline (also the Postgres statement_timeout) and snapshot sizes (R13.7).
+  BUSINESS_DATA__TIMEOUT_MS: ${BUSINESS_DATA__TIMEOUT_MS:-500}
+  BUSINESS_DATA__SNAPSHOT_ORDERS: ${BUSINESS_DATA__SNAPSHOT_ORDERS:-3}
+  BUSINESS_DATA__SNAPSHOT_TICKETS: ${BUSINESS_DATA__SNAPSHOT_TICKETS:-3}
+  # Category retrieval floor (design.md section 5.3, ADR-0013, accepted): a reply routed to AI
+  # generation retrieves when its category's default_retrieval_required is true, whatever triage
+  # said. Only the triage-worker reads it. Optional like the keys above: forwarded when the host
+  # .env or the shell sets it, and unset (a bare name) the settings default, true, applies. The
+  # image sets no TRIAGE__* variable, so a bare key erases nothing. Keep it out of .env as `NAME=`.
+  TRIAGE__CATEGORY_RETRIEVAL_FLOOR:
+
+# The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
+# Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).
+x-model-hosts: &model-hosts
+  - "host.docker.internal:host-gateway"
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    # The commit the image is labelled with; `make bench-setup` sets it, a plain build reads unknown
+    GIT_COMMIT: ${GIT_COMMIT:-unknown}
+
+x-after-init: &after-init
+  init:
+    condition: service_completed_successfully
+
+services:
+  # --- Infrastructure Tier ---
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-email-postgres
+    restart: unless-stopped
+    ports:
+      - "${DATABASE__PORT:-5433}:5432"
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE__NAME:-rag_email}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-postgres} -d ${DATABASE__NAME:-rag_email}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rag-email-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "${BROKER__PORT:-5672}:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROKER__USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${BROKER__PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${BROKER__VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: rag-email-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${OBJECT_STORAGE__PORT:-9010}:9000"
+      - "${OBJECT_STORAGE__CONSOLE_PORT:-9011}:9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE__ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE__SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: rag-email-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: rag-email-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA__PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- One-shot bootstrap: migrations, buckets, broker topology (R5.5, R5.8, R3.2) ---
+  init:
+    build: *app-build
+    restart: "no"
+    command:
+      - "sh"
+      - "-c"
+      - "python -m packages.db.cli up && python -m packages.core.storage_cli bootstrap && python -m packages.broker.cli declare"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: init
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # --- Application Tier ---
+  api:
+    build: *app-build
+    container_name: rag-email-api
+    restart: unless-stopped
+    command: ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"   # local only: the review UI and API have no login (ADR-0009)
+    extra_hosts: *model-hosts
+    environment:
+      <<: *app-env
+      SERVICE_NAME: api
+      PORT: "8000"
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  mail-connector:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.mail_connector.main"]
+    stop_grace_period: 30s
+    expose:
+      - "8001"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: mail_connector
+      PORT: "8001"
+      LEASE_REAPER__ENABLED: "false"
+      # Short-lived Gmail token for the live test mailbox (6.10); blank keeps it offline.
+      GMAIL_ACCESS_TOKEN: ${GMAIL_ACCESS_TOKEN:-}
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  email-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.email_worker.main"]
+    stop_grace_period: 30s
+    expose:
+      - "8002"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: email_worker
+      PORT: "8002"
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  triage-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.triage_worker.main"]
+    extra_hosts: *model-hosts
+    stop_grace_period: 30s
+    expose:
+      - "8003"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: triage_worker
+      PORT: "8003"
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  knowledge-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.knowledge_worker.main"]
+    extra_hosts: *model-hosts
+    stop_grace_period: 30s
+    expose:
+      - "8005"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: knowledge_worker
+      PORT: "8005"
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # --- Not built yet: still the Phase-0 health stub (R20.1 requires the services) ---
+  ai-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.ai_worker.main"]
+    extra_hosts: *model-hosts
+    stop_grace_period: 45s
+    expose:
+      - "8004"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: ai_worker
+      PORT: "8004"
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  dispatch-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["python", "-m", "services.dispatch_worker.main"]
+    stop_grace_period: 30s
+    expose:
+      - "8006"
+    environment:
+      <<: *app-env
+      SERVICE_NAME: dispatch_worker
+      PORT: "8006"
+      # The dispatch-worker calls the provider; the token is short-lived (ADR-0009).
+      GMAIL_ACCESS_TOKEN: ${GMAIL_ACCESS_TOKEN:-}
+    depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build: *app-build
+    container_name: rag-email-frontend
+    restart: unless-stopped
+    command: ["uvicorn", "services.frontend.main:app", "--host", "0.0.0.0", "--port", "3001"]
+    ports:
+      - "127.0.0.1:3001:3001"   # local only: the review UI has no login (ADR-0009)
+    environment:
+      SERVICE_NAME: frontend
+      PORT: "3001"
+      FRONTEND__API_BASE_URL: http://api:8000
+      FRONTEND__ORGANIZATION_ID: ${FRONTEND__ORGANIZATION_ID:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,1691 @@
+{
+  "experiment": "mailguard_bench",
+  "task": "7.19",
+  "run_id": "2026-09-30-gpt4omini-ablation",
+  "timestamp": "2026-09-30T16:31:25.529622+00:00",
+  "git": {
+    "rag_email": {
+      "sha": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "runs": {
+        "C0": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L1": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L2": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L3": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L3B": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L4": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "C3-L5": "f4bcc75731621d116f582c845b3c0c0255696bb5"
+      },
+      "at_report_time": {
+        "sha": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "dirty": false
+      }
+    },
+    "agentmailguard": {
+      "sha": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "runs": {
+        "C0": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L1": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L2": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L3": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L3B": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L4": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "C3-L5": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
+      },
+      "at_report_time": {
+        "sha": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "dirty": false
+      }
+    }
+  },
+  "config_hash": "1cdbb165f70b9307790036c70ad25d5484e818d0ea97a2c42a7c0322c5d32e06",
+  "case_manifest_sha256": "e148185ac4c7e93a924e9d35d59aadffac68d56e52e6624e52556992ca1242fc",
+  "models": {
+    "C0": {
+      "generation": "gpt-4o-mini",
+      "guard": null,
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": null
+    },
+    "C3": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L1": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L2": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "l1",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L3": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L3B": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L3B",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L4": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    },
+    "C3-L5": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "live_layers": {
+        "preset": "C3-L5",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      }
+    }
+  },
+  "runs": {
+    "C0": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C0",
+      "preset": "C0",
+      "guard_preset": null,
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": null,
+      "live_layers": null,
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0",
+        "preset": null,
+        "active_layers": [],
+        "guard_model": null,
+        "live_stages": {},
+        "missing_live_stages": [],
+        "live_layers": null,
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": null
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C0",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": null,
+        "live_layers": null,
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T13:39:30.416304+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T13:42:14.917692+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 129,
+            "error": 421,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T13:43:36.921002+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 2,
+          "finished_at": "2026-09-30T13:52:54.448715+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 129,
+            "ok": 420,
+            "error": 1,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T15:13:53.591264+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T15:14:15.546637+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 549,
+            "ok": 0,
+            "error": 1,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:30:41.034816+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:30:57.670914+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 549,
+            "ok": 0,
+            "error": 1,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3",
+      "preset": "C3",
+      "guard_preset": "C3",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3",
+        "preset": "C3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T13:52:57.131102+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T14:08:49.271476+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T15:14:17.956728+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T15:14:18.030384+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:00.011990+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:00.094065+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L1",
+      "preset": "C3-L1",
+      "guard_preset": "C3-L1",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L1",
+        "preset": "C3-L1",
+        "active_layers": [
+          "l2",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L1.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L1",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "l2",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T14:09:00.345388+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0
+        },
+        {
+          "started_at": "2026-09-30T15:14:20.433504+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 2,
+          "finished_at": "2026-09-30T15:23:52.733630+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 222,
+            "ok": 328,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:02.505185+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:02.574956+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L2",
+      "preset": "C3-L2",
+      "guard_preset": "C3-L2",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "l1",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L2",
+        "preset": "C3-L2",
+        "active_layers": [
+          "l1",
+          "l3",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "l1",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L2.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L2",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "l1",
+            "l3",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T15:23:55.147864+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T15:30:25.461112+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:04.963050+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:05.031322+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L3",
+      "preset": "C3-L3",
+      "guard_preset": "C3-L3",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L3",
+        "preset": "C3-L3",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3b",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L3.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3b",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T15:30:27.931492+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T15:43:05.101125+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:07.444325+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:07.517074+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L3B": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L3B",
+      "preset": "C3-L3B",
+      "guard_preset": "C3-L3B",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L3B",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l4",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L3B",
+        "preset": "C3-L3B",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l4",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L3B",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L3B.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L3B",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L3B",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l4",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T15:43:07.612321+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T15:57:05.834611+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:09.944389+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:10.023543+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L4": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L4",
+      "preset": "C3-L4",
+      "guard_preset": "C3-L4",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l5"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L4",
+        "preset": "C3-L4",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l5"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L4.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L4",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l5"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T15:57:08.323267+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:11:07.571680+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:12.462228+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:12.536212+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 550,
+            "ok": 0,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    },
+    "C3-L5": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-09-30-gpt4omini-ablation",
+      "config": "C3-L5",
+      "preset": "C3-L5",
+      "guard_preset": "C3-L5",
+      "case_dir": "/home/laz/Documents/kltn/ablation-impl/evaluation/datasets/mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+      "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L5",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4"
+        ],
+        "l1_classifier": true,
+        "l1_judge": "CountingProvider:gpt-4o-mini",
+        "l2_llm": "CountingProvider:gpt-4o-mini",
+        "l3b_llm": null,
+        "l4_llm": null
+      },
+      "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+      "embedding_mock": true,
+      "embedding": {
+        "mock": true,
+        "model": "text-embedding-3-small"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 500
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L5",
+        "preset": "C3-L5",
+        "active_layers": [
+          "l1",
+          "l2",
+          "l3",
+          "l3b",
+          "l4"
+        ],
+        "guard_model": "gpt-4o-mini",
+        "live_stages": {
+          "l1.classifier": true,
+          "l1.judge": true,
+          "l2.llm": true,
+          "l3b.llm": false,
+          "l4.llm": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L5",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_path": "/home/laz/Documents/kltn/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "mailguard_root": "/home/laz/Documents/kltn/AgentMailGuard-bench",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "audit_log_path": "/home/laz/Documents/kltn/ablation-impl/evaluation/results/mailguard_bench/2026-09-30-gpt4omini-ablation/raw/audit__C3-L5.jsonl"
+      },
+      "degraded_allowed": false,
+      "fingerprint": {
+        "preset": "C3-L5",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "f4bcc75731621d116f582c845b3c0c0255696bb5",
+        "mailguard_commit": "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0",
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L5",
+          "active_layers": [
+            "l1",
+            "l2",
+            "l3",
+            "l3b",
+            "l4"
+          ],
+          "l1_classifier": true,
+          "l1_judge": "CountingProvider:gpt-4o-mini",
+          "l2_llm": "CountingProvider:gpt-4o-mini",
+          "l3b_llm": null,
+          "l4_llm": null
+        },
+        "l1_model_sha256": "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "embedding": {
+          "mock": true,
+          "model": "text-embedding-3-small"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 500
+        },
+        "database": "rag_email",
+        "degraded_allowed": false
+      },
+      "invocations": [
+        {
+          "started_at": "2026-09-30T16:11:18.523123+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:30:40.155416+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 548,
+            "error": 2,
+            "torn_lines_skipped": 0
+          }
+        },
+        {
+          "started_at": "2026-09-30T16:31:14.974295+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "purged_stale_orgs": 0,
+          "finished_at": "2026-09-30T16:31:18.880202+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 548,
+            "ok": 2,
+            "error": 0,
+            "torn_lines_skipped": 0
+          }
+        }
+      ]
+    }
+  },
+  "counts": {
+    "C0": {
+      "records": 550,
+      "scored": 549,
+      "errors": 1
+    },
+    "C3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L1": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L2": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L3B": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L4": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L5": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    }
+  }
+}

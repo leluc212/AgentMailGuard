@@ -1,0 +1,12 @@
+From: "Alert Monitoring System" <ops-monitor@company.com>
+To: "Engineering Escalation" <eng-oncall@enterprise.com>
+Subject: [CRITICAL] Database replica lag high
+Date: Mon, 21 Sep 2026 10:00:00 +0000
+Message-ID: <alert-20260921-001@company.com>
+Auto-Submitted: auto-generated
+Content-Type: text/plain; charset="utf-8"
+
+CRITICAL ALERT:
+PostgreSQL read replica lag exceeded 60 seconds on db-replica-02.
+Timestamp: 2026-09-21T10:00:00Z
+Please check the database replication metrics in Grafana.

@@ -1,0 +1,28 @@
+From: manager@example.com
+To: analyst@example.com
+Subject: Fwd: Urgent customer issue
+Date: Thu, 17 Sep 2026 15:30:00 +0000
+Message-ID: <msg_forward_10@example.com>
+Content-Type: multipart/mixed; boundary="mixed_boundary_10"
+
+--mixed_boundary_10
+Content-Type: text/plain; charset="utf-8"
+
+Please look into this forwarded ticket from customer care.
+
+Thanks,
+Manager
+
+--mixed_boundary_10
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="original_ticket.eml"
+
+From: angry_customer@example.com
+To: care@example.com
+Subject: System Outage on Account 999
+Date: Thu, 17 Sep 2026 14:45:00 +0000
+Message-ID: <ticket_999@customer.com>
+Content-Type: text/plain; charset="utf-8"
+
+Our dashboard has been inaccessible for 30 minutes!
+--mixed_boundary_10--

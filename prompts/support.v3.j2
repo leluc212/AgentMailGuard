@@ -1,0 +1,44 @@
+{{ agent_instructions }}
+
+{{ category_instructions }}
+
+{% if thread_summary %}
+--- Thread Summary ---
+{{ thread_summary }}
+{% endif %}
+
+{% if recent_messages %}
+--- Prior Messages in Thread ---
+{% for msg in recent_messages %}
+From: {{ msg.sender }}
+Subject: {{ msg.subject }}
+Received: {{ msg.received_at }}
+Body:
+{{ msg.body_text_clean or msg.body_text }}
+---
+{% endfor %}
+{% endif %}
+
+--- Current Inbound Email ---
+From: {{ current_message.sender }}
+Subject: {{ current_message.subject }}
+Received: {{ current_message.received_at }}
+Body:
+{{ current_message.body_text_clean or current_message.body_text }}
+
+{% if retrieved_chunks %}
+--- Relevant Knowledge Base Context ---
+{% for chunk in retrieved_chunks %}
+[CITATION: {{ chunk.external_id or chunk.chunk_id }}]
+{{ chunk.content }}
+{% endfor %}
+{% endif %}
+
+{% if business_data %}
+{{ business_data.render() }}
+{% endif %}
+
+Instructions:
+1. Draft the reply email to the customer as a structured response addressing technical concerns directly.
+2. Ground procedural steps in the provided knowledge base context; take order, ticket and invoice facts only from [BUSINESS DATA].
+{{ reply_format_rules(3) }}

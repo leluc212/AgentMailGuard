@@ -1,0 +1,115 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Testing and coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Static typing and linting
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Container settings of the live v2 benchmark, rendered per model by
+# evaluation/mailguard_bench/live/stack_env.py; it holds API keys (task 7.20)
+.env.stack
+
+# make bench-package: the kit's results zip holds raw/ (full attack emails and drafts) (task 7.23)
+bench-results-*.zip
+
+# The reranker model the teammate kit copies out of the ai-worker image for the host guard-worker
+# (about 90 MB of weights), and the marker that names the image it came from (task 7.25;
+# evaluation/mailguard_bench/kit/campaign.py). The generic `.cache` line above also matches them;
+# these keep them ignored if that line is ever narrowed.
+.cache/reranker/
+.cache/reranker.image-id
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker / local data
+data/
+minio_data/
+postgres_data/
+
+# AgentMailGuard benchmark per-case rows, audit logs, case copies and scored rows (attack text,
+# drafts). Only manifest.json, metrics.csv, summary.json, report.md, analyses.md, analysis/ and
+# case_manifest.json of a run are committed (task 7.19).
+evaluation/results/mailguard_bench/*/raw/
+evaluation/results/mailguard_bench/*/cases.jsonl
+evaluation/results/mailguard_bench/*/ragemail__*.jsonl
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Runtime audit runs
+.runtime-feature-audit*/
+
+
+# Local Claude Code settings
+.claude/
+
+# Local agent (Antigravity) workspace
+.agent/
+.agents
+
+# The pinned AgentMailGuard benchmark inputs (task 7.25): the case set
+# evaluation/datasets/mailguard/cases.jsonl + manifest.json and evaluation/mailguard_bench/pinned/
+# (metrics, SHA256SUMS, NOTICE.md) are committed, so nothing to list for them; a test checks they
+# are tracked. The L1 classifier is NOT redistributed (ADR-0012 decision 15): the owner sends it
+# privately and it sits in pinned/ untracked; every .joblib in that folder is ignored, so a
+# browser-renamed copy ("l1_injection_clf_v1 (1).joblib") cannot be staged by `git add .` either.
+evaluation/mailguard_bench/pinned/*.joblib

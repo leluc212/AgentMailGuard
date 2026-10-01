@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Timeline{% endblock %}
+{% block content %}
+<p><a href="/drafts">Back to pending drafts</a></p>
+<h1>Processing timeline</h1>
+<dl class="meta">
+  <dt>Subject</dt><dd>{{ message.subject or "(no subject)" }}</dd>
+  <dt>From</dt><dd>{% if message.sender %}{{ (message.sender.name ~ " <" ~ message.sender.email ~ ">") if message.sender.name else message.sender.email }}{% else %}—{% endif %}</dd>
+  <dt>Direction</dt><dd>{{ message.direction }}</dd>
+</dl>
+{% include "timeline/_events.html" %}
+{% endblock %}

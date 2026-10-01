@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Review{% endblock %} · Email review</title>
+  <link rel="stylesheet" href="/static/review.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/review.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="/drafts"{% if nav == "drafts" %} aria-current="page"{% endif %}>Pending drafts</a></li>
+        <li><a href="/knowledge"{% if nav == "knowledge" %} aria-current="page"{% endif %}>Knowledge</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="status-region" class="status-region" role="status" aria-live="polite" aria-atomic="true">{{ page_notice or "" }}</div>
+</body>
+</html>

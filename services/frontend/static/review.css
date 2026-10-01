@@ -1,0 +1,67 @@
+/* Review UI (task 6.8). WCAG 2.2 AA basics: visible focus (2.4.7, 2.4.11), targets of at
+   least 24 px (2.5.8; controls here are 44 px), text contrast >= 4.5:1 (1.4.3). */
+:root {
+  --text: #1b1b1f;
+  --muted: #4a4a55;
+  --bg: #ffffff;
+  --panel: #f5f6f8;
+  --border: #c9ccd3;
+  --primary: #1a4fd6;
+  --danger: #b3261e;
+  --focus: #1a4fd6;
+  --mark: #fff1a8;
+  --warning-bg: #fff4e5;
+  --warning-text: #663c00;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--text); background: var(--bg); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.skip-link { position: absolute; left: -9999px; top: 0; display: inline-flex; align-items: center;
+  min-height: 44px; padding: 0 1rem; background: var(--bg); color: var(--primary); }
+.skip-link:focus { left: 1rem; top: 1rem; z-index: 10; }
+.site-header { border-bottom: 1px solid var(--border); padding: 0 1.5rem; }
+.site-header ul { display: flex; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.site-header a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.75rem;
+  color: var(--primary); }
+.site-header a[aria-current="page"] { font-weight: 700; }
+main { max-width: 76rem; margin: 0 auto; padding: 1.5rem; }
+main:focus { outline: none; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.2rem; margin-top: 0; }
+a { color: var(--primary); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; }
+@media (max-width: 60rem) { .layout { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 0.25rem;
+  padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+.meta dt { font-weight: 600; }
+.meta dd { margin: 0; }
+.email-body, .draft-body p { white-space: pre-line; }
+mark.fact { background: var(--mark); color: var(--text); padding: 0 0.15em;
+  border-bottom: 2px solid #8a6d00; }
+a.cite { font-size: 0.85em; margin-left: 0.15em; }
+.sources blockquote { margin: 0.25rem 0 0.75rem; padding-left: 0.75rem;
+  border-left: 3px solid var(--border); color: var(--muted); }
+.note { color: var(--muted); }
+.warning { background: var(--warning-bg); color: var(--warning-text); padding: 0.5rem 0.75rem; }
+label { display: block; font-weight: 600; margin: 1rem 0 0.25rem; }
+input, textarea, select { font: inherit; min-height: 44px; width: 100%; padding: 0.5rem;
+  border: 1px solid var(--muted); border-radius: 0.25rem; background: var(--bg); color: var(--text); }
+input[type="file"] { border: none; padding: 0.5rem 0; }
+button, .button-link { display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; min-width: 44px; padding: 0 1rem; border: 1px solid var(--text);
+  border-radius: 0.25rem; background: var(--bg); color: var(--text); font: inherit;
+  cursor: pointer; text-decoration: none; }
+button.primary { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border);
+  vertical-align: top; }
+td a { display: inline-block; min-height: 24px; }
+.status-region:not(:empty) { position: fixed; right: 1rem; bottom: 1rem; max-width: 28rem;
+  padding: 0.75rem 1rem; border-radius: 0.25rem; background: var(--text); color: var(--bg); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; }

@@ -1,0 +1,8 @@
+Hello {{ sender_name }},
+
+Thank you for reaching out. We have received your message regarding "{{ subject }}" and our team is actively reviewing your request.
+
+Message Reference: {{ message_id }}
+
+Best regards,
+Customer Support Team

@@ -1,0 +1,48 @@
+{{ agent_instructions }}
+
+{{ category_instructions }}
+
+{% if thread_summary %}
+--- Thread Summary ---
+{{ thread_summary }}
+{% endif %}
+
+{% if recent_messages %}
+--- Prior Messages in Thread ---
+{% for msg in recent_messages %}
+From: {{ msg.sender }}
+Subject: {{ msg.subject }}
+Received: {{ msg.received_at }}
+Body:
+{{ msg.body_text_clean or msg.body_text }}
+---
+{% endfor %}
+{% endif %}
+
+--- Current Inbound Email ---
+From: {{ current_message.sender }}
+Subject: {{ current_message.subject }}
+Received: {{ current_message.received_at }}
+Body:
+{{ current_message.body_text_clean or current_message.body_text }}
+
+{% if retrieved_chunks %}
+--- Relevant Product & Pricing Knowledge ---
+{% for chunk in retrieved_chunks %}
+[CITATION: {{ chunk.external_id or chunk.chunk_id }}]
+{{ chunk.content }}
+{% endfor %}
+{% endif %}
+
+{% if business_data %}
+--- CRM & Opportunity Context ---
+{% for key, value in business_data.items() %}
+{{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+
+Instructions:
+1. Formulate a persuasive, professional reply addressing product features, tier options, and next steps for procurement.
+2. Ground all pricing and product claims in the provided knowledge base context.
+3. Every cited chunk must be included in `knowledge_chunks` with its exact citation ID.
+4. Output must strictly conform to the required JSON schema.

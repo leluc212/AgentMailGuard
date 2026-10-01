@@ -1,0 +1,33 @@
+# rag-email-owned guard model registry for the AgentMailGuard benchmark (task 7.19, ADR-0010).
+# guard_factory.guard_settings passes this file's ABSOLUTE path as
+# MailGuardSettings.guard_models.models_path, so the guard branch's configs/models.yaml is not
+# edited. base_url and api_key are deliberately absent: the guard's OpenAIProvider then reads
+# OPENAI_BASE_URL / OPENAI_API_KEY from the process env, which guard_env.guard_provider_env fills
+# from rag-email's LLM__OPENAI_BASE_URL / LLM__OPENAI_API_KEY. The key never lands in a file.
+# json_mode: json_object is the guard's default; switch to `none` only if `make mailguard-probe`
+# shows the Gemini endpoint rejects it for this model (the guard's parser tolerates fences).
+models:
+  gemma-4-26b-a4b-it:
+    backend: openai
+    model: gemma-4-26b-a4b-it
+    json_mode: json_object
+    timeout_s: 60
+  # Owner decision 2026-09-29: the benchmark's three models. Endpoints and keys come from the
+  # process env set by model_profiles.profile_env (OpenAI, the desktop's Ollama).
+  gpt-4o-mini:
+    backend: openai
+    model: gpt-4o-mini
+    json_mode: json_object
+    timeout_s: 60
+  qwen2.5:7b-instruct:
+    backend: openai
+    model: qwen2.5:7b-instruct
+    json_mode: json_object
+    timeout_s: 120
+  # Owner decision 2026-09-29 (evening): Llama-3.1-8B runs on the desktop's Ollama (the
+  # OpenRouter entry was removed). Local like Qwen, so the same timeout.
+  llama3.1:8b:
+    backend: openai
+    model: llama3.1:8b
+    json_mode: json_object
+    timeout_s: 120

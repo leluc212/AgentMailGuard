@@ -1,0 +1,14 @@
+From: System Admin <admin@example.com>
+To: Dev Team <dev@example.com>
+Subject: Server maintenance notice
+Date: Thu, 17 Sep 2026 08:00:00 +0000
+Message-ID: <msg_plain_03@example.com>
+Content-Type: text/plain; charset="utf-8"
+
+Hi team,
+
+Servers will undergo routine maintenance tonight at midnight UTC.
+
+-- 
+SysAdmin Ops Team
+Internal Systems Group

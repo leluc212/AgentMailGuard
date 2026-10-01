@@ -1,0 +1,248 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram id="agentmailguard-security" name="Security Architecture">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="header_title" value="&lt;b style=&quot;font-size:20px;color:#1e293b;&quot;&gt;AgentMailGuard: Enterprise RAG Email + Multi-Layer Security Architecture&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size:12px;color:#9ca3af;&quot;&gt;Enterprise Asynchronous Email Pipeline &amp;middot; Integrated 4-Layer Defense Stack &amp;middot; Continuous Risk Gating&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;fontColor=#1e293b;" vertex="1" parent="1">
+          <mxGeometry x="50" y="20" width="1100" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="email_providers" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Email Providers&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Gmail &amp;middot; Graph &amp;middot; IMAP&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Push Source &amp;amp; Reply Sink&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;arcSize=10;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#9ca3af;" vertex="1" parent="1">
+          <mxGeometry x="50" y="290" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mail_connector" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Mail Connector Service&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Adapter &amp;middot; Sync &amp;middot; Checkpoint&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Fetch Messages &amp;amp; Threads &amp;middot; Checkpoint&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="420" y="90" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq_ingest" value="&lt;b style=&quot;font-size:13px;&quot;&gt;RabbitMQ Ingest&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Inbound Queue &amp;middot; Buffer &amp;middot; Ack&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Logical Queue in Shared Broker&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#7c7c9e;" vertex="1" parent="1">
+          <mxGeometry x="820" y="90" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="email_processor" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Email Processing Service&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;MIME &amp;middot; HTML Clean &amp;middot; Dedupe&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Thread Association &amp;amp; Objects&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="90" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="triage_engine" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Cascading Triage Engine&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Rules &amp;rarr; ML Classifier &amp;rarr; LLM&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Intent &amp;middot; Priority &amp;middot; Reply/RAG &amp;middot; Conf&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#9ca3af;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="90" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq_category" value="&lt;b style=&quot;font-size:13px;&quot;&gt;RabbitMQ Categories&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Priority Queues &amp;middot; Micro-Batch&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Logical Queue in Shared Broker &amp;middot; DLQ&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#7c7c9e;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="290" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="knowledge_pipeline" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Knowledge Ingestion&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Parse &amp;middot; 350-700t &amp;middot; Embed&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Sources: SOP &amp;middot; FAQ &amp;middot; Docs &amp;middot; Templates&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="420" y="290" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres_platform" value="&lt;b style=&quot;font-size:13px;&quot;&gt;PostgreSQL Platform&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Relational &amp;middot; FTS &amp;middot; pgvector&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Threads &amp;middot; Business &amp;middot; Vectors&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=1.5;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="820" y="282" width="200" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="hybrid_rag" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Hybrid RAG Engine&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;FTS + HNSW &amp;middot; RRF &amp;middot; Rerank&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Top 4-6 Grounding Chunks&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="290" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mail_dispatcher" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Draft Store &amp;amp; Dispatcher&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Draft State &amp;middot; Citations &amp;middot; Send&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Idempotent Reply Delivery&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="420" y="500" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="reply_agent" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Reply Agent &amp;amp; Model Cascade&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Profiles &amp;middot; Router &amp;middot; Schema&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Routine Model &amp;rarr; High-Capability Model&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#9ca3af;" vertex="1" parent="1">
+          <mxGeometry x="820" y="500" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="context_builder" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Context Builder&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Thread &amp;middot; Business &amp;middot; RAG&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Thread vs Business vs Knowledge&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#94a3b8;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="500" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_provider_notify" value="Mailbox Change Notification" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.5;exitY=0;entryX=0;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="email_providers" target="mail_connector">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="130" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sync_fetch" value="Incremental Sync /&amp;#xa;Fetch Messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.8;entryX=1;entryY=0.25;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="mail_connector" target="email_providers">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="335" y="154" />
+              <mxPoint x="335" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_publish_sync" value="Publish Inbound Work" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="mail_connector" target="rabbitmq_ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_consume_events" value="Consume Events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="rabbitmq_ingest" target="email_processor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_normalized_mail" value="Normalized Email" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="email_processor" target="triage_engine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_actionable_route" value="Actionable Job &amp;middot; Category + Priority" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="triage_engine" target="rabbitmq_category">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_dispatch_job" value="Scheduled Priority Job" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="rabbitmq_category" target="context_builder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_assembled_context" value="Assembled Context Package" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=1;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="context_builder" target="reply_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_generated_draft" value="Structured Draft" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=1;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="reply_agent" target="mail_dispatcher">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_outbound_reply" value="Create Draft / Send Reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=0.5;entryY=1;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="mail_dispatcher" target="email_providers">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_persist_message" value="Persist Message &amp;amp; Thread" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.25;exitY=1;entryX=0.85;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="email_processor" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1270" y="225" />
+              <mxPoint x="990" y="225" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_triage_early_exit" value="No Reply &amp;rarr; COMPLETE (Zero RAG)" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.75;entryX=0.75;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="triage_engine" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1510" y="150" />
+              <mxPoint x="1510" y="255" />
+              <mxPoint x="970" y="255" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_business_thread_data" value="Thread State + Business Data" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.85;exitY=1;entryX=0;entryY=0.8;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="postgres_platform" target="context_builder">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="445" />
+              <mxPoint x="1510" y="445" />
+              <mxPoint x="1510" y="564" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_rag_query" value="Selective Query" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.25;exitY=0;entryX=0.85;entryY=1;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="context_builder" target="hybrid_rag">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1650" y="430" />
+              <mxPoint x="1390" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_rag_chunks" value="Top 4-6 Grounding Chunks" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="hybrid_rag" target="context_builder">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1510" y="330" />
+              <mxPoint x="1510" y="400" />
+              <mxPoint x="1700" y="400" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_rag_retrieval" value="FTS + HNSW Retrieval" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.35;entryX=1;entryY=0.35;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="hybrid_rag" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_rag_candidates" value="Ranked Candidate Chunks" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.7;entryX=0;entryY=0.7;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="postgres_platform" target="hybrid_rag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_knowledge_index" value="Chunks + Metadata&amp;#xa;+ FTS + Embeddings" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="knowledge_pipeline" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_persist_draft" value="Draft &amp;amp; State" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.8;exitY=0;entryX=0.2;entryY=1;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="mail_dispatcher" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="410" />
+              <mxPoint x="860" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sync_checkpoints" value="Sync Checkpoints" style="edgeStyle=orthogonalEdgeStyle;dashed=1;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.8;exitY=1;entryX=0.2;entryY=0;strokeColor=#6b7280;fontColor=#374151;" edge="1" parent="1" source="mail_connector" target="postgres_platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="195" />
+              <mxPoint x="860" y="195" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="security_container" value="&amp;#x25c8; AGENTMAILGUARD MULTI-LAYER DEFENSE STACK &amp;#x25c8;" style="swimlane;startSize=30;rounded=1;arcSize=6;whiteSpace=wrap;html=1;strokeWidth=1.5;fontStyle=1;pointerEvents=0;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#9ca3af;" vertex="1" parent="1">
+          <mxGeometry x="50" y="690" width="1750" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="email_injection_scanner" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Email Injection Scanner&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Rule-based + Classifier&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Layer 1 &amp;middot; Detects injected cmds&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#f8f9fa;strokeColor=#6b7280;" vertex="1" parent="security_container">
+          <mxGeometry x="25" y="45" width="320" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="user_intent_extractor" value="&lt;b style=&quot;font-size:12px;&quot;&gt;User Intent Extractor&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Strip injected instructions&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Layer 2 &amp;middot; Isolates legitimate intent&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#f8f9fa;strokeColor=#6b7280;" vertex="1" parent="security_container">
+          <mxGeometry x="375" y="45" width="320" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="channel_isolation" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Channel Isolation Layer&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Sys / Email / RAG separation&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Layer 3 &amp;middot; Trust boundary enforcement&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#f8f9fa;strokeColor=#6b7280;" vertex="1" parent="security_container">
+          <mxGeometry x="725" y="45" width="320" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="doc_scanner" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Retrieved Doc Scanner&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;RAG poison detection&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Layer 3b &amp;middot; Scans KB chunks pre-context&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#f8f9fa;strokeColor=#6b7280;" vertex="1" parent="security_container">
+          <mxGeometry x="1075" y="45" width="320" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="output_scanner" value="&lt;b style=&quot;font-size:12px;&quot;&gt;Output Scanner&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:11px;color:#6b7280;&quot;&gt;Leak / unsafe output&lt;/font&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Layer 4 &amp;middot; Post-generation check&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=8;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#f8f9fa;strokeColor=#6b7280;" vertex="1" parent="security_container">
+          <mxGeometry x="1425" y="45" width="300" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="email_policy_engine" value="&lt;b style=&quot;font-size:12px;color:#374151;&quot;&gt;&amp;#x25b8; EMAIL POLICY ENGINE:&lt;/b&gt; Draft Store &amp;amp; Dispatcher enforces risk-tiered action gating &amp;mdash; Draft / Block / Human Approval / Send&lt;br/&gt;&lt;span style=&quot;font-size:10px;color:#9ca3af;&quot;&gt;Policy definitions in YAML &amp;middot; Idempotent &amp;middot; Audit-Logged &amp;middot; Integrated with Dispatcher State Machine&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=1.5;arcSize=6;align=center;verticalAlign=middle;fontFamily=Helvetica;fontColor=#1e293b;fillColor=#ffffff;strokeColor=#9ca3af;" vertex="1" parent="security_container">
+          <mxGeometry x="25" y="145" width="1700" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="conn_sec_mail_connector" value="email guard &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="mail_connector" target="email_injection_scanner">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="130" />
+              <mxPoint x="300" y="640" />
+              <mxPoint x="235" y="640" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_email_processor" value="intent strip &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="email_processor" target="user_intent_extractor">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="130" />
+              <mxPoint x="1120" y="180" />
+              <mxPoint x="720" y="180" />
+              <mxPoint x="720" y="650" />
+              <mxPoint x="585" y="650" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_triage_engine" value="channel isolate &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="triage_engine" target="channel_isolation">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1840" y="130" />
+              <mxPoint x="1840" y="650" />
+              <mxPoint x="935" y="650" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_hybrid_rag" value="rag scan &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.75;exitY=1;entryX=0.5;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="hybrid_rag" target="doc_scanner">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1370" y="370" />
+              <mxPoint x="1370" y="655" />
+              <mxPoint x="1285" y="655" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_knowledge_pipeline" value="KB ingestion scan &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=3 4;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.2;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=1;exitY=0.75;entryX=0.25;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="knowledge_pipeline" target="doc_scanner">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="720" y="350" />
+              <mxPoint x="720" y="635" />
+              <mxPoint x="1205" y="635" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_reply_agent" value="output check &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0.8;exitY=1;entryX=0.5;entryY=0;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="reply_agent" target="output_scanner">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="580" />
+              <mxPoint x="980" y="640" />
+              <mxPoint x="1625" y="640" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn_sec_mail_dispatcher" value="policy enforce &amp;rarr;" style="edgeStyle=orthogonalEdgeStyle;dashed=1;dashPattern=5 3;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;fontSize=10;labelBackgroundColor=default;labelBorderColor=none;exitX=0;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#9ca3af;fontColor=#6b7280;" edge="1" parent="1" source="mail_dispatcher" target="email_policy_engine">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="540" />
+              <mxPoint x="300" y="650" />
+              <mxPoint x="60" y="650" />
+              <mxPoint x="60" y="865" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

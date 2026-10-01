@@ -1,0 +1,300 @@
+.PHONY: help up down migrate migrate-down seed test test-unit test-integration test-e2e lint fmt fmt-check ci eval load broker-migrate-retry image-smoke smoke phase4-gate retrieval-gate phase5-gate llm-smoke connect-gmail phase6-gate mailguard-worktree mailguard-prep mailguard-prep-check mailguard-smoke mailguard-probe mailguard-test mailguard-unit mailguard-cases mailguard-bench mailguard-bench-test mailguard-report mailguard-analyses
+
+UV ?= uv
+
+help:
+	@echo "Enterprise RAG-Based Intelligent Email Management and Response System"
+	@echo "Available targets:"
+	@echo "  up       - Build images from HEAD and boot the full stack (init runs migrations, buckets, topology)"
+	@echo "  down     - Tear down the infrastructure stack"
+	@echo "  migrate  - Run database migrations (Task 0.4)"
+	@echo "  seed     - Seed database with reference organizations/mailboxes (Task 0.12)"
+	@echo "  test     - Run unit and integration tests"
+	@echo "  test-e2e - Browser tests of the review UI (Playwright; needs 'uv run playwright install chromium')"
+	@echo "  lint     - Run static analysis and formatting checks (ruff, mypy)"
+	@echo "  fmt      - Auto-format codebase using ruff"
+	@echo "  eval     - Run RAG and classification evaluation benchmarks (Phase 7)"
+	@echo "  load     - Run end-to-end load tests (Phase 8)"
+	@echo "  broker-migrate-retry - One-time: delete empty stale retry queues (RA.3)"
+	@echo "  image-smoke - Build the runtime image and smoke-check its entrypoints and assets (RA.11)"
+	@echo "  smoke    - End-to-end check of the running stack (RA gate)"
+	@echo "  llm-smoke - Live check: one triage + one draft request through the configured LLM (task 5.0; not CI)"
+	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
+	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
+	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
+	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v2: 1a3ef62) in ../AgentMailGuard-bench; with the guard committed under agentmailguard/ only verify its pin (tasks 7.19, 7.24)"
+	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
+	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
+	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
+	@echo "  mailguard-test - ONE guard-side unit file (tests/unit/test_mailguard_bench_guard.py) under the AgentMailGuard overlay (fake models, no network); the whole suite is mailguard-unit"
+	@echo "  mailguard-unit - The WHOLE unit suite under the AgentMailGuard overlay (fake models, no network, no classifier): runs the ~260 tests that plain pytest skips for want of the guard; CI runs it on the committed agentmailguard/ (run it before main and before a benchmark)"
+	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
+	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|...|C7 [SCHEME=v2|v1] - Benchmark on the real rag-email path. Scheme v2 (default): C0 no guard, C0T guard template with no layer, C1 L1+L5, C2 L2+L5, C3 L3+L5, C4 L3b+L5, C5 L4+L5, C6 L5 alone, C7 every layer. SCHEME=v1 reproduces the published runs: C0, C0T, C1, C2, C3 (every layer), C3-L1..C3-L5 (C3 minus one layer). Owner-run, live model (task 7.19, 7.20; not CI)"
+	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
+	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
+	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
+	@echo "  bench-doctor - Teammate kit: check this machine (Docker, Python, disk, keys in .env) before the first run; no model calls (task 7.23)"
+	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
+	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes (task 7.23)"
+	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given (run it with LLM__PROVIDER and LLM__OPENAI_BASE_URL set inline: the reader is served by LLM__*); no model calls except the reader's (task 7.23)"
+	@echo "  bench-package RUN=<id> - Teammate kit: bench-results-<id>.zip of the run folder (raw/ included, never a key) and how to commit it to branch bench/<id> (task 7.23)"
+
+up:
+	@if [ -f docker-compose.yml ]; then \
+		GIT_COMMIT=$$(git rev-parse HEAD 2>/dev/null || echo unknown) docker compose up -d --build; \
+	else \
+		echo "[INFO] docker-compose.yml will be created in Task 0.3."; \
+	fi
+
+down:
+	@if [ -f docker-compose.yml ]; then \
+		docker compose down; \
+	else \
+		echo "[INFO] docker-compose.yml will be created in Task 0.3."; \
+	fi
+
+migrate:
+	$(UV) run python -m packages.db.cli up
+
+migrate-down:
+	$(UV) run python -m packages.db.cli down
+
+seed:
+	$(UV) run python -m packages.db.seed
+
+test:
+	$(UV) run pytest tests -v
+
+test-unit:
+	$(UV) run pytest tests/unit -v
+
+test-integration:
+	$(UV) run pytest tests/integration -v
+
+test-e2e:
+	$(UV) run pytest tests/e2e -v
+
+lint:
+	$(UV) run ruff check .
+	$(UV) run mypy packages services tests evaluation
+
+fmt:
+	$(UV) run ruff format .
+	$(UV) run ruff check --fix .
+
+fmt-check:
+	$(UV) run ruff format --check .
+
+ci: fmt-check lint test-unit test-integration test-e2e
+
+eval:
+	@echo "[INFO] Evaluation benchmark runners configured in Phase 7 / Task 0.13."
+
+load:
+	@echo "[INFO] Load test harness configured in Phase 8."
+
+broker-migrate-retry:
+	docker exec rag-email-rabbitmq sh -c 'for q in email.retry.30s email.retry.5m email.retry.30m; do \
+	  if rabbitmqctl -q -p / list_queues name arguments | grep -F "$$q" | grep -q "email.route"; then \
+	    rabbitmqctl -p / delete_queue "$$q" --if-empty || exit 1; \
+	  fi; \
+	done'
+	@echo "Stale retry queues removed; they are redeclared on the next init/worker start."
+
+IMAGE ?= rag-email-runtime:smoke
+
+image-smoke:
+	docker build -t $(IMAGE) .
+	docker run --rm -i --network none $(IMAGE) python - < scripts/image_smoke.py
+
+smoke:
+	$(UV) run python scripts/stack_smoke.py
+
+phase4-gate:
+	$(UV) run python scripts/phase4_gate.py --mode $(or $(MODE),default)
+
+retrieval-gate:
+	$(UV) run python scripts/retrieval_gate.py
+
+phase5-gate:
+	$(UV) run python scripts/phase5_gate.py
+
+connect-gmail:
+	@test -n "$(ADDRESS)" || { echo "usage: make connect-gmail ADDRESS=<test account address>"; exit 2; }
+	$(UV) run python scripts/connect_gmail.py --address $(ADDRESS)
+
+phase6-gate:
+	$(UV) run python scripts/phase6_gate.py
+
+llm-smoke:
+	$(UV) run python scripts/llm_smoke.py
+
+# AgentMailGuard benchmark (task 7.19, ADR-0010; task 7.24). Two layouts, same targets:
+#   - subtree  (after the final merge, ADR-0012 decision 6): the guard is committed INSIDE this repo
+#     under agentmailguard/ (git subtree, full history). It is pinned by its TREE: the directory
+#     is at MAILGUARD_COMMIT iff its tree is that commit's tree and nothing under it differs.
+#   - worktree (before it): a pinned, detached git worktree OUTSIDE this repo, ../AgentMailGuard-bench.
+# Either way ruff/mypy/pytest/docker never see the guard, and it is overlaid per command with
+# `uv run --with-editable`, so pyproject.toml, uv.lock, .venv and `make ci` are untouched. Always
+# `python -m` from this root: AgentMailGuard also ships top-level `services`/`evaluation` packages.
+# MAILGUARD_DIR / MAILGUARD_ARTIFACTS from the environment or the command line win over both defaults.
+ifneq ($(wildcard $(CURDIR)/agentmailguard/mailguard/__init__.py),)
+MAILGUARD_DIR ?= $(CURDIR)/agentmailguard
+else
+MAILGUARD_DIR ?= $(abspath $(CURDIR)/../AgentMailGuard-bench)
+endif
+# The L1 classifier: the owner's copy in evaluation/mailguard_bench/pinned/ when it is there (it is not
+# in git, ADR-0012 decision 15; the kit checks its sha256), else what `make mailguard-prep` trains.
+ifneq ($(wildcard $(CURDIR)/evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib),)
+MAILGUARD_ARTIFACTS ?= $(CURDIR)/evaluation/mailguard_bench/pinned
+else
+MAILGUARD_ARTIFACTS ?= $(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts)
+endif
+# Where `make mailguard-prep` writes the corpus and the retrained classifier. Never the pinned,
+# git-tracked directory (prep would replace the pinned joblib and break SHA256SUMS): when
+# MAILGUARD_ARTIFACTS is that directory, prep writes beside the repository instead, and
+# `make ... MAILGUARD_ARTIFACTS=<that directory>` uses what it trained.
+MAILGUARD_PINNED_DIR = $(CURDIR)/evaluation/mailguard_bench/pinned
+MAILGUARD_PREP_OUT ?= $(if $(filter $(abspath $(MAILGUARD_ARTIFACTS)),$(MAILGUARD_PINNED_DIR)),$(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts),$(MAILGUARD_ARTIFACTS))
+MAILGUARD_REMOTE_BRANCH ?= feature/mailguard-defense-stack
+# The guard commit the v2 benchmark pins (ADR-0012 decision 3); guard_env.DEFAULT_MAILGUARD_COMMIT is
+# the same value (a test keeps them equal). v1 stays reproducible at its own pin, in a worktree of its
+# own: make <target> MAILGUARD_COMMIT=81df5d07b15b5bb3d1ecf3aae556df01e304cbe0 MAILGUARD_DIR=<worktree at it>.
+MAILGUARD_COMMIT ?= 1a3ef62b7368703c22c3f90111abdde0678d5617
+# The subtree layout compares trees. A shallow clone has no commit object to ask for its tree, so
+# the two pins' trees are recorded here too (guard_env.V1_MAILGUARD_TREE / V2_MAILGUARD_TREE; a test
+# keeps them equal).
+MAILGUARD_V1_COMMIT = 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0
+MAILGUARD_V1_TREE = 1a955c156a23cb6ad6dbde041c93080dfb69ceca
+MAILGUARD_V2_TREE = 257d57bc3b8635a2180bddf40fae290c4a44eb57
+MAILGUARD_TREE ?= $(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V1_COMMIT)),$(MAILGUARD_V1_TREE),$(if $(filter $(MAILGUARD_COMMIT),1a3ef62b7368703c22c3f90111abdde0678d5617),$(MAILGUARD_V2_TREE)))
+# Non-empty (the directory's path inside its repository) iff MAILGUARD_DIR is a subdirectory of one.
+MAILGUARD_PREFIX := $(shell git -C "$(MAILGUARD_DIR)" rev-parse --show-prefix 2>/dev/null)
+MAILGUARD_UV = MAILGUARD_DIR=$(MAILGUARD_DIR) MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) MAILGUARD_ARTIFACTS=$(MAILGUARD_ARTIFACTS) $(UV) run --project $(CURDIR) --with-editable $(MAILGUARD_DIR)
+MAILGUARD_EVAL_DEPS = --with 'datasets>=2.20' --with 'pandas>=2.2' --with 'huggingface-hub>=0.24' --with 'tqdm>=4.66' --with 'pyarrow>=15'
+
+ifeq ($(MAILGUARD_PREFIX),)
+mailguard-worktree:
+	git fetch origin $(MAILGUARD_REMOTE_BRANCH)
+	@if [ -e "$(MAILGUARD_DIR)" ]; then echo "[INFO] $(MAILGUARD_DIR) exists; not re-adding"; \
+	else git worktree add --detach "$(MAILGUARD_DIR)" $(MAILGUARD_COMMIT); fi
+	@test "$$(git -C "$(MAILGUARD_DIR)" rev-parse HEAD)" = "$(MAILGUARD_COMMIT)" || \
+	  { echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT); use another directory (make ... MAILGUARD_DIR=<path>) or set MAILGUARD_COMMIT to that worktree's commit for a v1 run" >&2; exit 1; }
+	@echo "ok AgentMailGuard worktree $(MAILGUARD_DIR) @ $(MAILGUARD_COMMIT)"
+else
+# Subtree layout: no worktree to add, no fetch (the guard came with this repository). Verify the pin.
+mailguard-worktree:
+	@want="$$(git -C "$(MAILGUARD_DIR)" rev-parse --verify -q "$(MAILGUARD_COMMIT)^{tree}" || echo "$(MAILGUARD_TREE)")"; \
+	have="$$(git -C "$(MAILGUARD_DIR)" rev-parse "HEAD:$(MAILGUARD_PREFIX)" 2>/dev/null)"; \
+	if [ -z "$$want" ] || [ "$$have" != "$$want" ]; then \
+	  echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) (its tree is '$$have', the pin's is '$$want'); use another directory (make ... MAILGUARD_DIR=<path>) or set MAILGUARD_COMMIT to that checkout's commit for a v1 run" >&2; exit 1; fi; \
+	if [ -n "$$(git -C "$(MAILGUARD_DIR)" status --porcelain --untracked-files=normal -- .)" ]; then \
+	  echo "FAIL $(MAILGUARD_DIR) has uncommitted changes; the benchmark pins a clean commit (on Windows, clone inside the Linux file system, not under /mnt/c, and check 'git config core.filemode' and core.autocrlf: file-mode and line-ending noise also shows as changes)" >&2; exit 1; fi
+	@echo "ok AgentMailGuard subtree $(MAILGUARD_DIR) @ $(MAILGUARD_COMMIT)"
+endif
+
+# Listed before mailguard-worktree so a refused output directory stops prep before anything runs.
+mailguard-prep-check:
+	@case "$(abspath $(MAILGUARD_PREP_OUT))/" in "$(MAILGUARD_PINNED_DIR)/"*) \
+	  echo "FAIL MAILGUARD_PREP_OUT=$(MAILGUARD_PREP_OUT) is inside the pinned directory $(MAILGUARD_PINNED_DIR): prep would replace the pinned classifier (its sha256 is in SHA256SUMS); choose another directory" >&2; exit 1;; esac
+
+mailguard-prep: mailguard-prep-check mailguard-worktree
+	mkdir -p $(MAILGUARD_PREP_OUT)
+	$(MAILGUARD_UV) $(MAILGUARD_EVAL_DEPS) --directory $(MAILGUARD_DIR) python -m mailguard.datasets.download --all --max-mb 400
+	$(MAILGUARD_UV) $(MAILGUARD_EVAL_DEPS) --directory $(MAILGUARD_DIR) python -m mailguard.datasets.build_l1_corpus --out-dir $(MAILGUARD_PREP_OUT)/l1_injection
+	$(MAILGUARD_UV) --directory $(MAILGUARD_DIR) python -m training.train_l1_classifier --corpus $(MAILGUARD_PREP_OUT)/l1_injection --out $(MAILGUARD_PREP_OUT)/l1_injection_clf_v1.joblib
+	@echo "ok prep wrote $(MAILGUARD_PREP_OUT); to benchmark with it: make ... MAILGUARD_ARTIFACTS=$(MAILGUARD_PREP_OUT)"
+
+mailguard-smoke:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke
+
+mailguard-probe:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.guard_smoke --live-probe $(if $(MODEL),--model-profile $(MODEL))
+
+mailguard-test:
+	$(MAILGUARD_UV) python -m pytest tests/unit/test_mailguard_bench_guard.py -v
+
+mailguard-unit:
+	$(MAILGUARD_UV) python -m pytest tests/unit -q
+
+mailguard-cases:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.build_cases
+
+RUN ?=
+MAILGUARD_LLM_TIMEOUT_S ?= 60
+# CONCURRENCY reaches the runner as --concurrency only. Make exports a command-line variable
+# to every recipe, and AppSettings would read CONCURRENCY as its `concurrency` settings group.
+unexport CONCURRENCY
+
+# The config names have two meanings (ADR-0012 decision 11): SCHEME=v2 (the default, for new runs)
+# C0..C7, SCHEME=v1 the published C0/C0T/C1/C2/C3 and the C3-L1..C3-L5 ablation. SCHEME reaches the
+# runner as --scheme only, like CONCURRENCY.
+SCHEME ?= v2
+unexport SCHEME
+
+mailguard-bench:
+	@case "$(SCHEME)/$(CONFIG)" in v2/C0|v2/C0T|v2/C1|v2/C2|v2/C3|v2/C4|v2/C5|v2/C6|v2/C7|v1/C0|v1/C3|v1/C0T|v1/C1|v1/C2|v1/C3-L1|v1/C3-L2|v1/C3-L3|v1/C3-L3B|v1/C3-L4|v1/C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [SCHEME=v2] [MODEL=gpt-4o-mini|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]; or, to reproduce the published runs, SCHEME=v1 CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5"; exit 2;; esac
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
+		--config $(CONFIG) --scheme $(SCHEME) --run $(RUN) --retry-errors \
+		--llm-timeout-s $(MAILGUARD_LLM_TIMEOUT_S) \
+		$(if $(LIMIT),--limit $(LIMIT)) \
+		$(if $(MODEL),--model-profile $(MODEL)) \
+		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY))
+
+mailguard-bench-test:
+	$(MAILGUARD_UV) python -m pytest \
+		tests/unit/test_mailguard_bench_guarded_reply.py \
+		tests/integration/test_mailguard_bench_guarded_run.py -v
+
+# AgentMailGuard benchmark (task 7.19): scoring and analyses make no model calls.
+# `python -m` from the repo root keeps rag-email's `evaluation`/`services` ahead of the
+# worktree's packages of the same name; --with-editable leaves pyproject.toml/uv.lock alone.
+MAILGUARD_RUN_DIR = evaluation/results/mailguard_bench/$(RUN)
+MAILGUARD_PY = $(MAILGUARD_UV) python
+
+mailguard-report:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+
+mailguard-analyses:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+	@scheme=$$($(MAILGUARD_PY) -m evaluation.mailguard_bench.scheme --run-dir $(MAILGUARD_RUN_DIR)) || exit 1; \
+	if [ "$$scheme" = v2 ]; then \
+		echo "NOTE scheme v2: the no-API analyses read C3 as the full guard (C7 in v2), so they are v1-only until task 7.23; the report above is all a v2 run has"; \
+	else \
+		$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR) && \
+		$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR); \
+	fi
+
+# The teammate benchmark kit (task 7.25; ADR-0012 decision 9): pure-Python modules under the same
+# overlay as the mailguard-* targets. Make runs in a Linux shell (WSL2 Ubuntu on Windows); the
+# modules themselves are pure Python and also run natively on Windows. CONCURRENCY stays an
+# argument only (the `unexport CONCURRENCY` above). CONFIGS empty: the kit's own default list.
+.PHONY: bench-doctor bench-setup bench-run bench-report bench-package
+
+bench-doctor:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.doctor
+
+bench-setup:
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign setup
+
+bench-run:
+	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run its own)" >&2; exit 2; }
+	@test -z "$(READER)" || { echo "FAIL READER= is not a bench-run option: the reader is served by LLM__* in the shell and bench-run refuses an exported LLM__*. Add the meaning column afterwards: LLM__PROVIDER=... LLM__OPENAI_BASE_URL=... make bench-report RUN=$(RUN) READER=<reader model>" >&2; exit 2; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign run \
+		--model-profile $(MODEL) \
+		--run $(RUN) \
+		$(if $(CONFIGS),--configs $(CONFIGS)) \
+		$(if $(LIMIT),--limit $(LIMIT)) \
+		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY)) \
+		$(if $(filter 1 yes true,$(DRY_RUN)),--dry-run)
+
+bench-report:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign report --run $(RUN) $(if $(READER),--reader $(READER))
+
+bench-package:
+	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign package --run $(RUN)
