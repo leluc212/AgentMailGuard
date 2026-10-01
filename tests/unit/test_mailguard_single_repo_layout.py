@@ -130,6 +130,32 @@ def test_the_two_generations_have_different_trees() -> None:
     assert V1_MAILGUARD_TREE != V2_MAILGUARD_TREE
 
 
+def test_the_committed_guard_folder_is_the_v2_pin() -> None:
+    """HEAD's ``agentmailguard/`` is the tree the v2 benchmark pins (ADR-0014 decision 4).
+
+    The tests above compare the recorded constants with commit objects and the Makefile; this one
+    compares them with the guard this repository actually carries, so a guard change committed
+    without moving the pin fails CI instead of the teammate's ``bench-setup``. It reads HEAD's
+    tree only, so it holds in a shallow clone; a checkout without the subtree has nothing to check.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("needs git")
+    done = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--verify", "-q", f"HEAD:{PREFIX}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        pytest.skip(f"this checkout has no committed {PREFIX}/ subtree")
+    have = done.stdout.strip()
+    assert have == V2_MAILGUARD_TREE, (
+        f"HEAD:{PREFIX} is tree {have}, but the v2 pin (guard_env.V2_MAILGUARD_COMMIT "
+        f"{V2_MAILGUARD_COMMIT[:12]}) is tree {V2_MAILGUARD_TREE}: move the pin (guard_env, the "
+        "Makefile, the guides) in the same change as the guard"
+    )
+
+
 # --- layout detection
 
 
