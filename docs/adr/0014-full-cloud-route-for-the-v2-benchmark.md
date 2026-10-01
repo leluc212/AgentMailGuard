@@ -174,6 +174,13 @@ was 1,000 a day).
     about 4,950 queries; about 1 to 1.5 million tokens), and the costs below. If a limit or a credit
     runs out anyway, the run stops cleanly and the same command resumes it later; other models may run
     in between. The Tier-1 split-run plan is withdrawn.
+16. **A canary `strict_json` miss on the pinned provider is recorded, not a stop** (owner decision
+    2026-10-01). When the pinned provider served the canary (`provider_match` ok) but its answer
+    breaks the strict JSON schema, `make bench-canary` prints `WARN strict_json` and exits 0, the
+    capture keeps the warning, and the run starts. The runner sends the capture with the results.
+    The run validates every answer, so a malformed one is repaired or counted as a fallback, never
+    scored as valid; Qwen has one provider on OpenRouter, so a stop would leave no Qwen results. A
+    failed call, another provider or no capture still exits 1 and the run does not start.
 
 ## Consequences
 
@@ -217,8 +224,6 @@ was 1,000 a day).
   error's message and `details` (a quota id such as `EmbedContentRequestsPerDayPerProject`, the
   spelling the tests assume); a body without it is read as a per-minute limit, with the
   consequence above.
-- **A canary `strict_json` failure on the pinned provider** has no rule beyond "stop and ask the
-  owner" in the guide; whether such a provider may run (and be recorded) is the owner's call.
 
 ## Alternatives rejected
 

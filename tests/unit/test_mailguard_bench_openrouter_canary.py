@@ -150,7 +150,10 @@ async def test_another_provider_fails_the_canary_and_says_who_served_it(tmp_path
     assert (tmp_path / "llama-3.1-8b-openrouter.json").exists()  # the evidence is kept
 
 
-async def test_an_answer_that_is_not_schema_valid_json_fails_strict_json(tmp_path: Path) -> None:
+async def test_a_strict_json_miss_on_the_pinned_provider_is_a_warning_and_the_run_may_start(
+    tmp_path: Path,
+) -> None:
+    """Owner decision 2026-10-01 (ADR-0014): run anyway and record it with the results."""
     model = "qwen/qwen-2.5-7b-instruct"
     for content in ("Sure! pong", '{"answer": 7}', '{"answer": "pong", "extra": 1}', "[]"):
         mock, _ = transport(answer(model, "Phala", content=content))
@@ -160,8 +163,55 @@ async def test_an_answer_that_is_not_schema_valid_json_fails_strict_json(tmp_pat
             transport=mock,
             out_dir=tmp_path,
         )
-        assert not report.ok, content
-        assert report.checks["strict_json"] is False, content
+        assert report.ok, content
+        assert report.checks == {"strict_json": False, "provider_match": True, "captured": True}
+        assert report.problems == [], content
+        assert len(report.warnings) == 1, content
+        captured = json.loads((tmp_path / "qwen2.5-7b-openrouter.json").read_text(encoding="utf-8"))
+        assert captured["warnings"] == report.warnings  # recorded with the capture
+
+
+async def test_a_strict_json_miss_with_another_provider_still_fails(tmp_path: Path) -> None:
+    mock, _ = transport(answer("meta-llama/llama-3.1-8b-instruct", "DeepInfra", content="pong"))
+
+    report = await run_canary(
+        get_profile("llama-3.1-8b-openrouter"),
+        llm_for("llama-3.1-8b-openrouter"),
+        transport=mock,
+        out_dir=tmp_path,
+    )
+
+    assert not report.ok
+    assert report.checks["provider_match"] is False
+
+
+def test_the_command_exits_0_and_says_warn_on_a_strict_json_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from evaluation.mailguard_bench import openrouter_canary
+    from evaluation.mailguard_bench.openrouter_canary import CanaryReport
+
+    async def fake_run(profile: Any, llm: Any, *, out_dir: Path, **_: Any) -> CanaryReport:
+        return CanaryReport(
+            profile=profile.name,
+            model=profile.model,
+            checks={"strict_json": False, "provider_match": True, "captured": True},
+            warnings=["the answer is not valid for the strict schema: pong"],
+            served_provider="Phala",
+        )
+
+    monkeypatch.chdir(tmp_path)  # no .env here
+    monkeypatch.setattr(openrouter_canary, "run_canary", fake_run)
+
+    # main() writes the profile's LLM__* settings into os.environ; patch.dict restores it all.
+    with patch.dict(os.environ, {"BENCH_OPENROUTER_API_KEY": KEY}):
+        assert main(["--model-profile", "qwen2.5-7b-openrouter", "--out", str(tmp_path)]) == 0
+
+    out = capsys.readouterr()
+    assert "WARN strict_json" in out.out
+    assert "ok   provider_match" in out.out
+    assert "start the run anyway" in out.err
+    assert KEY not in out.out + out.err
 
 
 @pytest.mark.parametrize(

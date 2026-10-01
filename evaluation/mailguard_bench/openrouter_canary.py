@@ -15,9 +15,13 @@ profile pins. It answers three questions before a long run spends money:
   ``<out>/<profile>.json`` (the key is never written), so the owner can read what OpenRouter
   really sends back, ``openrouter_metadata`` and the generation id included.
 
-It makes exactly one call, about 40 tokens: under a cent at these prices. It exits 1 when a check
-fails and says why. The guard's judges have their own pinned check: ``make mailguard-probe
-MODEL=<profile>`` (``guard_smoke``) makes one guard-judge call and checks the same pin.
+It makes exactly one call, about 40 tokens: under a cent at these prices. It exits 1 when the call
+fails, another provider served it, or nothing was captured, and says why. A ``strict_json`` miss on
+the pinned provider is a WARN and exits 0: the run starts anyway and the capture is sent back with
+its results (owner decision 2026-10-01, ADR-0014 decision 16). The run itself validates every
+answer, so a malformed one is counted there, never scored as valid. The guard's judges have their
+own pinned check: ``make mailguard-probe MODEL=<profile>`` (``guard_smoke``) makes one guard-judge
+call and checks the same pin.
 """
 
 from __future__ import annotations
@@ -75,6 +79,7 @@ class CanaryReport:
     model: str
     checks: dict[str, bool]
     problems: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     served_provider: str | None = None
     provider_source: str | None = None
     generation_id: str | None = None
@@ -83,7 +88,12 @@ class CanaryReport:
 
     @property
     def ok(self) -> bool:
-        return all(self.checks.values()) and not self.problems
+        """The run may start: the pinned provider served the call and the exchange was captured.
+
+        ``strict_json`` is not required: a miss is a warning recorded with the run (owner decision
+        2026-10-01, ADR-0014).
+        """
+        return self.checks["provider_match"] and self.checks["captured"] and not self.problems
 
 
 class _CapturingTransport(httpx.AsyncBaseTransport):
@@ -183,7 +193,7 @@ async def run_canary(
         if _answer_is_valid(result.content):
             report.checks["strict_json"] = True
         else:
-            report.problems.append(
+            report.warnings.append(
                 f"the answer is not valid for the strict schema: {result.content}"
             )
     except LLMProviderMismatchError as exc:
@@ -192,7 +202,8 @@ async def run_canary(
     except LLMSchemaValidationError as exc:
         provenance = exc.provenance
         report.checks["provider_match"] = provenance is not None  # checked before the parse
-        report.problems.append(f"the answer is not schema-valid JSON: {str(exc)[:300]}")
+        note = f"the answer is not schema-valid JSON: {str(exc)[:300]}"
+        (report.warnings if provenance is not None else report.problems).append(note)
     except LLMResponseError as exc:
         report.problems.append(_hint(exc))
     except LLMError as exc:
@@ -219,6 +230,7 @@ async def run_canary(
                     "provenance": provenance.to_dict() if provenance is not None else None,
                     "checks": report.checks,
                     "problems": report.problems,
+                    "warnings": report.warnings,
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -250,9 +262,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     served = report.served_provider or "unknown"
     cost = "n/a" if report.cost_usd is None else f"${report.cost_usd:.7f}"
     for name, passed in report.checks.items():
-        print(f"{'ok  ' if passed else 'FAIL'} {name}")
+        warn_only = name == "strict_json" and report.ok
+        print(f"{'ok  ' if passed else 'WARN' if warn_only else 'FAIL'} {name}")
     for problem in report.problems:
         print(f"FAIL {problem}", file=sys.stderr)
+    for warning in report.warnings:
+        print(
+            f"WARN {warning}; start the run anyway and send this canary's capture with the "
+            "results (ADR-0014)",
+            file=sys.stderr,
+        )
     source = report.provider_source or "no field"
     print(
         f"{profile.name}: served by {served} (read from {source}), cost {cost}, "

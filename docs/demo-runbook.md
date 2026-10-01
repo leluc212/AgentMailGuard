@@ -913,11 +913,11 @@ make mailguard-probe MODEL=llama-3.1-8b-openrouter   # the guard's judge, same p
 make mailguard-probe MODEL=qwen2.5-7b-openrouter
 ```
 
-Each canary prints three checks and exits 1 when one fails, and writes `evaluation/results/mailguard_bench/canary/<profile>.json` (the request and the response with `openrouter_metadata` and the generation id; the key is never written; read it once to see what OpenRouter really sends):
+Each canary prints three checks and exits 1 when the call, `provider_match` or `captured` fails (a `strict_json` miss on the pinned provider prints `WARN` and exits 0: the run starts anyway and the capture records it, owner decision 2026-10-01, ADR-0014 decision 16), and writes `evaluation/results/mailguard_bench/canary/<profile>.json` (the request and the response with `openrouter_metadata` and the generation id; the key is never written; read it once to see what OpenRouter really sends):
 
-| Check | Passes when | A FAIL means |
+| Check | Passes when | A miss means |
 |---|---|---|
-| `strict_json` | the answer is exactly `{"answer": "pong"}` under the strict JSON schema | the pinned provider does not enforce (or ignores) the schema; OpenRouter says enforcement varies by provider. Every answer of a run is validated too, but a provider that fails here will fill the run with repair calls |
+| `strict_json` | the answer is exactly `{"answer": "pong"}` under the strict JSON schema | the pinned provider does not enforce (or ignores) the schema; OpenRouter says enforcement varies by provider. Every answer of a run is validated too, but a provider that fails here will fill the run with repair calls. A `WARN`: run anyway and send the capture with the results |
 | `provider_match` | the pinned provider served the call and the router reported no fallback (`attempt` 1 when it reports one) | `provider_mismatch`: another provider, a fallback attempt, or a response that names no provider (the pin cannot be verified). Do not run |
 | `captured` | the exchange was written | no HTTP response arrived (network, TLS, DNS) |
 
