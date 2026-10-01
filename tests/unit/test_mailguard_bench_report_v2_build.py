@@ -210,8 +210,16 @@ def test_the_report_counts_service_failure_error_rows_per_config_and_keeps_them_
     assert "`attack-llmail-a`: triage_stage_failure: case attack-llmail-a" in text
     summary = json.loads((run / "summary.json").read_text("utf-8"))
     llmail = summary["tables"]["llmail"]
-    assert llmail["C3"]["service_failures"] == {"triage_stage_failure": 1, "retrieval_degraded": 1}
-    assert llmail["C0"]["service_failures"] == {"triage_stage_failure": 0, "retrieval_degraded": 0}
+    assert llmail["C3"]["service_failures"] == {
+        "triage_stage_failure": 1,
+        "retrieval_degraded": 1,
+        "guard_route_failure": 0,
+    }
+    assert llmail["C0"]["service_failures"] == {
+        "triage_stage_failure": 0,
+        "retrieval_degraded": 0,
+        "guard_route_failure": 0,
+    }
     # never counted as defended: only the early-exit attack (b) is still scored in C3
     assert llmail["C3"]["asr"]["total"] == 1 and llmail["C3"]["n_errors"] == 2
     with (run / "metrics.csv").open(encoding="utf-8") as handle:
@@ -246,8 +254,34 @@ def test_a_service_failure_row_the_retry_pass_ran_again_is_counted_by_its_latest
 
     summary = json.loads((run / "summary.json").read_text("utf-8"))
     c3 = summary["tables"]["llmail"]["C3"]
-    assert c3["service_failures"] == {"triage_stage_failure": 0, "retrieval_degraded": 1}
+    assert c3["service_failures"] == {
+        "triage_stage_failure": 0,
+        "retrieval_degraded": 1,
+        "guard_route_failure": 0,
+    }
     assert c3["n_errors"] == 1
+
+
+def test_a_guard_route_failure_row_is_counted_under_the_errors_row_and_never_scored(
+    tmp_path: Path,
+) -> None:
+    """Owner decision A of 2026-10-01 (ADR-0014): a guarded row whose guard LLM call the route or
+    the service failed is an error row, excluded from the ASRs and listed under the errors row."""
+    run = _live_run_folder(tmp_path)
+    rewrite_c3(
+        run,
+        c3_rows(
+            **{"attack-llmail-c": service_failure_row("attack-llmail-c", "guard_route_failure")}
+        ),
+    )
+
+    text = build(run)
+
+    assert "| of which guard route failure (retried) | 0 | 1 |" in text.splitlines()
+    summary = json.loads((run / "summary.json").read_text("utf-8"))
+    c3 = summary["tables"]["llmail"]["C3"]
+    assert c3["service_failures"]["guard_route_failure"] == 1 and c3["n_errors"] == 1
+    assert c3["asr"]["total"] == 2  # a and b are scored; c, the route failure, is not
 
 
 def test_a_v1_folder_reports_no_service_failure_rows(tmp_path: Path) -> None:
