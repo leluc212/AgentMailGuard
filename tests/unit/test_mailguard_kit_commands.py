@@ -314,7 +314,10 @@ def test_a_reader_quota_stop_says_to_rerun_the_report_later_and_builds_no_more(
 
     assert sequence(bench.host) == [*REPORTS, "meaning"]
     text = "\n".join(bench.err)
-    assert "STOP the reader's quota" in text and "same `make bench-report` command again" in text
+    assert (
+        "STOP the reader's credit, quota" in text
+        and "same `make bench-report` command again" in text
+    )
     assert "FAIL" not in text
 
 

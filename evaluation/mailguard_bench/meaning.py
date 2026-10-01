@@ -50,10 +50,9 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import ResultStore
-from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT, immediate_stop
 from evaluation.mailguard_bench.scheme import SCHEME_V1, SCHEME_V2, configs_for, folder_scheme
 from evaluation.mailguard_bench.scoring import RawRecord, final_draft_fields, read_raw
-from packages.core.provider_limits import is_quota_text, quota_in_text, quota_note
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.llm.factory import create_llm_provider
 from packages.llm.protocol import (
@@ -453,7 +452,8 @@ class ReadSummary:
     output_tokens: int = 0
     stopped: str | None = None
     """Why no further read started: the reader's quota, balance, spend limit or daily cap is
-    used up (``quota_exhausted``); None when every read ran."""
+    used up (``quota_exhausted``), or its account has no credit (``no_credit``); None when every
+    read ran."""
 
 
 def _needs_read(row: Mapping[str, Any] | None, record: RawRecord, retry_errors: bool) -> bool:
@@ -504,9 +504,10 @@ async def read_config(
         limit: Read at most this many drafts in this call (a smoke run); the attacks with no
             draft are still ruled on, as that costs nothing.
 
-    A read that finds the reader's quota, balance, spend limit or daily cap used up stops the
-    call: no further read starts (reads in flight finish), ``ReadSummary.stopped`` says why, and
-    the unread drafts are read by a later call.
+    A read that finds the reader's quota, balance, spend limit or daily cap used up, or its
+    account without credit (``route.immediate_stop``), stops the call: no further read starts
+    (reads in flight finish), ``ReadSummary.stopped`` says why, and the unread drafts are read by
+    a later call.
 
     Raises:
         ValueError: If the concurrency is out of range, or a case lacks what the rubric needs
@@ -553,10 +554,11 @@ async def read_config(
                 summary.read += 1
             else:
                 summary.error += 1
-                error = str(row.get("error") or "")
-                if summary.stopped is None and is_quota_text(error):
-                    # waiting does not lift it: every further read would fail the same way
-                    summary.stopped = quota_note(quota_in_text(error) or "unknown")
+                # A used-up quota or no credit (a 402 other than OpenRouter's in-flight budget):
+                # waiting does not lift it, so every further read would fail the same way
+                stop = immediate_stop(str(row.get("error") or ""))
+                if summary.stopped is None and stop is not None:
+                    summary.stopped = stop
             if on_row is not None:
                 on_row(row)
 
@@ -742,9 +744,11 @@ async def _run(args: argparse.Namespace, reader: MeaningReader, secrets: list[st
     stopped = next((s.stopped for s in summaries.values() if s.stopped is not None), None)
     if stopped is not None:
         print(
-            f"STOP meaning: {stopped}; the reader's quota, balance, spend limit or daily cap is "
-            "used up (a daily cap resets the next day). Restore it, then run the same command "
-            "again with --retry-errors: it reads the drafts not read yet and the reads that failed",
+            f"STOP meaning: {stopped}; the reader's credit, quota, balance, spend limit or daily "
+            "cap is used up (a daily cap resets the next day). Restore it, then rerun: under the "
+            "kit, the same `make bench-report` command unchanged (it already retries the reads "
+            "that failed); this step started by hand, its command with --retry-errors. Either "
+            "reads the drafts not read yet and the reads that failed",
             file=sys.stderr,
         )
         return ROUTE_STOP_EXIT

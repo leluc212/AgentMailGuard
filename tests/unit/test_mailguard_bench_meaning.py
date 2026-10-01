@@ -850,3 +850,64 @@ def test_main_prints_stop_and_exits_with_the_stop_status_on_a_used_up_quota(
     assert code == ROUTE_STOP_EXIT
     err = capsys.readouterr().err
     assert "STOP meaning: quota_exhausted: daily_limit" in err and "--retry-errors" in err
+    assert "the same `make bench-report` command unchanged" in err  # what a kit user reruns
+
+
+NO_CREDIT_TEXT = (
+    'LLM request failed with status 402: {"error": {"code": 402, "message": "Insufficient '
+    'credits. Add more using https://openrouter.ai/settings/credits"}}'
+)
+
+
+async def test_a_reader_without_credit_stops_the_reads_like_a_used_up_quota(
+    tmp_path: Path,
+) -> None:
+    # Owner decision B covers credit exhaustion for every provider: an OpenRouter reader whose
+    # account has no credit answers 402 to every read, so the step stops after the first.
+    provider, reader = fake_reader(error_to_raise=LLMResponseError(NO_CREDIT_TEXT, status_code=402))
+    store = ResultStore(meaning_path(tmp_path, "C3"))
+    drafts = [scored(cid, body="No.") for cid in ("a1", "a5", "a6")]
+
+    summary = await read_config(drafts, CASES, reader, store, config="C3", run_id="r1")
+
+    assert summary.stopped == "no_credit"
+    assert summary.error == 1 and len(provider.recorded_calls) == 1  # no further read started
+
+
+async def test_openrouters_in_flight_402_is_backed_off_and_never_a_stop(tmp_path: Path) -> None:
+    sleeps: list[float] = []
+
+    async def no_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    transient = LLMResponseError(
+        "LLM request failed with status 402 (openrouter_in_flight_budget): {...}", status_code=402
+    )
+    _provider, reader = fake_reader(error_to_raise=transient)
+    store = ResultStore(meaning_path(tmp_path, "C3"))
+    drafts = [scored(cid, body="No.") for cid in ("a1", "a5")]
+
+    summary = await read_config(drafts, CASES, reader, store, config="C3", run_id="r1",
+                                policy=BackoffPolicy(max_attempts=2), sleep=no_sleep)  # fmt: skip
+
+    assert summary.stopped is None and summary.error == 2
+    assert len(sleeps) == 2  # one back-off per read
+
+
+def test_main_stops_with_the_stop_status_when_the_reader_has_no_credit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from evaluation.mailguard_bench import meaning
+    from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+
+    run = write_live_run(tmp_path)
+    provider = FakeLLMProvider(
+        simulate_latency_ms=0,
+        error_to_raise=LLMResponseError(NO_CREDIT_TEXT, status_code=402),
+    )
+    monkeypatch.setattr(meaning, "build_reader_provider", lambda model, settings: provider)
+
+    code = meaning.main(["--run-dir", str(run), "--reader-model", READER, "--retry-errors"])
+
+    assert code == ROUTE_STOP_EXIT
+    assert "STOP meaning: no_credit; the reader's credit" in capsys.readouterr().err

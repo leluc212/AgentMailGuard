@@ -161,7 +161,8 @@ RERANK_COPY_MARKER = Path(".cache") / "reranker.image-id"
 LOGGED_SERVICES = ("triage-worker", "ai-worker")
 """The model-calling containers whose log lines of a config are kept with the run."""
 MEANING_MODULE = "evaluation.mailguard_bench.meaning"
-"""The meaning step's module; it exits ``ROUTE_STOP_EXIT`` when the reader's quota is used up."""
+"""The meaning step's module; it exits ``ROUTE_STOP_EXIT`` when the reader's quota or credit is
+used up."""
 RESTORE_ENV = (
     "put .env back: comment out the EMBEDDING__ lines, set LLM__TIMEOUT_S back to 15.0 and "
     "RETRIEVAL__CATEGORY_FILTER_ENABLED back to true; Compose forwards all three, so otherwise "
@@ -344,9 +345,9 @@ def _build_reports(
         status = ctx.host.run(command, cwd=ctx.repo_root)
         if status == ROUTE_STOP_EXIT and MEANING_MODULE in command:
             ctx.err(
-                "STOP the reader's quota, balance, spend limit or daily cap is used up (the "
-                "meaning step's STOP line above says which). Restore it (a daily cap resets the "
-                "next day), then run the same `make bench-report` command again: it reads the "
+                "STOP the reader's credit, quota, balance, spend limit or daily cap is used up "
+                "(the meaning step's STOP line above says which). Restore it (a daily cap resets "
+                "the next day), then run the same `make bench-report` command again: it reads the "
                 "drafts not read yet and retries the reads that failed"
             )
             break

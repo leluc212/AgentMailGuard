@@ -163,6 +163,21 @@ def route_failure(record: Mapping[str, Any]) -> str | None:
     return None
 
 
+def immediate_stop(text: str) -> str | None:
+    """The stop a failed call's error text calls for at once, or None (``IMMEDIATE_STOPS``).
+
+    ``quota_exhausted: <what>`` for a used-up quota, balance, spend limit or daily cap
+    (``packages.core.provider_limits``); ``no_credit`` for an HTTP 402 other than OpenRouter's
+    transient in-flight budget, which the back-off retries. For a caller with no result row to
+    hand the breaker: the meaning step's reader.
+    """
+    if QUOTA_MARKER in text:
+        return quota_note(quota_in_text(text) or "unknown")
+    if _NO_CREDIT.search(text) and _TRANSIENT_402 not in text:
+        return "no_credit"
+    return None
+
+
 def _is_route_status(status: int | None) -> bool:
     return status is not None and (status in ROUTE_FAILURE_STATUSES or 500 <= status <= 599)
 
