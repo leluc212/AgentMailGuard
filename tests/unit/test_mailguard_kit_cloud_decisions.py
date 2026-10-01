@@ -1,5 +1,5 @@
 """The kit under the owner decisions of 2026-10-01 (task 7.29; ADR-0014): the one-call embedding
-check before any model spend (D).
+check before any model spend (D) and the trial over chosen cases (E).
 
 The kit's fakes (``mailguard_kit_fixtures``) stand in for docker, the runner and the guard-worker;
 the embedding endpoint is an ``httpx.MockTransport``. No test reaches a real endpoint or a model.
@@ -8,19 +8,26 @@ the embedding endpoint is an ``httpx.MockTransport``. No test reaches a real end
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from evaluation.mailguard_bench.kit.campaign import run_campaign
+from evaluation.mailguard_bench.kit import campaign
+from evaluation.mailguard_bench.kit.campaign import (
+    RunOptions,
+    resume_commands,
+    run_campaign,
+)
 from evaluation.mailguard_bench.kit.embedding_check import (
     PROBE_TEXT,
     EmbeddingCheckError,
     embedding_settings,
     probe_embedding,
 )
+from evaluation.mailguard_bench.kit.steplog import finished_configs
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
     EMBED_KEY,
     HOST_ENV,
@@ -28,6 +35,7 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
     Bench,
     EmbeddingEndpoint,
     bench_fixture,
+    label,
     opts,
     sequence,
 )
@@ -135,3 +143,80 @@ def test_the_check_reads_the_runners_settings_for_one_request() -> None:
 def test_the_doctor_stays_free_of_calls() -> None:
     doctor = (REPO / "evaluation" / "mailguard_bench" / "kit" / "doctor.py").read_text("utf-8")
     assert "embedding_check" not in doctor and "get_embedder" not in doctor
+
+
+# --- E: a trial over chosen cases -------------------------------------------------------------
+
+
+TRIAL = "trial-gpt"
+CASE_IDS = ("attack-llmail-01d16d4e4af9", "benign-llmailfp-0", "attack-prag-hotpotqa-x")
+
+
+def test_a_trial_passes_its_case_ids_to_every_runner_and_logs_them(bench: Bench) -> None:
+    bench.runner_outcomes({}, {})  # each config finishes clean: no retry pass
+    assert run_campaign(bench.ctx, opts(run=TRIAL, case_ids=CASE_IDS)) == 0
+
+    runners = [cmd for kind, cmd in bench.host.events if kind == "run" and "live.run" in label(cmd)]
+    assert len(runners) == 2
+    for cmd in runners:
+        assert cmd[cmd.index("--case-ids") + 1] == ",".join(CASE_IDS)
+    configs = [s for s in bench.kit_log(TRIAL) if s["step"] == "config"]
+    assert {tuple(s["case_ids"]) for s in configs} == {CASE_IDS}
+
+
+def test_a_full_run_passes_no_case_ids(bench: Bench) -> None:
+    assert run_campaign(bench.ctx, opts()) == 0
+    assert all("--case-ids" not in cmd for kind, cmd in bench.host.events if kind == "run")
+
+
+def test_a_trial_over_chosen_cases_must_use_a_trial_folder(bench: Bench) -> None:
+    assert run_campaign(bench.ctx, opts(run="2026-10-02-gpt4omini-live", case_ids=CASE_IDS)) == 2
+
+    assert "a trial folder is never a result" in "\n".join(bench.err)
+    assert bench.host.events == [] and bench.embedding.requests == []
+
+
+def test_a_finished_trial_is_not_a_finished_run_and_the_other_way_round() -> None:
+    record = {
+        "step": "config",
+        "config": "C0",
+        "status": "ok",
+        "model_profile": "gpt-4o-mini",
+        "limit": None,
+        "case_ids": list(CASE_IDS),
+        "counts": {"selected": 3, "ok": 3, "error": 0, "skipped_already_recorded": 0},
+    }
+    assert finished_configs([record], "gpt-4o-mini", None, CASE_IDS) == {"C0"}
+    assert finished_configs([record], "gpt-4o-mini", None) == set()
+    full = {**record, "case_ids": None}
+    assert finished_configs([full], "gpt-4o-mini", None) == {"C0"}
+    assert finished_configs([full], "gpt-4o-mini", None, CASE_IDS) == set()
+
+
+def test_the_resume_command_of_a_trial_keeps_its_case_ids() -> None:
+    options = RunOptions(model_profile="gpt-4o-mini", run=TRIAL, configs=("C0",), case_ids=CASE_IDS)
+    make, module = resume_commands(options)
+    assert f"CASE_IDS={','.join(CASE_IDS)}" in make
+    assert f"--case-ids {','.join(CASE_IDS)}" in module
+
+
+def test_the_command_line_takes_a_comma_list_of_case_ids() -> None:
+    args = campaign.parse_args(
+        ["run", "--model-profile", "gpt-4o-mini", "--run", TRIAL, "--case-ids", "a, b,c"]
+    )
+    assert args.case_ids == ("a", "b", "c")
+
+
+def test_make_bench_run_passes_case_ids_as_an_argument_only() -> None:
+    printed = subprocess.run(
+        ["make", "--no-print-directory", "-n", "bench-run", "MODEL=gpt-4o-mini", f"RUN={TRIAL}",
+         "CASE_IDS=a,b"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert "--case-ids a,b" in printed
+    leaked = subprocess.run(
+        ["make", "-s", "--eval", 'print-env: ; @env | grep "^CASE_IDS=" || true', "print-env",
+         "CASE_IDS=a"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert leaked == ""

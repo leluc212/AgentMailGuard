@@ -2780,3 +2780,48 @@ async def test_a_guarded_case_whose_judge_call_the_route_failed_is_an_error_row(
     assert "HTTP 503" in a1["error"]["message"]
     assert a1["result"]["guard_route_failures"] == [GUARD_503]
     assert rows["attack-r1"]["status"] == "ok"  # one route failure stops nothing (not pinned)
+
+
+def test_a_trial_runs_only_the_chosen_cases_of_the_config_in_their_order() -> None:
+    from evaluation.mailguard_bench.case_adapter import EvalCase
+    from evaluation.mailguard_bench.live.run import select_cases
+
+    cases = [
+        EvalCase.from_dict({"case_id": c, "kind": "attack", "email": {"body_text": "x"}})
+        for c in ("a", "b", "c", "d")
+    ]
+
+    chosen = select_cases(cases, ["a", "b", "c"], case_ids=("c", "a"), limit=None)
+    assert [case.case_id for case in chosen] == ["c", "a"]
+    assert [c.case_id for c in select_cases(cases, ["a", "b"], case_ids=None, limit=1)] == ["a"]
+    with pytest.raises(ValueError, match="not cases this config runs, first d"):
+        select_cases(cases, ["a", "b", "c"], case_ids=("a", "d"), limit=None)
+
+
+def test_the_case_ids_option_parses_a_comma_list_and_refuses_a_repeat() -> None:
+    args = parse_args(["--config", "C0", "--run", "trial-x", "--model-profile", "gpt-4o-mini",
+                       "--case-ids", "attack-a1, attack-r1"])  # fmt: skip
+    assert args.case_ids == ("attack-a1", "attack-r1")
+    with pytest.raises(SystemExit):
+        parse_args(["--config", "C0", "--run", "x", "--model-profile", "gpt-4o-mini",
+                    "--case-ids", "a,a"])  # fmt: skip
+
+
+async def test_a_trial_over_chosen_cases_records_them_and_leaves_the_case_file_alone(
+    live_env: Path,
+) -> None:
+    world, _, deps = _new_run(live_env)
+    world.scenarios = dict(SCENARIOS)
+    args = _run_args(live_env, "C0", "--case-ids", "benign-b1,attack-r1")
+    pinned = {p.name: p.read_bytes() for p in (live_env / "cases").iterdir()}
+
+    assert await run(args, deps) == 0
+
+    assert sorted(_rows(live_env)) == ["attack-r1", "benign-b1"]
+    assert len(world.uploads) == 2  # the RAG case uploaded (and so embedded) its documents
+    meta = json.loads((live_env / "results" / "r1" / "raw" / "C0.meta.json").read_text("utf-8"))
+    (invocation,) = meta["invocations"]
+    assert invocation["case_ids"] == ["benign-b1", "attack-r1"]
+    assert invocation["n_cases_selected"] == 2
+    # the pinned case folder is read, never written
+    assert {p.name: p.read_bytes() for p in (live_env / "cases").iterdir()} == pinned

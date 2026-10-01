@@ -117,6 +117,8 @@ from evaluation.mailguard_bench.scheme import (
 # The configs of Friday's v2 run: the scheme's own list (ADR-0012 decision 11), never a copy. The
 # kit accepts any list (--configs); live.run and guard_worker validate the names.
 DEFAULT_V2_CONFIGS = configs_for(SCHEME_V2)
+TRIAL_PREFIX = "trial"
+"""What the RUN of a trial over chosen cases (``--case-ids``) must start with: never a result."""
 
 DEFAULT_GW_WAIT_S = 300.0
 """Runbook's GW_WAIT_S: how long a started guard-worker may take to be ready."""
@@ -217,6 +219,8 @@ class RunOptions:
     run: str
     configs: tuple[str, ...]
     limit: int | None = None
+    case_ids: tuple[str, ...] | None = None
+    """A trial over these cases only, in this order (``live.run --case-ids``); None: every case."""
     concurrency: int = 1
     gw_wait_s: float = DEFAULT_GW_WAIT_S
     stack_wait_s: float = DEFAULT_STACK_WAIT_S
@@ -244,15 +248,18 @@ def module_command(ctx: KitContext, module: str, *args: str) -> list[str]:
 def resume_commands(options: RunOptions) -> list[str]:
     """The commands that resume this run: the Make target, and the module it runs."""
     configs = ",".join(options.configs)
+    case_ids = ",".join(options.case_ids) if options.case_ids else None
     make = (
         f"make bench-run MODEL={options.model_profile} RUN={options.run} CONFIGS={configs}"
         + (f" LIMIT={options.limit}" if options.limit is not None else "")
+        + (f" CASE_IDS={case_ids}" if case_ids else "")
         + f" CONCURRENCY={options.concurrency}"
     )
     module = (
         "python -m evaluation.mailguard_bench.kit.campaign run "
         f"--model-profile {options.model_profile} --run {options.run} --configs {configs}"
         + (f" --limit {options.limit}" if options.limit is not None else "")
+        + (f" --case-ids {case_ids}" if case_ids else "")
         + f" --concurrency {options.concurrency}"
     )
     return [make, module]
@@ -538,7 +545,12 @@ class _Campaign:
             f"run {self.opts.run}: model {self.opts.model_profile}, "
             f"configs {', '.join(self.opts.configs)} (results in {self.run_dir})"
         )
-        done = finished_configs(self.recorded.records(), self.opts.model_profile, self.opts.limit)
+        done = finished_configs(
+            self.recorded.records(),
+            self.opts.model_profile,
+            self.opts.limit,
+            self.opts.case_ids,
+        )
         pending = [c for c in self.opts.configs if c not in done]
         for config in self.opts.configs:
             if config in done:
@@ -592,6 +604,17 @@ class _Campaign:
             problems.append("--concurrency must be 1 or 2")
         if opts.limit is not None and opts.limit < 1:
             problems.append("--limit must be at least 1")
+        if opts.case_ids is not None:
+            if not opts.case_ids:
+                problems.append("--case-ids names no case")
+            elif len(set(opts.case_ids)) != len(opts.case_ids):
+                problems.append(f"a case id is listed twice: {', '.join(opts.case_ids)}")
+            if not opts.run.startswith(TRIAL_PREFIX):
+                problems.append(
+                    f"--case-ids (CASE_IDS=) runs a trial over chosen cases, and a trial folder is "
+                    f"never a result: give it a RUN that starts with {TRIAL_PREFIX!r} (for example "
+                    f"RUN={TRIAL_PREFIX}-gpt), and delete the folder after"
+                )
         exported = sorted(
             name
             for name in self.ctx.environ
@@ -821,6 +844,7 @@ class _Campaign:
                     "run": opts.run,
                     "model_profile": opts.model_profile,
                     "limit": opts.limit,
+                    "case_ids": list(opts.case_ids) if opts.case_ids is not None else None,
                     "concurrency": opts.concurrency,
                     "start": start.isoformat(),
                     "end": _now().isoformat(),
@@ -897,6 +921,7 @@ class _Campaign:
             "--concurrency",
             str(opts.concurrency),
             *(["--limit", str(opts.limit)] if opts.limit is not None else []),
+            *(["--case-ids", ",".join(opts.case_ids)] if opts.case_ids else []),
         )
 
     def _worker_command(self, config: str) -> list[str]:
@@ -1284,6 +1309,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="comma-separated, run in this order (default: " + ",".join(DEFAULT_V2_CONFIGS) + ")",
     )
     run.add_argument("--limit", type=int, default=None, help="first N cases of each config (smoke)")
+    run.add_argument(
+        "--case-ids",
+        type=_config_list,
+        default=None,
+        help="comma-separated case ids: a trial over these cases of each config only, in this "
+        f"order (its RUN must start with {TRIAL_PREFIX!r}; the pinned case file is unchanged)",
+    )
     run.add_argument("--concurrency", type=int, choices=(1, 2), default=1)
     run.add_argument(
         "--gw-wait-s",
@@ -1345,6 +1377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         run=args.run,
                         configs=tuple(args.configs),
                         limit=args.limit,
+                        case_ids=tuple(args.case_ids) if args.case_ids is not None else None,
                         concurrency=args.concurrency,
                         gw_wait_s=args.gw_wait_s,
                         stack_wait_s=args.stack_wait_s,

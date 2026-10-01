@@ -35,7 +35,7 @@ help:
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
 	@echo "  bench-doctor [MODEL=<profile>] [READER=<model>] - Teammate kit: check this machine (Docker, Python, disk, keys in .env, the embedding) before the first run; MODEL adds that profile's key and, for a local model, the Ollama and GPU checks; no model calls (tasks 7.25, 7.29)"
 	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
-	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes (task 7.23)"
+	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one embedding check, then one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes, also after another model's run; CASE_IDS is a trial over chosen cases, RUN=trial-... (tasks 7.23, 7.29)"
 	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given (run it with LLM__PROVIDER and LLM__OPENAI_BASE_URL set inline: the reader is served by LLM__*); no model calls except the reader's (task 7.23)"
 	@echo "  bench-package RUN=<id> - Teammate kit: bench-results-<id>.zip of the run folder (raw/ included, never a key) and how to commit it to branch bench/<id> (task 7.23)"
 	@echo "  bench-canary MODEL=qwen2.5-7b-openrouter|llama-3.1-8b-openrouter - ONE live, billed strict-JSON call through rag-email's pinned client: checks the answer, the served provider and saves the exchange (no key) under evaluation/results/mailguard_bench/canary/; under a cent. Owner- or teammate-run before each OpenRouter run, never CI (task 7.29)"
@@ -228,6 +228,8 @@ MAILGUARD_LLM_TIMEOUT_S ?= 60
 # CONCURRENCY reaches the runner as --concurrency only. Make exports a command-line variable
 # to every recipe, and AppSettings would read CONCURRENCY as its `concurrency` settings group.
 unexport CONCURRENCY
+# CASE_IDS (a trial over chosen cases, task 7.29) reaches the kit as --case-ids only, likewise.
+unexport CASE_IDS
 
 # The config names have two meanings (ADR-0012 decision 11): SCHEME=v2 (the default, for new runs)
 # C0..C7, SCHEME=v1 the published C0/C0T/C1/C2/C3 and the C3-L1..C3-L5 ablation. SCHEME reaches the
@@ -284,13 +286,14 @@ bench-setup:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign setup
 
 bench-run:
-	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run its own)" >&2; exit 2; }
+	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run or a CASE_IDS trial its own, trial-...)" >&2; exit 2; }
 	@test -z "$(READER)" || { echo "FAIL READER= is not a bench-run option: the reader is served by LLM__* in the shell and bench-run refuses an exported LLM__*. Add the meaning column afterwards: LLM__PROVIDER=... LLM__OPENAI_BASE_URL=... make bench-report RUN=$(RUN) READER=<reader model>" >&2; exit 2; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign run \
 		--model-profile $(MODEL) \
 		--run $(RUN) \
 		$(if $(CONFIGS),--configs $(CONFIGS)) \
 		$(if $(LIMIT),--limit $(LIMIT)) \
+		$(if $(CASE_IDS),--case-ids $(CASE_IDS)) \
 		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY)) \
 		$(if $(filter 1 yes true,$(DRY_RUN)),--dry-run)
 

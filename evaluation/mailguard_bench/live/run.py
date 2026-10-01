@@ -1,7 +1,8 @@
 """Live benchmark runner: every rag-email service runs for real (task 7.20; ADR-0011; R22.12).
 
     python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3|C4|C5|C6|C7 --run RUN \\
-        --model-profile M [--scheme v2|v1] [--limit n] [--concurrency 1|2] [--case-timeout-s 300]
+        --model-profile M [--scheme v2|v1] [--limit n] [--case-ids ID,ID,..] [--concurrency 1|2] \\
+        [--case-timeout-s 300]
 
     per case:  live_organization ─▶ feeder.feed ─▶ (the running services) ─▶ collector.collect
                  org + MinIO cleanup    KB via API,      triage · lane · ai-worker (C0)     row v3
@@ -206,6 +207,42 @@ class LiveRunError(RuntimeError):
     """The live run cannot start or continue as configured (printed as ``FAIL ...``)."""
 
 
+def _case_id_list(text: str) -> tuple[str, ...]:
+    ids = tuple(item.strip() for item in text.split(",") if item.strip())
+    if not ids:
+        raise argparse.ArgumentTypeError("names no case id")
+    if len(set(ids)) != len(ids):
+        raise argparse.ArgumentTypeError(f"a case id is listed twice: {text}")
+    return ids
+
+
+def select_cases(
+    cases: Sequence[EvalCase],
+    config_ids: Sequence[str],
+    *,
+    case_ids: Sequence[str] | None,
+    limit: int | None,
+) -> list[EvalCase]:
+    """The cases one invocation runs: the config's own, or the chosen ones among them (a trial).
+
+    ``config_ids`` is the config's selection from the pinned manifest; ``case_ids`` narrows it to
+    those cases, in their order, and never adds one the config does not run. ``limit`` applies
+    last. The case file and the full-run selection are never changed.
+
+    Raises:
+        ValueError: If a chosen id is not one of the config's cases (named).
+    """
+    if case_ids is None:
+        return filter_cases(cases, case_ids=config_ids, limit=limit)
+    known = set(config_ids)
+    foreign = [case_id for case_id in case_ids if case_id not in known]
+    if foreign:
+        raise ValueError(
+            f"{len(foreign)} chosen case id(s) are not cases this config runs, first {foreign[0]}"
+        )
+    return filter_cases(cases, case_ids=list(case_ids), limit=limit)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--config", required=True, help="a guarded or native config of the scheme")
@@ -225,6 +262,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIR)
     parser.add_argument("--limit", type=int, default=None, help="first N selected cases (smoke)")
+    parser.add_argument(
+        "--case-ids",
+        type=_case_id_list,
+        default=None,
+        help="comma-separated case ids: run only these cases of the config, in this order (a "
+        "trial; each must be one the config runs; the pinned case file is never changed)",
+    )
     parser.add_argument("--concurrency", type=int, choices=(1, 2), default=1)
     parser.add_argument(
         "--case-timeout-s",
@@ -1158,9 +1202,10 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
     load_categories_from_yaml(settings.routing.categories_config_path)  # canonical KB categories
     loaded = load_case_set(args.case_dir)
-    cases = filter_cases(
+    cases = select_cases(
         [EvalCase.from_dict(case) for case in loaded.cases.values()],
-        case_ids=config_case_ids(loaded.manifest, args.config, args.scheme),
+        config_case_ids(loaded.manifest, args.config, args.scheme),
+        case_ids=args.case_ids,
         limit=args.limit,
     )
     run_dir = live.results_root / args.run
@@ -1299,6 +1344,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                 "started_at": datetime.now(UTC).isoformat(),
                 "n_cases_selected": len(cases),
                 "limit": args.limit,
+                "case_ids": list(args.case_ids) if args.case_ids is not None else None,
                 "retry_errors": args.retry_errors,
                 "concurrency": args.concurrency,
                 "case_timeout_s": args.case_timeout_s,

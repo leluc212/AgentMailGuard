@@ -50,14 +50,19 @@ class StepLog:
 
 
 def finished_configs(
-    records: Sequence[dict[str, Any]], model_profile: str, limit: int | None
+    records: Sequence[dict[str, Any]],
+    model_profile: str,
+    limit: int | None,
+    case_ids: Sequence[str] | None = None,
 ) -> set[str]:
-    """Configs whose last step was clean and complete for this model and limit.
+    """Configs whose last step was clean and complete for this model, limit and case list.
 
     Clean and complete: the runner exited 0, recorded no error row, and every selected case is
-    recorded (written by that start or by an earlier one). ``limit`` and the model are part of
-    the answer: a finished ``--limit 5`` smoke run is not a finished run.
+    recorded (written by that start or by an earlier one). ``limit``, ``case_ids`` and the model
+    are part of the answer: a finished ``--limit 5`` smoke run or a trial over chosen cases is not
+    a finished run. A step logged before the case list existed has none.
     """
+    wanted = list(case_ids) if case_ids is not None else None
     last: dict[str, dict[str, Any]] = {}
     for record in records:
         if record.get("step") == "config" and isinstance(record.get("config"), str):
@@ -69,6 +74,7 @@ def finished_configs(
             record.get("status") == "ok"
             and record.get("model_profile") == model_profile
             and record.get("limit") == limit
+            and record.get("case_ids") == wanted
             and isinstance(counts, dict)
             and counts.get("selected", 0) > 0
             and counts.get("error", 1) == 0
