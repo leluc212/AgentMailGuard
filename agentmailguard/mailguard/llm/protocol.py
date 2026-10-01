@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -21,6 +21,32 @@ class ChatMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class CallProvenance:
+    """Which endpoint served one call, as a router (OpenRouter) reports it.
+
+    Present on a result only when the provider was asked for the router's metadata. ``None``
+    fields mean the response did not say (a missing ``openrouter_metadata``), which a caller that
+    pinned a provider must treat as unverified, never as a match.
+    """
+
+    requested_model: str
+    served_provider: str | None = None
+    attempt: int | None = None  # 1-indexed; above 1 means the router fell back to another endpoint
+    summary: str | None = None
+    generation_id: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float | None = None
+    finish_reason: str | None = None
+    # the response field that named the provider: openrouter_metadata.endpoints | .summary,
+    # or response.provider (the body's top-level field, used when the metadata has none)
+    provider_source: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass
 class LLMResult:
     content: dict[str, Any]
@@ -31,6 +57,7 @@ class LLMResult:
     latency_ms: int = 0
     raw_finish_reason: str = "stop"
     raw_response: dict[str, Any] = field(default_factory=dict)
+    provenance: CallProvenance | None = None
 
     @property
     def text(self) -> str:

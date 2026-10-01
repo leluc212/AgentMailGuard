@@ -57,6 +57,21 @@ Counting `llm_fallback` per layer over a run gives the fallback rate of each AI 
 `ExtractorOutput` has no field defaults, so `{"raw_text": ...}` or a partial object cannot
 pass as "the model found no instructions".
 
+### Served-provider provenance (OpenRouter route)
+
+`OpenAIProvider` can serve a judge through OpenRouter with one provider pinned. A model spec in
+`configs/models.yaml` adds `provider_routing` (OpenRouter's `provider` request object, for
+example `order: [coreweave]`, `allow_fallbacks: false`, `require_parameters: true`; only the keys
+OpenRouter documents are accepted) and `response_metadata: true`, which sends
+`X-OpenRouter-Metadata: enabled`. Each `LLMResult` then carries `provenance`
+(`mailguard/llm/provenance.py`): the requested model, the provider that served the call, the
+attempt number (above 1 means the router fell back), the generation id, tokens, cost and finish
+reason. The provider does not judge the match: a judge stage that raised on a mismatch would only
+fall back and stay scored. The caller that pinned the provider reads `provenance` and treats a
+different provider, an attempt above 1 or a response that names no provider as an error of the case.
+The provider is read from `openrouter_metadata` first; when that is absent, from the top-level
+`provider` field of the response body. `provenance.provider_source` records which one was used.
+
 ## Layer design notes
 
 ### L1 Email Injection Scanner

@@ -80,6 +80,8 @@ class ModelRegistry:
                 api_key=spec.get("api_key"),
                 timeout_s=float(spec.get("timeout_s", 30.0)),
                 json_mode=str(spec.get("json_mode", "json_object")),
+                provider_routing=spec.get("provider_routing"),
+                response_metadata=bool(spec.get("response_metadata", False)),
             )
         else:
             raise ValueError(f"Unsupported backend '{backend}' for model '{name}'")

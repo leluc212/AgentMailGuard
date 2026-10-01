@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -18,6 +19,12 @@ from mailguard.llm.protocol import (
     LLMResult,
     LLMTimeoutError,
     ModelTier,
+)
+from mailguard.llm.provenance import (
+    METADATA_HEADER,
+    METADATA_HEADER_VALUE,
+    parse_provenance,
+    validate_provider_routing,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,8 +63,21 @@ class OpenAIProvider(LLMProvider):
         timeout_s: float = 30.0,
         json_mode: str = "json_object",  # json_object | json_schema | none
         client: httpx.AsyncClient | None = None,
+        provider_routing: Mapping[str, Any] | None = None,
+        response_metadata: bool = False,
     ) -> None:
+        """``provider_routing`` is OpenRouter's ``provider`` object (pin a provider, no fallbacks).
+
+        With ``response_metadata`` the request asks the router for its metadata and every result
+        carries ``provenance`` (the served provider, the attempt, the generation id, the cost).
+        The provider never judges the match itself: a failed judge stage would only fall back,
+        so the caller that pinned the provider checks the provenance.
+        """
         self.model = model
+        self.provider_routing: dict[str, Any] | None = (
+            None if provider_routing is None else validate_provider_routing(provider_routing)
+        )
+        self.response_metadata = response_metadata
         self._base_url = (
             base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ).rstrip("/")
@@ -99,7 +119,12 @@ class OpenAIProvider(LLMProvider):
         elif schema is not None and self._json_mode == "json_object":
             payload["response_format"] = {"type": "json_object"}
 
+        if self.provider_routing is not None:
+            payload["provider"] = self.provider_routing
+
         headers = {"Content-Type": "application/json"}
+        if self.response_metadata:
+            headers[METADATA_HEADER] = METADATA_HEADER_VALUE
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         client = await self._client_or_new()
@@ -134,4 +159,9 @@ class OpenAIProvider(LLMProvider):
             latency_ms=max(1, int((time.perf_counter() - start) * 1000)),
             raw_finish_reason=str(choices[0].get("finish_reason", "stop")),
             raw_response=data,
+            provenance=(
+                parse_provenance(data, resp.headers, requested_model=self.model)
+                if self.response_metadata
+                else None
+            ),
         )
