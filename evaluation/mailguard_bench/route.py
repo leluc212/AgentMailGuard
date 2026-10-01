@@ -121,12 +121,15 @@ def stop_message(config: str, reason: str) -> str:
     """The line a run prints when the breaker stopped it, with how to go on.
 
     The rows that tripped the stop are ``error`` rows, and a resume skips every recorded case,
-    so only ``--retry-errors`` runs those cases again.
+    so only ``--retry-errors`` runs those cases again. The kit (``make bench-run``) already passes
+    it to every runner it starts and has no such option, so the line says which command needs it:
+    a teammate reading it under the kit must rerun the kit's command unchanged.
     """
     return (
-        f"STOP {config}: {reason}; once the route serves again, run the same command again "
-        "with --retry-errors (the rows that tripped the stop are error rows, and a plain "
-        "resume skips them)"
+        f"STOP {config}: {reason}; once the route serves again, rerun: under the kit, the same "
+        "`make bench-run` command unchanged (it already retries error rows); a runner started "
+        "by hand, its command with --retry-errors (the rows that tripped the stop are error "
+        "rows, and a plain resume skips them)"
     )
 
 

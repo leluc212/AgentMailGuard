@@ -623,6 +623,18 @@ def test_the_stop_message_says_a_resume_needs_retry_errors() -> None:
     assert "--retry-errors" in message
 
 
+def test_the_stop_message_tells_a_kit_user_to_rerun_the_kit_command_unchanged() -> None:
+    """`make bench-run` has no retry option and always passes --retry-errors to the runner (the
+    kit's command tests check that), so a teammate who reads the STOP line under the kit must
+    not look for a flag to add."""
+    message = stop_message("C0", "no_credit")
+
+    assert "`make bench-run` command unchanged" in message
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("\nbench-run:", 1)[1].split("\nbench-report:", 1)[0]
+    assert "retry" not in recipe.lower()
+
+
 # --- the report states the route and what the runs are not comparable with ----------------
 
 
