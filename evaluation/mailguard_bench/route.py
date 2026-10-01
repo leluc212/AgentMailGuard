@@ -1,15 +1,16 @@
 """The OpenRouter route of a benchmark run: what its meta records and when the run stops.
 
-Work package R4 (parked; ADR-0012 decision 9). A run whose model is served through OpenRouter
-pins ONE provider with fallbacks off. Three things follow, all pure and testable without a
-network:
+Task 7.29 (the full-cloud route, ADR-0014; built as work package R4). A run whose model is
+served through OpenRouter pins ONE provider with fallbacks off. Three things follow, all pure and
+testable without a network:
 
 - the run meta records the pin (``route_meta``), so a resume under another pin is refused;
 - every call's provenance (the served provider, the attempt, the generation id, the cost) is
   read back from the result rows (``provenance_summary``);
 - the run stops after three consecutive provider mismatches or "no provider" errors, and at once
   when the account has no credit (``RouteBreaker``): continuing would only fill the result file
-  with error rows. Cases already recorded stay; a resume runs the rest.
+  with error rows. Cases already recorded stay; a resume runs the rest. The runner then exits
+  ``ROUTE_STOP_EXIT``, and the benchmark kit stops the whole campaign on it.
 
 A call another provider served is an error of its case (``packages/llm/client.py`` raises for
 rag-email's calls; ``counting.CountingProvider`` records a violation for the guard's), never a
@@ -28,6 +29,10 @@ from packages.llm.provenance import MISMATCH_MARKER, check_pinned_route
 
 STOP_AFTER = 3
 """Consecutive provider mismatches or no-provider errors after which the run stops."""
+ROUTE_STOP_EXIT = 3
+"""The exit status of a runner the breaker stopped (``STOP <config>``), distinct from a failure's
+1: the benchmark kit stops the whole campaign on it, because the next config and the retry pass
+would only hit the same route."""
 
 _NO_PROVIDER = re.compile(r"(?:LLM request failed with status|HTTP)\s*:?\s*(?:404|502|503)\b")
 _NO_CREDIT = re.compile(r"(?:LLM request failed with status|HTTP)\s*:?\s*402\b")
@@ -68,10 +73,11 @@ def expected_guard_route(llm: LLMTiersSettings) -> dict[str, Any] | None:
 def guard_pin_problem(provider: object, expected: Mapping[str, Any] | None) -> str | None:
     """Why the guard's provider would not honour the run's pin, or None.
 
-    A guard commit without provider routing (1a3ef62, before this route) ignores the keys of
-    ``guard_models.yaml`` it does not know: its provider would send no pin and report no provider,
-    and the run would look pinned while the judges ran on whatever OpenRouter picked. So a routed
-    run compares what the provider is configured to send with what the run pins, before any call.
+    A guard commit without provider routing (1a3ef62, the v2 pin before ADR-0014) ignores the
+    keys of ``guard_models.yaml`` it does not know: its provider would send no pin and report no
+    provider, and the run would look pinned while the judges ran on whatever OpenRouter picked.
+    So a routed run compares what the provider is configured to send with what the run pins,
+    before any call.
     """
     if expected is None:
         return None

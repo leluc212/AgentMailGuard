@@ -21,6 +21,13 @@ rag-email's environment, which every subprocess inherits (``sys.executable -m ..
                                     <run>/raw/guard-worker.<config>.log)
                                     ─▶ wait: pid file newer than the start AND /readyz answers
                                     ─▶ live.run ─▶ stop it and confirm it exited
+          after each config: the triage-worker's and the ai-worker's log lines of that config
+                   (``docker compose logs --since <its start>``) appended to
+                   <run>/raw/services.<config>.log: their ``llm_inference`` lines record
+                   which provider served every call of a pinned route (triage, the
+                   summarizer and C0's generation reach no result row)
+          a runner that exits ``route.ROUTE_STOP_EXIT`` (its route breaker printed ``STOP``):
+                   the campaign stops at once, no next config, no retry pass
           one retry pass over the configs that failed or left error rows
           reports: the report (a v1 folder: report, analyses, report); the meaning column is
                    ``report --reader``: its LLM__* settings may not be exported during a run, so
@@ -88,6 +95,7 @@ from evaluation.mailguard_bench.kit.system import Host, ProcessHandle, SystemHos
 from evaluation.mailguard_bench.live import stack_env
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT, HOST, pid_path
 from evaluation.mailguard_bench.meaning import reader_model_problems
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, meta_path
 from evaluation.mailguard_bench.scheme import (
     SCHEME_V1,
@@ -139,6 +147,28 @@ RERANK_COPY_DIR = Path(".cache") / "reranker"
 """The host's copy of that folder, under the repo root: git-ignored and out of the build context."""
 RERANK_COPY_MARKER = Path(".cache") / "reranker.image-id"
 """Next to the copy: the id of the image it came from, written only once the copy is complete."""
+LOGGED_SERVICES = ("triage-worker", "ai-worker")
+"""The model-calling containers whose log lines of a config are kept with the run."""
+
+
+def services_log_path(raw_dir: Path, config: str) -> Path:
+    """Where a config's container log lines go (every pass appends)."""
+    return raw_dir / f"services.{config}.log"
+
+
+def services_log_command(since: datetime) -> list[str]:
+    """The containers' log lines from ``since`` on: the served provider of every call."""
+    stamp = since.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return [
+        "docker",
+        "compose",
+        "logs",
+        "--no-color",
+        "--timestamps",
+        "--since",
+        stamp,
+        *LOGGED_SERVICES,
+    ]
 
 
 def _eprint(line: str) -> None:
@@ -603,6 +633,10 @@ class _Campaign:
             f"   llm       {plan.profile.model} at {values['LLM__OPENAI_BASE_URL']}"
             f" (timeout {values['LLM__TIMEOUT_S']} s)"
         )
+        if values.get("LLM__OPENAI_PROVIDER_ROUTING"):
+            route = json.loads(values["LLM__OPENAI_PROVIDER_ROUTING"])
+            self.ctx.out(f"   route     {stack_env.describe_route(route)}")
+        self.ctx.out(f"   {stack_env.describe_embedding(values)}")
         status = "ok"
         try:
             self._docker(plan.command)
@@ -691,7 +725,9 @@ class _Campaign:
         try:
             exit_code = self._drive(config)
             status = "ok" if exit_code == 0 else "failed"
-            if exit_code != 0:
+            if exit_code == ROUTE_STOP_EXIT:
+                status, reason = "stopped", "the route breaker stopped the runner (STOP)"
+            elif exit_code != 0:
                 reason = f"live.run exited {exit_code}"
                 self.ctx.err(f"FAIL {config}: live.run exited {exit_code}")
         except KeyboardInterrupt:
@@ -702,6 +738,8 @@ class _Campaign:
             raise
         finally:
             counts = None if self.dry else _read_counts(self.ctx, opts.run, config, start)
+            if not self.dry:
+                self._save_service_logs(config, start)
             self.log.append(
                 {
                     "step": "config",
@@ -720,7 +758,41 @@ class _Campaign:
                     "counts": counts,
                 }
             )
+        if status == "stopped":
+            raise _AbortError(
+                f"{config}: the model's route stopped serving (the runner's STOP line above says "
+                "why: no credit, the pinned provider unavailable, or calls served by another "
+                "provider). The campaign stops here, before the next config and the retry pass, "
+                "which would hit the same route. Fix the cause (fund the key, or wait until the "
+                "provider serves again; never switch providers inside a RUN), then run the same "
+                "command again: finished configs are skipped and the error rows retried"
+            )
         return _Outcome(config, status, exit_code, counts)
+
+    def _save_service_logs(self, config: str, since: datetime) -> None:
+        """Append the containers' log lines of this config to ``raw/services.<config>.log``.
+
+        A pinned route's served provider is in each call's ``llm_inference`` line: for triage,
+        the summarizer and C0's generation that is the only record (guarded rows carry their
+        own). A failure here is a warning: the rows are what the report reads.
+        """
+        path = services_log_path(self.raw_dir, config)
+        command = services_log_command(since)
+        try:
+            done = self.ctx.host.capture(command, cwd=self.ctx.repo_root)
+        except OSError as exc:
+            self.ctx.err(f"WARN could not save the container logs of {config}: {exc}")
+            return
+        if done.returncode != 0:
+            self.ctx.err(
+                f"WARN `{_join(command)}` exited {done.returncode}; the container logs of "
+                f"{config} were not saved"
+            )
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(f"=== kit: {_join(command)} at {_now().isoformat()} ===\n")
+            handle.write(done.stdout)
 
     def _drive(self, config: str) -> int:
         """The drafting-consumer switch and the run of one config (runbook ``run_config``)."""

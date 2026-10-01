@@ -10,9 +10,21 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from evaluation.mailguard_bench.model_profiles import PROFILES
+from evaluation.mailguard_bench.openrouter_canary import parse_args
+
 REPO = Path(__file__).resolve().parents[2]
 MAKEFILE = (REPO / "Makefile").read_text(encoding="utf-8")
-TARGETS = ("bench-doctor", "bench-setup", "bench-run", "bench-report", "bench-package")
+TARGETS = (
+    "bench-doctor",
+    "bench-setup",
+    "bench-run",
+    "bench-report",
+    "bench-package",
+    "bench-canary",
+)
 CAMPAIGN = "-m evaluation.mailguard_bench.kit.campaign"
 
 
@@ -163,3 +175,32 @@ def test_the_package_zip_at_the_repo_root_is_git_ignored() -> None:
         check=False,
     )
     assert done.returncode == 0
+
+
+def test_bench_doctor_passes_the_model_and_the_reader_when_given() -> None:
+    # `make bench-doctor MODEL=<profile>` checks that profile's key (the OpenRouter key for the
+    # two -openrouter profiles), and skips the Ollama and GPU checks of a hosted model.
+    assert "--model-profile" not in dry("bench-doctor")
+    printed = dry("bench-doctor", "MODEL=qwen2.5-7b-openrouter", "READER=some-reader")
+    assert "kit.doctor --model-profile qwen2.5-7b-openrouter --reader some-reader" in printed
+
+
+def test_bench_canary_needs_a_model_and_runs_the_canary_under_the_overlay() -> None:
+    result = make("bench-canary", check=False)
+    assert result.returncode == 2
+    assert (result.stdout + result.stderr).startswith("usage: make bench-canary")
+    printed = dry("bench-canary", "MODEL=llama-3.1-8b-openrouter")
+    assert "--with-editable" in printed
+    assert (
+        "python -m evaluation.mailguard_bench.openrouter_canary "
+        "--model-profile llama-3.1-8b-openrouter"
+    ) in printed
+
+
+def test_the_canary_refuses_a_profile_that_is_not_routed() -> None:
+    routed = sorted(name for name, profile in PROFILES.items() if profile.routing is not None)
+    assert routed == ["llama-3.1-8b-openrouter", "qwen2.5-7b-openrouter"]
+    for name in routed:
+        assert parse_args(["--model-profile", name]).model_profile == name
+    with pytest.raises(SystemExit):
+        parse_args(["--model-profile", "gpt-4o-mini"])

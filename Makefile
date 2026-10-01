@@ -25,7 +25,7 @@ help:
 	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v2: 915cb1e) in ../AgentMailGuard-bench; with the guard committed under agentmailguard/ only verify its pin (tasks 7.19, 7.24)"
 	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
-	@echo "  mailguard-probe - ONE live guard-judge call on the Gemini API, owner-run (not CI)"
+	@echo "  mailguard-probe [MODEL=<profile>] - ONE live guard-judge call on the profile's endpoint (default: the Gemma test model on the Gemini API); on an OpenRouter profile it also checks the pinned provider. Owner-run (not CI)"
 	@echo "  mailguard-test - ONE guard-side unit file (tests/unit/test_mailguard_bench_guard.py) under the AgentMailGuard overlay (fake models, no network); the whole suite is mailguard-unit"
 	@echo "  mailguard-unit - The WHOLE unit suite under the AgentMailGuard overlay (fake models, no network, no classifier): runs the ~260 tests that plain pytest skips for want of the guard; CI runs it on the committed agentmailguard/ (run it before main and before a benchmark)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
@@ -33,11 +33,12 @@ help:
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
-	@echo "  bench-doctor - Teammate kit: check this machine (Docker, Python, disk, keys in .env) before the first run; no model calls (task 7.23)"
+	@echo "  bench-doctor [MODEL=<profile>] [READER=<model>] - Teammate kit: check this machine (Docker, Python, disk, keys in .env, the embedding) before the first run; MODEL adds that profile's key and, for a local model, the Ollama and GPU checks; no model calls (tasks 7.25, 7.29)"
 	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
 	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes (task 7.23)"
 	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given (run it with LLM__PROVIDER and LLM__OPENAI_BASE_URL set inline: the reader is served by LLM__*); no model calls except the reader's (task 7.23)"
 	@echo "  bench-package RUN=<id> - Teammate kit: bench-results-<id>.zip of the run folder (raw/ included, never a key) and how to commit it to branch bench/<id> (task 7.23)"
+	@echo "  bench-canary MODEL=qwen2.5-7b-openrouter|llama-3.1-8b-openrouter - ONE live, billed strict-JSON call through rag-email's pinned client: checks the answer, the served provider and saves the exchange (no key) under evaluation/results/mailguard_bench/canary/; under a cent. Owner- or teammate-run before each OpenRouter run, never CI (task 7.29)"
 
 up:
 	@if [ -f docker-compose.yml ]; then \
@@ -235,7 +236,7 @@ SCHEME ?= v2
 unexport SCHEME
 
 mailguard-bench:
-	@case "$(SCHEME)/$(CONFIG)" in v2/C0|v2/C0T|v2/C1|v2/C2|v2/C3|v2/C4|v2/C5|v2/C6|v2/C7|v1/C0|v1/C3|v1/C0T|v1/C1|v1/C2|v1/C3-L1|v1/C3-L2|v1/C3-L3|v1/C3-L3B|v1/C3-L4|v1/C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [SCHEME=v2] [MODEL=gpt-4o-mini|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]; or, to reproduce the published runs, SCHEME=v1 CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5"; exit 2;; esac
+	@case "$(SCHEME)/$(CONFIG)" in v2/C0|v2/C0T|v2/C1|v2/C2|v2/C3|v2/C4|v2/C5|v2/C6|v2/C7|v1/C0|v1/C3|v1/C0T|v1/C1|v1/C2|v1/C3-L1|v1/C3-L2|v1/C3-L3|v1/C3-L3B|v1/C3-L4|v1/C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [SCHEME=v2] [MODEL=gpt-4o-mini|qwen2.5-7b-openrouter|llama-3.1-8b-openrouter|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]; or, to reproduce the published runs, SCHEME=v1 CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5"; exit 2;; esac
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
 		--config $(CONFIG) --scheme $(SCHEME) --run $(RUN) --retry-errors \
@@ -274,10 +275,10 @@ mailguard-analyses:
 # overlay as the mailguard-* targets. Make runs in a Linux shell (WSL2 Ubuntu on Windows); the
 # modules themselves are pure Python and also run natively on Windows. CONCURRENCY stays an
 # argument only (the `unexport CONCURRENCY` above). CONFIGS empty: the kit's own default list.
-.PHONY: bench-doctor bench-setup bench-run bench-report bench-package
+.PHONY: bench-doctor bench-setup bench-run bench-report bench-package bench-canary
 
 bench-doctor:
-	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.doctor
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.doctor $(if $(MODEL),--model-profile $(MODEL)) $(if $(READER),--reader $(READER))
 
 bench-setup:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign setup
@@ -300,3 +301,9 @@ bench-report:
 bench-package:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign package --run $(RUN)
+
+# ONE live, billed call (task 7.29): the OpenRouter route's canary, before each OpenRouter run. The
+# module refuses a profile that is not routed; it reads the key from .env and never prints it.
+bench-canary:
+	@test -n "$(MODEL)" || { echo "usage: make bench-canary MODEL=qwen2.5-7b-openrouter|llama-3.1-8b-openrouter  (one live call, under a cent; not CI)" >&2; exit 2; }
+	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.openrouter_canary --model-profile $(MODEL)

@@ -979,3 +979,102 @@ def test_the_leak_scan_finds_a_key_at_the_very_end_of_a_large_file(
     (run_dir / "raw").mkdir(parents=True)
     (run_dir / "raw" / "x.log").write_bytes(b"a" * 100_000 + EMBED_KEY.encode())
     assert campaign.run_package(bench.ctx, RUN) == 1
+
+
+# --- the full-cloud route (task 7.29; ADR-0014) -----------------------------------------------
+
+
+def test_a_route_stop_ends_the_campaign_before_the_next_config_and_the_retry_pass(
+    bench: Bench,
+) -> None:
+    # The runner's breaker printed STOP (no credit, the pinned provider gone, or mismatches):
+    # the next config and the retry pass would only hit the same route.
+    from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+
+    bench.runner_outcomes({"ok": 1, "error": 3})
+    bench.host.exits["live.run C0"] = ROUTE_STOP_EXIT
+
+    assert run_campaign(bench.ctx, opts(configs=("C0", "C3"))) == 1
+
+    assert sequence(bench.host) == [
+        STACK_UP,
+        COPY_MODEL,
+        "docker compose start ai-worker",
+        "live.run C0",
+    ]
+    steps = [s for s in bench.kit_log() if s["step"] == "config"]
+    assert [(s["config"], s["status"], s["pass"]) for s in steps] == [("C0", "stopped", 1)]
+    text = "\n".join(bench.err)
+    assert "route stopped serving" in text and "never switch providers inside a RUN" in text
+    assert "make bench-run" in text  # the resume command
+
+
+def test_a_stopped_config_is_not_finished_so_the_same_command_resumes_it(bench: Bench) -> None:
+    from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+
+    bench.runner_outcomes({"ok": 1, "error": 3}, {}, {})
+    bench.host.exits["live.run C0"] = ROUTE_STOP_EXIT
+    assert run_campaign(bench.ctx, opts(configs=("C0", "C3"))) == 1
+    del bench.host.exits["live.run C0"]
+    bench.host.events.clear()
+
+    assert run_campaign(bench.ctx, opts(configs=("C0", "C3"))) == 0
+    assert "live.run C0" in sequence(bench.host) and "live.run C3" in sequence(bench.host)
+
+
+def test_each_config_keeps_the_containers_log_lines_of_its_own_time(bench: Bench) -> None:
+    # The served provider of triage, the summarizer and C0's generation is only in the services'
+    # llm_inference lines (task 7.29): the kit keeps them with the run, per config and pass.
+    logged: list[list[str]] = []
+
+    def capture(cmd: list[str]) -> CommandResult | None:
+        if cmd[:3] == ["docker", "compose", "logs"]:
+            logged.append(cmd)
+            return CommandResult(0, '{"message": "llm_inference"}\n')
+        return None
+
+    bench.host.capture_hook = capture
+    bench.runner_outcomes({}, {})
+    assert run_campaign(bench.ctx, opts(configs=("C0", "C3"))) == 0
+
+    assert len(logged) == 2
+    for cmd in logged:
+        assert cmd[:5] == ["docker", "compose", "logs", "--no-color", "--timestamps"]
+        assert cmd[5] == "--since" and cmd[6].endswith("Z")
+        assert cmd[7:] == ["triage-worker", "ai-worker"]
+    raw = bench.results_root / RUN / "raw"
+    for config in ("C0", "C3"):
+        text = (raw / f"services.{config}.log").read_text(encoding="utf-8")
+        assert text.startswith("=== kit: docker compose logs") and "llm_inference" in text
+
+
+def test_a_log_that_cannot_be_saved_is_a_warning_not_a_failure(bench: Bench) -> None:
+    def capture(cmd: list[str]) -> CommandResult | None:
+        return CommandResult(1, "") if cmd[:3] == ["docker", "compose", "logs"] else None
+
+    bench.host.capture_hook = capture
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C0",))) == 0
+    assert any(line.startswith("WARN `docker compose logs") for line in bench.err)
+
+
+def test_an_openrouter_run_prints_its_pin_and_the_embedding_without_a_key(
+    bench: Bench,
+) -> None:
+    (bench.repo / ".env").write_text(
+        "".join(
+            f"{k}={v}\n" for k, v in {**HOST_ENV, "BENCH_OPENROUTER_API_KEY": "sk-or-x"}.items()
+        ),
+        "utf-8",
+    )
+    bench.runner_outcomes({})
+    assert (
+        run_campaign(bench.ctx, opts(model_profile="qwen2.5-7b-openrouter", configs=("C0",))) == 0
+    )
+
+    route = next(line for line in bench.out if line.strip().startswith("route"))
+    assert "pinned to phala" in route and "fallbacks off" in route
+    embedding = next(line for line in bench.out if line.strip().startswith("embedding"))
+    assert HOST_ENV["EMBEDDING__MODEL_NAME"] in embedding and "1536 dimensions" in embedding
+    printed = "\n".join(bench.out + bench.err)
+    assert "sk-or-x" not in printed and EMBED_KEY not in printed

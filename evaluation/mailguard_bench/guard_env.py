@@ -329,7 +329,9 @@ def guard_provider_env(base_url: str, api_key: str | None) -> dict[str, str]:
     """
     if not api_key:
         raise GuardEnvError(
-            "LLM__OPENAI_API_KEY is empty; the guard's LLM stages need the Gemini key"
+            "LLM__OPENAI_API_KEY is empty; the guard's LLM stages call the run's endpoint with "
+            "its key (a model profile sets it from its own key, such as BENCH_OPENAI_API_KEY or "
+            "BENCH_OPENROUTER_API_KEY)"
         )
     return {"OPENAI_BASE_URL": base_url.rstrip("/"), "OPENAI_API_KEY": api_key}
 

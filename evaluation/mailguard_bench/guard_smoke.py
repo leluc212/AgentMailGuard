@@ -1,13 +1,14 @@
 """Check that the pinned AgentMailGuard worktree is installed and wired (task 7.19; ADR-0010).
 
     make mailguard-smoke     # no network, no model call
-    make mailguard-probe     # owner-run, not CI: ONE live call to the guard judge (Gemini API)
+    make mailguard-probe [MODEL=<profile>]  # owner-run, not CI: ONE live guard-judge call
+                                            # (default: the Gemma test model, Gemini API)
 
 Run as a module from the rag-email root, never as a scripts/ file: AgentMailGuard also ships
 top-level `services` and `evaluation` packages, and only the cwd-first sys.path of
 `python -m` keeps rag-email's in front (check 2). The Make targets set MAILGUARD_DIR,
-MAILGUARD_COMMIT and MAILGUARD_ARTIFACTS. The API key is read from rag-email's .env
-(LLM__OPENAI_API_KEY) through AppSettings and never printed.
+MAILGUARD_COMMIT and MAILGUARD_ARTIFACTS. The API key is the model profile's (MODEL=), or else
+rag-email's LLM__OPENAI_API_KEY read through AppSettings; it is never printed.
 
 Checks, stopping at the first failure:
   1. MAILGUARD_DIR is a clean worktree at MAILGUARD_COMMIT.

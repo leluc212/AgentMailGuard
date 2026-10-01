@@ -35,6 +35,7 @@ from evaluation.mailguard_bench.live.run import (
     probe_consumer_counts,
     run,
 )
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
 from packages.core.settings import AppSettings, BrokerSettings
 from packages.core.storage import FakeObjectStorageClient
 from packages.db.checkpoint import InMemoryCheckpointStore
@@ -1506,6 +1507,12 @@ async def test_a_case_that_fails_is_still_cleaned_up_and_its_error_reaches_the_r
 
 WHOLE_RUN_LANES = ["email.support.normal", "email.support.priority"]
 MODEL_429 = "FatalError: LLMResponseError: LLM request failed with status 429: quota exhausted"
+# What the ai-worker dead-letters for an OpenRouter account out of credit (task 7.29): the status
+# and the limit source come first, so the row's 200-character cut keeps them.
+NO_CREDIT_402 = (
+    "LLMResponseError: LLM request failed with status 402 (openrouter_credits): "
+    '{"error": {"code": 402, "message": "Insufficient credits"}}'
+)
 UNVALIDATED_DRAFT = (
     "FatalError: UnvalidatedDraftError: Repair retry returned an unparseable payload"
 )
@@ -1727,6 +1734,10 @@ class SimWorld:
         if scenario == "dead_lettered_429":  # the ladder gave up
             await move(JobState.FAILED, error=MODEL_429)
             await move(JobState.DEAD_LETTER, error=MODEL_429)
+            return
+        if scenario == "no_credit":  # a 402 that waiting does not lift: dead-lettered at once
+            await move(JobState.FAILED, error=NO_CREDIT_402)
+            await move(JobState.DEAD_LETTER, error=NO_CREDIT_402)
             return
         if scenario == "unvalidated_draft":  # invalid after the repair: R16.3, straight to the DLQ
             await move(JobState.FAILED, error=UNVALIDATED_DRAFT)
@@ -2667,3 +2678,25 @@ async def test_the_rows_of_a_guarded_run_are_read_by_the_scorers_reader(
     assert a1.generation.input_tokens == 1100  # the guard-worker's own count, from its audit line
     assert triage_bucket(records["attack-a2"]) == "early_exit"
     assert records["attack-a2"].guard_llm.calls == 0  # no guard ran on a triage-stopped email
+
+
+async def test_a_routed_run_out_of_credit_stops_at_once_with_the_route_exit(
+    live_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Task 7.29: the breaker trips at the first no-credit row, the run starts no further case,
+    # and it exits ROUTE_STOP_EXIT so the kit stops the whole campaign rather than going on.
+    os.environ["BENCH_OPENROUTER_API_KEY"] = "sk-or-test"
+    world, pool = SimWorld(), RunPool()
+    world.scenarios = {"attack-a1": "no_credit"}
+    deps = _live_deps(live_env, world, pool)
+    args = _run_args(live_env, "C0", "--model-profile", "qwen2.5-7b-openrouter")
+
+    assert await run(args, deps) == ROUTE_STOP_EXIT
+    await asyncio.gather(*world.tasks)
+
+    err = capsys.readouterr().err
+    assert "STOP C0: no_credit" in err and "--retry-errors" in err
+    rows = _rows(live_env)
+    assert rows["attack-a1"]["status"] == "error"
+    assert len(rows) < len(SCENARIOS)  # the cases after the stop were never started
+    assert "sk-or-test" not in err

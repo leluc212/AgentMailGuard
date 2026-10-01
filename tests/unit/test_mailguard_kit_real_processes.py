@@ -122,6 +122,8 @@ elif args[0] == "inspect" and args[2] == "{{{{.Image}}}}":  # the image a contai
     print(os.environ["FAKE_IMAGE_ID"])
 elif args[0] == "inspect":
     print("\\n".join(f"/{{i}}|running|healthy|0" for i in args[3:]))
+elif args[:2] == ["compose", "logs"]:  # the containers' lines of one config
+    print('ai-worker-1  | {{"message": "llm_inference", "fields": {{"provenance": null}}}}')
 elif args[:2] == ["compose", "cp"]:  # docker compose cp SERVICE:SRC DEST, with docker's rules:
     dest = args[3]  # DEST's parent must exist, and DEST must not (else SRC lands inside it)
     if not os.path.isdir(os.path.dirname(dest)) or os.path.exists(dest):
@@ -186,7 +188,12 @@ def test_one_guarded_and_one_native_config_over_real_processes(
 
     assert run_campaign(ctx, options) == 0, err
 
-    lines = calls.read_text(encoding="utf-8").splitlines()
+    logs = "docker compose logs --no-color --timestamps --since "
+    lines = [
+        # the --since stamp is the config's start time; the services are the two that call a model
+        f"{logs}<start> triage-worker ai-worker" if ln.startswith(logs) else ln
+        for ln in calls.read_text(encoding="utf-8").splitlines()
+    ]
     waits = ("docker compose ps", "docker inspect")  # the health polls, however many there were
     model_dir = repo / ".cache" / "reranker"
     assert [ln for ln in lines if not ln.startswith(waits)] == [
@@ -195,12 +202,14 @@ def test_one_guarded_and_one_native_config_over_real_processes(
         "docker compose start ai-worker",
         "run C0 sees rerank dir None",
         "run C0 ok",
+        f"{logs}<start> triage-worker ai-worker",  # the served provider of C0's calls
         "docker compose stop ai-worker",
         f"worker C3 rerank dir {model_dir}",  # the guard-worker's own environment holds it...
         "worker C3 ready",
         "run C3 sees rerank dir None",  # ...and the runner's does not
         "run C3 ok",  # only after the worker was ready: the stand-in runner refuses otherwise
         "worker C3 stopped",  # a real SIGTERM, stopped before the reports
+        f"{logs}<start> triage-worker ai-worker",
         "module report",
         "module analyses",
         "module report",
@@ -212,6 +221,8 @@ def test_one_guarded_and_one_native_config_over_real_processes(
     assert not (results_root / "real-1" / "raw" / "guard_worker.C3.pid").exists()
     assert not list((results_root / "real-1" / "raw").glob(".kit-stamp.*"))
     assert (results_root / "real-1" / "raw" / "guard-worker.C3.log").is_file()
+    services = (results_root / "real-1" / "raw" / "services.C0.log").read_text("utf-8")
+    assert '"llm_inference"' in services and services.startswith("=== kit: docker compose logs")
     steps = [
         json.loads(line)
         for line in (results_root / "real-1" / "kit-log.jsonl").read_text("utf-8").splitlines()

@@ -106,7 +106,7 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
-from evaluation.mailguard_bench.route import RouteBreaker, stop_message
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT, RouteBreaker, stop_message
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.runner import (
     FINGERPRINT_KEYS,
@@ -1352,7 +1352,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
     )
     if summary.stopped:
         print(stop_message(args.config, summary.stopped), file=sys.stderr)
-        return 1
+        return ROUTE_STOP_EXIT
     return 0
 
 

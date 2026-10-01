@@ -88,6 +88,7 @@ from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
 from evaluation.mailguard_bench.route import (
+    ROUTE_STOP_EXIT,
     RouteBreaker,
     expected_guard_route,
     provenance_summary,
@@ -853,7 +854,7 @@ async def run(args: argparse.Namespace) -> int:
     )
     if summary.stopped:
         print(stop_message(args.config, summary.stopped), file=sys.stderr)
-        return 1
+        return ROUTE_STOP_EXIT
     return 0
 
 
