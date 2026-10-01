@@ -12,7 +12,9 @@
 - **Changes:** `specs/tasks.md` task 7.29; `docs/BENCHMARK.md`, `docs/benchmark-windows-native.md`,
   `docs/demo-runbook.md` §9.9 and §9.10, `docs/configuration.md`, `.env.example`, `README.md`
 - **Amended:** decisions 9 to 15 below (owner decisions of 2026-10-01, A to G), after the first
-  version of this record
+  version of this record; then by the review of 2026-10-01 (the source in a STOP line, the meaning
+  step's no-credit stop, the check's one wait on a per-minute 429, a non-JSON 2xx guard body, and
+  the limits another model shares)
 
 ## Context
 
@@ -101,8 +103,9 @@ was 1,000 a day).
 
 9. **A guard route failure is a retried error row (A).** A guard LLM call (the L1 judge, the L2
    extractor, the L3b scanner, the L4 judge) that failed on the route or the service itself (HTTP
-   402, 404, 408, 409, 429 or 5xx, a timeout, a connection error, a provider mismatch, or a router
-   error carried in an HTTP 200 body) is not scored. rag-email's `CountingProvider` records each such
+   402, 404, 408, 409 or 5xx, a timeout, a connection error, a provider mismatch, a router error
+   carried in an HTTP 200 body, or a 2xx body that is not JSON, such as a gateway's HTML page) is
+   not scored. rag-email's `CountingProvider` records each such
    call per case from the guard provider's chained transport exception (and the guard's own message
    when nothing is chained), without changing `agentmailguard/`; the case executor puts them in
    `guard_route_failures` (the guard-worker's audit line carries them) and the runner makes the row an
@@ -110,8 +113,10 @@ was 1,000 a day).
    and a resume rerun it, and the report lists it under its errors row ("of which guard route
    failure"). A model that answers badly (no JSON, a schema mismatch, a refusal) stays the guard's
    real behaviour: a scored fallback with `metadata.llm_fallback` (ADR-0012 decision 4). It applies to
-   every profile, OpenAI and Gemini included. A per-minute 429 is still raised as a rate limit, so the
-   ai-worker's retry ladder (or the v1 runner's back-off) runs the case again.
+   every profile, OpenAI and Gemini included. A guard call's 429 is recorded the same way but makes
+   no such row: a per-minute 429 (and OpenRouter's in-flight 402) is still raised as a rate limit,
+   so the ai-worker's retry ladder (or the v1 runner's back-off) runs the case again, and a used-up
+   quota stops the run (decision 10).
 10. **Quota and credit exhaustion stop every run (B).** A 429 that names a used-up quota, prepaid
     balance, spend limit or daily cap is told from a per-minute rate limit by what the providers
     document (`packages/core/provider_limits.py`, read 2026-10-01): OpenAI's error codes
@@ -129,15 +134,22 @@ was 1,000 a day).
     `context_built` event now records as `retrieval_vector_error`) or the meaning reader hit it; the
     streak stops (mismatches, 404/502/503) stay for a pinned route only. The stopped rows are error
     rows; the STOP line and the kit tell the runner to rerun the same `make bench-run` later, which
-    resumes and retries them. The meaning step stops the same way (`STOP meaning`, exit 3).
+    resumes and retries them. The STOP line ends with the tripping row's case, error kind and the
+    part of its message that names the call (`Embedding request failed`, `guard LLM stage`, `LLM
+    request failed`), so the runner knows which account to restore. The meaning step stops the same
+    way (`STOP meaning`, exit 3), on a used-up quota and on a reader account without credit (a 402
+    other than the in-flight budget, `route.immediate_stop`).
 11. **The kit's meaning step passes `--retry-errors` (C)**, so the same `make bench-report` run again
     reads the drafts a failed read left unread. The guide says so.
 12. **One embedding call before any model spend (D).** `make bench-run` embeds one fixed line
     through `packages.knowledge.embedder.get_embedder` with the runner's `EMBEDDING__*` (the shell
-    over `.env`, the settings the host processes read), retries off, right after the stack env is
-    rendered and before the stack is touched, and refuses to start unless one 1536-dimension vector
-    comes back: an endpoint that ignores or rejects `dimensions`, a wrong key, model or URL, a rate
-    limit or a used-up quota each say so. `make bench-doctor` stays free of calls; the call runs on
+    over `.env`, the settings the host processes read), the embedder's retries off, right after the
+    stack env is rendered and before the stack is touched, and refuses to start unless one
+    1536-dimension vector comes back: an endpoint that ignores or rejects `dimensions`, a wrong key,
+    model or URL, or a used-up quota each say so. A per-minute rate limit is the one case decision
+    10 governs here: it is waited out once (the answer's `Retry-After`, at most 60 s) and the same
+    request is sent again; a second one refuses. A rate-limited request embeds nothing, so the check
+    still embeds one line once. `make bench-doctor` stays free of calls; the call runs on
     the runner's machine with the runner's key, and tests use a fake transport.
 13. **A trial that includes RAG cases (E).** `make bench-run ... CASE_IDS=<id>,...` (`--case-ids`)
     runs only those cases of each config, in their order, refuses an id the config does not run, and
@@ -148,7 +160,10 @@ was 1,000 a day).
     prevented it: the stack env and the fingerprint are rendered from the profile and `.env`
     alone, and the profile always states its routing keys, so the resumed run's settings equal the
     stopped run's. Two tests prove it (the kit re-renders `.env.stack` identically; `live.run`
-    accepts the resume with no mismatch and retries the stopped rows).
+    accepts the resume with no mismatch and retries the stopped rows). It does not hold when the
+    other model uses the limit that stopped the run: the embedding's quota, or an OpenAI balance or
+    spend limit the embedding shares. Its `make bench-run` then refuses at the embedding check
+    (decision 12), before any model call, and the guides say so.
 15. **The usage tier is not discussed (G).** The guides state what one model run needs, so the
     runner can check that their accounts cover it: about 8,000 to 11,000 model requests per run
     (estimated from the calls per case: at most one reply, the triage model when the rules and the
@@ -194,7 +209,14 @@ was 1,000 a day).
   (OpenAI) run does not stop on a streak of 5xx rows; they are error rows the retry pass reruns.
 - **A daily cap the provider does not name.** The stop reads the provider's documented codes and the
   per-day measure in the message (decision 10); a 429 that says neither is treated as a per-minute
-  rate limit and retried, so it shows as error rows after the case timeout, not as a stop.
+  rate limit and retried, so it shows as error rows after the case timeout, not as a stop. The
+  guide's part G tells the runner to press Ctrl+C when error lines keep coming with no `STOP`.
+- **Gemini's per-day detection rests on an undocumented layout.** Google's rate-limit page says a
+  per-day quota resets at midnight Pacific time and a spend-based limit answers `429
+  RESOURCE_EXHAUSTED`, but not how the error body names the quota. The code reads `PerDay` in the
+  error's message and `details` (a quota id such as `EmbedContentRequestsPerDayPerProject`, the
+  spelling the tests assume); a body without it is read as a per-minute limit, with the
+  consequence above.
 - **A canary `strict_json` failure on the pinned provider** has no rule beyond "stop and ask the
   owner" in the guide; whether such a provider may run (and be recorded) is the owner's call.
 
