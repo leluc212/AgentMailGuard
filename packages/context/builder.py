@@ -53,9 +53,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_BUSINESS_TIMEOUT_MS = 500
+"""Matches BusinessDataSettings.timeout_ms; the ai-worker passes the configured value."""
 VECTOR_ERROR_CHARS = 200
 """How much of the vector branch's error the package keeps as a diagnostic."""
-"""Matches BusinessDataSettings.timeout_ms; the ai-worker passes the configured value."""
 
 
 def _to_uuid(val: UUID | str) -> UUID:
