@@ -15,6 +15,8 @@ The steps of the benchmark itself, and what the kit does in each, are the same a
 
 **How long it takes** (an estimate, not a measurement of a full run): a full model is 9 configs x 550 cases. `gpt-4o-mini` took about 3 s per case and config at concurrency 2 in the owner's 7-case smoke run, roughly 4 to 6 hours; the two OpenRouter models were not measured (plan 4 to 8 hours each). See "What you need" in `docs/BENCHMARK.md`.
 
+**What one model run needs** (estimates, ADR-0014; check that your accounts cover it): about 8,000 to 11,000 model requests, about 4 to 8 million input and 1 to 1.5 million output tokens, and about $1.5 to $2 for `gpt-4o-mini`, $1 for Qwen2.5-7B and $2 for Llama-3.1-8B; about 6,000 to 10,000 embedding requests per model run. If a limit or a credit runs out anyway, the run stops cleanly and the same command resumes it later; other models may run in between ("What one model run needs" and D5 in `docs/BENCHMARK.md`).
+
 ---
 
 ## 1. Install the tools
@@ -138,9 +140,10 @@ uv @mg evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b-openrout
 # once: checks the guard and the pinned inputs (the classifier too), runs the guard smoke, brings the stack up (slow the first time)
 uv @mg evaluation.mailguard_bench.kit.campaign setup
 
-# a small trial first, under a throwaway name; it passes only as docs/BENCHMARK.md D4 says (every `ok <config>:` line says
-# `0 error`, and so on), and it runs no RAG case. Then try the reader once on it, and delete the trial folder.
-uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C0T,C7 --limit 5
+# a small trial first, under a throwaway name (it must start with trial), over one LLMail attack, one benign email and one
+# RAG case, so it also embeds knowledge documents; it passes only as docs/BENCHMARK.md D4 says (every `ok <config>:` line
+# says `0 error`, and so on). Then try the reader once on it, and delete the trial folder.
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C0T,C7 --case-ids attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4
 $env:LLM__PROVIDER = "openai"; $env:LLM__OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 uv @mg evaluation.mailguard_bench.kit.campaign report --run trial-gpt --reader <your reader model>
 Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
@@ -168,7 +171,7 @@ Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
 uv @mg evaluation.mailguard_bench.kit.campaign package --run 2026-10-02-gpt4omini-live
 ```
 
-`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. A run whose OpenRouter route stops serving (`STOP <config>`: no credit, the pinned provider down, or calls served by another provider) stops the whole campaign; fix the cause as `docs/BENCHMARK.md` part E4 says, then run the same command again. Keep an overnight run in a window you do not close, and pause Windows updates first (Settings, Windows Update, "Pause updates"). The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`: Microsoft's reference says the value is in minutes and does not spell out that `0` means never, but that is what Windows does; `docs/BENCHMARK.md` A6).
+`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config, and `--case-ids` only the cases named (a trial; the run name must start with `trial`). Before the stack is touched, `run` makes one embedding call with your `EMBEDDING__*` settings and refuses to start unless it returns a 1536-wide vector. To resume a stopped run, run the same `run` command again. A used-up quota, balance, spend limit or daily cap of any provider, no OpenRouter credit, or an OpenRouter route that stops serving (`STOP <config>`) stops the whole campaign cleanly; fix the cause as `docs/BENCHMARK.md` parts D5 and E4 say, then run the same command again later (the next day for a daily cap). Other models may run in between. A guard model call that fails on the route or the service makes its case an error row that the retry pass reruns (E4). Keep an overnight run in a window you do not close, and pause Windows updates first (Settings, Windows Update, "Pause updates"). The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`: Microsoft's reference says the value is in minutes and does not spell out that `0` means never, but that is what Windows does; `docs/BENCHMARK.md` A6).
 
 After every `git pull` run `kit.campaign setup` again: the images are labelled with the commit they were built from, and `run` refuses containers built from another commit than your checkout (or a checkout with a modified tracked file).
 

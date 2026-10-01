@@ -102,7 +102,7 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 | `EMBEDDING__API_KEY` | `string` | `null` | Optional | API key for embedding service |
 | `EMBEDDING__MOCK` | `boolean` | `true` | `true/false` | Enable FakeEmbedder for hermetic testing/CI (R24.5) |
 | `EMBEDDING__TIMEOUT_S` | `float` | `10.0` | $\ge 0.1$ | Embedding request timeout in seconds |
-| `EMBEDDING__MAX_RETRIES` | `integer` | `3` | $\ge 0$ | Maximum retry attempts on transient errors |
+| `EMBEDDING__MAX_RETRIES` | `integer` | `3` | $\ge 0$ | Maximum retry attempts on transient errors (a per-minute 429, a 5xx, a timeout); a 429 that names a used-up quota, balance, spend limit or daily cap raises `EmbeddingQuotaExhaustedError` at once (`packages/core/provider_limits.py`) |
 | `EMBEDDING__RETRY_DELAY_S` | `float` | `0.5` | $\ge 0.0$ | Initial retry delay in seconds |
 
 > **Startup Dimension Assertion (R5.10):**
@@ -110,7 +110,7 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 
 #### The live benchmark's embedding: the runner's choice (tasks 7.20, 7.29; ADR-0014)
 
-The live v2 benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint serves if it **accepts the `dimensions` parameter** and returns 1536-dimension vectors: the embedder sends `dimensions` with every request whenever `EMBEDDING__DIMENSION` is set (`packages/knowledge/embedder.py`), and the benchmark always sets it. OpenAI documents the parameter for `text-embedding-3` and later models; Google's endpoint accepted it for `gemini-embedding-001` (checked 2026-09-29). A model that is 1536 wide natively but rejects the parameter, such as OpenAI `text-embedding-ada-002`, fails every call, and neither `make bench-doctor` nor `stack_env` can tell before a run (they check the settings by name). Two worked examples:
+The live v2 benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint serves if it **accepts the `dimensions` parameter** and returns 1536-dimension vectors: the embedder sends `dimensions` with every request whenever `EMBEDDING__DIMENSION` is set (`packages/knowledge/embedder.py`), and the benchmark always sets it. OpenAI documents the parameter for `text-embedding-3` and later models; Google's endpoint accepted it for `gemini-embedding-001` (checked 2026-09-29). A model that is 1536 wide natively but rejects the parameter, such as OpenAI `text-embedding-ada-002`, fails every call. `make bench-doctor` and `stack_env` check the settings by name only; `make bench-run` then makes one embedding call with them, through `get_embedder`, before the stack is touched and before any model call, and refuses to start unless one 1536-dimension vector comes back (`evaluation/mailguard_bench/kit/embedding_check.py`; owner decision 2026-10-01, ADR-0014). Two worked examples:
 
 ```dotenv
 # OpenAI text-embedding-3-small (1536 wide, accepts dimensions)
@@ -247,6 +247,8 @@ The floor exists because the stage-3 model answered `retrieval_required=false` f
 | `RETRY__BACKOFF_FACTOR` | `float` | `2.0` | $\ge 1.0$ | Exponential growth multiplier per attempt |
 | `RETRY__MAX_BACKOFF_S` | `float` | `1800.0` | $\ge 1.0$ | Ceiling cap for backoff calculation |
 | `RETRY__JITTER_MODE` | `string` | `full` | full, equal, decorrelated, none | Jitter randomization strategy (R19.5) |
+
+The ai-worker sends a generation failure that waiting does not lift straight to the dead-letter exchange instead of up this ladder (`services/ai_worker/failure_policy.py`): among them a call another provider served, an HTTP 402 other than OpenRouter's in-flight budget, and (task 7.29) `LLMQuotaExhaustedError`, an HTTP 429 that names a used-up quota, prepaid balance, spend limit or daily request cap (OpenAI's documented billing codes and `insufficient_quota`, a per-day RPD or TPD limit, Gemini's per-day or spend-based `RESOURCE_EXHAUSTED`; `packages/core/provider_limits.py` cites the sources). A per-minute 429 stays on the ladder.
 
 ### 2.11 Worker Concurrency & Prefetch (`CONCURRENCY__*`)
 *Independent worker scaling signals and priority lane sizing (R20.3, R7.2).*

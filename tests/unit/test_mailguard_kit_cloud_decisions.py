@@ -225,6 +225,20 @@ def test_make_bench_run_passes_case_ids_as_an_argument_only() -> None:
     assert leaked == ""
 
 
+def test_the_guides_trial_command_covers_an_attack_a_benign_and_a_rag_case() -> None:
+    from evaluation.mailguard_bench.cases import DEFAULT_CASE_DIR, load_case_set
+    from evaluation.mailguard_bench.runner import config_case_ids
+
+    guide = (REPO / "docs" / "BENCHMARK.md").read_text("utf-8")
+    line = next(ln for ln in guide.splitlines() if "CASE_IDS=" in ln and "make bench-run" in ln)
+    ids = line.split("CASE_IDS=", 1)[1].split()[0].split(",")
+    assert "RUN=trial-" in line
+    loaded = load_case_set(DEFAULT_CASE_DIR)
+    assert set(ids) <= set(config_case_ids(loaded.manifest, "C0", "v2"))  # every config runs them
+    kinds = {(loaded.cases[i]["kind"], bool(loaded.cases[i].get("chunks"))) for i in ids}
+    assert kinds == {("attack", False), ("benign", False), ("attack", True)}
+
+
 # --- F: a run stopped by a limit resumes after another model's run ----------------------------
 
 
