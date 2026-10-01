@@ -728,8 +728,16 @@ class _Campaign:
         """
         start = _now()
         status, reason, found = "failed", None, None
+
+        def wait(seconds: float) -> None:
+            self.ctx.out(
+                "   the embedding endpoint answered a per-minute rate limit (HTTP 429): waiting "
+                f"{seconds:.0f} s, then one more try"
+            )
+            self.ctx.host.sleep(seconds)
+
         try:
-            found = check_embedding(environ, transport=self.ctx.embedding_transport)
+            found = check_embedding(environ, transport=self.ctx.embedding_transport, sleep=wait)
             status = "ok"
             self.ctx.out(
                 f"ok embedding {found.model} at {found.host} returned one {found.dimension}-"

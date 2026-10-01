@@ -17,15 +17,20 @@ host processes read (the shell over ``.env``), and refuses to start unless it re
 - a quota, balance, spend limit or daily cap already used up (``quota_exhausted``), so a resume
   after a limit stop does not start before the limit is lifted.
 
-Exactly one HTTP request: the embedder's own retries are turned off for it. The call costs a few
-tokens at the endpoint's price. It runs on the runner's machine with the runner's key; the doctor
-stays free of calls, and tests pass a fake transport.
+One embedding, normally one HTTP request: the embedder's own retries are turned off for it. The
+one exception is a per-minute rate limit (an HTTP 429 that names no used-up quota), which is
+transient and is backed off, never a stop (owner decision B, 2026-10-01): the check waits the
+answer's ``Retry-After``, at most ``RATE_LIMIT_WAIT_S`` (that long when the answer names none),
+and sends the same request once more; a second rate limit refuses. A rate-limited request
+embeds nothing. The call costs a few tokens at the endpoint's price. It runs on the runner's
+machine with the runner's key; the doctor stays free of calls, and tests pass a fake transport.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+import time
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -45,6 +50,9 @@ from packages.knowledge.embedder import (
 PROBE_TEXT = "rag-email benchmark: one embedding before the run"
 """What the check embeds: a fixed line, never a case's text."""
 PREFIX = "EMBEDDING__"
+RATE_LIMIT_WAIT_S = 60.0
+"""The longest wait after a per-minute rate limit before the check's one more try: a per-minute
+window has passed by then. Also the wait when the answer gives no ``Retry-After``."""
 
 
 class EmbeddingCheckError(Exception):
@@ -64,7 +72,8 @@ def embedding_settings(environ: Mapping[str, str]) -> EmbeddingSettings:
     """The runner's embedding settings as the host processes read them, for ONE request.
 
     ``environ`` is the shell over ``.env`` (``with_dot_env``); blank counts as unset, as the stack
-    env counts it. The embedder's retries are turned off: the check is one request.
+    env counts it. The embedder's retries are turned off: the check is one request (one more only
+    after a per-minute rate limit, ``probe_embedding``).
 
     Raises:
         EmbeddingCheckError: If a setting does not parse (named, its value never repeated).
@@ -103,7 +112,11 @@ def _refusal(exc: EmbeddingError, settings: EmbeddingSettings) -> EmbeddingCheck
     text = str(exc)
     hint = ""
     if isinstance(exc, EmbeddingRateLimitError):
-        hint = ": a rate limit (HTTP 429); wait a minute, then run the same command again"
+        hint = (
+            ": a per-minute rate limit (HTTP 429), again after one wait of up to a minute; "
+            "something else may be using this key's limit. Wait a minute, then run the same "
+            "command again"
+        )
     elif "HTTP 400" in text:
         hint = (
             ": the endpoint refused the request; a model that rejects the `dimensions` parameter "
@@ -116,12 +129,24 @@ def _refusal(exc: EmbeddingError, settings: EmbeddingSettings) -> EmbeddingCheck
     return EmbeddingCheckError(f"the embedding call to {where} failed: {text}{hint}")
 
 
+def rate_limit_wait(exc: EmbeddingRateLimitError) -> float:
+    """How long to wait before the one more try: the answer's ``Retry-After``, capped."""
+    retry_after = exc.retry_after_s
+    if retry_after is None or retry_after < 0:
+        return RATE_LIMIT_WAIT_S
+    return min(retry_after, RATE_LIMIT_WAIT_S)
+
+
 async def probe_embedding(
-    settings: EmbeddingSettings, *, transport: httpx.AsyncBaseTransport | None = None
+    settings: EmbeddingSettings,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> EmbeddingCheck:
     """Embed ``PROBE_TEXT`` once through ``get_embedder`` and check the vector's width.
 
-    ``transport`` replaces the network (tests); the default is the real HTTP transport.
+    ``transport`` replaces the network (tests); the default is the real HTTP transport. ``sleep``
+    is the wait after a per-minute rate limit (``rate_limit_wait``), before the one more try.
 
     Raises:
         EmbeddingCheckError: If the settings select the fake embedder, the call fails, or the
@@ -142,7 +167,13 @@ async def probe_embedding(
     )
     embedder = get_embedder(settings, client=client)
     try:
-        result = await embedder.embed_texts([PROBE_TEXT])
+        try:
+            result = await embedder.embed_texts([PROBE_TEXT])
+        except EmbeddingRateLimitError as limited:
+            # Transient: back off and try once more, never a stop (owner decision B). A used-up
+            # quota is EmbeddingQuotaExhaustedError, refused at once below.
+            await sleep(rate_limit_wait(limited))
+            result = await embedder.embed_texts([PROBE_TEXT])
     except EmbeddingError as exc:
         raise _refusal(exc, settings) from exc
     finally:
@@ -166,11 +197,22 @@ async def probe_embedding(
 
 
 def check_embedding(
-    environ: Mapping[str, str], *, transport: httpx.AsyncBaseTransport | None = None
+    environ: Mapping[str, str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> EmbeddingCheck:
     """``probe_embedding`` with the runner's settings (the shell over ``.env``).
+
+    ``sleep`` is the kit host's wait (a test's fake clock); nothing else runs while it waits.
 
     Raises:
         EmbeddingCheckError: If the embedding cannot serve the run.
     """
-    return asyncio.run(probe_embedding(embedding_settings(environ), transport=transport))
+
+    async def wait(seconds: float) -> None:
+        sleep(seconds)
+
+    return asyncio.run(
+        probe_embedding(embedding_settings(environ), transport=transport, sleep=wait)
+    )

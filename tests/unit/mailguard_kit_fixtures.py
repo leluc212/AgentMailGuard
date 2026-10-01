@@ -42,17 +42,21 @@ RUN = "r1"
 class EmbeddingEndpoint:
     """A fake ``/embeddings`` endpoint for the kit's embedding check: no test reaches a real one.
 
-    ``width`` is the length of the vector it answers; ``status``/``body`` replace the answer.
+    ``width`` is the length of the vector it answers; ``status``/``body`` replace the answer;
+    ``queued`` answers come first, one per request.
     """
 
     def __init__(self, width: int = 1536) -> None:
         self.width = width
         self.status = 200
         self.body: Any = None
+        self.queued: list[httpx.Response] = []
         self.requests: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self.queued:
+            return self.queued.pop(0)
         if self.status != 200:
             return httpx.Response(self.status, json=self.body or {"error": {"message": "x"}})
         vector = [0.01] * self.width

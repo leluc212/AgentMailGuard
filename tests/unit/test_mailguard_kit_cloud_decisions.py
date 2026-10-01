@@ -25,6 +25,7 @@ from evaluation.mailguard_bench.kit.campaign import (
 from evaluation.mailguard_bench.kit.embedding_check import (
     PROBE_TEXT,
     EmbeddingCheckError,
+    check_embedding,
     embedding_settings,
     probe_embedding,
 )
@@ -98,7 +99,6 @@ def test_an_endpoint_that_ignores_dimensions_stops_the_run_before_the_stack_is_t
             {"error": {"message": "x", "type": "insufficient_quota", "code": "insufficient_quota"}},
             "quota_exhausted: insufficient_quota",
         ),
-        (429, {"error": {"message": "Rate limit reached on requests per min (RPM)"}}, "wait a"),
     ],
 )
 def test_a_refused_embedding_call_is_one_request_and_says_what_to_fix(
@@ -111,6 +111,65 @@ def test_a_refused_embedding_call_is_one_request_and_says_what_to_fix(
     assert len(bench.embedding.requests) == 1  # one call, never the embedder's retries
     assert words in "\n".join(bench.err)
     assert STACK_UP not in sequence(bench.host)
+
+
+PER_MINUTE = {"error": {"message": "Rate limit reached for requests per min (RPM)"}}
+
+
+def test_a_per_minute_rate_limit_is_waited_out_once_and_the_run_goes_on(bench: Bench) -> None:
+    # Owner decision B: a per-minute 429 is backed off, never a stop. The check waits the
+    # answer's Retry-After and sends the same request once more.
+    bench.embedding.queued = [httpx.Response(429, json=PER_MINUTE, headers={"Retry-After": "7"})]
+    began = bench.host.now
+
+    assert run_campaign(bench.ctx, opts(configs=("C0",))) == 0
+
+    first, second = bench.embedding.requests
+    assert first.content == second.content  # the same one-line request, nothing else embedded
+    assert bench.host.now - began >= 7
+    assert any("per-minute rate limit (HTTP 429): waiting 7 s" in line for line in bench.out)
+    (check,) = [s for s in bench.kit_log() if s["step"] == "embedding_check"]
+    assert check["status"] == "ok"
+
+
+@pytest.mark.parametrize(("retry_after", "waited"), [(None, 60.0), ("3600", 60.0), ("2", 2.0)])
+async def test_the_wait_is_the_retry_after_capped_at_a_minute(
+    retry_after: str | None, waited: float
+) -> None:
+    endpoint = EmbeddingEndpoint()
+    headers = {"Retry-After": retry_after} if retry_after else {}
+    endpoint.queued = [httpx.Response(429, json=PER_MINUTE, headers=headers)]
+    waits: list[float] = []
+
+    async def wait(seconds: float) -> None:
+        waits.append(seconds)
+
+    found = await probe_embedding(
+        embedding_settings(HOST_ENV), transport=endpoint.transport(), sleep=wait
+    )
+
+    assert waits == [waited] and found.dimension == 1536
+
+
+def test_a_second_rate_limit_refuses_after_two_requests(bench: Bench) -> None:
+    bench.embedding.status, bench.embedding.body = 429, PER_MINUTE
+
+    assert run_campaign(bench.ctx, opts()) == 1
+
+    assert len(bench.embedding.requests) == 2  # one more try, never the embedder's ladder
+    assert "wait a minute, then run the same command again" in "\n".join(bench.err).lower()
+    assert STACK_UP not in sequence(bench.host)
+
+
+def test_a_used_up_quota_is_never_waited_out() -> None:
+    endpoint = EmbeddingEndpoint()
+    endpoint.status, endpoint.body = 429, {"error": {"code": "insufficient_quota", "message": "x"}}
+    waits: list[float] = []
+
+    with pytest.raises(EmbeddingCheckError, match="quota_exhausted: insufficient_quota"):
+        check_embedding(HOST_ENV, transport=endpoint.transport(), sleep=waits.append)
+
+    assert waits == [] and len(endpoint.requests) == 1
 
 
 def test_a_dry_run_names_the_embedding_check_and_calls_nothing(bench: Bench) -> None:

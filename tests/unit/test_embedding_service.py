@@ -210,6 +210,22 @@ class TestHttpEmbedder:
             await embedder.embed_texts(["text"])
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("header", "expected"), [("12", 12.0), ("soon", None), (None, None)])
+    async def test_a_rate_limit_error_carries_the_last_retry_after(
+        self, header: str | None, expected: float | None
+    ) -> None:
+        def handler(_request: httpx.Request) -> httpx.Response:
+            headers = {"Retry-After": header} if header is not None else {}
+            return httpx.Response(429, json={"error": "Too Many Requests"}, headers=headers)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        embedder = HttpEmbedder(client=client, max_retries=0)
+
+        with pytest.raises(EmbeddingRateLimitError) as caught:
+            await embedder.embed_texts(["text"])
+        assert caught.value.retry_after_s == expected
+
+    @pytest.mark.asyncio
     async def test_fail_fast_on_client_error(self) -> None:
         """4xx errors (except 429) fail fast without retrying."""
         calls = 0

@@ -43,7 +43,15 @@ class EmbeddingTimeoutError(EmbeddingError):
 
 
 class EmbeddingRateLimitError(EmbeddingError):
-    """Raised when an embedding request is rate limited after retry exhaustion."""
+    """Raised when an embedding request is rate limited after retry exhaustion.
+
+    ``retry_after_s`` is the last answer's ``Retry-After`` in seconds, when it gave a number: how
+    long a caller that tries again should wait.
+    """
+
+    def __init__(self, message: str, *, retry_after_s: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
 
 
 class EmbeddingQuotaExhaustedError(EmbeddingError):
@@ -284,7 +292,8 @@ class HttpEmbedder(Embedder):
                         await asyncio.sleep(delay)
                         continue
                     raise EmbeddingRateLimitError(
-                        f"Embedding rate limit exceeded after {self._max_retries} retries"
+                        f"Embedding rate limit exceeded after {self._max_retries} retries",
+                        retry_after_s=_retry_after_s(response.headers),
                     )
 
                 if response.status_code in (500, 502, 503, 504):
@@ -350,12 +359,20 @@ class HttpEmbedder(Embedder):
 
     def _calculate_backoff(self, attempt: int, headers: httpx.Headers | None = None) -> float:
         """Calculate backoff duration checking Retry-After header or exponential ladder."""
-        if headers and "Retry-After" in headers:
-            try:
-                return float(headers["Retry-After"])
-            except ValueError:
-                pass
+        retry_after = _retry_after_s(headers)
+        if retry_after is not None:
+            return retry_after
         return float(self._retry_delay_s * (2**attempt))
+
+
+def _retry_after_s(headers: httpx.Headers | None) -> float | None:
+    """The ``Retry-After`` header in seconds, when it is a number of seconds."""
+    if headers and "Retry-After" in headers:
+        try:
+            return float(headers["Retry-After"])
+        except ValueError:
+            return None
+    return None
 
 
 class FakeEmbedder(Embedder):
