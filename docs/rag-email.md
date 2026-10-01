@@ -254,7 +254,7 @@ Inference compute is budgeted strictly where it creates business value:
 ```bash
 git clone https://github.com/leluc212/AgentMailGuard.git
 cd AgentMailGuard
-git checkout RAG_Email_System
+git checkout main
 uv sync
 ```
 
@@ -268,7 +268,7 @@ Upgrading an existing stack whose broker was created before 2026-09-26: run
 `make broker-migrate-retry` once before `make up` (retry queues changed their dead-letter
 exchange, and RabbitMQ queue arguments are immutable).
 
-### 3. Seed Reference Data (optional)
+### 3. Seed Reference Data (optional; needed for the demo tenant in the review UI)
 ```bash
 make seed
 ```
@@ -285,7 +285,7 @@ The review UI browser tests (`make test-e2e`, part of `make ci`) need Chromium o
 `rag_email_test` database and never touch the running stack.
 
 ### 5. Access Management & Telemetry Consoles
-- **Review UI (drafts, timelines, knowledge upload)**: [http://localhost:3001](http://localhost:3001) — bound to 127.0.0.1, no login (ADR-0009); set `FRONTEND__ORGANIZATION_ID` in `.env`
+- **Review UI (drafts, timelines, knowledge upload)**: [http://localhost:3001](http://localhost:3001) — bound to 127.0.0.1, no login (ADR-0009); `.env.example` sets `FRONTEND__ORGANIZATION_ID` to the demo tenant, which exists after `make seed`
 - **API Documentation (OpenAPI / Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **RabbitMQ Management UI**: [http://localhost:15672](http://localhost:15672) (guest / guest)
 - **MinIO Storage Console**: [http://localhost:9011](http://localhost:9011) (minioadmin / minioadmin)

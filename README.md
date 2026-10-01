@@ -34,70 +34,47 @@ One email goes through six layers (L1, L2, L3, L3b, L4, L5) around the single re
                                                            L5 outbound gate ──▶ decision
 ```
 
-| Layer | Input | How it decides | Output |
+| Layer | Input | Decision | Output |
 |---|---|---|---|
-| L1 Email Injection Scanner | One email (rules see subject + sender + body; classifier and judge see the first 12000 chars) | Cascade by cost. Stage 1: 15 regex rule families (54 patterns) plus obfuscation heuristics. If the rule score is below 0.90, stage 2 runs a TF-IDF + calibrated logistic regression classifier, fused with the rules by noisy-OR. Stage 3, an LLM judge, runs only for fused scores in 0.20 to 0.85 and only if a judge is configured. An exception gives a HIGH fail-closed verdict. | `LayerVerdict`: severity, score 0-1, findings, indicators (every address and URL in the email) |
-| L2 User Intent Extractor | The clean body (first 6000 chars); it does not see L1's verdict | Splits the body into segments, scores each alone with L1's rules and classifier, strips every segment scoring 0.50 or more, extracts entities, actions and intent by regex. An optional LLM step paraphrases the intent. | `SanitizedIntent`: sanitized body, user intent, requested actions, entities, stripped segments |
-| L3 Channel Isolation | Trusted instructions and business data; the semi-trusted intent; the untrusted body, thread summary, recent messages and surviving chunks | No model. A random nonce, forged channel markers and chat-template tokens scrubbed, untrusted text cut to 6000 tokens, spotlighting (`delimit`, `datamark` default, or `encode`), nonce-tagged channels, a security-rules preamble. | `SecurePrompt` (`.messages`) |
-| L3b Retrieved Document Scanner | The retrieved chunks and the retrieval query | Each chunk alone: L1's rules, obfuscation checks, PoisonedRAG heuristics (answer-forcing, instruction-override, link-insertion, query-echo) and the L1 classifier. Quarantine at fused score 0.70 or more. The LLM judge for 0.30 to 0.70 is off by default. | Kept chunks in original order, plus one `ChunkVerdict` per chunk |
-| L4 Output Scanner | The draft, the email, the L2 intent, allowed citation ids, protected prompts, kept chunk texts, and what L1, L2 and L3b flagged | Deterministic stages: secret redaction (Luhn check), system-prompt leak (8-word n-gram), citation integrity, compliance with an injected goal, unsafe forward or recipient, external links. Score is the highest finding. The LLM judge is off by default and can only raise the score. | `OutputVerdict` with `redacted_text`; `run()` swaps it into the draft |
-| L5 Policy Engine | The L1-L4 verdicts as summary facts (never the text); stage `inbound` or `outbound` | No model. Every matching rule in `configs/policy.yaml` (policy `2026.09-v2`) is collected and the strictest action wins: quarantine > block > human_approval > draft_only > auto_send. Any layer error gives human_approval (fail-closed). `auto_send` needs category `acknowledgement` or `scheduling`, the outbound gate and severity low or below. Default is `draft_only`. | `PolicyDecision` (action, risk tier, matched rules, reasons) and a JSONL audit line in `logs/mailguard_audit.jsonl` |
+| L1 Email Injection Scanner | One email | Cascade by cost: regex rules (15 families, 54 patterns) and obfuscation checks; then a TF-IDF + logistic-regression classifier, fused with the rules; then an optional LLM judge for uncertain scores only. An error is a HIGH fail-closed verdict. | `LayerVerdict`: severity, score 0-1, findings, indicators |
+| L2 User Intent Extractor | The body, without L1's verdict | Scores each segment alone with L1's rules and classifier, strips the injected ones, extracts the user's intent by regex (optional LLM paraphrase). | `SanitizedIntent` |
+| L3 Channel Isolation | Trusted instructions and data, the intent, untrusted text | No model. A nonce, scrubbed channel markers, spotlighting (`delimit`, `datamark` default, `encode`) and nonce-tagged channels. | `SecurePrompt` (`.messages`) |
+| L3b Retrieved Document Scanner | Retrieved chunks and the query | Each chunk alone: L1's rules and classifier plus PoisonedRAG heuristics; poisoned chunks are dropped. | Kept chunks, one `ChunkVerdict` each |
+| L4 Output Scanner | The draft and what L1, L2 and L3b flagged | Deterministic: secret redaction, system-prompt leak, citation integrity, injected-goal compliance, unsafe recipients and links. | `OutputVerdict` with `redacted_text` |
+| L5 Policy Engine | L1-L4 verdicts as summary facts, never the text; stage `inbound` or `outbound` | No model. Every matching rule in `configs/policy.yaml` is collected and the strictest action wins: quarantine > block > human_approval > draft_only > auto_send. A layer error forces at least `human_approval`. Default is `draft_only`; `auto_send` needs category `acknowledgement` or `scheduling`, a reply action, the outbound gate and severity low or below. | `PolicyDecision` and a JSONL audit line |
 
-## Repository layout
+Thresholds, caps and rules per layer: [docs/overview/layers/](docs/overview/layers/) and [docs/overview/04-agentmailguard-layers.md](docs/overview/04-agentmailguard-layers.md).
 
-```
-agentmailguard/            the guard (git subtree, pinned): mailguard/ package, configs/, training/, tests/
-services/                  rag-email services: api, frontend, mail_connector, and five workers
-packages/                  rag-email shared libraries (core, domain, db, broker, adapters, retrieval, llm, ...)
-evaluation/mailguard_bench/  the benchmark runner, kit, scheme definitions and pinned inputs
-config/                    rag-email runtime config (triage rules, categories, templates, agent profiles)
-prompts/                   reply prompt templates (*.v1-v3.j2)
-migrations/                versioned SQL migrations
-docs/                      benchmark guides, runbook, ADRs, overview, configuration
-specs/                     requirements, design, task list (the source of truth for rag-email)
-tests/                     unit, integration and e2e tests of rag-email
-```
+## Install and use the guard
 
-## Quick start
-
-Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), make, git, Docker Engine with Compose v2. Linux is the tested route. On Windows 11 Home use WSL2 with Ubuntu and Docker Engine inside it (see [docs/BENCHMARK.md](docs/BENCHMARK.md)).
+No Docker is needed. Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), git. If the repository is private, ask the owner for access.
 
 ```bash
 git clone https://github.com/leluc212/AgentMailGuard.git
 cd AgentMailGuard
 git checkout main            # the guard subtree is on main, not on RAG_Email_System
 uv sync
-cp .env.example .env         # the defaults run offline: fake LLM, mock embedder
+source .venv/bin/activate
+uv pip install -e agentmailguard
 ```
 
-The L1 classifier is not in git. The owner sends the file `l1_injection_clf_v1.joblib` privately; it is not redistributed (ADR-0012, decision 15). Put it in `evaluation/mailguard_bench/pinned/` and check it:
+The L1 classifier `l1_injection_clf_v1.joblib` is not in git; the owner sends it privately and it is not redistributed (ADR-0012, decision 15). Its sha256 is `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103` (scikit-learn 1.9.1 pickle). Without it the guard still runs, with L1 stage 2 off. There are two routes, each reading its own location:
+
+| Route | Classifier location |
+|---|---|
+| Direct use (Python, CLI) | `agentmailguard/artifacts/models/l1_injection_clf_v1.joblib`, or any path in `L1__ML_MODEL_PATH` |
+| Benchmark | `evaluation/mailguard_bench/pinned/`; check with `cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS` |
+
+Without the owner's file, `make mailguard-prep` downloads the datasets and trains a classifier (network, no API key) into `../AgentMailGuard-bench-artifacts`. Use it for direct use through `L1__ML_MODEL_PATH`; its hash differs from the pin, so the pinned benchmark rejects it.
+
+See it work, from `agentmailguard/` (an injected email; with the rules alone L1 and L2 report critical and L5 quarantines it before any reply call):
 
 ```bash
-cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS
+cd agentmailguard
+python scripts/scan_email.py tests/fixtures/emails.json --pick attacks:0 --config C3 --kb datasets/seed/support_kb -v
 ```
 
-Expected sha256: `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103`. It is a scikit-learn 1.9.1 pickle. Without it the guard still runs, but L1 stage 2 is off and the benchmark refuses to start. `make bench-doctor` names what is missing.
-
-Start the stack and check it:
-
-```bash
-make up                      # builds images, then init runs migrations, buckets, broker topology
-docker compose ps --format '{{.Service}} {{.Status}}'
-make smoke                   # end-to-end check on the running stack
-make down                    # stop it
-```
-
-All app services and infrastructure should show `Up (healthy)`. `init` is a one-shot and exits. The review UI is at <http://localhost:3001> (127.0.0.1 only, no login). It needs `FRONTEND__ORGANIZATION_ID` in `.env`; the demo tenant is `00000000-0000-0000-0000-000000000001`. The API docs are at <http://localhost:8000/docs>.
-
-### Use the guard from Python
-
-Install the guard from its own folder (the `eval` and `dev` extras are optional):
-
-```bash
-cd agentmailguard && pip install -e ".[eval,dev]"
-```
-
-Then run this from `agentmailguard/` (it also works with `PYTHONPATH=.`). With default settings all guard model names are `fake`, so no LLM stage is built.
+Integrate it in Python (run from `agentmailguard/`, or set `PYTHONPATH=.` to run it as a file elsewhere). With default settings every guard model name is `fake`, so no LLM stage is built.
 
 ```python
 import asyncio
@@ -128,20 +105,26 @@ asyncio.run(main())
 It prints `draft_only Your X200 has a 24-month warranty [kb-warranty-1]. ['kb-warranty-1']`.
 
 Notes:
-- `GuardConfig.preset(name)` takes `C0` (no layers), `C1` (L1+L5), `C2` (L1+L2+L3+L5), `C3` (all six), and `C3-L1` to `C3-L5` or `C3-L3B` (all minus one). Other names raise `ValueError`. For a custom layer set, build `GuardConfig` directly with the booleans `l1`, `l2`, `l3`, `l3b`, `l4`, `l5`.
+- `GuardConfig.preset(name)` takes `C0` (no layers), `C1` (L1+L5), `C2` (L1+L2+L3+L5), `C3` (all six), and `C3-L1` to `C3-L5` or `C3-L3B` (all minus one). Other names raise `ValueError`. For a custom layer set, build `GuardConfig` directly with the booleans `l1`, `l2`, `l3`, `l3b`, `l4`, `l5`. These are the guard's own presets; the benchmark's C0-C7 below are a different set that reuses the names.
 - `report.inbound_decision` is the gate before generation. `report.decision` is the final gate after L4. A custom provider can be passed as `judge=`, `extractor_llm=`, `doc_llm=` or `output_llm=`.
-- This cheap-only setup does not stop soft attacks: the snippet's inputs are benign, and without the classifier or a judge an attack that matches no rule falls to the default `draft_only`. Enable LLM stages with `GUARD_MODELS__JUDGE`, `GUARD_MODELS__EXTRACTOR`, `GUARD_MODELS__DOC_SCANNER`, `GUARD_MODELS__OUTPUT_JUDGE` in `.env`, set to a name from `configs/models.yaml` (`gpt-4o-mini`, `qwen2.5-7b-instruct`, `llama-3.1-8b-instruct`).
+- This cheap-only setup does not stop soft attacks: without the classifier or a judge, an attack that matches no rule falls to the default `draft_only`. To enable the LLM stages, run `cp agentmailguard/.env.example agentmailguard/.env` (the guard reads `.env` from the current directory, so run from `agentmailguard/`) or export `GUARD_MODELS__JUDGE`, `GUARD_MODELS__EXTRACTOR`, `GUARD_MODELS__DOC_SCANNER` and `GUARD_MODELS__OUTPUT_JUDGE`, each a name from `configs/models.yaml` (`gpt-4o-mini`, `qwen2.5-7b-instruct`, `llama-3.1-8b-instruct`). `gpt-4o-mini` also needs `OPENAI_API_KEY`; the Ollama models need `OLLAMA__BASE_URL`. The root `.env` does not carry these keys, and the benchmark ignores them (it takes `MODEL=<profile>`).
 - A failed LLM stage (timeout, non-JSON output, schema mismatch) keeps the cheap result and sets `metadata.llm_fallback=true`.
 - Step-wise API: `inspect_inbound`, `build_prompt`, `inspect_outbound`. Adapters for a host: `GuardedReplyAgent`, `decision_to_job_result`, `dispatch_allowed` in `mailguard.integration.adapters`.
-- Demo CLI, from `agentmailguard/`:
-
-```bash
-python scripts/scan_email.py tests/fixtures/emails.json --pick attacks:0 --config C3 --kb datasets/seed/support_kb -v
-```
+- Unit tests of the guard: `python -m pytest tests/unit -q` from `agentmailguard/`.
 
 ## Run the benchmark
 
-The benchmark runs 550 pinned cases through the real rag-email pipeline, once per config. Run the kit from the repository root, in this order:
+The benchmark runs 550 pinned cases through the real rag-email pipeline, once per config. The cases are 300 LLMail-Inject attack emails, 150 benign emails and 100 RAG-poisoning cases, drawn with seed 20260930 (each draw on its own derived seed) from public datasets. Sources and licenses: [pinned/NOTICE.md](evaluation/mailguard_bench/pinned/NOTICE.md); case ids per set: `evaluation/datasets/mailguard/manifest.json`. The case file `evaluation/datasets/mailguard/cases.jsonl` has sha256 `c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19`. After `make mailguard-prep`, `make mailguard-cases` rebuilds the set and fails unless it reproduces the manifest's ids and hash.
+
+Needs Docker Engine with Compose v2, make, and the classifier in `pinned/`. Linux is the tested route; on Windows 11 Home use WSL2 with Ubuntu and Docker Engine inside it ([docs/BENCHMARK.md](docs/BENCHMARK.md)). Keys, set in `.env` (names only; never print or commit them):
+
+| Key | Needed for |
+|---|---|
+| `LLM__OPENAI_API_KEY` and the same value in `EMBEDDING__API_KEY` (a Gemini key), with `EMBEDDING__MOCK=false` | Embeddings, every live run; also the `gemma-4-26b` profile |
+| `BENCH_OPENAI_API_KEY` | `gpt-4o-mini` |
+| `BENCH_OLLAMA_BASE_URL` (optional) | `qwen2.5-7b`, `llama-3.1-8b-local`: Ollama serves them, no key; the default host is `localhost:11434`, moved by this key |
+
+The `BENCH_*` keys are not in `.env.example`; the exact block is in section 9.9 of the runbook. Plan for at least 25 GB of free disk (the doctor warns below it) and hours per model: 4 to 6 for `gpt-4o-mini` and 12 to 15 for a local model, extrapolated from a 7-case smoke run ([docs/BENCHMARK.md](docs/BENCHMARK.md)). Run the kit from the repository root, in this order:
 
 ```bash
 make bench-doctor                                   # check Docker, Python, disk, keys in .env, classifier sha256
@@ -151,15 +134,9 @@ make bench-report RUN=<id>                          # rebuild report.md, summary
 make bench-package RUN=<id>                         # bench-results-<id>.zip and how to commit it to branch bench/<id>
 ```
 
-A small trial first:
+A small trial first: `make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1`. Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gemma-4-26b`, `gpt-4o-mini`, `llama-3.1-8b-local`, `qwen2.5-7b`. Do not run `make up`, `docker compose` or edit `.env` while a run is going.
 
-```bash
-make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1
-```
-
-Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gemma-4-26b`, `gpt-4o-mini`, `llama-3.1-8b-local`, `qwen2.5-7b` (the last two run on a local Ollama, no key). Do not run `make up`, `docker compose` or edit `.env` while a run is going.
-
-Scheme v2 (the default) configs:
+Benchmark configs (scheme v2, the default). These names are not the Python `GuardConfig.preset` names above; scheme v1 used the preset meanings (`SCHEME=v1` with `make mailguard-bench` reproduces the published runs on the earlier guard pin), and a run folder never mixes schemes.
 
 | Config | Active layers | Live AI stages |
 |---|---|---|
@@ -173,15 +150,11 @@ Scheme v2 (the default) configs:
 | C6 | L5 alone (control) | none |
 | C7 | L1, L2, L3, L3b, L4, L5 (all) | all four |
 
-Scheme v1 reproduces the published runs on the earlier guard pin (`SCHEME=v1` with `make mailguard-bench`); a run folder never mixes schemes.
-
-Results go to `evaluation/results/mailguard_bench/<RUN>/`; `raw/` is git-ignored. The case set is `evaluation/datasets/mailguard/cases.jsonl` (sha256 `c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19`), drawn with a fixed seed.
-
-Step-by-step guide, including Windows/WSL2 and local models: [docs/BENCHMARK.md](docs/BENCHMARK.md). Owner runbook: [docs/demo-runbook.md](docs/demo-runbook.md), section 9.9.
+Results go to `evaluation/results/mailguard_bench/<RUN>/`; `raw/` is git-ignored. Guides: [docs/BENCHMARK.md](docs/BENCHMARK.md) (Windows/WSL2, local models), owner runbook [docs/demo-runbook.md](docs/demo-runbook.md) section 9.9.
 
 ## rag-email: the host system
 
-rag-email is a multi-tenant system that reads mailboxes, decides which emails need a reply, and drafts replies grounded in a knowledge base. It classifies first, retrieves only when required and generates only when necessary: one generation call per job at most. Every approved reply becomes a provider draft; nothing is auto-sent.
+rag-email is a multi-tenant system that reads mailboxes, decides which emails need a reply, and drafts replies grounded in a knowledge base. It classifies first, retrieves only when required and generates only when necessary: one generation call per job at most. By default every approved reply becomes a provider draft; sending is a per-category `dispatch_mode: send_reply` in `config/categories.yaml`.
 
 ```
 provider ──▶ mail-connector ──▶ email.normalize ──▶ email-worker ──▶ email.triage
@@ -195,42 +168,47 @@ provider ──▶ mail-connector ──▶ email.normalize ──▶ email-work
                                                      (no retrieval, no gen)            │
                                                                                        ▼
               ai-worker: thread context ▶ hybrid retrieval ▶ rerank ▶ router ▶ ONE generation call
-                                                         │       ▲
-          benchmark: guard-worker replaces the           │       └── full design: L1/L2/L5 before,
-          drafting step only (L1..L5 around the call)    ▼             L3b/L3 on the retrieved chunks,
-                                                    DRAFTED            L4/L5 on the draft
+                                                         ▲
+                                  guard-worker takes this slot in the benchmark
+                                                         ▼
+                                                    DRAFTED
                                                          ▼
                               review UI (approve / edit / reject) ──▶ email.dispatch
                                                          ▼
                                        dispatch-worker ──▶ provider draft ──▶ COMPLETED
 ```
 
-Where the guard attaches today: in the benchmark, `guard-worker` is the ai-worker process with `GuardedDraftingService` in place of `DraftingService`. Summary, retrieval, rerank and routing stay unchanged; the guard wraps the drafting step only, so emails that triage stops or answers by template never reach it. It is a host process (`python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1..C7 --run RUN --model-profile M [--scheme v2|v1]`), evaluation-only, and rag-email adds no defence logic of its own (ADR-0010, ADR-0011). Only one guard-worker or the ai-worker container may consume the lane queues at a time. In the full design the layers sit as drawn above. Wiring the outbound decision into the dispatch-worker is not done.
+Where the guard attaches today: in the benchmark, `guard-worker` is the ai-worker process with `GuardedDraftingService` in place of `DraftingService`. Summary, retrieval, rerank and routing stay unchanged; the guard wraps the drafting step only, so emails that triage stops or answers by template never reach it (ADR-0010, ADR-0011). It is evaluation-only: `python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1..C7 --run RUN --model-profile M [--scheme v2|v1]`, and only one guard-worker or the ai-worker container may consume the lane queues at a time. In the full design L1/L2/L5 run before the call, L3b/L3 on the retrieved chunks, L4/L5 on the draft; wiring the outbound decision into the dispatch-worker is not done.
 
-| Service | Role | Host port |
-|---|---|---|
-| api | FastAPI `/v1`, provider webhooks, `/healthz`, `/readyz`, `/metrics` | 127.0.0.1:8000 |
-| frontend | Review UI (FastAPI + Jinja2 + htmx); calls only the API | 127.0.0.1:3001 |
-| mail-connector | Mailbox sync, subscription renewal | 8001 (internal) |
-| email-worker | MIME parse, quoted-history split, attachments to MinIO | 8002 (internal) |
-| triage-worker | Rules, ML, LLM cascade and the gate | 8003 (internal) |
-| ai-worker | Context, hybrid retrieval, reply agent | 8004 (internal) |
-| knowledge-worker | Parse, chunk, embed, persist documents | 8005 (internal) |
-| dispatch-worker | Create the provider draft (default) or send | 8006 (internal) |
-| postgres (pgvector, pg16) | Data, full-text and HNSW vector search | 5433 |
-| rabbitmq 3.13 | Broker; management UI | 5672, 15672 |
-| minio | Object storage; console | 9010, 9011 |
-| prometheus, grafana | Metrics; Grafana has the Prometheus datasource only | 9090, 3002 |
+Run the stack (needs Docker; defaults are `LLM__PROVIDER=fake` and `EMBEDDING__MOCK=true`, so no key):
 
-Postgres, RabbitMQ, MinIO, Prometheus and Grafana publish on all interfaces and use default credentials (`postgres/postgres`, `guest/guest`, `minioadmin/minioadmin`, `admin/admin`). Do not expose them beyond a development machine.
+```bash
+cp .env.example .env         # offline defaults: fake LLM, mock embedder
+make up                      # builds images, then init runs migrations, buckets, broker topology
+make seed                    # optional: demo tenants (Acme, Beta, Gamma), customers, knowledge, emails
+make smoke                   # end-to-end check on the running stack
+make down                    # stop it
+```
 
-Details: [docs/rag-email.md](docs/rag-email.md), [specs/](specs/) (requirements, design, tasks) and [docs/configuration.md](docs/configuration.md).
+All app services and infrastructure should show `Up (healthy)` in `docker compose ps`; `init` is a one-shot and exits. The review UI is at <http://localhost:3001> (127.0.0.1, no login; `.env.example` sets `FRONTEND__ORGANIZATION_ID` to the demo tenant `00000000-0000-0000-0000-000000000001`, which exists after `make seed`). The API docs are at <http://localhost:8000/docs>. Postgres (5433), RabbitMQ (5672, 15672), MinIO (9010, 9011), Prometheus (9090) and Grafana (3002) publish on all interfaces with default credentials (`postgres/postgres`, `guest/guest`, `minioadmin/minioadmin`, `admin/admin`): keep them on a development machine.
+
+Services, workers, schema and the full quick start: [docs/rag-email.md](docs/rag-email.md), [specs/](specs/) and [docs/configuration.md](docs/configuration.md).
+
+## Repository layout
+
+```
+agentmailguard/              the guard (git subtree, pinned): mailguard/ package, configs/, training/, tests/
+services/                    rag-email services: api, frontend, mail_connector, and five workers
+packages/                    rag-email shared libraries (core, domain, db, broker, adapters, retrieval, llm, ...)
+evaluation/mailguard_bench/  the benchmark runner, kit, scheme definitions and pinned inputs
+config/  prompts/            rag-email runtime config (triage rules, categories, agent profiles) and reply prompts
+migrations/                  versioned SQL migrations
+docs/  specs/  tests/        guides, ADRs and runbook; requirements, design, tasks; rag-email tests
+```
 
 ## Configuration
 
-Settings are environment variables read through Pydantic Settings, from the shell or `.env`. The template is [.env.example](.env.example); every key is described in [docs/configuration.md](docs/configuration.md). Main groups: `DATABASE__*`, `BROKER__*`, `OBJECT_STORAGE__*`, `LLM__*`, `EMBEDDING__*`, `RETRIEVAL__*`, `TRIAGE__*`, `CONCURRENCY__*`, `FRONTEND__*`. The guard reads `GUARD_MODELS__*`.
-
-The defaults are `LLM__PROVIDER=fake` and `EMBEDDING__MOCK=true`, so a fresh stack needs no key. A live benchmark needs real keys and `EMBEDDING__MOCK=false`; the exact `.env` block is in section 9.9 of the runbook.
+Settings are environment variables read through Pydantic Settings, from the shell or `.env`. The template is [.env.example](.env.example); every key is described in [docs/configuration.md](docs/configuration.md). Main groups: `DATABASE__*`, `BROKER__*`, `OBJECT_STORAGE__*`, `LLM__*`, `EMBEDDING__*`, `RETRIEVAL__*`, `TRIAGE__*`, `CONCURRENCY__*`, `FRONTEND__*`. The guard's own settings (`GUARD_MODELS__*`, `L1__*`, `OLLAMA__*`) are read from `agentmailguard/.env`, see above.
 
 ## Tests
 
@@ -239,9 +217,7 @@ make ci               # fmt-check, lint, test-unit, test-integration, test-e2e
 make mailguard-unit   # the whole unit suite with the guard on the import path
 ```
 
-`make ci` needs Docker for the integration tests, which use their own `rag_email_test` database and vhost. The e2e tests need `uv run playwright install chromium` once. Plain `uv run pytest` skips the tests that need the guard; `make mailguard-unit` runs them with fake models, no network and no classifier. The guard's own unit tests run from `agentmailguard/` with `python -m pytest tests/unit -q`.
-
-CI (`.github/workflows/ci.yml`) has these jobs: code quality (ruff format, ruff check, mypy, OpenAPI schema check), unit tests, unit tests with the guard overlay, integration tests on ephemeral services, and Playwright browser tests of the review UI. No test needs live credentials.
+`make ci` needs Docker for the integration tests, which use their own `rag_email_test` database and vhost. The e2e tests need `uv run playwright install chromium` once. Plain `uv run pytest` skips the tests that need the guard; `make mailguard-unit` runs them with fake models, no network and no classifier. CI (`.github/workflows/ci.yml`) runs code quality (ruff, mypy, OpenAPI check), unit tests with and without the guard overlay, integration tests on ephemeral services and Playwright tests of the review UI. No test needs live credentials.
 
 ## Documentation
 
@@ -256,5 +232,6 @@ CI (`.github/workflows/ci.yml`) has these jobs: code quality (ruff format, ruff 
 - [agentmailguard/README.md](agentmailguard/README.md): the guard's own README and its own evaluation harness.
 
 ## License
+
 
 MIT, see [LICENSE](LICENSE). It covers rag-email and the AgentMailGuard code under `agentmailguard/`. Third-party benchmark data keeps its own terms, listed in [evaluation/mailguard_bench/pinned/NOTICE.md](evaluation/mailguard_bench/pinned/NOTICE.md). The L1 classifier is not redistributed (ADR-0012, decision 15).
