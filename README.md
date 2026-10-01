@@ -39,8 +39,8 @@ One email goes through six layers (L1, L2, L3, L3b, L4, L5) around the single re
 | L1 Email Injection Scanner | One email | Cascade by cost: regex rules (15 families, 54 patterns) and obfuscation checks; then a TF-IDF + logistic-regression classifier, fused with the rules; then an optional LLM judge for uncertain scores only. An error is a HIGH fail-closed verdict. | `LayerVerdict`: severity, score 0-1, findings, indicators |
 | L2 User Intent Extractor | The body, without L1's verdict | Scores each segment alone with L1's rules and classifier, strips the injected ones, extracts the user's intent by regex (optional LLM paraphrase). | `SanitizedIntent` |
 | L3 Channel Isolation | Trusted instructions and data, the intent, untrusted text | No model. A nonce, scrubbed channel markers, spotlighting (`delimit`, `datamark` default, `encode`) and nonce-tagged channels. | `SecurePrompt` (`.messages`) |
-| L3b Retrieved Document Scanner | Retrieved chunks and the query | Each chunk alone: L1's rules and classifier plus PoisonedRAG heuristics; poisoned chunks are dropped. | Kept chunks, one `ChunkVerdict` each |
-| L4 Output Scanner | The draft and what L1, L2 and L3b flagged | Deterministic: secret redaction, system-prompt leak, citation integrity, injected-goal compliance, unsafe recipients and links. | `OutputVerdict` with `redacted_text` |
+| L3b Retrieved Document Scanner | Retrieved chunks and the query | Each chunk alone: L1's rules and classifier plus PoisonedRAG heuristics, then an optional LLM check of uncertain chunks; poisoned chunks are dropped. | Kept chunks, one `ChunkVerdict` each |
+| L4 Output Scanner | The draft and what L1, L2 and L3b flagged | Deterministic checks: secret redaction, system-prompt leak, citation integrity, injected-goal compliance, unsafe recipients and links; then an optional LLM judge of doubtful drafts. | `OutputVerdict` with `redacted_text` |
 | L5 Policy Engine | L1-L4 verdicts as summary facts, never the text; stage `inbound` or `outbound` | No model. Every matching rule in `configs/policy.yaml` is collected and the strictest action wins: quarantine > block > human_approval > draft_only > auto_send. A layer error forces at least `human_approval`. Default is `draft_only`; `auto_send` needs category `acknowledgement` or `scheduling`, a reply action, the outbound gate and severity low or below. | `PolicyDecision` and a JSONL audit line |
 
 Thresholds, caps and rules per layer: [docs/overview/layers/](docs/overview/layers/) and [docs/overview/04-agentmailguard-layers.md](docs/overview/04-agentmailguard-layers.md).
@@ -152,6 +152,62 @@ Benchmark configs (scheme v2, the default). These names are not the Python `Guar
 
 Results go to `evaluation/results/mailguard_bench/<RUN>/`; `raw/` is git-ignored. Guides: [docs/BENCHMARK.md](docs/BENCHMARK.md) (Windows/WSL2, local models), owner runbook [docs/demo-runbook.md](docs/demo-runbook.md) section 9.9.
 
+## AI and ML components
+
+A full live run uses four fixed ML models, one LLM under test that fills up to seven roles, and a separate reader LLM after the run. The model under test is the only thing that changes between runs (ADR-0011, decision 1). The drawing is C7, with every layer on; the other configs switch layers off as in the table above.
+
+```
+[ ] fixed model, the same in every run          ( ) LLM role, filled by the run's one model
+
+triage-worker     rules ─▶ [triage classifier] ─▶ (triage LLM) ─▶ gate ─▶ AI path
+ai-worker or      (summarizer) ─▶ hybrid search with [Gemini embeddings] ─▶ [reranker]
+guard-worker
+  guard, before   L1   rules ─▶ [L1 classifier] ─▶ (L1 judge)
+                  L2   rules + [L1 classifier] per segment ─▶ (L2 extractor)
+                  L5   inbound gate, no model
+                  L3b  rules + [L1 classifier] per chunk ─▶ (L3b scanner)
+                  L3   prompt build, no model
+  the call        (reply writer)
+  guard, after    L4   deterministic checks ─▶ (L4 judge)
+                  L5   outbound gate, no model
+after the run     (meaning reader): another model reads each attack draft
+```
+
+Fixed models:
+
+| Model | Role | Source |
+|---|---|---|
+| Triage classifier: TF-IDF + logistic regression | Triage stage 2, after the rules | `artifacts/models/triage_ml_v1.joblib`, in git |
+| L1 injection classifier: TF-IDF + logistic regression, sigmoid-calibrated | L1 stage 2; L2 reuses it per segment, L3b per chunk | `l1_injection_clf_v1.joblib`, private, sha256-checked in `pinned/` |
+| Gemini `gemini-embedding-001`, 1536 dimensions | Embeddings for hybrid search, hosted | set by the kit; needs the Gemini key |
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranks the retrieved chunks, on CPU | baked into the image (`Dockerfile`, `RERANK_MODEL`); the kit copies it to `.cache/reranker` for the guard-worker |
+
+LLM roles, all on the model under test:
+
+| Role | Calls the model when | Configs |
+|---|---|---|
+| Triage stage 3 | the rules and the classifier are not confident enough | all |
+| Thread summarizer | the thread has more than 4 messages or more than an estimated 1,500 tokens | all |
+| Reply writer | the gate sends the email down the AI path: one call, at most one repair | all, unless L5's inbound gate stops the email |
+| L1 judge | L1's cheap fused score is in [0.20, 0.85) | C1, C7 |
+| L2 extractor | every email: a neutral paraphrase of the request | C2, C7 |
+| L3b scanner | a retrieved chunk scores in [0.30, 0.70) | C4, C7 |
+| L4 judge | the draft is below high severity, and an injected goal was flagged or its score is at least 0.2 | C5, C7 |
+
+How the models were chosen:
+- The guard's four model roles (`judge`, `extractor`, `doc_scanner`, `output_judge`) default to `fake`; a host names a registered model for each. The benchmark names the run's model for all four ([guard_factory.py](evaluation/mailguard_bench/guard_factory.py)) and points rag-email's fast, strong and fallback tiers and its summarizer at the same model ([model_profiles.py](evaluation/mailguard_bench/model_profiles.py), [stack_env.py](evaluation/mailguard_bench/live/stack_env.py)).
+- The three models under test are the ones AgentMailGuard's own plan compares, each as reply agent and guard LLM stages ([agentmailguard/docs/experiments.md](agentmailguard/docs/experiments.md)): one hosted model, `gpt-4o-mini` (OpenAI API), and two open-weight 7-8B models run locally in 4-bit builds on Ollama, `qwen2.5:7b-instruct` and `llama3.1:8b`. Owner decision 2026-09-29, recorded in [guard_models.yaml](evaluation/mailguard_bench/guard_models.yaml). The fourth profile, `gemma-4-26b` (Gemini API), served the first test run and is not one of the three.
+- The meaning reader must be independent of the models under test: [meaning.py](evaluation/mailguard_bench/meaning.py) refuses a benchmarked model, any variant of one (another tag, date, quantization or provider prefix) and the run's own generation model. Choose it and write it down before the first run (ADR-0012, decision 7).
+
+What a full live benchmark needs (3 models × 9 configs × 550 cases, one model at a time):
+
+1. The Gemini key in `.env` for the embeddings, and `BENCH_OPENAI_API_KEY` for `gpt-4o-mini` (the key table above).
+2. The settings the host processes share with the containers, in `.env`: the `EMBEDDING__*` lines, `LLM__TIMEOUT_S=60`, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` (the block in runbook section 9.9). The kit writes the containers' copy to `.env.stack`, with the tiers, the summarizer and the reranker, and refuses to start while `.env` or the shell disagrees.
+3. For the local models: `ollama pull qwen2.5:7b-instruct` and `ollama pull llama3.1:8b`, then load each one before its run, for example `ollama run qwen2.5:7b-instruct "Reply with OK" < /dev/null`. The live runner refuses a model that is not loaded.
+4. The private L1 classifier in `pinned/`.
+5. The checks for one model and the reader: `uv run python -m evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b --reader <reader model>` (`make bench-doctor` runs the checks without either).
+6. One `make bench-run MODEL=<profile> RUN=<id>` per model, then the meaning column, with the reader's endpoint set for that one command: `LLM__PROVIDER=openai LLM__OPENAI_BASE_URL=<reader endpoint> make bench-report RUN=<id> READER=<reader model>` ([docs/BENCHMARK.md](docs/BENCHMARK.md), section D7).
+
 ## rag-email: the host system
 
 rag-email is a multi-tenant system that reads mailboxes, decides which emails need a reply, and drafts replies grounded in a knowledge base. It classifies first, retrieves only when required and generates only when necessary: one generation call per job at most. By default every approved reply becomes a provider draft; sending is a per-category `dispatch_mode: send_reply` in `config/categories.yaml`.
@@ -232,6 +288,5 @@ make mailguard-unit   # the whole unit suite with the guard on the import path
 - [agentmailguard/README.md](agentmailguard/README.md): the guard's own README and its own evaluation harness.
 
 ## License
-
 
 MIT, see [LICENSE](LICENSE). It covers rag-email and the AgentMailGuard code under `agentmailguard/`. Third-party benchmark data keeps its own terms, listed in [evaluation/mailguard_bench/pinned/NOTICE.md](evaluation/mailguard_bench/pinned/NOTICE.md). The L1 classifier is not redistributed (ADR-0012, decision 15).
