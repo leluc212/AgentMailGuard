@@ -1022,6 +1022,7 @@ def test_a_route_stop_ends_the_campaign_before_the_next_config_and_the_retry_pas
     assert "the run stopped" in text and "never switch providers inside a RUN" in text
     assert "used-up quota, balance, spend limit or daily cap of any provider" in text
     assert "Another model's `make bench-run` (its own RUN) may run in between" in text
+    assert "unless it uses the limit that stopped this run" in text  # a shared embedding quota
     assert "make bench-run" in text  # the resume command
 
 

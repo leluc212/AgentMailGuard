@@ -874,7 +874,9 @@ class _Campaign:
                 "the next day, or wait until the provider serves again; never switch providers "
                 "inside a RUN), then run the same command again: finished configs are skipped and "
                 "the error rows retried. Another model's `make bench-run` (its own RUN) may run "
-                "in between"
+                "in between, unless it uses the limit that stopped this run (the embedding's "
+                "quota, or an OpenAI balance or spend limit the embedding shares): its embedding "
+                "check then refuses with the same message"
             )
         return _Outcome(config, status, exit_code, counts)
 
