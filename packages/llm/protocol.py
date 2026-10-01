@@ -125,6 +125,33 @@ class LLMResponseError(LLMError):
         self.retry_after_s = retry_after_s
 
 
+class LLMQuotaExhaustedError(LLMResponseError):
+    """The provider's quota, prepaid credit, spend limit or daily cap is used up (HTTP 429).
+
+    Not a rate limit that clears in seconds: retrying does not restore access (OpenAI's error-code
+    guide says so for billing, spend and quota errors), so a caller stops or dead-letters instead
+    of backing off. ``quota`` names what ran out (``packages.core.provider_limits``), and the
+    message starts with ``quota_exhausted`` so a cut error text still says it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        quota: str,
+        status_code: int | None = 429,
+        limit_source: str | None = None,
+        retry_after_s: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            limit_source=limit_source,
+            retry_after_s=retry_after_s,
+        )
+        self.quota = quota
+
+
 class LLMProviderMismatchError(LLMResponseError):
     """A call was served by another provider than the pinned one, or after a fallback attempt.
 

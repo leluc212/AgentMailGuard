@@ -37,6 +37,7 @@ from packages.domain.entities import (
     ProcessingEvent,
 )
 from packages.domain.state_machine import JobState
+from packages.knowledge.embedder import EmbeddingQuotaExhaustedError
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.fake import FakeSearchBackend
@@ -54,6 +55,13 @@ class UnderfilledBackend(FakeSearchBackend):
 
     async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[RetrievalCandidate]:
         return BranchCandidates(await super().vector(q, top_n), underfilled=True)
+
+
+class QuotaExhaustedVectorBackend(FakeSearchBackend):
+    """A backend whose vector branch fails: the query embedding found its quota used up."""
+
+    async def vector(self, q: RetrievalQuery, top_n: int = 20) -> list[RetrievalCandidate]:
+        raise EmbeddingQuotaExhaustedError("daily_limit")
 
 
 class BrokenEventStore(InMemoryJobStore):
@@ -181,12 +189,14 @@ async def test_one_event_records_the_retrieved_chunks_and_a_skipped_summary() ->
         "retrieved",
         "retrieval_degraded",
         "retrieval_underfilled",
+        "retrieval_vector_error",
         "rerank_applied",
         "summary_triggered",
         "summary_model",
     }
     assert built.payload["retrieved"] == [{**CHUNK, "rank": 1, "rerank_score": None}]
     assert built.payload["retrieval_degraded"] is False  # retrieval ran, neither branch failed
+    assert built.payload["retrieval_vector_error"] is None
     assert built.payload["retrieval_underfilled"] is None  # the fake backend cannot tell
     assert built.payload["summary_triggered"] is False
     assert built.payload["summary_model"] is None
@@ -221,6 +231,19 @@ async def test_a_summary_on_the_fast_tier_names_the_tier_model() -> None:
     assert built.payload["summary_model"] == "fake-fast-model"
 
 
+async def test_a_failed_vector_branch_records_why_so_a_used_up_embedding_quota_shows() -> None:
+    # Task 7.29: a query embedding that found its quota used up degrades retrieval to lexical;
+    # the event names why, so the benchmark's row says quota_exhausted and its breaker stops.
+    run = await _run(backend=QuotaExhaustedVectorBackend())
+
+    (built,) = run.built
+    assert built.payload["retrieval_degraded"] is True
+    error = built.payload["retrieval_vector_error"]
+    assert error.startswith("Embedding request failed with status 429 (quota_exhausted: ")
+    assert "daily_limit" in error and len(error) <= 200
+    json.dumps(built.payload)
+
+
 async def test_no_retrieval_means_no_retrieved_chunks() -> None:
     run = await _run(retrieval_required=False)
 
@@ -228,6 +251,7 @@ async def test_no_retrieval_means_no_retrieved_chunks() -> None:
     assert built.payload["retrieved"] == []
     assert built.payload["retrieval_degraded"] is None
     assert built.payload["retrieval_underfilled"] is None
+    assert built.payload["retrieval_vector_error"] is None
     assert built.payload["rerank_applied"] is None
 
 

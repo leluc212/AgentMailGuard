@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from packages.core.provider_limits import quota_exhaustion, quota_note
 from packages.core.settings import ProviderRouting
 from packages.llm.protocol import (
     CallProvenance,
@@ -22,6 +23,7 @@ from packages.llm.protocol import (
     LLMError,
     LLMProvider,
     LLMProviderMismatchError,
+    LLMQuotaExhaustedError,
     LLMResponseError,
     LLMResult,
     LLMSchemaValidationError,
@@ -47,25 +49,34 @@ DEFAULT_MODEL_MAP: dict[ModelTier, str] = {
 }
 
 
-def _limit_source(response: httpx.Response) -> str | None:
+def _json_body(response: httpx.Response) -> Any:
+    """The parsed JSON body of a response; None when it is not JSON."""
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _limit_source(body: Any) -> str | None:
     """OpenRouter's ``error.metadata.limit_source`` of an error body, when it has one."""
     try:
-        body = response.json()
         source = body["error"]["metadata"]["limit_source"]
-    except (ValueError, KeyError, TypeError):
+    except (KeyError, TypeError):
         return None
     return source if isinstance(source, str) else None
 
 
-def _status_text(status: int | None, limit_source: str | None) -> str:
-    """``LLM request failed with status N[ (limit_source)]``: the classifying facts first.
+def _status_text(status: int | None, limit_source: str | None, quota: str | None = None) -> str:
+    """``LLM request failed with status N[ (limit_source)][ (quota_exhausted: q)]``: facts first.
 
     A job's last error and a triage stage's error are cut to their first 200 characters on the
-    benchmark's error rows, and the route classifier reads that text: the status and
-    OpenRouter's ``limit_source`` must come before the body, which can be long.
+    benchmark's error rows, and the route classifier reads that text: the status, OpenRouter's
+    ``limit_source`` and a quota exhaustion (``packages.core.provider_limits``) must come before
+    the body, which can be long.
     """
     source = f" ({limit_source})" if limit_source else ""
-    return f"LLM request failed with status {status}{source}"
+    used_up = f" ({quota_note(quota)})" if quota else ""
+    return f"LLM request failed with status {status}{source}{used_up}"
 
 
 def _body_error(data: Any) -> LLMResponseError | None:
@@ -73,8 +84,9 @@ def _body_error(data: Any) -> LLMResponseError | None:
 
     OpenRouter documents such a body: ``{"error": {"code": <HTTP status>, "message": ...,
     "metadata": {...}}}``. It is classified like the same status on the wire (a 402 that is not
-    the in-flight budget is dead-lettered, a 404/502/503 is a route failure), not as a
-    malformed answer. None when the body names no error.
+    the in-flight budget is dead-lettered, a 404/502/503 is a route failure, a 429 that names a
+    used-up quota is ``LLMQuotaExhaustedError``), not as a malformed answer. None when the body
+    names no error.
     """
     if not isinstance(data, dict):
         return None
@@ -86,16 +98,16 @@ def _body_error(data: Any) -> LLMResponseError | None:
     metadata = error.get("metadata")
     source = metadata.get("limit_source") if isinstance(metadata, dict) else None
     source = source if isinstance(source, str) else None
+    quota = quota_exhaustion(status, data)
     head = (
-        _status_text(status, source)
+        _status_text(status, source, quota)
         if status is not None
         else "LLM request failed with an error in the response body"
     )
-    return LLMResponseError(
-        f"{head} (in an HTTP 200 body): {json.dumps(data)}",
-        status_code=status,
-        limit_source=source,
-    )
+    message = f"{head} (in an HTTP 200 body): {json.dumps(data)}"
+    if quota is not None:
+        return LLMQuotaExhaustedError(message, quota=quota, status_code=status, limit_source=source)
+    return LLMResponseError(message, status_code=status, limit_source=source)
 
 
 def _retry_after_s(response: httpx.Response) -> float | None:
@@ -239,10 +251,24 @@ class HttpLLMProvider(LLMProvider):
                 elapsed_ms,
                 exc.response.text,
             )
-            source = _limit_source(exc.response)
+            status = exc.response.status_code
+            body = _json_body(exc.response)
+            source = _limit_source(body)
+            # A used-up quota, balance, spend limit or daily cap: retrying does not lift it
+            # (packages/core/provider_limits.py cites the providers' documentation).
+            quota = quota_exhaustion(status, body)
+            message = f"{_status_text(status, source, quota)}: {exc.response.text}"
+            if quota is not None:
+                raise LLMQuotaExhaustedError(
+                    message,
+                    quota=quota,
+                    status_code=status,
+                    limit_source=source,
+                    retry_after_s=_retry_after_s(exc.response),
+                ) from exc
             raise LLMResponseError(
-                f"{_status_text(exc.response.status_code, source)}: {exc.response.text}",
-                status_code=exc.response.status_code,
+                message,
+                status_code=status,
                 limit_source=source,
                 retry_after_s=_retry_after_s(exc.response),
             ) from exc

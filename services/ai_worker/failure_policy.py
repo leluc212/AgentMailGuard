@@ -16,7 +16,11 @@ from enum import StrEnum
 from packages.broker.consumer import FatalError
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.llm.drafts import UnpersistableDraftError
-from packages.llm.protocol import LLMProviderMismatchError, LLMResponseError
+from packages.llm.protocol import (
+    LLMProviderMismatchError,
+    LLMQuotaExhaustedError,
+    LLMResponseError,
+)
 from packages.llm.validation import DraftSchemaContractError, UnvalidatedDraftError
 
 
@@ -60,6 +64,10 @@ _PERMANENT: tuple[type[BaseException], ...] = (
     UnpersistableDraftError,
     FatalError,
     LLMProviderMismatchError,
+    # A used-up quota, balance, spend limit or daily cap (HTTP 429): OpenAI's error-code guide
+    # says retrying does not restore access, so the ladder's 30 s to 30 min tiers would only
+    # hold the job (packages/core/provider_limits.py). A per-minute 429 is still retried.
+    LLMQuotaExhaustedError,
 )
 
 _TRANSIENT_402_SOURCE = "openrouter_in_flight_budget"

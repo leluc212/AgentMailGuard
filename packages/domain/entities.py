@@ -171,6 +171,10 @@ class ContextPackage:
     # carries its rerank_score), False when they kept RRF order (rerank off, unavailable, too
     # slow, or nothing retrieved), None when no retrieval ran (R6.6, R11.1, R11.5).
     rerank_applied: bool | None = None
+    # Diagnostics, never prompt text: why the vector branch (the query embedding and the ANN
+    # search) failed, as its component said it, cut to 200 characters; None when it did not fail
+    # or no retrieval ran (R10.6). A used-up embedding quota says so here (task 7.29).
+    retrieval_vector_error: str | None = None
 
     def get_ordered_sections(self) -> list[tuple[str, str]]:
         """Return assembled prompt sections in strictly fixed assembly order (R14.8).

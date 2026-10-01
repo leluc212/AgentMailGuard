@@ -23,6 +23,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
+from packages.core.provider_limits import quota_exhaustion, quota_note
 from packages.core.settings import EmbeddingSettings
 from packages.observability.metrics import PipelineMetrics, get_metrics
 
@@ -43,6 +44,31 @@ class EmbeddingTimeoutError(EmbeddingError):
 
 class EmbeddingRateLimitError(EmbeddingError):
     """Raised when an embedding request is rate limited after retry exhaustion."""
+
+
+class EmbeddingQuotaExhaustedError(EmbeddingError):
+    """The endpoint's quota, prepaid credit, spend limit or daily cap is used up (HTTP 429).
+
+    Raised at once, without the retries a rate limit gets: retrying does not lift it
+    (``packages.core.provider_limits``). The message names what ran out, never the body.
+    """
+
+    def __init__(self, quota: str) -> None:
+        super().__init__(f"Embedding request failed with status 429 ({quota_note(quota)})")
+        self.quota = quota
+
+
+def _quota_of(response: httpx.Response) -> str | None:
+    """What a 429 says ran out, read from the error object of the body; None for a rate limit.
+
+    Only the provider's error object is read, and only the classification leaves this function:
+    the body is never put into a message (a provider can echo the input).
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return quota_exhaustion(response.status_code, body)
 
 
 class EmbeddingDimensionMismatchError(EmbeddingError):
@@ -244,6 +270,9 @@ class HttpEmbedder(Embedder):
                 )
 
                 if response.status_code == 429:
+                    quota = _quota_of(response)
+                    if quota is not None:
+                        raise EmbeddingQuotaExhaustedError(quota)
                     if attempt < self._max_retries:
                         delay = self._calculate_backoff(attempt, response.headers)
                         logger.warning(

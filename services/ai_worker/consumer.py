@@ -58,7 +58,8 @@ def context_built_payload(
     ``rank`` is a chunk's 1-based position in the context handed to the model. A value nothing
     could tell is None (unknown), never guessed: ``retrieval_degraded``, ``retrieval_underfilled``
     and ``rerank_applied`` are the ContextPackage's own fields, None when no retrieval ran, and
-    the ``summary_*`` values are None without a summarizer.
+    the ``summary_*`` values are None without a summarizer. ``retrieval_vector_error`` is why the
+    vector branch failed (the query embedding or the ANN search), None when it did not.
     """
     return {
         "retrieved": [
@@ -72,6 +73,7 @@ def context_built_payload(
         ],
         "retrieval_degraded": context.retrieval_degraded,
         "retrieval_underfilled": context.retrieval_underfilled,
+        "retrieval_vector_error": context.retrieval_vector_error,
         "rerank_applied": context.rerank_applied,
         "summary_triggered": None if summary is None else summary.summarized,
         "summary_model": None if summary is None else summary.model,
