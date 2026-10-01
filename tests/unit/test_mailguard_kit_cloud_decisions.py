@@ -9,6 +9,7 @@ the embedding endpoint is an ``httpx.MockTransport``. No test reaches a real end
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -284,18 +285,57 @@ def test_make_bench_run_passes_case_ids_as_an_argument_only() -> None:
     assert leaked == ""
 
 
-def test_the_guides_trial_command_covers_an_attack_a_benign_and_a_rag_case() -> None:
+TRIAL_GUIDES = ("docs/BENCHMARK.md", "README.md", "docs/benchmark-windows-native.md")
+
+
+def _trial_commands(text: str) -> list[dict[str, Any]]:
+    """Each trial command of a guide (the kit's make target or its module), its words parsed."""
+    found = []
+    for line in text.splitlines():
+        ids = re.search(r"(?:CASE_IDS=|--case-ids )([\w,.-]+)", line)
+        if ids is None or not ("make bench-run" in line or "campaign run" in line):
+            continue
+        configs = re.search(r"(?:CONFIGS=|--configs )([\w,]+)", line)
+        run = re.search(r"(?:\bRUN=|--run )([\w.-]+)", line)
+        found.append(
+            {
+                "ids": ids.group(1).split(","),
+                "configs": configs.group(1).split(",") if configs else None,
+                "run": run.group(1) if run else "",
+            }
+        )
+    return found
+
+
+@pytest.mark.parametrize("guide", TRIAL_GUIDES)
+def test_the_guides_trial_command_covers_an_attack_a_benign_and_a_rag_case(guide: str) -> None:
+    # The ids live only in the guides; a drift from the pinned cases must fail here, not on the
+    # teammate's machine. Every config of the trial must run each id (the kit refuses one it does
+    # not), and exactly one id is a RAG case with knowledge documents to embed.
+    from evaluation.mailguard_bench.case_adapter import EvalCase
     from evaluation.mailguard_bench.cases import DEFAULT_CASE_DIR, load_case_set
     from evaluation.mailguard_bench.runner import config_case_ids
 
-    guide = (REPO / "docs" / "BENCHMARK.md").read_text("utf-8")
-    line = next(ln for ln in guide.splitlines() if "CASE_IDS=" in ln and "make bench-run" in ln)
-    ids = line.split("CASE_IDS=", 1)[1].split()[0].split(",")
-    assert "RUN=trial-" in line
+    commands = _trial_commands((REPO / guide).read_text("utf-8"))
+    assert commands, f"{guide} names no trial command"
     loaded = load_case_set(DEFAULT_CASE_DIR)
-    assert set(ids) <= set(config_case_ids(loaded.manifest, "C0", "v2"))  # every config runs them
-    kinds = {(loaded.cases[i]["kind"], bool(loaded.cases[i].get("chunks"))) for i in ids}
-    assert kinds == {("attack", False), ("benign", False), ("attack", True)}
+    for command in commands:
+        assert command["run"].startswith("trial")
+        assert command["configs"], "a trial names its configs"
+        for config in command["configs"]:
+            assert set(command["ids"]) <= set(config_case_ids(loaded.manifest, config, "v2"))
+        cases = [EvalCase.from_dict(loaded.cases[i]) for i in command["ids"]]
+        kinds = sorted((case.kind, bool(case.kb_docs)) for case in cases)
+        assert kinds == [("attack", False), ("attack", True), ("benign", False)]
+
+
+def test_the_guides_name_the_same_trial_cases() -> None:
+    ids = {
+        tuple(command["ids"])
+        for guide in TRIAL_GUIDES
+        for command in _trial_commands((REPO / guide).read_text("utf-8"))
+    }
+    assert len(ids) == 1
 
 
 # --- F: a run stopped by a limit resumes after another model's run ----------------------------
