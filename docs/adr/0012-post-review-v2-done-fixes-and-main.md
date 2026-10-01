@@ -1,6 +1,7 @@
 # ADR-0012: After the thesis review — v2's definition of done, the Llama-run fixes, guard fixes on the guard's branch, and one repository on main
 
-- **Status:** Accepted
+- **Status:** Accepted; decisions 3 (the v2 guard pin) and 9 (the route of Qwen2.5-7B and
+  Llama-3.1-8B) amended by ADR-0014 (2026-10-01): full cloud, the pin moved to `915cb1e`
 - **Date:** 2026-09-30
 - **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10; decisions 12 to 16
   on 2026-10-01 at 00:42, after the first live v2 smoke runs; decision 17 at 06:02)

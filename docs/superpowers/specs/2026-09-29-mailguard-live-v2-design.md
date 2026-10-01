@@ -459,3 +459,46 @@ scored and never counted as defended.
 - The fail-closed sensitivity line of Amendment 1 (E.1) is unchanged and does not include these rows.
 - A count that stays above zero after the retry pass is a finding about the stack (DNS, network, quota),
   reported as such; it is not a result about a guard config.
+
+### Amendment 4 (2026-10-01, owner decision, ADR-0014): the full-cloud route, the guard pin, the embedding
+
+- **Status:** pre-registered on 2026-10-01, before any v2 result exists (only throwaway preflight and
+  smoke folders exist, none a result). It replaces the open points of Amendment 2's "Serving, recorded
+  per run" and "Code and guard" bullets, which said the route is decided at the meeting of 2026-10-01
+  and the guard is at `1a3ef62`. Nothing here may be edited after a v2 result exists; a change after
+  that is a new amendment that says why, and the runs it affects start again.
+- **Decided by:** project owner (ADR-0014). Built as task 7.29 (the branches `wp-r4-openrouter` and
+  `mailguard-openrouter` merged, the pin moved, the embedding made the runner's choice).
+
+#### Serving
+
+- `gpt-4o-mini` through the OpenAI API; Qwen2.5-7B (`qwen/qwen-2.5-7b-instruct`) and Llama-3.1-8B
+  (`meta-llama/llama-3.1-8b-instruct`) through OpenRouter, each pinned to one provider with fallbacks
+  off and `require_parameters` on: Qwen to `phala` (precision `unknown`, not filtered), Llama to
+  `coreweave` at `bf16`. One model serves every LLM role of its run in both systems, as before.
+- Every call's served provider is checked against the pin (a mismatch, a fallback attempt or an
+  unnamed provider is an error row, never a scored one) and recorded: guarded rows carry it, and every
+  service logs it per call (`llm_inference`), which the kit keeps per config.
+- The Qwen and Llama numbers are **not comparable with v1's local 4-bit runs** on serving; each routed
+  report says so in its `## Run setup` section, with the pin and the providers that served the calls.
+- A run whose route stops serving (three consecutive mismatches or HTTP 404/502/503, or a 402 that is
+  not the transient in-flight budget) stops; its error rows are retried on resume like any other
+  (Amendment 3's rules are unchanged).
+
+#### Guard
+
+- The guard is at `915cb1e` (tree `f659748a611340e093d41189dc1f445a2f842134`): `1a3ef62` plus provider
+  routing and per-call provenance in its OpenAI provider, transport only. No layer, prompt, rule,
+  threshold or contract differs from `1a3ef62`, so the configs, the hypotheses, the utility rules and
+  the target of Amendment 2 are unchanged. Every run's meta records the guard commit as before.
+- Known limit: the guard's judges use JSON mode with validation (`json_object`), not a strict JSON
+  schema; a judge's HTTP failure is the guard's visible fallback and the row stays scored (ADR-0012
+  decision 4), counted per config in the report.
+
+#### Embedding
+
+- One embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison,
+  recorded with each run (ADR-0014 decision 5). This replaces the owner decision at the top of this
+  design that fixed Gemini `gemini-embedding-001` for all runs. Each config's fingerprint holds the
+  model, the width and the endpoint's host, so a run refuses to resume under another embedding, and
+  the report states it. Runs of different models are compared only when they share it.
