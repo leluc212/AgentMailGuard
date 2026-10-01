@@ -1019,7 +1019,9 @@ def test_a_route_stop_ends_the_campaign_before_the_next_config_and_the_retry_pas
     steps = [s for s in bench.kit_log() if s["step"] == "config"]
     assert [(s["config"], s["status"], s["pass"]) for s in steps] == [("C0", "stopped", 1)]
     text = "\n".join(bench.err)
-    assert "route stopped serving" in text and "never switch providers inside a RUN" in text
+    assert "the run stopped" in text and "never switch providers inside a RUN" in text
+    assert "used-up quota, balance, spend limit or daily cap of any provider" in text
+    assert "Another model's `make bench-run` (its own RUN) may run in between" in text
     assert "make bench-run" in text  # the resume command
 
 

@@ -12,6 +12,12 @@ context. ``run_cases`` runs each case in its own task (``asyncio.gather``), each
 its own context copy, and tasks the guard spawns inside ``pipeline.run`` inherit the same
 tally object. Case B starting can therefore never wipe case A's recorded errors, and A's
 429 or tokens are never attributed to B.
+
+A call that failed on the route or the service (an HTTP 402, 404, 408, 409, 429 or 5xx, a
+timeout, a connection error, a router error in an HTTP 200 body; ``route.guard_call_failure``) is
+also recorded in ``route_failures``: the guard falls back to its cheap verdict, and the case
+executor makes the case an error row instead of a scored one (owner decision 2026-10-01,
+ADR-0014). A model that answers badly raises nothing here and stays the guard's own fallback.
 """
 
 from __future__ import annotations
@@ -21,7 +27,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from evaluation.mailguard_bench.route import pin_problem
+from evaluation.mailguard_bench.route import (
+    describe_guard_failure,
+    guard_call_failure,
+    guard_result_failure,
+    pin_problem,
+)
 from packages.llm.provenance import MISMATCH_MARKER
 
 
@@ -33,6 +44,7 @@ class _Tally:
     errors: list[str] = field(default_factory=list)
     provenance: list[dict[str, Any]] = field(default_factory=list)
     route_violations: list[str] = field(default_factory=list)
+    route_failures: list[str] = field(default_factory=list)
 
 
 class CountingProvider:
@@ -64,11 +76,18 @@ class CountingProvider:
         try:
             result = await self.inner.generate(**kwargs)
         except Exception as exc:
-            tally.errors.append(f"{type(exc).__name__}: {exc}")
+            described = f"{type(exc).__name__}: {exc}"
+            tally.errors.append(described)
+            failure = guard_call_failure(exc)
+            if failure is not None:
+                tally.route_failures.append(describe_guard_failure(failure, described))
             raise
         tally.input_tokens += int(getattr(result, "input_tokens", 0) or 0)
         tally.output_tokens += int(getattr(result, "output_tokens", 0) or 0)
         self._record_provenance(tally, result)
+        in_body = guard_result_failure(result)
+        if in_body is not None:  # the stage parses no verdict from it and falls back
+            tally.route_failures.append(describe_guard_failure(in_body, "HTTP 200"))
         return result
 
     def _record_provenance(self, tally: _Tally, result: Any) -> None:
@@ -106,4 +125,6 @@ class CountingProvider:
             snapshot["provenance"] = list(tally.provenance)
         if tally.route_violations:
             snapshot["route_violations"] = list(tally.route_violations)
+        if tally.route_failures:
+            snapshot["route_failures"] = list(tally.route_failures)
         return snapshot

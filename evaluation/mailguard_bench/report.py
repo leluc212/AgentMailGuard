@@ -99,6 +99,7 @@ from evaluation.mailguard_bench.scheme_report import (
 )
 from evaluation.mailguard_bench.scoring import (
     FAIL_CLOSED_KIND,
+    GUARD_ROUTE_FAILURE_KIND,
     LIVE_TRANSPORT,
     RETRIEVAL_DEGRADED_KIND,
     TRIAGE_STAGE_FAILURE_KIND,
@@ -395,6 +396,7 @@ def _service_failures_in(errors: Sequence[RawRecord], ids: set[str]) -> ServiceF
     return ServiceFailures(
         triage_stage_failure=sum(e.error_kind == TRIAGE_STAGE_FAILURE_KIND for e in in_table),
         retrieval_degraded=sum(e.error_kind == RETRIEVAL_DEGRADED_KIND for e in in_table),
+        guard_route_failure=sum(e.error_kind == GUARD_ROUTE_FAILURE_KIND for e in in_table),
     )
 
 

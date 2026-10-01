@@ -422,6 +422,53 @@ def test_the_report_counts_both_kinds_per_config_next_to_the_error_count() -> No
     assert lines[errors + 2] == "| of which retrieval degraded (retried) | 0 | 1 |"
 
 
+def test_guard_route_failure_rows_are_counted_in_the_errors_row_of_the_report() -> None:
+    # Owner decision 2026-10-01 (ADR-0014): a guard LLM call the route or the service failed makes
+    # an error row, excluded from the scores and listed under the errors row, like the two others.
+    llmail = {
+        "C7": replace(
+            live_summary("C7", PIPELINE_7_300, GUARD_7_280),
+            n_errors=4,
+            service_failures=ServiceFailures(0, 1, guard_route_failure=3),
+        ),
+    }
+
+    lines = render_report(live_inputs(llmail=llmail)).splitlines()
+    errors = next(i for i, line in enumerate(lines) if line.startswith("| Errors (excluded) |"))
+    assert lines[errors].endswith("| 4 |")
+    assert lines[errors + 3] == "| of which guard route failure (retried) | 3 |"
+    rows = metrics_rows({"llmail": llmail}, {}, {})
+    assert {r["metric"]: r["value"] for r in rows}["guard_route_failure_errors"] == 3
+
+
+def test_the_report_reads_guard_route_failure_rows_by_their_error_kind() -> None:
+    from evaluation.mailguard_bench.report import _service_failures_in
+    from evaluation.mailguard_bench.scoring import (
+        GUARD_ROUTE_FAILURE_KIND,
+        LIVE_SCHEMA,
+        RawRecord,
+    )
+
+    rows = [
+        RawRecord.from_dict(
+            {
+                "schema": LIVE_SCHEMA,
+                "case_id": f"c-{n}",
+                "config": "C7",
+                "status": "error",
+                "error": {"kind": kind, "message": "x"},
+                "result": None,
+            }
+        )
+        for n, kind in enumerate(
+            [GUARD_ROUTE_FAILURE_KIND, GUARD_ROUTE_FAILURE_KIND, "guard_layer_error"]
+        )
+    ]
+
+    counts = _service_failures_in(rows, {"c-0", "c-1", "c-2"})
+    assert counts == ServiceFailures(0, 0, guard_route_failure=2)
+
+
 def test_a_table_without_the_counts_prints_no_such_rows() -> None:
     text = render_report(live_inputs())
 
@@ -436,7 +483,11 @@ def test_the_service_failure_counts_reach_metrics_csv() -> None:
     rows = metrics_rows({"llmail": {"C3": c3}}, {}, {})
 
     by_metric = {r["metric"]: r["value"] for r in rows if r["metric"].endswith("_errors")}
-    assert by_metric == {"triage_stage_failure_errors": 2, "retrieval_degraded_errors": 1}
+    assert by_metric == {
+        "triage_stage_failure_errors": 2,
+        "retrieval_degraded_errors": 1,
+        "guard_route_failure_errors": 0,
+    }
 
 
 def test_a_v1_summary_entry_omits_the_service_failure_counts() -> None:
@@ -451,4 +502,5 @@ def test_a_live_summary_entry_keeps_the_service_failure_counts() -> None:
     assert summary_entry(live)["service_failures"] == {
         "triage_stage_failure": 2,
         "retrieval_degraded": 1,
+        "guard_route_failure": 0,
     }

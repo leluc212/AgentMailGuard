@@ -464,6 +464,9 @@ async def test_a_transport_failure_of_an_ai_step_is_a_recorded_fallback(tmp_path
     assert execution.guard_errors == ()  # the counted provider error is not a second failure
     assert [f["reason"] for f in execution.record["guard_fallbacks"]] == ["error"]
     assert execution.record["guard_llm"]["calls"] >= 1
+    # the guard's fallback is recorded as it happened; the HTTP 500 behind it is a route failure,
+    # so the case is an error row, not scored (owner decision 2026-10-01, ADR-0014)
+    assert execution.guard_route_failures
 
 
 @MARKING_GUARD_ONLY
@@ -491,6 +494,86 @@ async def test_a_schema_failure_row_is_scored_ok_when_the_guard_marks_it(tmp_pat
 async def test_a_429_in_a_marked_fallback_is_still_rate_limited(tmp_path: Path) -> None:
     executor, _, guard = _executor("C3", tmp_path)
     guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 429: quota"))
+
+    with pytest.raises(RateLimitedError):
+        await executor.execute(_prepared(BENIGN))
+
+
+# --- guard route failures (owner decisions A and B of 2026-10-01, ADR-0014) --------------------
+
+
+def _chained_http_error(status: int, body: dict[str, Any]) -> GuardLLMResponseError:
+    """What the guard's OpenAIProvider raises for an HTTP error: its message, httpx's chained."""
+    import httpx
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(status, json=body, request=request)
+    cause = httpx.HTTPStatusError(str(status), request=request, response=response)
+    try:
+        raise GuardLLMResponseError(f"OpenAI HTTP {status}: {response.text[:300]}") from cause
+    except GuardLLMResponseError as exc:
+        return exc
+
+
+@MARKING_GUARD_ONLY
+async def test_a_judge_call_the_service_failed_makes_an_error_row_not_a_scored_fallback(
+    tmp_path: Path,
+) -> None:
+    from evaluation.mailguard_bench.results import ResultStore
+    from evaluation.mailguard_bench.runner import run_cases
+
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner.set_error(_chained_http_error(503, {"error": {"message": "down"}}))
+    prepared = _prepared(BENIGN)
+
+    execution = await executor.execute(prepared)
+
+    assert execution.guard_errors == ()  # the guard fell back: no layer crashed
+    assert execution.guard_route_failures
+    assert all("HTTP 503" in f for f in execution.guard_route_failures)
+    assert execution.record["guard_route_failures"] == list(execution.guard_route_failures)
+
+    async def execute(_case: EvalCase) -> dict[str, Any]:
+        return {**execution.record, "guard_errors": list(execution.guard_errors)}
+
+    store = ResultStore(tmp_path / "r.jsonl")
+    await run_cases([prepared.case], execute, store, config_name="C3", run_id="r")
+    row = store.latest_records()[prepared.case.case_id]
+    assert row["status"] == "error" and row["error"]["kind"] == "guard_route_failure"
+
+
+@MARKING_GUARD_ONLY
+async def test_a_judge_answer_that_fails_its_schema_has_no_route_failure(tmp_path: Path) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    guard.guard_llm.inner = GuardFakeLLM(default_response=GUARD_INVALID, model_name="fake:fake")
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_route_failures == ()
+    assert "guard_route_failures" not in execution.record
+    assert execution.record["guard_fallbacks"]  # the model's own answer: a scored fallback
+
+
+async def test_a_judge_call_that_found_the_quota_used_up_stops_the_case_without_a_retry(
+    tmp_path: Path,
+) -> None:
+    from packages.llm.protocol import LLMQuotaExhaustedError
+
+    executor, fake, guard = _executor("C3", tmp_path)
+    body = {"error": {"message": "x", "type": "insufficient_quota", "code": "insufficient_quota"}}
+    guard.guard_llm.inner.set_error(_chained_http_error(429, body))
+
+    with pytest.raises(LLMQuotaExhaustedError) as caught:  # never RateLimitedError: no back-off
+        await executor.execute(_prepared(BENIGN))
+
+    assert caught.value.quota == "insufficient_quota"
+    assert str(caught.value).startswith("guard LLM stage: quota_exhausted: insufficient_quota")
+
+
+async def test_a_per_minute_429_of_a_judge_call_is_still_backed_off(tmp_path: Path) -> None:
+    executor, _, guard = _executor("C3", tmp_path)
+    body = {"error": {"message": "Rate limit reached on requests per min (RPM)", "type": "x"}}
+    guard.guard_llm.inner.set_error(_chained_http_error(429, body))
 
     with pytest.raises(RateLimitedError):
         await executor.execute(_prepared(BENIGN))

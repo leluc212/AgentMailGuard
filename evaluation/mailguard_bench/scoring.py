@@ -48,8 +48,17 @@ with an error (Amendment 3, A); the report counts them per config."""
 RETRIEVAL_DEGRADED_KIND = "retrieval_degraded"
 """The ``error.kind`` of a live row whose retrieval ran degraded, the ``context_built`` event's
 ``retrieval_degraded`` true (Amendment 3, B); the report counts them per config."""
-SERVICE_FAILURE_KINDS = (TRIAGE_STAGE_FAILURE_KIND, RETRIEVAL_DEGRADED_KIND)
-"""The error kinds a live-service failure gives a row (ADR-0012 decision 13)."""
+GUARD_ROUTE_FAILURE_KIND = "guard_route_failure"
+"""The ``error.kind`` of a row whose guard LLM call failed on the route or the service (HTTP 402,
+404, 408, 409, 429 or 5xx, a timeout, a connection error, a router error in an HTTP 200 body): the
+guard fell back past it, so the row is not scored and the retry pass reruns it (owner decision
+2026-10-01, ADR-0014); the report counts them per config."""
+SERVICE_FAILURE_KINDS = (
+    TRIAGE_STAGE_FAILURE_KIND,
+    RETRIEVAL_DEGRADED_KIND,
+    GUARD_ROUTE_FAILURE_KIND,
+)
+"""The error kinds a live-service failure gives a row (ADR-0012 decision 13; ADR-0014)."""
 
 RUNNER_SCHEMA = "mailguard-bench-result.v1"
 LIVE_SCHEMA = "mailguard-bench-result.v3"

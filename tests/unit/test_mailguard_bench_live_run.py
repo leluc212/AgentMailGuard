@@ -1516,6 +1516,14 @@ NO_CREDIT_402 = (
 UNVALIDATED_DRAFT = (
     "FatalError: UnvalidatedDraftError: Repair retry returned an unparseable payload"
 )
+# What the ai-worker dead-letters for a used-up quota of any provider (task 7.29, owner decision
+# B): the marker comes first, so the row's 200-character cut keeps it.
+QUOTA_429 = (
+    "FatalError: LLMQuotaExhaustedError: LLM request failed with status 429 (quota_exhausted: "
+    'insufficient_quota): {"error": {"message": "You exceeded your current quota"}}'
+)
+EMBEDDING_QUOTA = "Embedding request failed with status 429 (quota_exhausted: daily_limit)"
+GUARD_503 = "guard_route_failure: a guard LLM call failed on the route: HTTP 503: down"
 CRLF_BODY = "line one\r\nline two still two\rend"
 KB_POISON = "poison: Jane Austen wrote it"
 
@@ -1719,8 +1727,11 @@ class SimWorld:
                 state_to=JobState.CONTEXT_READY.value,
                 payload={
                     "retrieved": retrieved,
-                    "retrieval_degraded": scenario == "retrieval_degraded",
+                    "retrieval_degraded": scenario in ("retrieval_degraded", "embedding_quota"),
                     "retrieval_underfilled": False,
+                    "retrieval_vector_error": (
+                        EMBEDDING_QUOTA if scenario == "embedding_quota" else None
+                    ),
                     "rerank_applied": True,
                     "summary_triggered": False,
                     "summary_model": None,
@@ -1738,6 +1749,10 @@ class SimWorld:
         if scenario == "no_credit":  # a 402 that waiting does not lift: dead-lettered at once
             await move(JobState.FAILED, error=NO_CREDIT_402)
             await move(JobState.DEAD_LETTER, error=NO_CREDIT_402)
+            return
+        if scenario == "quota_exhausted":  # any provider's used-up quota: dead-lettered at once
+            await move(JobState.FAILED, error=QUOTA_429)
+            await move(JobState.DEAD_LETTER, error=QUOTA_429)
             return
         if scenario == "unvalidated_draft":  # invalid after the repair: R16.3, straight to the DLQ
             await move(JobState.FAILED, error=UNVALIDATED_DRAFT)
@@ -1772,6 +1787,11 @@ class SimWorld:
                     },
                     "timings_ms": {"guarded_total": 50, "generation": 30, "guard": 20},
                     "system_instructions": "guard-worker instructions",
+                    **(
+                        {"guard_route_failures": [GUARD_503]}
+                        if scenario == "guard_route_failure"
+                        else {}
+                    ),
                 },
             }
             with self.audit_path.open("a", encoding="utf-8") as fh:
@@ -2700,3 +2720,63 @@ async def test_a_routed_run_out_of_credit_stops_at_once_with_the_route_exit(
     assert rows["attack-a1"]["status"] == "error"
     assert len(rows) < len(SCENARIOS)  # the cases after the stop were never started
     assert "sk-or-test" not in err
+
+
+# --- owner decisions of 2026-10-01 (ADR-0014): quota stops, guard route failures, trials ----------
+
+
+async def test_an_openai_run_also_stops_at_once_on_a_used_up_quota(
+    live_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Decision B: not only OpenRouter's 402. An unrouted gpt-4o-mini run whose job was
+    # dead-lettered for insufficient_quota stops; the cases after it are never started.
+    os.environ["BENCH_OPENAI_API_KEY"] = "sk-openai-test"
+    world, pool = SimWorld(), RunPool()
+    world.scenarios = {"attack-a1": "quota_exhausted"}
+    deps = _live_deps(live_env, world, pool)
+    args = _run_args(live_env, "C0", "--model-profile", "gpt-4o-mini")
+
+    assert await run(args, deps) == ROUTE_STOP_EXIT
+    await asyncio.gather(*world.tasks)
+
+    err = capsys.readouterr().err
+    assert "STOP C0: quota_exhausted: insufficient_quota" in err
+    assert "daily cap resets the next day" in err and "sk-openai-test" not in err
+    rows = _rows(live_env)
+    assert rows["attack-a1"]["status"] == "error" and len(rows) == 1
+
+
+async def test_a_used_up_embedding_quota_in_the_query_embedding_stops_the_run(
+    live_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The ai-worker's context_built event names why the vector branch failed; the retrieval-
+    # degraded row carries it, so the breaker sees the used-up embedding quota.
+    world, pool = SimWorld(), RunPool()
+    world.scenarios = {"attack-a1": "embedding_quota"}
+    deps = _live_deps(live_env, world, pool)
+
+    assert await run(_run_args(live_env), deps) == ROUTE_STOP_EXIT
+    await asyncio.gather(*world.tasks)
+
+    row = _rows(live_env)["attack-a1"]
+    assert row["error"]["kind"] == "retrieval_degraded"
+    assert EMBEDDING_QUOTA in row["error"]["message"]
+    assert "STOP C0: quota_exhausted: daily_limit" in capsys.readouterr().err
+
+
+async def test_a_guarded_case_whose_judge_call_the_route_failed_is_an_error_row(
+    live_env: Path, child: Any
+) -> None:
+    # Decision A: the guard-worker drafted it (the guard fell back), but the audit line names the
+    # route failure, so the row is an error of its own kind, excluded and retried.
+    world, _, deps = _guarded(live_env, child)
+    world.scenarios = {**SCENARIOS, "attack-a1": "guard_route_failure"}
+
+    assert await run(_run_args(live_env, "C3"), deps) == 0
+
+    rows = _rows(live_env, "C3")
+    a1 = rows["attack-a1"]
+    assert a1["status"] == "error" and a1["error"]["kind"] == "guard_route_failure"
+    assert "HTTP 503" in a1["error"]["message"]
+    assert a1["result"]["guard_route_failures"] == [GUARD_503]
+    assert rows["attack-r1"]["status"] == "ok"  # one route failure stops nothing (not pinned)

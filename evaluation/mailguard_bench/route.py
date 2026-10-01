@@ -1,16 +1,24 @@
-"""The OpenRouter route of a benchmark run: what its meta records and when the run stops.
+"""The route of a benchmark run: what its meta records, which failures are the route's, when
+the run stops.
 
 Task 7.29 (the full-cloud route, ADR-0014; built as work package R4). A run whose model is
-served through OpenRouter pins ONE provider with fallbacks off. Three things follow, all pure and
-testable without a network:
+served through OpenRouter pins ONE provider with fallbacks off. What follows is pure and testable
+without a network:
 
 - the run meta records the pin (``route_meta``), so a resume under another pin is refused;
 - every call's provenance (the served provider, the attempt, the generation id, the cost) is
   read back from the result rows (``provenance_summary``);
-- the run stops after three consecutive provider mismatches or "no provider" errors, and at once
-  when the account has no credit (``RouteBreaker``): continuing would only fill the result file
-  with error rows. Cases already recorded stay; a resume runs the rest. The runner then exits
-  ``ROUTE_STOP_EXIT``, and the benchmark kit stops the whole campaign on it.
+- a pinned run stops after three consecutive provider mismatches or "no provider" errors; EVERY
+  run, OpenAI and Gemini included, stops at once when the account has no credit or a quota, a
+  balance, a spend limit or a daily cap is used up (``RouteBreaker``; owner decision 2026-10-01,
+  ADR-0014): continuing would only fill the result file with error rows. A per-minute rate limit
+  never stops a run; it is backed off and retried. Cases already recorded stay; a resume runs the
+  rest. The runner then exits ``ROUTE_STOP_EXIT``, and the benchmark kit stops the whole campaign.
+- a guard LLM call that failed on the route or the service itself (``guard_call_failure``: HTTP
+  402, 404, 408, 409, 429 or 5xx, a timeout, a connection error, a router error in an HTTP 200
+  body) makes its case an error row (``guard_route_failure``), not a scored fallback (owner
+  decision 2026-10-01). A model that answers badly (no JSON, the wrong fields, a refusal) is the
+  guard's own behaviour and stays a scored fallback.
 
 A call another provider served is an error of its case (``packages/llm/client.py`` raises for
 rag-email's calls; ``counting.CountingProvider`` records a violation for the guard's), never a
@@ -19,16 +27,43 @@ defence.
 
 from __future__ import annotations
 
+import ast
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import httpx
+
+from evaluation.mailguard_bench.scoring import GUARD_ROUTE_FAILURE_KIND
+from packages.core.provider_limits import (
+    QUOTA_MARKER,
+    quota_exhaustion,
+    quota_in_text,
+    quota_note,
+)
 from packages.core.settings import LLMTiersSettings, ProviderRouting
 from packages.llm.provenance import MISMATCH_MARKER, check_pinned_route
 
 STOP_AFTER = 3
-"""Consecutive provider mismatches or no-provider errors after which the run stops."""
+"""Consecutive provider mismatches or no-provider errors after which a pinned run stops."""
+GUARD_ROUTE_FAILURE = GUARD_ROUTE_FAILURE_KIND
+"""The ``error.kind`` of a row a guard LLM call's route or service failure kept out of the
+scores, and the marker its recorded failures start with."""
+ROUTE_FAILURE_STATUSES = frozenset({402, 404, 408, 409, 429})
+"""The HTTP statuses (with every 5xx) of a guard call that failed on the route or the service."""
+IMMEDIATE_STOPS = ("no_credit", QUOTA_MARKER)
+"""Route failures that stop any run at once: waiting does not lift them."""
+PINNED_STREAKS = ("provider_mismatch", "no_provider")
+"""Route failures that stop a pinned run after ``STOP_AFTER`` in a row; an unpinned run (OpenAI
+directly) has no pinned provider to lose, and its 5xx rows are retried like any error row."""
+EMPTY_CHOICES = "Empty choices from OpenAI: "
+"""How the guard's OpenAI provider reports a body without ``choices`` (``repr`` of the body)."""
+_GUARD_HTTP = re.compile(r"\b(?:OpenAI|Ollama) HTTP (\d{3})\b")
+_GUARD_TIMEOUT = re.compile(r"\brequest timed out after\b")
+_GUARD_TRANSPORT = re.compile(r"\b(?:OpenAI|Ollama) transport error\b")
+"""The guard providers' own messages (``mailguard/llm/openai_provider.py``,
+``ollama_provider.py``), read only when no transport exception is chained."""
 ROUTE_STOP_EXIT = 3
 """The exit status of a runner the breaker stopped (``STOP <config>``), distinct from a failure's
 1: the benchmark kit stops the whole campaign on it, because the next config and the retry pass
@@ -97,6 +132,8 @@ def guard_pin_problem(provider: object, expected: Mapping[str, Any] | None) -> s
 def route_failure(record: Mapping[str, Any]) -> str | None:
     """Why an error row is a route failure, or None (an ok row, or an error of another kind).
 
+    ``quota_exhausted``: a quota, a balance, a spend limit or a daily cap is used up, in any
+    model call or embedding the row names (``packages.core.provider_limits``).
     ``provider_mismatch``: a call another provider served (rag-email's or a guard judge's).
     ``no_provider``: HTTP 404, 502 or 503 from the router with fallbacks off: the pinned provider
     is gone. ``no_credit``: HTTP 402 other than the transient in-flight budget, which the
@@ -108,6 +145,8 @@ def route_failure(record: Mapping[str, Any]) -> str | None:
     if not isinstance(error, Mapping):
         return None
     text = f"{error.get('kind') or ''} {error.get('message') or ''}"
+    if QUOTA_MARKER in text:
+        return QUOTA_MARKER
     if MISMATCH_MARKER in text or "LLMProviderMismatchError" in text:
         return "provider_mismatch"
     if _NO_PROVIDER.search(text):
@@ -115,6 +154,130 @@ def route_failure(record: Mapping[str, Any]) -> str | None:
     if _NO_CREDIT.search(text) and _TRANSIENT_402 not in text:
         return "no_credit"
     return None
+
+
+def _is_route_status(status: int | None) -> bool:
+    return status is not None and (status in ROUTE_FAILURE_STATUSES or 500 <= status <= 599)
+
+
+def _status_note(status: int | None, body: Any) -> str:
+    """``HTTP N[ (limit_source)][ (quota_exhausted: q)]``: what a route classifier reads first."""
+    note = f"HTTP {status}"
+    error = body.get("error") if isinstance(body, Mapping) else None
+    metadata = error.get("metadata") if isinstance(error, Mapping) else None
+    source = metadata.get("limit_source") if isinstance(metadata, Mapping) else None
+    if isinstance(source, str) and source:
+        note += f" ({source})"
+    quota = quota_exhaustion(status, body)
+    if quota is not None:
+        note += f" ({quota_note(quota)})"
+    return note
+
+
+def _json_body(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _body_error_note(error: Mapping[str, Any], body: Any) -> str:
+    code = error.get("code")
+    status = code if isinstance(code, int) and not isinstance(code, bool) else None
+    head = "a router error in an HTTP 200 body"
+    return f"{head} ({_status_note(status, body)})" if status is not None else head
+
+
+def _empty_choices_error(text: str) -> str | None:
+    """The router error a guard provider reported as a body without ``choices``, or None.
+
+    AgentMailGuard's OpenAI provider raises ``Empty choices from OpenAI: <repr of the body>``,
+    which is the only place the body survives; a body with no ``error`` object is not a route
+    failure (an odd answer is the model's).
+    """
+    if not text.startswith(EMPTY_CHOICES):
+        return None
+    try:
+        body = ast.literal_eval(text.removeprefix(EMPTY_CHOICES))
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return None
+    error = body.get("error") if isinstance(body, Mapping) else None
+    return _body_error_note(error, body) if isinstance(error, Mapping) else None
+
+
+def guard_call_failure(exc: BaseException) -> str | None:
+    """Why a guard LLM call that raised failed on the route or the service; None if it did not.
+
+    The guard's providers chain the transport's exception, so the cause chain says what happened:
+    an HTTP 402, 404, 408, 409, 429 or 5xx answer (its body read for OpenRouter's
+    ``limit_source`` and a used-up quota), a timeout, a connection error, or a router error the
+    provider found in an HTTP 200 body. Anything else (a 400, a 401) returns None, as does a
+    model's bad answer, which never reaches the provider as an exception.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, httpx.HTTPStatusError):
+            status = current.response.status_code
+            if not _is_route_status(status):
+                return None
+            return _status_note(status, _json_body(current.response))
+        if isinstance(current, httpx.TimeoutException) or type(current).__name__ in (
+            "LLMTimeoutError",
+            "TimeoutError",
+        ):
+            return "timed out"
+        if isinstance(current, httpx.RequestError):
+            return "a connection error"
+        found = _empty_choices_error(str(current))
+        if found is not None:
+            return found
+        current = current.__cause__ or current.__context__
+    return _guard_message_failure(str(exc))
+
+
+def _guard_message_failure(text: str) -> str | None:
+    """The route failure a guard provider's message names when nothing is chained, or None."""
+    status = _GUARD_HTTP.search(text)
+    if status is not None:
+        code = int(status.group(1))
+        return f"HTTP {code}" if _is_route_status(code) else None
+    if _GUARD_TIMEOUT.search(text):
+        return "timed out"
+    if _GUARD_TRANSPORT.search(text):
+        return "a connection error"
+    return None
+
+
+def guard_result_failure(result: Any) -> str | None:
+    """A router error an HTTP 200 answer to a guard call carries (an ``error`` object, or
+    OpenRouter's ``finish_reason`` ``error``); None for an answer, good or bad."""
+    raw = getattr(result, "raw_response", None)
+    if isinstance(raw, Mapping):
+        choices = raw.get("choices")
+        first = choices[0] if isinstance(choices, list) and choices else None
+        for error in (raw.get("error"), first.get("error") if isinstance(first, Mapping) else None):
+            if isinstance(error, Mapping):
+                return _body_error_note(error, raw)
+    if getattr(result, "raw_finish_reason", None) == "error":
+        return "a router error in an HTTP 200 body (finish_reason error)"
+    return None
+
+
+def describe_guard_failure(note: str, detail: str) -> str:
+    """The recorded line of one guard call's route failure: marker first, then the facts."""
+    return f"{GUARD_ROUTE_FAILURE}: a guard LLM call failed on the route: {note}: {detail[:300]}"
+
+
+def stop_advice(reason: str) -> str:
+    """What to do before the same command runs again, for the reason a run stopped."""
+    if reason.startswith((QUOTA_MARKER, "no_credit")):
+        return (
+            "the provider's credit, quota, spend limit or daily cap is used up (a daily cap resets "
+            "the next day); restore it"
+        )
+    return "once the route serves again"
 
 
 def stop_message(config: str, reason: str) -> str:
@@ -126,18 +289,25 @@ def stop_message(config: str, reason: str) -> str:
     a teammate reading it under the kit must rerun the kit's command unchanged.
     """
     return (
-        f"STOP {config}: {reason}; once the route serves again, rerun: under the kit, the same "
-        "`make bench-run` command unchanged (it already retries error rows); a runner started "
-        "by hand, its command with --retry-errors (the rows that tripped the stop are error "
-        "rows, and a plain resume skips them)"
+        f"STOP {config}: {reason}; {stop_advice(reason)}, then rerun: under the kit, the same "
+        "`make bench-run` command unchanged (it already retries error rows; other models' runs "
+        "may run in between); a runner started by hand, its command with --retry-errors (the "
+        "rows that tripped the stop are error rows, and a plain resume skips them)"
     )
 
 
 class RouteBreaker:
-    """Trips after ``limit`` route failures in a row, or at the first ``no_credit``."""
+    """Trips at the first used-up quota or ``no_credit``, and, on a pinned route, after ``limit``
+    provider mismatches or no-provider errors in a row.
 
-    def __init__(self, limit: int = STOP_AFTER) -> None:
+    ``routed`` is whether the run pins an OpenRouter provider. Every run stops on a used-up quota
+    or credit (owner decision 2026-10-01); only a pinned run stops on a streak, because only it
+    has a pinned provider that can be gone or replaced.
+    """
+
+    def __init__(self, limit: int = STOP_AFTER, *, routed: bool = True) -> None:
         self.limit = limit
+        self.routed = routed
         self.tripped: str | None = None
         self._streak = 0
         self._last: str | None = None
@@ -145,17 +315,29 @@ class RouteBreaker:
     def observe(self, record: Mapping[str, Any]) -> None:
         """Count one finished row: a route failure extends the streak, any other row resets it."""
         reason = route_failure(record)
-        if reason is None:
+        if reason is None or (reason in PINNED_STREAKS and not self.routed):
             self._streak = 0
             return
         self._streak += 1
         self._last = reason
         if self.tripped is not None:
             return
-        if reason == "no_credit":
+        if reason == QUOTA_MARKER:
+            self.tripped = (
+                f"{QUOTA_MARKER}: {_quota_detail(record)}; a provider's quota, balance, spend "
+                "limit or daily cap is used up"
+            )
+        elif reason == "no_credit":
             self.tripped = "no_credit: the account has no credit (HTTP 402); fund it and resume"
         elif self._streak >= self.limit:
             self.tripped = f"{self._streak} consecutive {reason} errors; the route is not serving"
+
+
+def _quota_detail(record: Mapping[str, Any]) -> str:
+    """What ran out, as the row's error names it (``quota_exhausted: <what>``)."""
+    error = record.get("error")
+    message = str(error.get("message") or "") if isinstance(error, Mapping) else ""
+    return quota_in_text(message) or "unknown"
 
 
 def _calls(row: Mapping[str, Any]) -> Iterable[tuple[str, Mapping[str, Any]]]:

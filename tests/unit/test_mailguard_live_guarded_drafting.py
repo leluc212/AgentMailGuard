@@ -695,6 +695,38 @@ async def test_a_rate_limited_guard_stage_fails_the_job_for_the_retry_ladder(
     assert rig.audit_lines() == []
 
 
+async def test_a_used_up_quota_of_a_guard_call_persists_nothing_and_is_dead_lettered(
+    tmp_path: Path,
+) -> None:
+    # Owner decision B (2026-10-01): a quota, balance, spend limit or daily cap does not lift by
+    # waiting, so the job is not left to the retry ladder: the failure policy dead-letters it and
+    # the run's breaker stops on its row.
+    import httpx
+
+    from packages.llm.protocol import LLMQuotaExhaustedError
+    from services.ai_worker.failure_policy import Disposition, classify_generation_failure
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    body = {"error": {"message": "x", "type": "insufficient_quota", "code": "insufficient_quota"}}
+    response = httpx.Response(429, json=body, request=request)
+    try:
+        raise GuardLLMResponseError("OpenAI HTTP 429: {...}") from httpx.HTTPStatusError(
+            "429", request=request, response=response
+        )
+    except GuardLLMResponseError as exc:
+        error = exc
+    rig = await _rig(tmp_path)
+    rig.guard.guard_llm.inner.set_error(error)
+
+    with pytest.raises(LLMQuotaExhaustedError) as caught:
+        await rig.service.draft(rig.job, rig.context(), category="support")
+
+    assert await _stored_draft(rig) is None and rig.audit_lines() == []
+    decision = classify_generation_failure(caught.value, job_state=JobState.GENERATING.value)
+    assert decision.disposition is Disposition.DEAD_LETTER
+    assert "quota_exhausted: insufficient_quota" in decision.reason
+
+
 @pytest.mark.skipif(
     guard_marks_fallbacks(), reason="the installed guard marks failed AI steps (llm_fallback)"
 )
@@ -722,7 +754,9 @@ async def test_failed_guard_ai_steps_are_audited_per_layer_and_the_job_is_drafte
     tmp_path: Path,
 ) -> None:
     # Amendment 1, C.1 generalised (ADR-0012 decision 4): every AI stage that fell back is in the
-    # audit line with its reason; none of them is a guard error, so the case is scored normally.
+    # audit line with its reason; none of them is a guard error. An HTTP 500 is a failure of the
+    # service, not the model's answer, so it is also a route failure, which makes the case an
+    # error row the retry pass reruns (owner decision 2026-10-01, ADR-0014).
     rig = await _rig(tmp_path)
     rig.guard.guard_llm.inner.set_error(GuardLLMResponseError("OpenAI HTTP 500: upstream"))
 
@@ -731,6 +765,9 @@ async def test_failed_guard_ai_steps_are_audited_per_layer_and_the_job_is_drafte
     assert outcome.job.state == JobState.DRAFTED.value
     (line,) = rig.audit_lines()
     assert line["guard_errors"] == []
+    assert line["guard_route_failures"] and all(
+        "HTTP 500" in f for f in line["guard_route_failures"]
+    )
     # L1's judge, L3b's and L4's run only when their cheap stages escalate; L2's always runs.
     assert [f["layer"] for f in line["guard_fallbacks"]] == ["l2_intent_extractor"]
     assert {f["reason"] for f in line["guard_fallbacks"]} == {"error"}
@@ -756,6 +793,7 @@ async def test_the_draft_persisted_log_counts_the_guard_fallbacks_next_to_the_er
     fields = record.fields  # type: ignore[attr-defined]
     assert fields["guard_fallbacks"] == 1
     assert fields["guard_errors"] == 0
+    assert fields["guard_route_failures"] == 1  # the HTTP 500 behind the fallback
 
 
 @pytest.mark.skipif(

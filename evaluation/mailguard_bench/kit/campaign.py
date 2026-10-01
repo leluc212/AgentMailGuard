@@ -26,12 +26,15 @@ rag-email's environment, which every subprocess inherits (``sys.executable -m ..
                    <run>/raw/services.<config>.log: their ``llm_inference`` lines record
                    which provider served every call of a pinned route (triage, the
                    summarizer and C0's generation reach no result row)
-          a runner that exits ``route.ROUTE_STOP_EXIT`` (its route breaker printed ``STOP``):
-                   the campaign stops at once, no next config, no retry pass
+          a runner that exits ``route.ROUTE_STOP_EXIT`` (its breaker printed ``STOP``: a used-up
+                   quota or credit of any provider, or a pinned route that stopped serving): the
+                   campaign stops at once, no next config, no retry pass; the same command
+                   resumes it later, also after another model's run in between
           one retry pass over the configs that failed or left error rows
           reports: the report (a v1 folder: report, analyses, report); the meaning column is
                    ``report --reader``: its LLM__* settings may not be exported during a run, so
-                   it is not part of one
+                   it is not part of one. It passes ``--retry-errors``, so a rerun reads again
+                   the drafts a failed read left unread
 
 The reranker model (R11.1). C0 drafts in the ai-worker container, which reranks with the
 cross-encoder baked into its image (``RETRIEVAL__RERANK_MODEL_DIR=/app/.cache/reranker``, read
@@ -149,6 +152,8 @@ RERANK_COPY_MARKER = Path(".cache") / "reranker.image-id"
 """Next to the copy: the id of the image it came from, written only once the copy is complete."""
 LOGGED_SERVICES = ("triage-worker", "ai-worker")
 """The model-calling containers whose log lines of a config are kept with the run."""
+MEANING_MODULE = "evaluation.mailguard_bench.meaning"
+"""The meaning step's module; it exits ``ROUTE_STOP_EXIT`` when the reader's quota is used up."""
 RESTORE_ENV = (
     "put .env back: comment out the EMBEDDING__ lines, set LLM__TIMEOUT_S back to 15.0 and "
     "RETRIEVAL__CATEGORY_FILTER_ENABLED back to true; Compose forwards all three, so otherwise "
@@ -250,6 +255,9 @@ def resume_commands(options: RunOptions) -> list[str]:
 def report_commands(ctx: KitContext, run_dir: Path, reader: str | None) -> list[list[str]]:
     """Runbook step 7; with a reader the meaning column, then the reports again.
 
+    The meaning step retries the reads an earlier ``report --reader`` left as error rows, so the
+    same command, run again, completes a column a failed read left short.
+
     A scheme v2 folder (every kit run, and one with no meta yet) gets the report alone: the no-API
     analyses read C3 as the full guard, which is C7 in v2, and refuse a v2 folder until task 7.23,
     as `make mailguard-analyses` does. A scheme v1 folder keeps report, analyses, report. A folder
@@ -272,13 +280,16 @@ def report_commands(ctx: KitContext, run_dir: Path, reader: str | None) -> list[
         scored = [report, analyses, report]
     if not reader:
         return scored
+    # --retry-errors: a read that failed (a timeout, a rate limit past its back-off, a used-up
+    # quota) is read again by the next `make bench-report` (owner decision 2026-10-01, ADR-0014)
     meaning = module_command(
         ctx,
-        "evaluation.mailguard_bench.meaning",
+        MEANING_MODULE,
         "--run-dir",
         str(run_dir),
         "--reader-model",
         reader,
+        "--retry-errors",
     )
     return [*scored, meaning, *scored]
 
@@ -315,6 +326,14 @@ def _build_reports(
             ctx.out(f"would run: {_join(command)}")
             continue
         status = ctx.host.run(command, cwd=ctx.repo_root)
+        if status == ROUTE_STOP_EXIT and MEANING_MODULE in command:
+            ctx.err(
+                "STOP the reader's quota, balance, spend limit or daily cap is used up (the "
+                "meaning step's STOP line above says which). Restore it (a daily cap resets the "
+                "next day), then run the same `make bench-report` command again: it reads the "
+                "drafts not read yet and retries the reads that failed"
+            )
+            break
         if status != 0:
             ctx.err(f"FAIL {_join(command)} exited {status}")
             break
@@ -732,7 +751,7 @@ class _Campaign:
             exit_code = self._drive(config)
             status = "ok" if exit_code == 0 else "failed"
             if exit_code == ROUTE_STOP_EXIT:
-                status, reason = "stopped", "the route breaker stopped the runner (STOP)"
+                status, reason = "stopped", "the runner's breaker stopped it (STOP)"
             elif exit_code != 0:
                 reason = f"live.run exited {exit_code}"
                 self.ctx.err(f"FAIL {config}: live.run exited {exit_code}")
@@ -766,12 +785,15 @@ class _Campaign:
             )
         if status == "stopped":
             raise _AbortError(
-                f"{config}: the model's route stopped serving (the runner's STOP line above says "
-                "why: no credit, the pinned provider unavailable, or calls served by another "
-                "provider). The campaign stops here, before the next config and the retry pass, "
-                "which would hit the same route. Fix the cause (fund the key, or wait until the "
-                "provider serves again; never switch providers inside a RUN), then run the same "
-                "command again: finished configs are skipped and the error rows retried"
+                f"{config}: the run stopped (the runner's STOP line above says why: a used-up "
+                "quota, balance, spend limit or daily cap of any provider, no credit, the pinned "
+                "provider unavailable, or calls served by another provider). The campaign stops "
+                "here, before the next config and the retry pass, which would hit the same limit "
+                "or route. Fix the cause (restore the quota or credit, which for a daily cap is "
+                "the next day, or wait until the provider serves again; never switch providers "
+                "inside a RUN), then run the same command again: finished configs are skipped and "
+                "the error rows retried. Another model's `make bench-run` (its own RUN) may run "
+                "in between"
             )
         return _Outcome(config, status, exit_code, counts)
 

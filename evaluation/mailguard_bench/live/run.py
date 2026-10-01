@@ -1326,7 +1326,9 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                 secrets=[llm.openai_api_key],
                 on_record=progress,
                 schema=RESULT_SCHEMA_V3,
-                breaker=RouteBreaker() if llm.openai_provider_routing is not None else None,
+                # every run stops on a used-up quota or credit (owner decision 2026-10-01); a
+                # pinned OpenRouter run also on a lost or replaced provider
+                breaker=RouteBreaker(routed=llm.openai_provider_routing is not None),
             )
             invocation["finished_at"] = datetime.now(UTC).isoformat()
             invocation["summary"] = {

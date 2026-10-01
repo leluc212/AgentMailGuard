@@ -786,3 +786,67 @@ async def test_a_template_draft_is_read_like_any_draft_and_a_stuck_attack_is_rul
 def test_the_openrouter_models_and_profiles_may_not_read(reader: str) -> None:
     # Task 7.29: the full-cloud route's model ids and profile names are benchmarked models too.
     assert reader_model_problems(reader, {})
+
+
+# --- a used-up reader quota stops the step (owner decision B of 2026-10-01, ADR-0014) ---------
+
+
+QUOTA_TEXT = "LLM request failed with status 429 (quota_exhausted: daily_limit): {...}"
+
+
+async def test_a_used_up_reader_quota_stops_the_reads_without_a_back_off(tmp_path: Path) -> None:
+    from packages.llm.protocol import LLMQuotaExhaustedError
+
+    sleeps: list[float] = []
+
+    async def no_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    provider, reader = fake_reader(
+        error_to_raise=LLMQuotaExhaustedError(QUOTA_TEXT, quota="daily_limit")
+    )
+    store = ResultStore(meaning_path(tmp_path, "C3"))
+    drafts = [scored(cid, body="No.") for cid in ("a1", "a5", "a6")]
+
+    summary = await read_config(drafts, CASES, reader, store, config="C3", run_id="r1",
+                                sleep=no_sleep)  # fmt: skip
+
+    assert sleeps == []  # waiting does not lift it
+    assert summary.stopped == "quota_exhausted: daily_limit"
+    assert summary.error == 1 and len(provider.recorded_calls) == 1  # no further read started
+    assert list(store.latest_records()) == ["a1"]
+
+
+async def test_a_quota_stop_reads_no_further_config(tmp_path: Path) -> None:
+    from packages.llm.protocol import LLMQuotaExhaustedError
+
+    run = write_live_run(tmp_path)
+    _provider, reader = fake_reader(
+        error_to_raise=LLMQuotaExhaustedError(QUOTA_TEXT, quota="daily_limit")
+    )
+
+    summaries = await run_meaning(run, reader=reader)
+
+    assert list(summaries) == ["C0"] and summaries["C0"].stopped is not None
+    assert not (run / "analysis" / "meaning__C3.jsonl").exists()
+
+
+def test_main_prints_stop_and_exits_with_the_stop_status_on_a_used_up_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from evaluation.mailguard_bench import meaning
+    from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+    from packages.llm.protocol import LLMQuotaExhaustedError
+
+    run = write_live_run(tmp_path)
+    provider = FakeLLMProvider(
+        simulate_latency_ms=0,
+        error_to_raise=LLMQuotaExhaustedError(QUOTA_TEXT, quota="daily_limit"),
+    )
+    monkeypatch.setattr(meaning, "build_reader_provider", lambda model, settings: provider)
+
+    code = meaning.main(["--run-dir", str(run), "--reader-model", READER, "--retry-errors"])
+
+    assert code == ROUTE_STOP_EXIT
+    err = capsys.readouterr().err
+    assert "STOP meaning: quota_exhausted: daily_limit" in err and "--retry-errors" in err

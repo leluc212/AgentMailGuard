@@ -136,13 +136,15 @@ class ConfigSummary:
 class ServiceFailures:
     """The error rows of one config and table that a live-service failure changed.
 
-    Triage fell back to its safe default after a stage failed with an error, or retrieval ran
-    degraded (ADR-0012 decision 13). They are error rows: never scored, never defended, re-run by
-    the retry pass, and excluded from the headline when they are still errors after it.
+    Triage fell back to its safe default after a stage failed with an error, retrieval ran
+    degraded (ADR-0012 decision 13), or a guard LLM call failed on the route or the service
+    (ADR-0014). They are error rows: never scored, never defended, re-run by the retry pass, and
+    excluded from the headline when they are still errors after it.
     """
 
     triage_stage_failure: int
     retrieval_degraded: int
+    guard_route_failure: int = 0  # a guard LLM call failed on the route or the service (ADR-0014)
 
 
 @dataclass(frozen=True)
@@ -325,6 +327,7 @@ def summarize_config(
         and (
             service_failures.triage_stage_failure
             or service_failures.retrieval_degraded
+            or service_failures.guard_route_failure
             or any("reached_drafting" in r.extra for r in results)
         )
         else None
@@ -728,6 +731,14 @@ def metrics_rows(
                         s.service_failures.retrieval_degraded,
                     )
                 )
+                rows.append(
+                    _value_row(
+                        table,
+                        config,
+                        "guard_route_failure_errors",
+                        s.service_failures.guard_route_failure,
+                    )
+                )
     for config, counts in (triage or {}).items():
         for kind, by_bucket in (("attack", counts.attacks), ("benign", counts.benign)):
             for bucket in TRIAGE_BUCKETS:
@@ -1048,11 +1059,12 @@ def _side_by_side(title: str, by_config: Mapping[str, ConfigSummary]) -> list[st
             rows.append((LEGACY_UTILITY_ROW, [_cell(s.utility_legacy) for s in by_config.values()]))
     rows.append(("Errors (excluded)", [str(s.n_errors) for s in by_config.values()]))
     if any(s.service_failures is not None for s in by_config.values()):
-        # the two error kinds a live-service failure gives a row (Amendment 3): part of the count
-        # above, and re-run by the retry pass
+        # the error kinds a live-service failure gives a row (Amendment 3, ADR-0014): part of the
+        # count above, and re-run by the retry pass
         for label, field_name in (
             ("of which triage stage failure (retried)", "triage_stage_failure"),
             ("of which retrieval degraded (retried)", "retrieval_degraded"),
+            ("of which guard route failure (retried)", "guard_route_failure"),
         ):
             rows.append(
                 (

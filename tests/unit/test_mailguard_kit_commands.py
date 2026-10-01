@@ -33,6 +33,7 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
     RUN,
     Bench,
     bench_fixture,
+    label,
     rerank_dir,
     rerank_marker,
     sequence,
@@ -284,6 +285,37 @@ def test_report_with_a_reader_adds_the_meaning_column_between_two_builds(bench: 
     _finished_run(bench)
     assert run_reports(bench.ctx, RUN, "gemini-2.5-flash") == 0
     assert sequence(bench.host) == [*REPORTS, "meaning", *REPORTS]
+
+
+def test_the_meaning_step_retries_the_reads_an_earlier_report_left_as_errors(
+    bench: Bench,
+) -> None:
+    # Owner decision C (2026-10-01): the same `make bench-report` run again completes a column a
+    # failed read (a timeout, a rate limit past its back-off, a used-up quota) left short.
+    _finished_run(bench)
+    assert run_reports(bench.ctx, RUN, "gemini-2.5-flash") == 0
+
+    (meaning,) = [
+        cmd for kind, cmd in bench.host.events if kind == "run" and label(cmd) == "meaning"
+    ]
+    assert meaning[-1] == "--retry-errors"
+    assert meaning[meaning.index("--reader-model") + 1] == "gemini-2.5-flash"
+
+
+def test_a_reader_quota_stop_says_to_rerun_the_report_later_and_builds_no_more(
+    bench: Bench,
+) -> None:
+    from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
+
+    _finished_run(bench)
+    bench.host.exits["meaning"] = ROUTE_STOP_EXIT
+
+    assert run_reports(bench.ctx, RUN, "gemini-2.5-flash") == 1
+
+    assert sequence(bench.host) == [*REPORTS, "meaning"]
+    text = "\n".join(bench.err)
+    assert "STOP the reader's quota" in text and "same `make bench-report` command again" in text
+    assert "FAIL" not in text
 
 
 def test_report_refuses_a_benchmarked_reader_and_a_missing_run(bench: Bench) -> None:

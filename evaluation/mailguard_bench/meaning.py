@@ -50,8 +50,10 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import ResultStore
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
 from evaluation.mailguard_bench.scheme import SCHEME_V1, SCHEME_V2, configs_for, folder_scheme
 from evaluation.mailguard_bench.scoring import RawRecord, final_draft_fields, read_raw
+from packages.core.provider_limits import is_quota_text, quota_in_text, quota_note
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.llm.factory import create_llm_provider
 from packages.llm.protocol import (
@@ -449,6 +451,9 @@ class ReadSummary:
     error: int = 0
     input_tokens: int = 0  # what the reads of this call cost
     output_tokens: int = 0
+    stopped: str | None = None
+    """Why no further read started: the reader's quota, balance, spend limit or daily cap is
+    used up (``quota_exhausted``); None when every read ran."""
 
 
 def _needs_read(row: Mapping[str, Any] | None, record: RawRecord, retry_errors: bool) -> bool:
@@ -499,6 +504,10 @@ async def read_config(
         limit: Read at most this many drafts in this call (a smoke run); the attacks with no
             draft are still ruled on, as that costs nothing.
 
+    A read that finds the reader's quota, balance, spend limit or daily cap used up stops the
+    call: no further read starts (reads in flight finish), ``ReadSummary.stopped`` says why, and
+    the unread drafts are read by a later call.
+
     Raises:
         ValueError: If the concurrency is out of range, or a case lacks what the rubric needs
             (raised before any model call).
@@ -523,6 +532,8 @@ async def read_config(
 
     async def one(record: RawRecord, facts: CaseFacts) -> None:
         async with gate:
+            if summary.stopped is not None:
+                return  # the reader's quota ran out while this read waited its turn
             row = await _read_one(
                 record,
                 facts,
@@ -542,6 +553,10 @@ async def read_config(
                 summary.read += 1
             else:
                 summary.error += 1
+                error = str(row.get("error") or "")
+                if summary.stopped is None and is_quota_text(error):
+                    # waiting does not lift it: every further read would fail the same way
+                    summary.stopped = quota_note(quota_in_text(error) or "unknown")
             if on_row is not None:
                 on_row(row)
 
@@ -662,6 +677,8 @@ async def run_meaning(
             secrets=secrets,
             on_row=on_row,
         )
+        if summaries[config].stopped is not None:
+            break  # the next config's reads would hit the same used-up quota
     return summaries
 
 
@@ -722,6 +739,15 @@ async def _run(args: argparse.Namespace, reader: MeaningReader, secrets: list[st
             f"rule, {s.error} errors, {s.skipped} already recorded; {s.input_tokens} input and "
             f"{s.output_tokens} output tokens)"
         )
+    stopped = next((s.stopped for s in summaries.values() if s.stopped is not None), None)
+    if stopped is not None:
+        print(
+            f"STOP meaning: {stopped}; the reader's quota, balance, spend limit or daily cap is "
+            "used up (a daily cap resets the next day). Restore it, then run the same command "
+            "again with --retry-errors: it reads the drafts not read yet and the reads that failed",
+            file=sys.stderr,
+        )
+        return ROUTE_STOP_EXIT
     return 0
 
 

@@ -88,6 +88,7 @@ from evaluation.mailguard_bench.native_reply import NativeCaseExecutor
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import RESULT_SCHEMA, ResultStore
 from evaluation.mailguard_bench.route import (
+    GUARD_ROUTE_FAILURE,
     ROUTE_STOP_EXIT,
     RouteBreaker,
     expected_guard_route,
@@ -202,7 +203,10 @@ async def _run_one(
                 schema=schema,
             )
         guard_errors = [str(e) for e in result.get("guard_errors") or []]
-        if guard_errors:
+        # A guard LLM call the route or the service failed (owner decision 2026-10-01): the guard
+        # fell back past it, so the row is an error the retry pass reruns, never a scored one.
+        route_failures = [str(e) for e in result.get("guard_route_failures") or []]
+        if route_failures or guard_errors:
             return build_record(
                 case,
                 config_name=config_name,
@@ -210,8 +214,8 @@ async def _run_one(
                 status="error",
                 attempts=attempt,
                 error={
-                    "kind": "guard_layer_error",
-                    "message": redact("; ".join(guard_errors), secrets)[:2000],
+                    "kind": GUARD_ROUTE_FAILURE if route_failures else "guard_layer_error",
+                    "message": redact("; ".join([*route_failures, *guard_errors]), secrets)[:2000],
                 },
                 result=result,
                 schema=schema,
@@ -253,9 +257,10 @@ async def run_cases(
         rate_limited: Whether an error is an HTTP 429 worth running the case again after a
             back-off. v1 counts any 429 in the error's cause chain; the live runner narrows it,
             because a model's 429 is the services' to retry, not the runner's.
-        breaker: A pinned OpenRouter route's stop switch. Once it trips, no further case starts
-            (cases in flight finish and are recorded); the unrecorded ones run on a resume, and
-            ``RunSummary.stopped`` says why.
+        breaker: The run's stop switch (a used-up quota or credit; on a pinned OpenRouter route
+            also a lost provider). Once it trips, no further case starts (cases in flight finish
+            and are recorded); the unrecorded ones run on a resume, and ``RunSummary.stopped``
+            says why.
 
     Raises:
         ValueError: If concurrency is outside 1..2.
@@ -833,7 +838,8 @@ async def run(args: argparse.Namespace) -> int:
             concurrency=args.concurrency,
             secrets=[llm.openai_api_key],
             on_record=progress,
-            breaker=RouteBreaker() if llm.openai_provider_routing is not None else None,
+            # every run stops on a used-up quota or credit; a pinned one also on a lost route
+            breaker=RouteBreaker(routed=llm.openai_provider_routing is not None),
         )
         invocation["finished_at"] = datetime.now(UTC).isoformat()
         invocation["summary"] = {

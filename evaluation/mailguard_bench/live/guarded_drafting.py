@@ -26,10 +26,14 @@ persisted draft's body and action, as the scorer's flat record names them), ``de
 (the L5 decision's action, which v1 called ``final_action``), ``escalation_reason``,
 ``retrieval_query`` (the query L3b's echo check compared the chunks with), ``retrieved`` (the
 context's chunks, as the ``context_built`` event lists them), ``guard_errors`` (layer crashes; they
-make the row an error row) and, when the guard marks its failed AI steps, ``guard_fallbacks`` (one
+make the row an error row), ``guard_route_failures`` when a guard LLM call failed on the route or
+the service (an HTTP 402, 404, 408, 409, 429 or 5xx, a timeout, a connection error, a router error
+in an HTTP 200 body; the row is an error row of kind ``guard_route_failure``, owner decision
+2026-10-01) and, when the guard marks its failed AI steps, ``guard_fallbacks`` (one
 ``{layer, reason, error}`` per AI step that fell back to its cheap result; the row is scored
-normally) and ``l2_llm_schema_fallback`` (L2's model answer carried no schema). A job that is
-retried appends a line per attempt; the last line of a message wins.
+normally unless a route failure caused it) and ``l2_llm_schema_fallback`` (L2's model answer
+carried no schema). A job that is retried appends a line per attempt; the last line of a message
+wins.
 """
 
 from __future__ import annotations
@@ -221,6 +225,9 @@ class GuardedDraftingService(DraftingService):
             IllegalStateTransitionError: If the job is neither CONTEXT_READY, GENERATING
                 nor already DRAFTED. Raised before the guard or any model is called.
             UnpersistableDraftError: If the draft cannot be persisted.
+            LLMQuotaExhaustedError: If a guard LLM call found the quota, balance, spend limit or
+                daily cap used up. Nothing is persisted; the ai-worker's failure policy
+                dead-letters the job (waiting does not lift it) and the run stops on its row.
             RateLimitedError: If a guard LLM stage hit HTTP 429. Nothing is persisted, the job
                 stays GENERATING and the AI-worker consumer's retry ladder takes it. A guard AI
                 step that failed and fell back to its cheap result is not an error when the
@@ -312,6 +319,7 @@ class GuardedDraftingService(DraftingService):
                         "guard_config": self.guard.config,
                         "guard_outcome": str(outcome_kind),
                         "guard_errors": len(execution.guard_errors),
+                        "guard_route_failures": len(execution.guard_route_failures),
                         # None: the installed guard does not mark its failed AI steps.
                         "guard_fallbacks": _count_or_none(execution.record.get("guard_fallbacks")),
                     }

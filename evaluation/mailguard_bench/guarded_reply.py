@@ -33,8 +33,9 @@ from evaluation.mailguard_bench.case_adapter import PreparedCase
 from evaluation.mailguard_bench.counting import CountingProvider
 from evaluation.mailguard_bench.resilience import RateLimitedError, text_is_rate_limited
 from evaluation.mailguard_bench.scoring import AiStepFallback
+from packages.core.provider_limits import is_quota_text, quota_in_text, quota_note
 from packages.llm.generator import GenerationResult, SinglePassGenerator
-from packages.llm.protocol import ChatMessage
+from packages.llm.protocol import ChatMessage, LLMQuotaExhaustedError
 from packages.llm.reply_format import render_reply_format_rules
 
 L3B_LAYER = "l3b_document_scanner"
@@ -137,6 +138,9 @@ def guard_marks_fallbacks() -> bool:
 class CaseExecution:
     record: dict[str, Any]
     guard_errors: tuple[str, ...]
+    guard_route_failures: tuple[str, ...] = ()
+    """Guard LLM calls that failed on the route or the service (``route.guard_call_failure``):
+    the case is an error row of kind ``guard_route_failure``, never scored."""
 
 
 def generation_summary(generation: GenerationResult | None) -> dict[str, Any]:
@@ -245,6 +249,9 @@ class GuardedCaseExecutor:
         """Run MailGuardPipeline.run around one rag-email generation call.
 
         Raises:
+            LLMQuotaExhaustedError: If a guard LLM call found the provider's quota, balance,
+                spend limit or daily cap used up: waiting does not lift it, so the case is not
+                retried (the ai-worker dead-letters it) and the run stops on its error row.
             RateLimitedError: If a guard LLM stage hit HTTP 429 (the case is retried).
             LLMError / UnvalidatedDraftError: From rag-email's generation call (error row).
         """
@@ -299,6 +306,13 @@ class GuardedCaseExecutor:
             else {"model": "", "calls": 0, "input_tokens": 0, "output_tokens": 0, "errors": []}
         )
         llm_errors = [str(e) for e in guard_calls["errors"]]
+        route_failures = tuple(str(f) for f in guard_calls.get("route_failures", []))
+        used_up = next((f for f in route_failures if is_quota_text(f)), None)
+        if used_up is not None:
+            reason = quota_in_text(used_up) or "unknown"
+            raise LLMQuotaExhaustedError(
+                f"guard LLM stage: {quota_note(reason)}: {used_up[:300]}", quota=reason
+            )
         # A stage that caught LLMError after generate() returned (the schema-validation
         # failure call_structured raises when the guard model answers in prose or with
         # missing fields) keeps its cheap verdict and writes metadata["llm_error"].
@@ -355,4 +369,10 @@ class GuardedCaseExecutor:
             # an empty list means "no AI step fell back".
             record["guard_fallbacks"] = [f.to_dict() for f in failures.fallbacks]
             record["l2_llm_schema_fallback"] = failures.l2_schema_fallback
-        return CaseExecution(record=record, guard_errors=guard_errors)
+        if route_failures:
+            # The guard fell back past a call the route or the service failed: the case is an
+            # error row the retry pass reruns, never a scored fallback (owner decision 2026-10-01).
+            record["guard_route_failures"] = list(route_failures)
+        return CaseExecution(
+            record=record, guard_errors=guard_errors, guard_route_failures=route_failures
+        )

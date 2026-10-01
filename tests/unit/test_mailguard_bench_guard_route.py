@@ -330,3 +330,62 @@ def test_an_unrouted_run_builds_and_describes_the_guard_as_before(tmp_path: Path
     guard = _build(tmp_path, "fake", None)
 
     assert "provider_routing" not in guard.describe()
+
+
+# --- the guard's own provider: route failures are recorded (owner decision A, 2026-10-01) -----
+
+
+def _failing_provider(status: int, body: Any) -> OpenAIProvider:
+    profile = get_profile(PROFILES[0])
+    provider, _ = _registry_provider(PROFILES[0], _guard_response(profile.model, "Phala"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=body)
+
+    provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return provider
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "note"),
+    [
+        (503, {"error": {"code": 503, "message": "no provider"}}, "HTTP 503"),
+        (
+            402,
+            {"error": {"code": 402, "metadata": {"limit_source": "openrouter_credits"}}},
+            "HTTP 402 (openrouter_credits)",
+        ),
+        (
+            429,
+            {"error": {"message": "x", "type": "insufficient_quota", "code": "insufficient_quota"}},
+            "HTTP 429 (quota_exhausted: insufficient_quota)",
+        ),
+        (200, {"error": {"code": 502, "message": "upstream"}}, "router error in an HTTP 200 body"),
+    ],
+)
+async def test_a_judge_call_the_route_failed_is_recorded_through_the_guards_provider(
+    status: int, body: dict[str, Any], note: str
+) -> None:
+    from mailguard.llm.protocol import LLMError
+
+    counting = CountingProvider(_failing_provider(status, body))
+    counting.begin_case()
+
+    with pytest.raises(LLMError):
+        await counting.generate(messages=[ChatMessage(role="user", content="hi")], schema={})
+
+    (failure,) = counting.snapshot()["route_failures"]
+    assert failure.startswith("guard_route_failure: ") and note in failure
+
+
+async def test_a_judge_answer_in_prose_is_no_route_failure_through_the_guards_provider() -> None:
+    profile = get_profile(PROFILES[0])
+    body = _guard_response(profile.model, "Phala")
+    body["choices"][0]["message"]["content"] = "I am not sure what you mean."
+    provider, _ = _registry_provider(PROFILES[0], body)
+    counting = CountingProvider(provider)
+    counting.begin_case()
+
+    await counting.generate(messages=[ChatMessage(role="user", content="hi")], schema={})
+
+    assert "route_failures" not in counting.snapshot()

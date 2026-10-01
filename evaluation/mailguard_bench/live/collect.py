@@ -380,6 +380,18 @@ async def wait_for_audit(
         await sleep(min(poll_interval_s, grace.remaining()))
 
 
+def _degradation_cause(context: Mapping[str, Any] | None) -> str:
+    """Why retrieval degraded: the vector branch's error when the ai-worker recorded one.
+
+    A used-up embedding quota (``quota_exhausted``) is then in the row's error, where the route
+    breaker stops the run on it; an older event without the field keeps the generic cause.
+    """
+    error = context.get("retrieval_vector_error") if context is not None else None
+    if isinstance(error, str) and error:
+        return f"the vector branch failed: {error[:STAGE_ERROR_CHARS]}"
+    return RETRIEVAL_DEGRADED_CAUSE
+
+
 def _audit_result(row: Mapping[str, Any]) -> dict[str, Any]:
     """The result fields of an audit line: under ``result``, or beside the ids."""
     nested = row.get("result")
@@ -657,6 +669,7 @@ class LiveCollector:
         """
         failures = triage_stage_failures(classification)
         degraded = bool(context is not None and context.get("retrieval_degraded") is True)
+        cause = _degradation_cause(context)
         prefix = f"case {case.case_id}: job {job.id}"
         if failures:
             message = (
@@ -664,12 +677,10 @@ class LiveCollector:
                 f"error ({'; '.join(failures)})"
             )
             if degraded:
-                message += "; retrieval degraded too (" + RETRIEVAL_DEGRADED_CAUSE + ")"
+                message += f"; retrieval degraded too ({cause})"
             raise TriageStageFailureError(message)
         if degraded:
-            raise RetrievalDegradedError(
-                f"{prefix}: retrieval degraded ({RETRIEVAL_DEGRADED_CAUSE})"
-            )
+            raise RetrievalDegradedError(f"{prefix}: retrieval degraded ({cause})")
 
     def _unconsumed_check(self) -> UnconsumedCheck | None:
         """One case's test for "this QUEUED job will never be picked up"; None without a probe.
