@@ -314,11 +314,14 @@ MINIO_IMAGE = (
 def test_minio_is_pinned_to_a_pullable_image_in_compose_and_ci() -> None:
     """quay.io/minio/minio no longer serves anonymous pulls ("unauthorized", 2026-10-01).
 
-    The first CI run on main failed on it, and a fresh machine (the teammate's laptop) could not have
-    started the stack: only machines with an old cached copy could. The stack and CI pin one image.
+    The first CI run on main failed on it, and a fresh machine (the teammate's laptop) could not
+    have started the stack: only machines with an old cached copy could. The stack and CI pin one
+    image.
     """
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    ci = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    ci = yaml.safe_load(
+        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
     compose_image = compose["services"]["minio"]["image"]
     ci_image = ci["jobs"]["integration-tests"]["services"]["minio"]["image"]
     assert compose_image == ci_image == MINIO_IMAGE
