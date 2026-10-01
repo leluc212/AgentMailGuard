@@ -272,7 +272,7 @@ def describe_guard_failure(note: str, detail: str) -> str:
 
 def stop_advice(reason: str) -> str:
     """What to do before the same command runs again, for the reason a run stopped."""
-    if reason.startswith((QUOTA_MARKER, "no_credit")):
+    if reason.startswith(IMMEDIATE_STOPS):
         return (
             "the provider's credit, quota, spend limit or daily cap is used up (a daily cap resets "
             "the next day); restore it"
