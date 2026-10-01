@@ -253,7 +253,7 @@ With `LLM__PROVIDER=openai`, a Gemini or Gemma model name on the default OpenAI 
 
 ### AgentMailGuard
 
-The guard reads its settings from the environment and from the `.env` of its working directory (`mailguard/config/settings.py`; run from `agentmailguard/` to use `agentmailguard/.env`). Each LLM stage is named by a registry entry; `fake` (the default) means no LLM stage, and in direct use an unknown name logs a warning and turns the stage off.
+The guard reads its settings from the environment and from the `.env` of its working directory (`mailguard/config/settings.py`; run from `agentmailguard/` to use `agentmailguard/.env`). Each LLM stage is named by a registry entry. `fake` (the default) is the offline canned double, not an off switch: a stage left at `fake` has no LLM only while no stage built before it (judge, extractor, document scanner, output judge, in that order) names a real model and the host passes no `registry=`. Once one does, the guard builds its registry and every later `fake` stage answers with canned replies. To turn an LLM stage off, set its switch below to `false`, or name a real model for every stage you run. In direct use an unknown name logs a warning and turns the stage off.
 
 | Stage | Model setting | Stage switch |
 |---|---|---|
