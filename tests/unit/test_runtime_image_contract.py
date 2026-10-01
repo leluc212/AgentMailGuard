@@ -301,3 +301,25 @@ def test_compose_forwards_the_gmail_token_only_to_the_services_that_call_gmail()
     for name in holders:
         env = compose["services"][name]["environment"]
         assert env["GMAIL_ACCESS_TOKEN"] == "${GMAIL_ACCESS_TOKEN:-}", name
+
+
+# The MinIO image the stack and CI pull: the community build of the MinIO release the owner's stack
+# ran in every live run (same image id, sha256:025934b6646a...), pinned by tag and digest.
+MINIO_IMAGE = (
+    "pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
+    "@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372"
+)
+
+
+def test_minio_is_pinned_to_a_pullable_image_in_compose_and_ci() -> None:
+    """quay.io/minio/minio no longer serves anonymous pulls ("unauthorized", 2026-10-01).
+
+    The first CI run on main failed on it, and a fresh machine (the teammate's laptop) could not have
+    started the stack: only machines with an old cached copy could. The stack and CI pin one image.
+    """
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    ci = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    compose_image = compose["services"]["minio"]["image"]
+    ci_image = ci["jobs"]["integration-tests"]["services"]["minio"]["image"]
+    assert compose_image == ci_image == MINIO_IMAGE
+    assert "quay.io/minio" not in compose_image

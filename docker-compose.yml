@@ -130,7 +130,9 @@ services:
       start_period: 15s
 
   minio:
-    image: quay.io/minio/minio:latest
+    # quay.io/minio/minio stopped serving anonymous pulls; this is the community build of the MinIO
+    # release the stack ran in every live run, pinned by digest (same image id).
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
     container_name: rag-email-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
