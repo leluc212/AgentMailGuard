@@ -16,6 +16,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from evaluation.mailguard_bench.route import route_failure
 from packages.core.settings import AppSettings, LLMTiersSettings, ProviderRouting
 from packages.llm.client import HttpLLMProvider
 from packages.llm.factory import create_llm_provider
@@ -373,6 +374,72 @@ async def test_a_plain_error_status_has_no_limit_source() -> None:
     assert caught.value.status_code == 503
     assert caught.value.limit_source is None
     assert caught.value.retry_after_s is None
+
+
+async def test_the_limit_source_survives_the_200_character_cut_of_an_error_row() -> None:
+    # The benchmark's error rows keep the first 200 characters of a job's last error, and the
+    # route classifier reads them: a long body must not push the limit source past the cut,
+    # or the transient in-flight budget would read as "no credit" and stop the run.
+    body = {
+        "error": {
+            "code": 402,
+            "message": "x" * 400,
+            "metadata": {"limit_source": "openrouter_in_flight_budget"},
+        }
+    }
+    rec = Recorder(body, status=402)
+    with pytest.raises(LLMResponseError) as caught:
+        await provider(rec).generate(messages=MESSAGES)
+
+    cut = f"LLMResponseError: {caught.value}"[:200]
+    assert "status 402 (openrouter_in_flight_budget)" in cut
+    assert route_failure(_error_row(cut)) is None  # transient: retried, never a stop
+
+
+@pytest.mark.parametrize(
+    ("code", "source", "reason"),
+    [
+        (402, "openrouter_credits", "no_credit"),
+        (402, "openrouter_in_flight_budget", None),
+        (502, None, "no_provider"),
+        (404, None, "no_provider"),
+    ],
+)
+async def test_an_error_in_the_body_of_an_http_200_is_classified_by_its_code(
+    code: int, source: str | None, reason: str | None
+) -> None:
+    # OpenRouter can answer 200 with only an error object; it is that status, not a malformed
+    # answer, so the failure policy and the route breaker see what it is.
+    error: dict[str, Any] = {"code": code, "message": "upstream said no"}
+    if source is not None:
+        error["metadata"] = {"limit_source": source}
+    rec = Recorder({"error": error})
+    with pytest.raises(LLMResponseError) as caught:
+        await provider(rec).generate(messages=MESSAGES)
+
+    assert caught.value.status_code == code
+    assert caught.value.limit_source == source
+    assert "in an HTTP 200 body" in str(caught.value)
+    assert route_failure(_error_row(f"LLMResponseError: {caught.value}"[:200])) == reason
+
+
+async def test_a_200_body_error_without_a_numeric_code_has_no_status() -> None:
+    rec = Recorder({"error": {"code": "server_error", "message": "x"}})
+    with pytest.raises(LLMResponseError) as caught:
+        await provider(rec).generate(messages=MESSAGES)
+
+    assert caught.value.status_code is None
+    assert "error in the response body" in str(caught.value)
+
+
+async def test_empty_choices_without_an_error_is_still_an_empty_answer() -> None:
+    rec = Recorder({"id": "gen-1", "choices": []})
+    with pytest.raises(LLMResponseError, match="Empty choices"):
+        await provider(rec).generate(messages=MESSAGES)
+
+
+def _error_row(message: str) -> dict[str, Any]:
+    return {"status": "error", "error": {"kind": "PipelineJobError", "message": message}}
 
 
 # --- the factory -------------------------------------------------------------------------

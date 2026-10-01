@@ -57,6 +57,47 @@ def _limit_source(response: httpx.Response) -> str | None:
     return source if isinstance(source, str) else None
 
 
+def _status_text(status: int | None, limit_source: str | None) -> str:
+    """``LLM request failed with status N[ (limit_source)]``: the classifying facts first.
+
+    A job's last error and a triage stage's error are cut to their first 200 characters on the
+    benchmark's error rows, and the route classifier reads that text: the status and
+    OpenRouter's ``limit_source`` must come before the body, which can be long.
+    """
+    source = f" ({limit_source})" if limit_source else ""
+    return f"LLM request failed with status {status}{source}"
+
+
+def _body_error(data: Any) -> LLMResponseError | None:
+    """An error a router returned in the body of an HTTP 200, with no ``choices``.
+
+    OpenRouter documents such a body: ``{"error": {"code": <HTTP status>, "message": ...,
+    "metadata": {...}}}``. It is classified like the same status on the wire (a 402 that is not
+    the in-flight budget is dead-lettered, a 404/502/503 is a route failure), not as a
+    malformed answer. None when the body names no error.
+    """
+    if not isinstance(data, dict):
+        return None
+    error = data.get("error")
+    if not isinstance(error, dict):
+        return None
+    code = error.get("code")
+    status = code if isinstance(code, int) and not isinstance(code, bool) else None
+    metadata = error.get("metadata")
+    source = metadata.get("limit_source") if isinstance(metadata, dict) else None
+    source = source if isinstance(source, str) else None
+    head = (
+        _status_text(status, source)
+        if status is not None
+        else "LLM request failed with an error in the response body"
+    )
+    return LLMResponseError(
+        f"{head} (in an HTTP 200 body): {json.dumps(data)}",
+        status_code=status,
+        limit_source=source,
+    )
+
+
 def _retry_after_s(response: httpx.Response) -> float | None:
     """The ``Retry-After`` header in seconds, when it is a number of seconds."""
     try:
@@ -198,10 +239,11 @@ class HttpLLMProvider(LLMProvider):
                 elapsed_ms,
                 exc.response.text,
             )
+            source = _limit_source(exc.response)
             raise LLMResponseError(
-                f"LLM request failed with status {exc.response.status_code}: {exc.response.text}",
+                f"{_status_text(exc.response.status_code, source)}: {exc.response.text}",
                 status_code=exc.response.status_code,
-                limit_source=_limit_source(exc.response),
+                limit_source=source,
                 retry_after_s=_retry_after_s(exc.response),
             ) from exc
         except httpx.RequestError as exc:
@@ -213,6 +255,10 @@ class HttpLLMProvider(LLMProvider):
 
         choices = data.get("choices", [])
         if not choices:
+            body_error = _body_error(data)
+            if body_error is not None:
+                logger.error("LLM call returned an error in an HTTP 200 body: %s", body_error)
+                raise body_error
             raise LLMResponseError(f"Empty choices list received from LLM: {data}")
 
         provenance: CallProvenance | None = None
