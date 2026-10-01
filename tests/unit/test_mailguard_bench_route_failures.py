@@ -10,6 +10,7 @@ no network.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from evaluation.mailguard_bench.resilience import BackoffPolicy, exhausted_quota
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.route import (
     GUARD_ROUTE_FAILURE,
+    NON_JSON_BODY,
     RouteBreaker,
     guard_call_failure,
     guard_result_failure,
@@ -108,6 +110,17 @@ def test_the_guard_providers_own_messages_are_read_when_nothing_is_chained(
     message: str, note: str | None
 ) -> None:
     assert guard_call_failure(GuardLLMError(message)) == note
+
+
+def test_a_successful_answer_whose_body_is_not_json_is_a_route_failure() -> None:
+    # A gateway's or a CDN's HTML page with HTTP 200: the guard's provider calls resp.json(),
+    # which raises; the provider wraps it (LLMError(str(exc)) from exc). No model answered.
+    try:
+        json.loads("<html>bad gateway</html>")
+    except json.JSONDecodeError as cause:
+        html = chained("Expecting value: line 1 column 1 (char 0)", cause)
+
+    assert guard_call_failure(html) == NON_JSON_BODY
 
 
 def test_a_model_answering_badly_is_never_a_route_failure() -> None:

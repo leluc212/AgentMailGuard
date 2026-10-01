@@ -25,6 +25,7 @@ from evaluation.mailguard_bench import guard_smoke  # noqa: E402
 from evaluation.mailguard_bench.counting import CountingProvider  # noqa: E402
 from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, GuardEnvError  # noqa: E402
 from evaluation.mailguard_bench.model_profiles import get_profile  # noqa: E402
+from evaluation.mailguard_bench.route import NON_JSON_BODY  # noqa: E402
 
 PROFILES = ("qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter")
 
@@ -117,6 +118,25 @@ async def test_a_judge_call_with_only_the_body_provider_field_is_verified_by_it(
     assert snapshot["provenance"][0]["served_provider"] == "CoreWeave"
     assert snapshot["provenance"][0]["provider_source"] == "response.provider"
     assert "route_violations" not in snapshot
+
+
+async def test_a_judge_call_answered_by_an_html_page_with_http_200_is_a_route_failure() -> None:
+    # The real guard provider: resp.json() raises on the page, the provider raises LLMError from
+    # it, and the stage would fall back. No model answered, so the case must be an error row.
+    provider, _ = _registry_provider(PROFILES[0], {})
+    provider._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, text="<html>bad gateway</html>")
+        )
+    )
+    counting = CountingProvider(provider)
+    counting.begin_case()
+
+    with pytest.raises(Exception):  # noqa: B017  (the guard's LLMError; its stage catches it)
+        await counting.generate(messages=[ChatMessage(role="user", content="hi")], schema={})
+
+    (failure,) = counting.snapshot()["route_failures"]
+    assert failure.startswith("guard_route_failure: ") and NON_JSON_BODY in failure
 
 
 def _probe_paths(monkeypatch: pytest.MonkeyPatch, provider: OpenAIProvider) -> Any:

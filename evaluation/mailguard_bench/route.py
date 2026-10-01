@@ -15,10 +15,12 @@ without a network:
   never stops a run; it is backed off and retried. Cases already recorded stay; a resume runs the
   rest. The runner then exits ``ROUTE_STOP_EXIT``, and the benchmark kit stops the whole campaign.
 - a guard LLM call that failed on the route or the service itself (``guard_call_failure``: HTTP
-  402, 404, 408, 409, 429 or 5xx, a timeout, a connection error, a router error in an HTTP 200
-  body) makes its case an error row (``guard_route_failure``), not a scored fallback (owner
-  decision 2026-10-01). A model that answers badly (no JSON, the wrong fields, a refusal) is the
-  guard's own behaviour and stays a scored fallback.
+  402, 404, 408, 409 or 5xx, a timeout, a connection error, a router error in an HTTP 200 body, a
+  2xx body that is not JSON) makes its case an error row (``guard_route_failure``), not a scored
+  fallback (owner decision 2026-10-01). A 429 is recorded the same way but never reaches the row:
+  a per-minute one is retried (``RateLimitedError``) and a used-up quota stops the run
+  (``LLMQuotaExhaustedError``); so is OpenRouter's in-flight 402. A model that answers badly (no
+  JSON, the wrong fields, a refusal) is the guard's own behaviour and stays a scored fallback.
 
 A call another provider served is an error of its case (``packages/llm/client.py`` raises for
 rag-email's calls; ``counting.CountingProvider`` records a violation for the guard's), never a
@@ -28,6 +30,7 @@ defence.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping
@@ -57,6 +60,8 @@ IMMEDIATE_STOPS = ("no_credit", QUOTA_MARKER)
 PINNED_STREAKS = ("provider_mismatch", "no_provider")
 """Route failures that stop a pinned run after ``STOP_AFTER`` in a row; an unpinned run (OpenAI
 directly) has no pinned provider to lose, and its 5xx rows are retried like any error row."""
+NON_JSON_BODY = "a successful HTTP answer whose body is not JSON"
+"""The route failure of a guard call whose 2xx body did not parse (an HTML error page)."""
 EMPTY_CHOICES = "Empty choices from OpenAI: "
 """How the guard's OpenAI provider reports a body without ``choices`` (``repr`` of the body)."""
 _GUARD_HTTP = re.compile(r"\b(?:OpenAI|Ollama) HTTP (\d{3})\b")
@@ -232,9 +237,11 @@ def guard_call_failure(exc: BaseException) -> str | None:
 
     The guard's providers chain the transport's exception, so the cause chain says what happened:
     an HTTP 402, 404, 408, 409, 429 or 5xx answer (its body read for OpenRouter's
-    ``limit_source`` and a used-up quota), a timeout, a connection error, or a router error the
-    provider found in an HTTP 200 body. Anything else (a 400, a 401) returns None, as does a
-    model's bad answer, which never reaches the provider as an exception.
+    ``limit_source`` and a used-up quota), a timeout, a connection error, a router error the
+    provider found in an HTTP 200 body, or a successful HTTP answer whose body is not JSON (a
+    gateway's or a CDN's HTML page: the provider's ``resp.json()`` raised, so no model answered).
+    Anything else (a 400, a 401) returns None, as does a model's bad answer: it arrives as the
+    message content of a JSON body, which the guard's provider parses without raising.
     """
     seen: set[int] = set()
     current: BaseException | None = exc
@@ -252,6 +259,8 @@ def guard_call_failure(exc: BaseException) -> str | None:
             return "timed out"
         if isinstance(current, httpx.RequestError):
             return "a connection error"
+        if isinstance(current, json.JSONDecodeError):
+            return NON_JSON_BODY
         found = _empty_choices_error(str(current))
         if found is not None:
             return found
