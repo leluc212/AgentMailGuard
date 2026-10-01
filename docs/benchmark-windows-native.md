@@ -11,7 +11,9 @@ The steps of the benchmark itself, and what the kit does in each, are the same a
 
 **The Layer-1 classifier is not in git.** You need the file `l1_injection_clf_v1.joblib` from the owner (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed; `evaluation/mailguard_bench/pinned/NOTICE.md` says why). The owner sends it to you privately, never by a public link, and you place it in section 2. Never commit, push or share it.
 
-**How long it takes** (an estimate from the owner's 7-case smoke run on the owner's desktop, an RTX 3060 with 12 GB, not a measurement of a full run): a full model is 9 configs x 550 cases; about 3 s per case and config for `gpt-4o-mini`, 10 s for Qwen2.5-7B and 9 s for Llama-3.1-8B, so roughly 4 to 6 hours for `gpt-4o-mini` and 12 to 15 hours for each local model on that desktop, and longer on a 6 GB laptop GPU. See "What you need" in `docs/BENCHMARK.md`.
+**All three models are cloud models** (owner decision 2026-10-01, `docs/adr/0014-full-cloud-route-for-the-v2-benchmark.md`): `gpt-4o-mini` through the OpenAI API, Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU, and Ollama is not needed. The keys, the OpenRouter account, the canary and what stops a run are in `docs/BENCHMARK.md` parts C and E; they are the same here.
+
+**How long it takes** (an estimate, not a measurement of a full run): a full model is 9 configs x 550 cases. `gpt-4o-mini` took about 3 s per case and config at concurrency 2 in the owner's 7-case smoke run, roughly 4 to 6 hours; the two OpenRouter models were not measured (plan 4 to 8 hours each). See "What you need" in `docs/BENCHMARK.md`.
 
 ---
 
@@ -59,18 +61,9 @@ or `winget install --id=astral-sh.uv -e`. Then open a **new** PowerShell and che
 
 The Makefile's `bench-*` targets need `make`. On Windows, `winget install ezwinports.make` installs one (the package exists in the winget catalogue, version 4.4.1 when I looked on 2026-09-30). **The Makefile's other targets use shell features (`case`, `test`), so `make` also needs a `sh` on the PATH, for example the one that comes with Git for Windows; I did not test this.** You do not need `make` at all: section 3 gives the `python -m` commands that every `make bench-*` target runs.
 
-### Ollama (only for the two local models)
+### Ollama: not needed
 
-Install Ollama for Windows from https://ollama.com/download. Its documentation lists Windows 10 22H2 or newer, Home or Pro, and NVIDIA driver 551.61 or newer if you have an NVIDIA card (https://github.com/ollama/ollama/blob/main/docs/windows.mdx, read 2026-09-30). Ollama serves on `http://localhost:11434` and the `ollama` command works in PowerShell. Your RTX 4050 has 6 GB, so a 7B or 8B model partly runs on the CPU; see part E of `docs/BENCHMARK.md` for what to write down. Pull the two models once (`ollama pull qwen2.5:7b-instruct`, `ollama pull llama3.1:8b`). **Before each local-model run, load the model** (`ollama run qwen2.5:7b-instruct "Reply with OK"`): the runner refuses a model that Ollama has not loaded, and the keep-alive below keeps it loaded for 30 minutes after the last call.
-
-Set Ollama's settings as Windows environment variables, as Ollama's FAQ describes (quit Ollama from the taskbar; in Settings search for "environment variables", choose "Edit environment variables for your account"; add the variables; start Ollama again from the Start menu):
-
-| Variable | Value |
-|---|---|
-| `OLLAMA_KEEP_ALIVE` | `30m` |
-| `OLLAMA_CONTEXT_LENGTH` | `32768` (the owner may give you a smaller number for 6 GB) |
-
-The containers reach Ollama on your machine through the name `host.docker.internal`, which Docker resolves to the host (https://docs.docker.com/desktop/features/networking/networking-how-tos/, read 2026-09-30 from the docs source). Keep `BENCH_OLLAMA_BASE_URL` **unset**: the host processes then use `http://localhost:11434/v1`, and the kit's stack settings rewrite it to `host.docker.internal` for the containers. If a container cannot reach Ollama (part G of `docs/BENCHMARK.md`), the owner's runbook (section 9.8, step 2) says to set `OLLAMA_HOST=0.0.0.0` the same way; that opens Ollama to every network interface of your machine, which is your decision. I did not test this path.
+The 2026-10-02 run uses no local model. If the owner later asks for the local route, `docs/BENCHMARK.md` appendix L describes it; on native Windows, Ollama for Windows serves on `http://localhost:11434`, and its settings are Windows environment variables (https://github.com/ollama/ollama/blob/main/docs/faq.mdx). I did not test that path.
 
 ---
 
@@ -87,7 +80,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Set exactly the lines of `docs/BENCHMARK.md` part C. Save the file as UTF-8 (not "UTF-8 with BOM") with Unix or Windows line endings; either reads fine. **Never share `.env`.**
+Set exactly the lines of `docs/BENCHMARK.md` part C (the two model keys `BENCH_OPENAI_API_KEY` and `BENCH_OPENROUTER_API_KEY`, the embedding of your choice, and the benchmark settings). Save the file as UTF-8 (not "UTF-8 with BOM") with Unix or Windows line endings; either reads fine. **Never share `.env`.**
 
 Check that nothing is exported (this prints nothing when you are clear, and never a value):
 
@@ -118,44 +111,49 @@ The hash must be `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d401
 
 ## 3. The commands, without `make`
 
-Every `make bench-*` target runs a `python -m` command under one overlay: AgentMailGuard at its pinned commit, installed on top of this repository's environment. In PowerShell, set three variables for the window, and put the overlay in a variable so the commands stay short:
+Every `make bench-*` target runs a `python -m` command under one overlay: AgentMailGuard at its pinned commit, installed on top of this repository's environment. The guard comes with the clone, in the folder `agentmailguard\`. In PowerShell, set three variables for the window, and put the overlay in a variable so the commands stay short:
 
 ```powershell
 $repo = (Get-Location).Path
-$env:MAILGUARD_DIR = Join-Path (Split-Path $repo -Parent) "AgentMailGuard-bench"
+$env:MAILGUARD_DIR = Join-Path $repo "agentmailguard"
 $env:MAILGUARD_COMMIT = "915cb1e2b86395e4389673deb9914308cc39627b"
 $env:MAILGUARD_ARTIFACTS = Join-Path $repo "evaluation\mailguard_bench\pinned"
 $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python", "-m")
 ```
 
-The guard at the pinned commit (once; this is what `make mailguard-worktree` does, and after the single-repository merge the guard is in `agentmailguard\` and this step goes away, with `$env:MAILGUARD_DIR` set to that folder):
+Check that the guard folder is exactly the pinned commit and unmodified (once; this is what `make mailguard-worktree` checks; the doctor and `setup` check it again):
 
 ```powershell
-git fetch origin feature/mailguard-defense-stack
-git worktree add --detach $env:MAILGUARD_DIR $env:MAILGUARD_COMMIT
-git -C $env:MAILGUARD_DIR rev-parse HEAD     # must print the commit above
+git rev-parse HEAD:agentmailguard              # must print f659748a611340e093d41189dc1f445a2f842134, the pinned commit's tree
+git status --porcelain -- agentmailguard       # must print nothing
 ```
 
 Then, in the same window (the variables last only for this window: set them again in a new one):
 
 ```powershell
-# the doctor: fix every FAIL it prints (add --model-profile qwen2.5-7b for a local model)
+# the doctor: fix every FAIL it prints (name the model you are about to run: it checks that model's key)
 uv @mg evaluation.mailguard_bench.kit.doctor --model-profile gpt-4o-mini --reader <your reader model>
+uv @mg evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b-openrouter --reader <your reader model>
 
 # once: checks the guard and the pinned inputs (the classifier too), runs the guard smoke, brings the stack up (slow the first time)
 uv @mg evaluation.mailguard_bench.kit.campaign setup
 
-# one model, completely, then the next (gpt-4o-mini, then qwen2.5-7b, then llama-3.1-8b-local)
+# one model, completely, then the next (gpt-4o-mini, then qwen2.5-7b-openrouter, then llama-3.1-8b-openrouter)
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run 2026-10-02-gpt4omini-live --concurrency 2
-ollama run qwen2.5:7b-instruct "Reply with OK"
-uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b --run 2026-10-02-qwen25-live --concurrency 1
-ollama run llama3.1:8b "Reply with OK"
-uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile llama-3.1-8b-local --run 2026-10-02-llama31-local-live --concurrency 1
+
+# before each OpenRouter run: check the credit (docs/BENCHMARK.md E2), then the canary (one live call, under a cent) and the guard's probe
+uv @mg evaluation.mailguard_bench.openrouter_canary --model-profile qwen2.5-7b-openrouter
+uv @mg evaluation.mailguard_bench.guard_smoke --live-probe --model-profile qwen2.5-7b-openrouter
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b-openrouter --run 2026-10-02-qwen25-openrouter-live --concurrency 2
+uv @mg evaluation.mailguard_bench.openrouter_canary --model-profile llama-3.1-8b-openrouter
+uv @mg evaluation.mailguard_bench.guard_smoke --live-probe --model-profile llama-3.1-8b-openrouter
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile llama-3.1-8b-openrouter --run 2026-10-02-llama31-openrouter-live --concurrency 2
 
 # a small trial first, under a throwaway name (then delete its folder)
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C0T,C7 --limit 5
 
-# the meaning column, for a finished run (the two LLM__ variables are for this command only; remove them afterwards)
+# the meaning column, for a finished run; the reader's key is LLM__OPENAI_API_KEY in .env, and the two LLM__ variables
+# (here for a Gemini reader) are for this command only: remove them afterwards
 $env:LLM__PROVIDER = "openai"; $env:LLM__OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 uv @mg evaluation.mailguard_bench.kit.campaign report --run 2026-10-02-gpt4omini-live --reader <your reader model>
 Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
@@ -164,11 +162,20 @@ Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
 uv @mg evaluation.mailguard_bench.kit.campaign package --run 2026-10-02-gpt4omini-live
 ```
 
-`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`, which Microsoft's reference describes as taking minutes; I did not read that `0` means never).
+`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. A run whose OpenRouter route stops serving (`STOP <config>`: no credit, the pinned provider down, or calls served by another provider) stops the whole campaign; fix the cause as `docs/BENCHMARK.md` part E4 says, then run the same command again. Keep an overnight run in a window you do not close, and pause Windows updates first (Settings, Windows Update, "Pause updates"). The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`, which Microsoft's reference describes as taking minutes; I did not read that `0` means never).
 
 After every `git pull` run `kit.campaign setup` again: the images are labelled with the commit they were built from, and `run` refuses containers built from another commit than your checkout (or a checkout with a modified tracked file).
 
-If you installed `make`, `make bench-doctor`, `make bench-setup` and `make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live` do the same as the commands above, with the three variables set by the Makefile itself.
+If you installed `make`, `make bench-doctor MODEL=gpt-4o-mini`, `make bench-setup`, `make bench-canary MODEL=qwen2.5-7b-openrouter` and `make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live` do the same as the commands above, with the three variables set by the Makefile itself.
+
+**Only if the owner asks for the local route** (`docs/BENCHMARK.md` appendix L; not used on 2026-10-02), load the model first, then run it at concurrency 1:
+
+```powershell
+ollama run qwen2.5:7b-instruct "Reply with OK"
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b --run <date>-qwen25-local-live --concurrency 1
+ollama run llama3.1:8b "Reply with OK"
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile llama-3.1-8b-local --run <date>-llama31-local-live --concurrency 1
+```
 
 ---
 
@@ -189,7 +196,7 @@ git push -u origin bench/2026-10-02-gpt4omini-live
 
 - The whole kit run: the `campaign` commands, the doctor and the guard-worker have only been run on Linux. The kit stops the guard-worker with a signal chosen for the operating system (`kit/system.py`); that choice has not been tried on Windows.
 - Docker Desktop and the stack on Windows: the compose file is used as on Linux, with `host.docker.internal` from `extra_hosts`.
-- Containers reaching Ollama on the Windows host (above), and the `OLLAMA_HOST=0.0.0.0` fallback.
+- The OpenRouter canary and the guard probe on Windows (they are plain Python; their calls go out through the same `httpx` client as on Linux).
 - `make` from `ezwinports.make` with this Makefile's shell constructs.
 - Path handling: run folders and the `uv --with-editable` overlay with Windows paths.
 - Durations: there are no measured times for this laptop (the estimate at the top is from the owner's desktop); `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl` will show them.

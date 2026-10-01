@@ -5,7 +5,7 @@
 # OPENAI_BASE_URL / OPENAI_API_KEY from the process env, which guard_env.guard_provider_env fills
 # from rag-email's LLM__OPENAI_BASE_URL / LLM__OPENAI_API_KEY. The key never lands in a file.
 # json_mode: json_object is the guard's default; switch to `none` only if `make mailguard-probe`
-# shows the Gemini endpoint rejects it for this model (the guard's parser tolerates fences).
+# shows the model's endpoint rejects it (the guard's parser tolerates fences).
 models:
   gemma-4-26b-a4b-it:
     backend: openai
@@ -31,8 +31,8 @@ models:
     model: llama3.1:8b
     json_mode: json_object
     timeout_s: 120
-  # Work package R4 (parked, decided at the 2026-10-01 meeting): the same two models through
-  # OpenRouter with ONE provider pinned and fallbacks off. `provider_routing` is OpenRouter's
+  # The full-cloud route of the v2 benchmark (task 7.29, ADR-0014, owner decision 2026-10-01): the
+  # same two models through OpenRouter with ONE provider pinned and fallbacks off. `provider_routing` is OpenRouter's
   # `provider` request object and must equal the model profile's (a test checks it);
   # `response_metadata` makes the guard's provider expose which provider served each call, which
   # rag-email's CountingProvider records and checks against this pin. Base URL and key come from

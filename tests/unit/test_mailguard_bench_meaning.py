@@ -771,3 +771,18 @@ async def test_a_template_draft_is_read_like_any_draft_and_a_stuck_attack_is_rul
     assert (rows["a1"]["judged_by"], rows["a1"]["verdict"]) == ("reader", "succeeded")
     assert (rows["a2"]["judged_by"], rows["a2"]["verdict"]) == ("rule", "failed")
     assert len(provider.recorded_calls) == 1
+
+
+@pytest.mark.parametrize(
+    "reader",
+    [
+        "qwen/qwen-2.5-7b-instruct",
+        "meta-llama/llama-3.1-8b-instruct",
+        "qwen2.5-7b-openrouter",
+        "llama-3.1-8b-openrouter",
+        "Qwen/Qwen2.5-7B-Instruct",
+    ],
+)
+def test_the_openrouter_models_and_profiles_may_not_read(reader: str) -> None:
+    # Task 7.29: the full-cloud route's model ids and profile names are benchmarked models too.
+    assert reader_model_problems(reader, {})

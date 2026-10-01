@@ -13,7 +13,12 @@ import re
 import shlex
 from collections.abc import Sequence
 
-from evaluation.mailguard_bench.guard_env import REPO_ROOT, V2_MAILGUARD_COMMIT, GuardEnvError
+from evaluation.mailguard_bench.guard_env import (
+    REPO_ROOT,
+    V2_MAILGUARD_COMMIT,
+    V2_MAILGUARD_TREE,
+    GuardEnvError,
+)
 from evaluation.mailguard_bench.kit import doctor, pinned
 from evaluation.mailguard_bench.kit.doctor import HttpResult
 from evaluation.mailguard_bench.live import stack_env
@@ -96,10 +101,32 @@ def test_the_guides_use_only_profiles_that_exist() -> None:
 
 
 def test_the_models_are_run_in_the_order_the_runbook_fixes() -> None:
-    positions = [
-        GUIDE.index(name) for name in ("`gpt-4o-mini`", "`qwen2.5-7b`", "`llama-3.1-8b-local`")
-    ]
+    # ADR-0014: the 2026-10-02 run is full cloud, OpenAI first, then the two OpenRouter models.
+    names = ("`gpt-4o-mini`", "`qwen2.5-7b-openrouter`", "`llama-3.1-8b-openrouter`")
+    positions = [GUIDE.index(name) for name in names]
     assert positions == sorted(positions)
+
+
+def test_the_cloud_route_names_its_keys_canary_and_credit_check_before_the_runs() -> None:
+    for name in ("BENCH_OPENAI_API_KEY", "BENCH_OPENROUTER_API_KEY", "EMBEDDING__API_KEY"):
+        assert name in GUIDE, name
+    first_run = GUIDE.index("make bench-run MODEL=qwen2.5-7b-openrouter RUN=2026-10-02")
+    assert "make bench-canary MODEL=qwen2.5-7b-openrouter" in GUIDE
+    # D4's run list sends the teammate to the credit check and the canary before each run
+    assert GUIDE.count("(part E: credit check and canary first)") == 2
+    assert "`MODEL=llama-3.1-8b-openrouter` before the Llama run" in GUIDE
+    assert "settings/credits" in GUIDE and "settings/privacy" in GUIDE
+    # the pins the guide states are the profiles' own
+    for profile, provider in (
+        ("qwen2.5-7b-openrouter", "Phala"),
+        ("llama-3.1-8b-openrouter", "CoreWeave"),
+    ):
+        assert PROFILES[profile].provider_pin == provider.lower()
+        row = next(line for line in GUIDE.splitlines() if line.startswith(f"| `{profile}`"))
+        assert provider in row and PROFILES[profile].model in row
+    assert GUIDE.index("## E. The OpenRouter route") < GUIDE.index("## L. Appendix: local models")
+    assert "not used for the 2026-10-02 run" in GUIDE
+    assert first_run < GUIDE.index("## L. Appendix")
 
 
 def test_the_ports_the_guide_lists_are_the_ports_the_doctor_checks() -> None:
@@ -180,8 +207,11 @@ def test_the_guards_fix_is_in_the_guide_before_the_first_doctor_run() -> None:
     fix = _first_block_with(GUIDE, [command])
     first_doctor = _first_block_with(GUIDE, ["bench-doctor", "kit.doctor"])
     assert fix < first_doctor, "the teammate would run the doctor before the fix it asks for"
-    native_fix = _first_block_with(NATIVE, ["git worktree add"])
+    # The guard is a subtree of the clone (ADR-0012 decision 6): the native guide checks its tree
+    # against the pin before the doctor, as `make mailguard-worktree` does in the subtree layout.
+    native_fix = _first_block_with(NATIVE, ["git rev-parse HEAD:agentmailguard"])
     assert native_fix < _first_block_with(NATIVE, ["kit.doctor"])
+    assert V2_MAILGUARD_TREE in _blocks(NATIVE)[native_fix]
 
 
 def test_the_guide_places_the_classifier_before_the_first_doctor_run() -> None:
@@ -248,8 +278,8 @@ def test_each_local_run_is_preceded_by_loading_its_model() -> None:
         )
         assert doctor_hint is not None and doctor_hint.hint == load
         for text, run_marker in (
-            (GUIDE, f"make bench-run MODEL={profile_name}"),
-            (NATIVE, f"campaign run --model-profile {profile_name}"),
+            (GUIDE, f"make bench-run MODEL={profile_name} "),
+            (NATIVE, f"campaign run --model-profile {profile_name} "),
         ):
             block = next(b for b in _blocks(text) if run_marker in b)
             assert load in block, f"{profile_name}: load the model in the same block as its run"

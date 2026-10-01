@@ -11,13 +11,13 @@ provider and the guard's `openai` backend reach it by base URL alone:
     qwen2.5-7b-openrouter    OpenRouter, Phala pinned      key from BENCH_OPENROUTER_API_KEY
     llama-3.1-8b-openrouter  OpenRouter, CoreWeave bf16    key from BENCH_OPENROUTER_API_KEY
 
-Llama-3.1-8B ran only on the desktop's Ollama (owner decision 2026-09-29, evening): the first
-OpenRouter profile was removed after its account had no credit. The two ``-openrouter`` profiles
-are work package R4 (parked; the owner decides at the 2026-10-01 meeting whether the route is
-used, ADR-0012 decision 9). Each pins ONE provider with fallbacks off and structured-output
-support required, asks OpenRouter for its routing metadata, and so records the provider that
-served every call (``packages/llm/provenance.py``). Their results are not comparable with the
-local 4-bit runs, and reports say so.
+v1 ran Llama-3.1-8B and Qwen2.5-7B on the desktop's Ollama (owner decision 2026-09-29, evening;
+the first OpenRouter profile was removed after its account had no credit). The v2 benchmark is
+full cloud (owner decision 2026-10-01, ADR-0014): ``gpt-4o-mini`` and the two ``-openrouter``
+profiles. Each of these pins ONE provider with fallbacks off and structured-output support
+required, asks OpenRouter for its routing metadata, and so records the provider that served every
+call (``packages/llm/provenance.py``). Their results are not comparable with the local 4-bit runs,
+and reports say so. The embedding is not a profile's: it is the runner's choice (``stack_env``).
 
 `profile_env` returns the rag-email settings for the process; keys are read from the
 environment or `.env` (the environment wins) and never written to a file.
@@ -111,9 +111,10 @@ PROFILES: dict[str, ModelProfile] = {
             base_url_env="BENCH_OLLAMA_BASE_URL",
             fixed_api_key="ollama",
         ),
-        # Work package R4 (parked). Slugs, providers and prices from OpenRouter's live API,
-        # 2026-09-30. Qwen has ONE provider (Phala, precision undisclosed), so no precision filter
-        # (it would exclude it). Only CoreWeave lists structured outputs for Llama, at bf16.
+        # The full-cloud route (task 7.29, ADR-0014). Slugs, providers and prices from OpenRouter's
+        # live API, 2026-09-30, re-read 2026-10-01. Qwen has ONE provider (Phala, precision
+        # undisclosed), so no precision filter (it would exclude it). Only CoreWeave lists
+        # structured outputs for Llama, at bf16.
         ModelProfile(
             name="qwen2.5-7b-openrouter",
             model="qwen/qwen-2.5-7b-instruct",

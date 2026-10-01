@@ -598,16 +598,19 @@ def test_the_runbook_section_names_the_profiles_the_canary_and_the_stop_rule() -
         assert profile in section
     for phrase in ("BENCH_OPENROUTER_API_KEY", "STOP", "provider_mismatch", "not comparable"):
         assert phrase in section, phrase
+    # each pinned model has its canary command (the kit's Make target), and its profile parses
     commands = [
-        line.split("openrouter_canary", 1)[1].split()
+        line.split("MODEL=", 1)[1].split()[0]
         for line in section.splitlines()
-        if line.startswith("uv run python -m evaluation.mailguard_bench.openrouter_canary")
+        if line.startswith("make bench-canary MODEL=")
     ]
-    assert len(commands) == 2  # each pinned model has its canary command, and it parses
-    assert {parse_args(argv).model_profile for argv in commands} == {
+    assert len(commands) == 2
+    assert {parse_args(["--model-profile", name]).model_profile for name in commands} == {
         "qwen2.5-7b-openrouter",
         "llama-3.1-8b-openrouter",
     }
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    assert "openrouter_canary --model-profile $(MODEL)" in makefile
     # step 1's key block is a different section, and the tests of §9.9 read it
     assert "BENCH_OPENROUTER_API_KEY=<your OpenRouter key>" in text
 
