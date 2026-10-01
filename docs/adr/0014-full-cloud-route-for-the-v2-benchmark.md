@@ -59,7 +59,11 @@ was 1,000 a day).
    and the training code is unchanged (the L1 classifier is the same kind of model). All three Friday
    models run at the new pin, `gpt-4o-mini` included, so the guard commit is the same across models.
    v1 keeps `81df5d07`. Run folders started at `1a3ef62` (local preflight and smoke folders only;
-   none is a result) cannot be resumed at the new pin.
+   none is a result) cannot be resumed at the new pin. On branch `wp-cloud` the subtree merge
+   `04efd43` and the merge `4ba1b81` carry the new guard tree with the old pin constants (the pin
+   moves in `366d8ad`), so the pin check fails at those two commits, which matters only to
+   `git bisect`. A unit test now requires `HEAD:agentmailguard` to be the pinned tree, so CI catches
+   such a gap.
 5. **The embedding is the runner's choice.** One embedding model of the runner's choice, 1536
    dimensions, the same for every run of a comparison, recorded with each run. Any OpenAI-compatible
    `/embeddings` endpoint serves if it accepts the `dimensions` parameter, which the embedder sends
@@ -124,6 +128,18 @@ was 1,000 a day).
   breaker reads the text.
 - **Retries.** The ai-worker retries a 404/502/503 on its ladder, so a case on a dead route waits its
   full case timeout before it becomes an error row; three such rows stop the run.
+- **No stop for OpenAI.** The route breaker runs only for a pinned (OpenRouter) profile. A
+  `gpt-4o-mini` run past a daily cap, a balance or a hard spend limit (HTTP 429) keeps going, each
+  remaining case waiting its case timeout; the guides tell the teammate to watch the run, reach Tier 2
+  or split it by configs. Extending the stop to OpenAI's quota errors is open.
+- **The kit's meaning step does not retry reader errors** (`meaning` without `--retry-errors`), so a
+  failed read stays unread on every later `make bench-report`. The guide asks for `0 errors` on every
+  `MEANING OK` line and gives the retry command; passing `--retry-errors` in the kit is open.
+- **No embedding check before a run.** The doctor and the stack env check the embedding settings by
+  name; nothing calls the endpoint before the run's first RAG case (the small trial runs none), so an
+  endpoint that rejects `dimensions` or a wrong key shows only there. A one-call embedding check is open.
+- **A canary `strict_json` failure on the pinned provider** has no rule beyond "stop and ask the
+  owner" in the guide; whether such a provider may run (and be recorded) is the owner's call.
 
 ## Alternatives rejected
 
