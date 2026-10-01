@@ -11,6 +11,8 @@
   its Amendment 4
 - **Changes:** `specs/tasks.md` task 7.29; `docs/BENCHMARK.md`, `docs/benchmark-windows-native.md`,
   `docs/demo-runbook.md` §9.9 and §9.10, `docs/configuration.md`, `.env.example`, `README.md`
+- **Amended:** decisions 9 to 15 below (owner decisions of 2026-10-01, A to G), after the first
+  version of this record
 
 ## Context
 
@@ -85,7 +87,7 @@ was 1,000 a day).
 7. **What a failing route does.** The live runner stops after three consecutive provider mismatches or
    HTTP 404/502/503 rows, and at once on a 402 that is not OpenRouter's transient in-flight budget; it
    exits 3, and the kit then stops the whole campaign (no next config, no retry pass) and says how to
-   resume. A router error inside an HTTP 200 body is classified by its code, and the error text puts
+   resume. (Extended to every provider's used-up quota or credit by decision 10.) A router error inside an HTTP 200 body is classified by its code, and the error text puts
    the status and OpenRouter's `limit_source` first, so the 200-character cut of an error row keeps
    them.
 8. **Where each call's served provider is recorded.** Guarded rows carry `generation.provenance` and
@@ -94,6 +96,69 @@ was 1,000 a day).
    each config to `raw/services.<config>.log`: that is the record for triage, the summarizer and C0's
    generation, which reach no result row. No database column is added (a migration needs its own
    approval).
+
+### Owner decisions of 2026-10-01 on failures, limits and the trial (A to G)
+
+9. **A guard route failure is a retried error row (A).** A guard LLM call (the L1 judge, the L2
+   extractor, the L3b scanner, the L4 judge) that failed on the route or the service itself (HTTP
+   402, 404, 408, 409, 429 or 5xx, a timeout, a connection error, a provider mismatch, or a router
+   error carried in an HTTP 200 body) is not scored. rag-email's `CountingProvider` records each such
+   call per case from the guard provider's chained transport exception (and the guard's own message
+   when nothing is chained), without changing `agentmailguard/`; the case executor puts them in
+   `guard_route_failures` (the guard-worker's audit line carries them) and the runner makes the row an
+   error of kind `guard_route_failure` (a provider mismatch keeps `guard_layer_error`). The retry pass
+   and a resume rerun it, and the report lists it under its errors row ("of which guard route
+   failure"). A model that answers badly (no JSON, a schema mismatch, a refusal) stays the guard's
+   real behaviour: a scored fallback with `metadata.llm_fallback` (ADR-0012 decision 4). It applies to
+   every profile, OpenAI and Gemini included. A per-minute 429 is still raised as a rate limit, so the
+   ai-worker's retry ladder (or the v1 runner's back-off) runs the case again.
+10. **Quota and credit exhaustion stop every run (B).** A 429 that names a used-up quota, prepaid
+    balance, spend limit or daily cap is told from a per-minute rate limit by what the providers
+    document (`packages/core/provider_limits.py`, read 2026-10-01): OpenAI's error codes
+    `credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`,
+    `organization_usage_limit_exceeded` and the type `insufficient_quota` ("Retrying billing, spend,
+    or quota errors won't restore API access", https://developers.openai.com/api/docs/guides/error-codes);
+    a message that names a per-day measure, RPD or TPD
+    (https://developers.openai.com/api/docs/guides/rate-limits); Gemini's per-day or spend-based
+    `RESOURCE_EXHAUSTED` (https://ai.google.dev/gemini-api/docs/rate-limits). rag-email's client raises
+    `LLMQuotaExhaustedError` with `quota_exhausted: <what>` at the head of its text, the ai-worker
+    dead-letters it, the embedder raises `EmbeddingQuotaExhaustedError` at once, and the benchmark's
+    back-off never retries either. The route breaker now runs for every profile: a used-up quota or
+    no credit (OpenRouter's 402) stops the run at once, whatever the provider and whether the model,
+    a guard judge, triage, the embedding (a knowledge upload, or the query embedding, whose cause the
+    `context_built` event now records as `retrieval_vector_error`) or the meaning reader hit it; the
+    streak stops (mismatches, 404/502/503) stay for a pinned route only. The stopped rows are error
+    rows; the STOP line and the kit tell the runner to rerun the same `make bench-run` later, which
+    resumes and retries them. The meaning step stops the same way (`STOP meaning`, exit 3).
+11. **The kit's meaning step passes `--retry-errors` (C)**, so the same `make bench-report` run again
+    reads the drafts a failed read left unread. The guide says so.
+12. **One embedding call before any model spend (D).** `make bench-run` embeds one fixed line
+    through `packages.knowledge.embedder.get_embedder` with the runner's `EMBEDDING__*` (the shell
+    over `.env`, the settings the host processes read), retries off, right after the stack env is
+    rendered and before the stack is touched, and refuses to start unless one 1536-dimension vector
+    comes back: an endpoint that ignores or rejects `dimensions`, a wrong key, model or URL, a rate
+    limit or a used-up quota each say so. `make bench-doctor` stays free of calls; the call runs on
+    the runner's machine with the runner's key, and tests use a fake transport.
+13. **A trial that includes RAG cases (E).** `make bench-run ... CASE_IDS=<id>,...` (`--case-ids`)
+    runs only those cases of each config, in their order, refuses an id the config does not run, and
+    is refused unless the `RUN` starts with `trial`: a trial folder is never a result. The pinned case
+    file and the full-run selection do not change. The guide's trial runs one LLMail attack, one
+    benign email and one RAG case, so it embeds knowledge documents.
+14. **A run stopped by a limit resumes after another model's run (F).** Nothing in the code
+    prevented it: the stack env and the fingerprint are rendered from the profile and `.env`
+    alone, and the profile always states its routing keys, so the resumed run's settings equal the
+    stopped run's. Two tests prove it (the kit re-renders `.env.stack` identically; `live.run`
+    accepts the resume with no mismatch and retries the stopped rows).
+15. **The usage tier is not discussed (G).** The guides state what one model run needs, so the
+    runner can check that their accounts cover it: about 8,000 to 11,000 model requests per run
+    (estimated from the calls per case: at most one reply, the triage model when the rules and the
+    classifier are unsure, the guard's calls in `C1`, `C2`, `C4`, `C5`, `C7`), about 4 to 8 million
+    input and 1 to 1.5 million output tokens (the v1 `gpt-4o-mini` run measured about 640 input and
+    175 output tokens per reply and about 440 and 100 per guard call), about 6,000 to 10,000 embedding
+    requests per model run (567 knowledge documents in each of 9 configs, about 5,100, plus up to
+    about 4,950 queries; about 1 to 1.5 million tokens), and the costs below. If a limit or a credit
+    runs out anyway, the run stops cleanly and the same command resumes it later; other models may run
+    in between. The Tier-1 split-run plan is withdrawn.
 
 ## Consequences
 
@@ -105,8 +170,9 @@ was 1,000 a day).
 - **Single points of failure.** With fallbacks off, a Phala outage stops every Qwen2.5-7B call; there
   is no equivalent second provider. Llama-3.1-8B's other providers serve `fp8` or an unknown precision
   without structured outputs.
-- **Quota.** A Tier 1 OpenAI account caps `gpt-4o-mini` at 10,000 requests a day, close to one full run
-  (about 8,000 to 11,000); a free Gemini key cannot carry the embeddings of a run. The guides say so.
+- **Quota.** One model run needs about 8,000 to 11,000 model requests and 6,000 to 10,000 embedding
+  requests (decision 15); a free Gemini key cannot carry the embeddings of a run. A limit or credit
+  that runs out anyway stops the run cleanly, and the same command resumes it (decisions 10, 14).
 - **Cost.** Estimated per full run: about $1.5 to $2 for `gpt-4o-mini`, $0.9 to $1.3 for Qwen2.5-7B,
   $1.6 to $2.1 for Llama-3.1-8B, plus the embedding and the reader; the run records what the router
   reported per call (`cost_usd` in the provenance totals).
@@ -119,25 +185,16 @@ was 1,000 a day).
   ADR-0012 decision 9 asked for strict schema). `require_parameters` guarantees the provider supports
   `response_format`, and the guard validates each answer; changing the guard's mode would change guard
   behaviour, so it is recorded as a limit, not changed.
-- **A guard judge's HTTP failure on the pinned route** (402, 404, 5xx) is the guard's visible fallback
-  (`llm_fallback`), and the row stays scored, as for any model (ADR-0012 decision 4); the report counts
-  fallbacks per config. Turning such rows into error rows would change what is scored, which this
-  decision does not do.
-- **No route-specific `error.kind`.** A provider mismatch in triage is a `triage_stage_failure` row and
+- **Route-specific error kinds outside the guard.** A guard call's route failure has its own kind,
+  `guard_route_failure` (decision 9). A provider mismatch in triage is a `triage_stage_failure` row and
   in the ai-worker a dead-lettered job; both are retried and excluded like every error row, and the
   breaker reads the text.
 - **Retries.** The ai-worker retries a 404/502/503 on its ladder, so a case on a dead route waits its
-  full case timeout before it becomes an error row; three such rows stop the run.
-- **No stop for OpenAI.** The route breaker runs only for a pinned (OpenRouter) profile. A
-  `gpt-4o-mini` run past a daily cap, a balance or a hard spend limit (HTTP 429) keeps going, each
-  remaining case waiting its case timeout; the guides tell the teammate to watch the run, reach Tier 2
-  or split it by configs. Extending the stop to OpenAI's quota errors is open.
-- **The kit's meaning step does not retry reader errors** (`meaning` without `--retry-errors`), so a
-  failed read stays unread on every later `make bench-report`. The guide asks for `0 errors` on every
-  `MEANING OK` line and gives the retry command; passing `--retry-errors` in the kit is open.
-- **No embedding check before a run.** The doctor and the stack env check the embedding settings by
-  name; nothing calls the endpoint before the run's first RAG case (the small trial runs none), so an
-  endpoint that rejects `dimensions` or a wrong key shows only there. A one-call embedding check is open.
+  full case timeout before it becomes an error row; three such rows stop a pinned run. An unpinned
+  (OpenAI) run does not stop on a streak of 5xx rows; they are error rows the retry pass reruns.
+- **A daily cap the provider does not name.** The stop reads the provider's documented codes and the
+  per-day measure in the message (decision 10); a 429 that says neither is treated as a per-minute
+  rate limit and retried, so it shows as error rows after the case timeout, not as a stop.
 - **A canary `strict_json` failure on the pinned provider** has no rule beyond "stop and ask the
   owner" in the guide; whether such a provider may run (and be recorded) is the owner's call.
 
