@@ -123,7 +123,7 @@ Every `make bench-*` target runs a `python -m` command under one overlay: AgentM
 ```powershell
 $repo = (Get-Location).Path
 $env:MAILGUARD_DIR = Join-Path (Split-Path $repo -Parent) "AgentMailGuard-bench"
-$env:MAILGUARD_COMMIT = "1a3ef62b7368703c22c3f90111abdde0678d5617"
+$env:MAILGUARD_COMMIT = "915cb1e2b86395e4389673deb9914308cc39627b"
 $env:MAILGUARD_ARTIFACTS = Join-Path $repo "evaluation\mailguard_bench\pinned"
 $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python", "-m")
 ```

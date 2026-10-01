@@ -42,7 +42,8 @@ Trained by the guard's `training.train_l1_classifier` from the corpus that
 target `mailguard-prep` pinned that commit and ran exactly these two commands, and the metrics file
 reports `train_rows` 19463 and version `l1_injection_clf_v1`. The training code
 (`training/`, the classifier and `mailguard/datasets/`) is identical at the v2 guard commit
-1a3ef62b7368703c22c3f90111abdde0678d5617, so either commit builds the same kind of model.
+915cb1e2b86395e4389673deb9914308cc39627b (and at 1a3ef62, the v2 pin before ADR-0014), so either
+commit builds the same kind of model.
 The file is a joblib pickle: load it only with scikit-learn 1.9.1 (`make bench-doctor` refuses
 any other version). Train and test are separate for the attack emails only: the LLMail-Inject
 attacks in the corpus come from the half of the challenge data that the benchmark cases do not

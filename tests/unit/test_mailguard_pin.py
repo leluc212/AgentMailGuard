@@ -1,9 +1,10 @@
-"""The AgentMailGuard pin: v2 pins 1a3ef62, v1 stays reproducible at 81df5d07 (task 7.20).
+"""The AgentMailGuard pin: v2 pins 915cb1e, v1 stays reproducible at 81df5d07 (tasks 7.20, 7.29).
 
 ADR-0012 decision 3: guard fixes (b) and (c) were committed on feature/mailguard-defense-stack and
-that commit is pinned for v2. v1 keeps its own pin, so its published numbers can be reproduced and
-are never mixed with v2's. No network, no docker, no mailguard import: the Make targets are run
-against throw-away local git repositories.
+that commit (1a3ef62) was pinned for v2; ADR-0014 moved the pin to 915cb1e, which adds OpenRouter
+provider routing and per-call provenance to the guard's OpenAI provider and nothing else. v1 keeps
+its own pin, so its published numbers can be reproduced and are never mixed with v2's. No network,
+no docker, no mailguard import: the Make targets are run against throw-away local git repositories.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from evaluation.mailguard_bench.guard_env import (
 
 MAKEFILE = REPO_ROOT / "Makefile"
 V1 = "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
-V2 = "1a3ef62b7368703c22c3f90111abdde0678d5617"
+V2 = "915cb1e2b86395e4389673deb9914308cc39627b"
 needs_git_and_make = pytest.mark.skipif(
     shutil.which("git") is None or shutil.which("make") is None, reason="needs git and make"
 )

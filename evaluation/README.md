@@ -138,7 +138,7 @@ with `uv run --with-editable` (see the `mailguard-*` Make targets). Nothing is i
 and nothing runs in `make ci`.
 
 ```bash
-make mailguard-worktree   # creates or checks ../AgentMailGuard-bench at MAILGUARD_COMMIT (v2: 1a3ef62; v1: 81df5d07, see docs/demo-runbook.md section 9)
+make mailguard-worktree   # creates or checks ../AgentMailGuard-bench at MAILGUARD_COMMIT (v2: 915cb1e; v1: 81df5d07, see docs/demo-runbook.md section 9)
 make mailguard-prep       # one-time: guard datasets + L1 classifier (network, no API key)
 make mailguard-smoke      # offline wiring check
 make mailguard-cases      # build, or verify against manifest.json, the pinned case set

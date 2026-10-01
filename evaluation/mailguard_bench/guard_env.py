@@ -34,10 +34,12 @@ V1_MAILGUARD_TREE = "1a955c156a23cb6ad6dbde041c93080dfb69ceca"
 subdirectory and the pin is this tree: a subtree is at a guard commit iff its tree is the
 commit's tree. Recorded here so a shallow clone, which lacks the commit object, still verifies;
 a test keeps it equal to git's answer wherever the commit is present."""
-V2_MAILGUARD_COMMIT = "1a3ef62b7368703c22c3f90111abdde0678d5617"
-"""The guard commit the v2 benchmark pins (ADR-0012 decision 3): v1's guard plus the visible
-fallback of the AI stages and the strictest-rule-wins fix in L5."""
-V2_MAILGUARD_TREE = "257d57bc3b8635a2180bddf40fae290c4a44eb57"
+V2_MAILGUARD_COMMIT = "915cb1e2b86395e4389673deb9914308cc39627b"
+"""The guard commit the v2 benchmark pins (ADR-0012 decision 3, moved by ADR-0014): v1's guard
+plus the visible fallback of the AI stages and the strictest-rule-wins fix in L5 (``1a3ef62``),
+plus OpenRouter provider routing and per-call provenance in its OpenAI provider (``6c7b9a9``,
+``915cb1e``), transport only: no layer, prompt or rule changed."""
+V2_MAILGUARD_TREE = "f659748a611340e093d41189dc1f445a2f842134"
 """``git rev-parse V2_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
 DEFAULT_MAILGUARD_COMMIT = V2_MAILGUARD_COMMIT
 """What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""

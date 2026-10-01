@@ -473,6 +473,7 @@ def _makefile_constant(name: str) -> str:
 def test_the_makefile_knows_the_same_trees_as_guard_env() -> None:
     assert _makefile_constant("MAILGUARD_V1_COMMIT") == V1_MAILGUARD_COMMIT
     assert _makefile_constant("MAILGUARD_V1_TREE") == V1_MAILGUARD_TREE
+    assert _makefile_constant("MAILGUARD_V2_COMMIT") == V2_MAILGUARD_COMMIT
     assert _makefile_constant("MAILGUARD_V2_TREE") == V2_MAILGUARD_TREE
 
 

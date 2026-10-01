@@ -237,7 +237,7 @@ The reader is reached through the `LLM__*` settings of the process that runs it.
 make mailguard-worktree
 ```
 
-`make mailguard-worktree` puts the guard (AgentMailGuard) next to the repository, in `../AgentMailGuard-bench`, at the exact commit the benchmark pins (`1a3ef62b7368703c22c3f90111abdde0678d5617`); it does nothing if the folder is already there at that commit. After the owner merges everything into one repository, the guard is inside it (`agentmailguard/`) and this line is no longer needed. `make bench-setup` (D3) only checks the guard, it does not create it, and the doctor (D2) fails on a missing guard.
+`make mailguard-worktree` puts the guard (AgentMailGuard) next to the repository, in `../AgentMailGuard-bench`, at the exact commit the benchmark pins (`915cb1e2b86395e4389673deb9914308cc39627b`); it does nothing if the folder is already there at that commit. After the owner merges everything into one repository, the guard is inside it (`agentmailguard/`) and this line is no longer needed. `make bench-setup` (D3) only checks the guard, it does not create it, and the doctor (D2) fails on a missing guard.
 
 Now the classifier. The owner sends you `l1_injection_clf_v1.joblib` privately (it is not in git, see "What you need"). Save it on Windows, for example in Downloads, copy it into the repository folder (replace `<your Windows name>`), and check its fingerprint:
 
