@@ -149,6 +149,12 @@ RERANK_COPY_MARKER = Path(".cache") / "reranker.image-id"
 """Next to the copy: the id of the image it came from, written only once the copy is complete."""
 LOGGED_SERVICES = ("triage-worker", "ai-worker")
 """The model-calling containers whose log lines of a config are kept with the run."""
+RESTORE_ENV = (
+    "put .env back: comment out the EMBEDDING__ lines, set LLM__TIMEOUT_S back to 15.0 and "
+    "RETRIEVAL__CATEGORY_FILTER_ENABLED back to true; Compose forwards all three, so otherwise "
+    "the normal stack keeps the paid embedding endpoint, a 60 s LLM timeout and no category filter"
+)
+"""What `make up` after the last model needs first (demo-runbook section 9.9 step 8)."""
 
 
 def services_log_path(raw_dir: Path, config: str) -> Path:
@@ -529,8 +535,8 @@ class _Campaign:
             if status == 0 and not self.dry:
                 self.ctx.out(
                     f"ok reports in {self.run_dir}. Next model: its own `make bench-run`. "
-                    "After the last model: delete .env.stack and run `make up` "
-                    "(demo-runbook section 9.9 step 8)"
+                    f"After the last model: delete .env.stack; before any `make up`, {RESTORE_ENV} "
+                    "(docs/BENCHMARK.md F1, demo-runbook section 9.9 step 8)"
                 )
             return status
         except _AbortError as stop:

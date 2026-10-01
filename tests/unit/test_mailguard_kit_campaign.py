@@ -701,6 +701,20 @@ def test_a_run_builds_the_reports_without_the_meaning_column(bench: Bench) -> No
     assert "meaning" not in sequence(bench.host)
 
 
+def test_a_finished_run_says_to_restore_env_before_any_make_up(bench: Bench) -> None:
+    """Runbook 9.9 step 8: Compose forwards the benchmark's embedding, timeout and category
+    filter lines from .env, so `make up` right after the last model would keep them."""
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C0",))) == 0
+    [done] = [line for line in bench.out if line.startswith("ok reports in")]
+    assert "delete .env.stack and run `make up`" not in done
+    after = done.split("After the last model:", 1)[1]
+    assert after.index("delete .env.stack") < after.index("`make up`")
+    for name in ("EMBEDDING__", "LLM__TIMEOUT_S", "RETRIEVAL__CATEGORY_FILTER_ENABLED"):
+        assert name in after, name
+    assert "BENCHMARK.md F1" in after and "9.9 step 8" in after
+
+
 def test_the_reports_are_skipped_when_a_config_failed_and_the_exit_code_says_so(
     bench: Bench,
 ) -> None:

@@ -150,6 +150,40 @@ def test_the_doctor_flags_the_guides_use_exist() -> None:
         parser.parse_args(args)  # an unknown flag raises SystemExit
 
 
+def test_every_part_of_the_guide_the_doctor_cites_is_a_heading_of_it() -> None:
+    source = (REPO_ROOT / "evaluation" / "mailguard_bench" / "kit" / "doctor.py").read_text(
+        encoding="utf-8"
+    )
+    cited = set(re.findall(r"\bpart ([A-Z]\d?)\b", source))
+    cited |= set(re.findall(r"\bappendix (L\d?)\b", source))
+    headings = set(re.findall(r"^#{2,3} ([A-Z]\d?)\. ", GUIDE, flags=re.MULTILINE))
+    assert cited and cited <= headings, cited - headings
+
+
+def test_the_doctor_sends_local_model_problems_to_appendix_l_not_to_the_openrouter_part() -> None:
+    # ADR-0014: part E is the OpenRouter route; Ollama and the GPU moved to appendix L.
+    profile = PROFILES["qwen2.5-7b"]
+    origin = "http://172.17.0.1:11434"
+    down = doctor.check_ollama(
+        profile, {"BENCH_OLLAMA_BASE_URL": f"{origin}/v1"}, "wsl2", lambda url: None
+    )
+    not_pulled = doctor.check_ollama(
+        profile,
+        {"BENCH_OLLAMA_BASE_URL": f"{origin}/v1"},
+        "wsl2",
+        {
+            f"{origin}/api/version": HttpResult(200, '{"version":"1"}'),
+            f"{origin}/api/tags": HttpResult(200, '{"models": []}'),
+        }.get,
+    )
+    gpu = doctor.check_gpu(None, local_model=True)
+    assert down is not None and "appendix L4" in down.hint
+    assert not_pulled is not None and "appendix L5" in not_pulled.hint
+    assert "appendix L1" in gpu.hint
+    assert all("part E" not in r.hint for r in (down, not_pulled, gpu))
+    assert "### L1. The GPU driver" in GUIDE and "### L5. Pull the models" in GUIDE
+
+
 def test_the_native_guide_pins_the_v2_guard_commit() -> None:
     assert V2_MAILGUARD_COMMIT in NATIVE
     assert V2_MAILGUARD_COMMIT in GUIDE

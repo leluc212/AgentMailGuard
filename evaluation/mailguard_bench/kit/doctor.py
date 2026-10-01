@@ -939,7 +939,7 @@ def check_ollama(
             "ollama",
             f"no answer from {origin}/api/version",
             "start Ollama (`systemctl status ollama`), and set BENCH_OLLAMA_BASE_URL to the "
-            f"address it listens on: {GUIDE}, part E (runbook 9.9 step 2)",
+            f"address it listens on: {GUIDE}, appendix L4 (runbook 9.9 step 2)",
         )
     try:
         version_text = str(json.loads(version.body).get("version", "?"))
@@ -957,7 +957,8 @@ def check_ollama(
             Status.FAIL,
             "ollama",
             f"{origin} answers (version {version_text}) but has no model {profile.model}",
-            f"`ollama pull {profile.model}` in the shell where OLLAMA_HOST is set as in part E",
+            f"`ollama pull {profile.model}` in a shell where OLLAMA_HOST is set as in appendix L4 "
+            f"({GUIDE}, appendix L5)",
         )
     parts = urlsplit(url)
     if _is_loopback(parts.hostname or "") and platform in ("wsl2", "linux"):
@@ -985,7 +986,7 @@ def check_ollama(
             "either make Ollama listen on the bridge address with the systemd override and set "
             "BENCH_OLLAMA_BASE_URL to it (needs sudo), or, without sudo, forward the bridge "
             "address to Ollama: `socat TCP-LISTEN:11434,bind=<docker0 address>,reuseaddr,fork "
-            f"TCP:127.0.0.1:11434` ({GUIDE}, part E; runbook 9.9 step 2)",
+            f"TCP:127.0.0.1:11434` ({GUIDE}, appendix L4; runbook 9.9 step 2)",
         )
     return Result(Status.OK, "ollama", f"{profile.model} is at {origin} (version {version_text})")
 
@@ -1035,7 +1036,7 @@ def check_gpu(nvidia_smi: str | None, *, local_model: bool | None) -> Result:
             "not found: a local model would run on the CPU, much slower, and its latencies "
             "are not comparable",
             "install the current NVIDIA driver on Windows; WSL2 needs none inside Ubuntu "
-            f"({GUIDE}, part E)",
+            f"({GUIDE}, appendix L1)",
         )
     return Result(Status.OK, "nvidia-smi", "not found (only local models need a GPU)")
 
@@ -1116,7 +1117,7 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
             "uv",
             world.which("uv"),
             "install uv: https://docs.astral.sh/uv/getting-started/installation/ "
-            f"({GUIDE}, part B)",
+            f"({GUIDE}, part A5)",
         )
     )
     make_hint = (
