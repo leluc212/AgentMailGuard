@@ -2782,6 +2782,40 @@ async def test_a_guarded_case_whose_judge_call_the_route_failed_is_an_error_row(
     assert rows["attack-r1"]["status"] == "ok"  # one route failure stops nothing (not pinned)
 
 
+async def test_a_run_stopped_by_a_limit_resumes_after_another_models_run_in_between(
+    live_env: Path,
+) -> None:
+    # Decision F: gpt-4o-mini stops on a daily cap, Qwen2.5-7B runs on OpenRouter in its own RUN,
+    # then the gpt-4o-mini command runs again. Its settings re-render the same way, so the resume
+    # is accepted (no settings mismatch) and the rows the stop left as errors are retried.
+    os.environ.update({"BENCH_OPENAI_API_KEY": "sk-openai", "BENCH_OPENROUTER_API_KEY": "sk-or"})
+    gpt = _run_args(live_env, "C0", "--model-profile", "gpt-4o-mini", "--retry-errors")
+    qwen = _run_args(
+        live_env, "C0", "--run", "r2", "--model-profile", "qwen2.5-7b-openrouter", "--retry-errors"
+    )
+
+    stopped, _, deps = _new_run(live_env)
+    stopped.scenarios = {"attack-a1": "quota_exhausted"}
+    assert await run(gpt, deps) == ROUTE_STOP_EXIT
+    meta_file = live_env / "results" / "r1" / "raw" / "C0.meta.json"
+    first = json.loads(meta_file.read_text("utf-8"))["fingerprint"]
+
+    between, _, deps = _new_run(live_env)
+    between.scenarios = dict(SCENARIOS)
+    assert await run(qwen, deps) == 0  # in the same process: its LLM__* settings are left set
+
+    resumed, _, deps = _new_run(live_env)
+    resumed.scenarios = dict(SCENARIOS)
+    assert await run(gpt, deps) == 0
+
+    meta = json.loads(meta_file.read_text("utf-8"))
+    assert meta["fingerprint"] == first
+    assert meta["fingerprint"]["generation_model"] == "gpt-4o-mini"
+    assert [i["summary"]["error"] for i in meta["invocations"]] == [1, 0]
+    rows = _rows(live_env)
+    assert set(rows) == set(SCENARIOS) and {r["status"] for r in rows.values()} == {"ok"}
+
+
 def test_a_trial_runs_only_the_chosen_cases_of_the_config_in_their_order() -> None:
     from evaluation.mailguard_bench.case_adapter import EvalCase
     from evaluation.mailguard_bench.live.run import select_cases

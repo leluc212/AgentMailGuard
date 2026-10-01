@@ -1,5 +1,6 @@
 """The kit under the owner decisions of 2026-10-01 (task 7.29; ADR-0014): the one-call embedding
-check before any model spend (D) and the trial over chosen cases (E).
+check before any model spend (D), the trial over chosen cases (E), and a run stopped by a limit that
+resumes after another model's run (F).
 
 The kit's fakes (``mailguard_kit_fixtures``) stand in for docker, the runner and the guard-worker;
 the embedding endpoint is an ``httpx.MockTransport``. No test reaches a real endpoint or a model.
@@ -28,9 +29,11 @@ from evaluation.mailguard_bench.kit.embedding_check import (
     probe_embedding,
 )
 from evaluation.mailguard_bench.kit.steplog import finished_configs
+from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
 from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is the `bench` fixture)
     EMBED_KEY,
     HOST_ENV,
+    OPENAI_KEY,
     STACK_UP,
     Bench,
     EmbeddingEndpoint,
@@ -220,3 +223,61 @@ def test_make_bench_run_passes_case_ids_as_an_argument_only() -> None:
         cwd=REPO, capture_output=True, text=True, check=True,
     ).stdout  # fmt: skip
     assert leaked == ""
+
+
+# --- F: a run stopped by a limit resumes after another model's run ----------------------------
+
+
+def test_a_limit_stop_resumes_after_another_models_run_with_the_same_stack_env(
+    bench: Bench,
+) -> None:
+    # gpt-4o-mini stops on a daily cap in C0; Qwen2.5-7B runs on OpenRouter in its own RUN; the
+    # gpt-4o-mini command runs again. The stack env is rendered for gpt-4o-mini again, exactly as
+    # the first time, the containers get it, and the stopped config resumes with its error rows.
+    env_file = bench.repo / ".env"
+    env_file.write_text(
+        env_file.read_text("utf-8") + "BENCH_OPENROUTER_API_KEY=sk-or-000\n", "utf-8"
+    )
+    stack = bench.repo / ".env.stack"
+    gpt = opts(run="2026-10-02-gpt4omini-live", configs=("C0", "C3"))
+    qwen = opts(
+        model_profile="qwen2.5-7b-openrouter",
+        run="2026-10-02-qwen25-openrouter-live",
+        configs=("C0", "C3"),
+    )
+
+    bench.runner_outcomes({"ok": 1, "error": 1})
+    bench.host.exits["live.run C0"] = ROUTE_STOP_EXIT
+    assert run_campaign(bench.ctx, gpt) == 1
+    first_render = stack.read_text("utf-8")
+    first_runner = _runner_commands(bench, "C0")[-1]
+    assert "qwen" not in first_render
+
+    del bench.host.exits["live.run C0"]
+    bench.runner_outcomes({}, {})
+    assert run_campaign(bench.ctx, qwen) == 0
+    assert "qwen/qwen-2.5-7b-instruct" in stack.read_text("utf-8")
+
+    bench.host.events.clear()
+    bench.runner_outcomes({"ok": 2, "skipped": 0}, {})
+    assert run_campaign(bench.ctx, gpt) == 0
+
+    assert stack.read_text("utf-8") == first_render  # the same settings, so the same fingerprint
+    assert sequence(bench.host)[0] == STACK_UP  # the containers are recreated with them
+    assert _runner_commands(bench, "C0") == [first_runner]  # the same command, --retry-errors in
+    assert "--retry-errors" in first_runner
+    gpt_log = [s for s in bench.kit_log(gpt.run) if s["step"] == "config"]
+    assert [(s["config"], s["status"]) for s in gpt_log] == [
+        ("C0", "stopped"),
+        ("C0", "ok"),
+        ("C3", "ok"),
+    ]
+    assert OPENAI_KEY not in "\n".join(bench.out + bench.err)
+
+
+def _runner_commands(bench: Bench, config: str) -> list[list[str]]:
+    return [
+        cmd
+        for kind, cmd in bench.host.events
+        if kind == "run" and label(cmd) == f"live.run {config}"
+    ]
