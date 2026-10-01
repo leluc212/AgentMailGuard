@@ -27,6 +27,8 @@ from evaluation.mailguard_bench.model_profiles import PROFILES
 
 GUIDE = (REPO_ROOT / "docs" / "BENCHMARK.md").read_text(encoding="utf-8")
 NATIVE = (REPO_ROOT / "docs" / "benchmark-windows-native.md").read_text(encoding="utf-8")
+READER_KEY = "LLM__OPENAI_API_KEY"
+FRIDAY_PROFILES = ("gpt-4o-mini", "qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter")
 
 
 def _fenced(text: str, language: str) -> list[str]:
@@ -53,19 +55,24 @@ def test_the_env_block_is_the_runbooks_and_agrees_with_the_stack_env() -> None:
     assert set(values) == {
         "BENCH_OPENAI_API_KEY",
         "BENCH_OPENROUTER_API_KEY",
+        READER_KEY,  # the meaning reader's key: only `make bench-report` reads it (D7)
         *stack_env.HOST_MUST_SET,
     }
+    assert values[READER_KEY].startswith("<")
     assert values["EMBEDDING__MOCK"] == "false"
     assert values["EMBEDDING__DIMENSION"] == str(stack_env.EMBEDDING_DIMENSION)
     assert values["RETRIEVAL__RETRIEVAL_TIMEOUT_MS"] == str(stack_env.RETRIEVAL_TIMEOUT_MS)
     assert float(values["LLM__TIMEOUT_S"]) == stack_env.DEFAULT_LLM_TIMEOUT_S
     environ = _with_keys(values)
-    # Every profile the guide runs (the Gemma test profile needs a key the guide does not ask for).
     for name, profile in PROFILES.items():
-        if profile.api_key_env is not None and profile.api_key_env not in values:
-            continue
         rendered = stack_env.render_stack_env(profile, environ)
         assert stack_env.host_env_problems(rendered, environ) == [], name
+    # The three Friday runs give the containers their own key, never the reader's.
+    for name in FRIDAY_PROFILES:
+        key_env = PROFILES[name].api_key_env
+        assert key_env is not None and key_env != READER_KEY, name
+        rendered = stack_env.render_stack_env(PROFILES[name], environ)
+        assert rendered[READER_KEY] == environ[key_env] != environ[READER_KEY], name
 
 
 def test_both_embedding_examples_render_at_the_vector_columns_width() -> None:

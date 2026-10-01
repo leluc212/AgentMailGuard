@@ -129,15 +129,15 @@ Needs Docker Engine with Compose v2, make, and the classifier in `pinned/`. Linu
 The exact block is in [docs/BENCHMARK.md](docs/BENCHMARK.md) part C and section 9.9 of the runbook. Plan for at least 25 GB of free disk (the doctor warns below it) and hours per model: 4 to 6 for `gpt-4o-mini`, extrapolated from a 7-case smoke run; the OpenRouter models were not measured (plan 4 to 8 each). Run the kit from the repository root, in this order:
 
 ```bash
-make bench-doctor MODEL=<profile>                   # check Docker, Python, disk, keys and embedding in .env, classifier sha256
-make bench-setup                                    # once per machine: pin check, guard smoke, stack up and healthy
-make bench-canary MODEL=<openrouter profile>        # OpenRouter only: one live call checks the pinned provider (under a cent)
-make bench-run MODEL=gpt-4o-mini RUN=<id>           # one model through every config; a rerun with the same RUN resumes
-make bench-report RUN=<id>                          # rebuild report.md, summary.json, manifest.json, metrics.csv
-make bench-package RUN=<id>                         # bench-results-<id>.zip and how to commit it to branch bench/<id>
+make bench-doctor MODEL=<profile>                       # check Docker, Python, disk, keys and embedding in .env, classifier sha256
+make bench-setup                                        # once per machine: pin check, guard smoke, stack up and healthy
+make bench-canary MODEL=<openrouter profile>            # OpenRouter only: one live call checks the pinned provider (under a cent)
+make bench-run MODEL=gpt-4o-mini RUN=<id> CONCURRENCY=2 # one model through every config; a rerun with the same RUN resumes
+make bench-report RUN=<id>                              # rebuild report.md, summary.json, manifest.json, metrics.csv
+make bench-package RUN=<id>                             # bench-results-<id>.zip and how to commit it to branch bench/<id>
 ```
 
-A small trial first: `make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1`. Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gpt-4o-mini`, `qwen2.5-7b-openrouter` and `llama-3.1-8b-openrouter` (the Friday run), `qwen2.5-7b` and `llama-3.1-8b-local` (local), `gemma-4-26b` (test). A run whose OpenRouter route stops serving (no credit, the pinned provider down, calls served by another provider) prints `STOP` and the kit stops; run the same command again once it serves. Do not run `make up`, `docker compose` or edit `.env` while a run is going.
+A small trial first: `make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1`. It passes only if every `ok <config>:` line says `0 error`, and it runs no RAG case, so it never embeds a knowledge document ([docs/BENCHMARK.md](docs/BENCHMARK.md) D4). Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gpt-4o-mini`, `qwen2.5-7b-openrouter` and `llama-3.1-8b-openrouter` (the Friday run), `qwen2.5-7b` and `llama-3.1-8b-local` (local), `gemma-4-26b` (test). A run whose OpenRouter route stops serving (no credit, the pinned provider down, calls served by another provider) prints `STOP` and the kit stops; run the same command again once it serves. Do not run `make up`, `docker compose` or edit `.env` while a run is going.
 
 Benchmark configs (scheme v2, the default). These names are not the Python `GuardConfig.preset` names above; scheme v1 used the preset meanings (`SCHEME=v1` with `make mailguard-bench` reproduces the published runs on the earlier guard pin), and a run folder never mixes schemes.
 
@@ -209,7 +209,7 @@ What a full live benchmark needs (3 models × 9 configs × 550 cases, one model 
 3. For the OpenRouter models: OpenRouter privacy settings that allow Phala and CoreWeave, and before each run a credit check and `make bench-canary MODEL=<profile>` plus `make mailguard-probe MODEL=<profile>` ([docs/BENCHMARK.md](docs/BENCHMARK.md) part E).
 4. The private L1 classifier in `pinned/`.
 5. The checks for one model and the reader: `make bench-doctor MODEL=<profile> READER=<reader model>`.
-6. One `make bench-run MODEL=<profile> RUN=<id>` per model, then the meaning column, with the reader's endpoint set for that one command: `LLM__PROVIDER=openai LLM__OPENAI_BASE_URL=<reader endpoint> make bench-report RUN=<id> READER=<reader model>` ([docs/BENCHMARK.md](docs/BENCHMARK.md), section D7).
+6. One `make bench-run MODEL=<profile> RUN=<id> CONCURRENCY=2` per model (the kit's default is 1, about twice the time), then the meaning column, with the reader's endpoint set for that one command: `LLM__PROVIDER=openai LLM__OPENAI_BASE_URL=<reader endpoint> make bench-report RUN=<id> READER=<reader model>` ([docs/BENCHMARK.md](docs/BENCHMARK.md), section D7).
 
 ## Configure the models
 

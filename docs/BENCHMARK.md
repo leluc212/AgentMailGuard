@@ -21,13 +21,15 @@ This guide is for the teammate who runs the benchmark on a Windows 11 laptop. Yo
 
 ## What you need
 
-- **An OpenAI API key** with credit on the account (for `gpt-4o-mini`). It goes in `.env` as `BENCH_OPENAI_API_KEY`. Check your usage tier (platform.openai.com, Settings, Organization, Limits): on Tier 1 (`$5` paid) `gpt-4o-mini` is capped at 10,000 requests a day, and one full `gpt-4o-mini` run makes about 8,000 to 11,000. Tier 2 (`$50` paid) has no daily cap listed; otherwise expect to finish the run the next day (a run resumes, D5).
+- **An OpenAI API key** with credit on the account (for `gpt-4o-mini`). It goes in `.env` as `BENCH_OPENAI_API_KEY`. Check your usage tier (platform.openai.com, Settings, Organization, Limits): on Tier 1 (`$5` paid) `gpt-4o-mini` is capped at 10,000 requests a day, and one full `gpt-4o-mini` run makes about 8,000 to 11,000. Tier 2 (`$50` paid) has no daily cap listed; otherwise expect to finish the run the next day (a run resumes, D5). **On Tier 1, never leave a `gpt-4o-mini` run unattended** (overnight, for example): the kit has no automatic stop for OpenAI (the stop of E4 is for the OpenRouter route), so once the cap is reached every remaining case waits out its 5-minute timeout before it becomes an error row, about 150 s per case and config at concurrency 2, and the retry pass then hits the same cap. Reach Tier 2 before Friday (the Limits page says what it needs), or split the run on purpose (D5).
 - **An OpenRouter API key with credit**, for Qwen2.5-7B and Llama-3.1-8B. It goes in `.env` as `BENCH_OPENROUTER_API_KEY`. Part E sets it up (credit, a per-key limit, the privacy settings that must allow the two pinned providers).
 - **An embedding endpoint of your choice** and its key, `EMBEDDING__API_KEY` (part C): for example your OpenAI key with `text-embedding-3-small`, or a Gemini key with `gemini-embedding-001`. It must accept the `dimensions` parameter (part C; OpenAI's `text-embedding-ada-002` does not). Use the same one for all three models. A free Gemini key is not enough (part C).
 - **The Layer-1 classifier file, `l1_injection_clf_v1.joblib`, from the owner.** It is **not in git** (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed, see `evaluation/mailguard_bench/pinned/NOTICE.md`). The owner sends it to you privately. It is 28 MB. Do not put it in a public link, a chat group or the repository. You place it in step D1.
 - **Disk:** the doctor warns below 25 GB free: the Docker images and the run folders are the big parts.
 - **A charger and a laptop that stays awake** for the whole run (part A, last step).
 - **Time, an estimate:** a full model is 9 configs x 550 cases = 4,950 case runs. For `gpt-4o-mini`, about 3 s per case and config at concurrency 2 (the owner's 7-case smoke run), so roughly **4 to 6 hours**. The two OpenRouter models were **not measured**: plan 4 to 8 hours each. The meaning column (D7) reads up to about 3,600 drafts per model, about 1 to 3 hours each. That is about 15 to 25 hours for everything: **plan an overnight window**, not a working day. The kit writes `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl`, one JSON line per finished step with its times: after your first model, its lines are the real estimate for the next two; please send it back with the results (part F). A stopped run resumes where it stopped (D5), so the hours do not need to be in one sitting.
+- **A schedule.** The steps between two models need you at the keyboard; they cannot run unattended overnight. **The day before (Thursday):** the keys, OpenRouter credit (it can take up to an hour to show, E1), billing on the Google project if your embedding or your reader is a Gemini model (part C), and your OpenAI usage tier (above). Also update your clone (part B). **Friday morning:** parts A to D3, then the doctor and the small trial for `gpt-4o-mini` (D2, D4), then its run, while you are there to watch it (on Tier 1 see above). **After it:** the credit check, canary, probe and trial for Qwen2.5-7B (E2, E3, D4), then its run; then the same for Llama-3.1-8B, whose run can go overnight once its first configs look right. The meaning column of a finished model (`make bench-report`, D7, no Docker) may run while the next model runs: it reads another run folder. The one exception: a Gemini reader together with a Gemini embedding share one Google project's quota, so then build the meaning columns after the last run.
+- **Cost, an estimate** (ADR-0014): about $1.5 to $2 per full `gpt-4o-mini` run, about $1 for Qwen2.5-7B and $2 for Llama-3.1-8B (E1). The embedding and the reader come on top, at their providers' prices. Leave room for the trials and the retry passes.
 - **A decision from you:** the reader model of the "meaning" column (part C). Write it down before the first run.
 
 A rule for the whole guide: **never paste the contents of `.env` anywhere**, not in chat, not in an email, not in a screenshot. The commands below print only the *names* of your keys, never their values.
@@ -81,7 +83,12 @@ By default WSL 2 gets half of the laptop's RAM. The stack (Postgres, RabbitMQ, M
 memory=16GB
 processors=16
 swap=8GB
+
+[general]
+instanceIdleTimeout=-1
 ```
+
+`instanceIdleTimeout=-1` keeps Ubuntu running when no Ubuntu window is open. Without it, WSL shuts an idle Ubuntu down (Microsoft's default is after 15 seconds; https://learn.microsoft.com/en-us/windows/wsl/wsl-config, section `[general]`, read 2026-10-01), and Docker, the stack and a run stop with it (A6).
 
 Apply it by closing every Ubuntu window and running, in PowerShell:
 
@@ -153,6 +160,7 @@ Two more things stop an overnight run:
 
 - **Windows Update restarts.** Pause updates before the run: Start, Settings, Windows Update, "Pause updates" (up to 35 days). While updates are paused the device does not restart by itself to install them.
 - **Closing the Ubuntu window** ends the commands running in it. Start each long run inside `tmux` (`sudo apt install -y tmux`, then `tmux`; detach with Ctrl+B then D, come back with `tmux attach`), so a closed window or a dropped terminal does not stop the run.
+- **WSL stopping Ubuntu.** Microsoft documents that WSL shuts a distribution down about 8 seconds after its last shell window closes, unless the `[general]` setting of A3 is in place; it does not say whether a `tmux` session alone keeps Ubuntu running, and this guide has not been tried on Windows. So, for the whole run: have `instanceIdleTimeout=-1` in `.wslconfig` (A3), **keep one Ubuntu window open** (minimized is fine), and after you detach from `tmux`, check in PowerShell that `wsl --list --running` still lists Ubuntu. If a run stops anyway, resume it (D5).
 
 ---
 
@@ -167,6 +175,17 @@ git clone https://github.com/leluc212/AgentMailGuard.git rag-email
 cd rag-email
 git checkout main            # the benchmark lives on main
 ```
+
+**Already cloned before 2026-10-01** (for the earlier local-route kit)? The cloud route reaches `main` when the owner merges it. Before Friday, update your clone and check that it has the cloud route:
+
+```bash
+cd ~/work/rag-email
+git switch main && git pull
+make help | grep bench-canary     # must print a line
+ls docs/adr/0014*                 # must list ADR-0014
+```
+
+If either prints nothing, the merge has not happened yet: ask the owner. After the pull, run `make bench-setup` again (D3).
 
 `core.autocrlf input` means: never convert line endings when files are checked out. The repository also has a `.gitattributes` file that keeps every text file LF on every machine. If the repository is private, the owner has to give your GitHub account access, and GitHub asks you to sign in on `git clone`.
 
@@ -186,7 +205,7 @@ chmod 600 .env
 nano .env
 ```
 
-Keep it to exactly these lines. **Edit the line that is already in the file; do not add a second line with the same name.** `<...>` is where you paste your own value.
+Set these values. **Edit the line of each name that is already in the file; do not add a second line with the same name**, and leave the rest of the file as it is. `<...>` is where you paste your own value.
 
 ```dotenv
 BENCH_OPENAI_API_KEY=<your OpenAI key>              # gpt-4o-mini
@@ -199,9 +218,10 @@ EMBEDDING__API_KEY=<the key of that embedding endpoint>
 RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000
 RETRIEVAL__CATEGORY_FILTER_ENABLED=false            # the benchmark only: each case files its documents under its own category
 LLM__TIMEOUT_S=60
+LLM__OPENAI_API_KEY=<your reader's key>             # the meaning reader (below, and D7); the three runs use the BENCH_ keys
 ```
 
-(`BENCH_OPENAI_API_KEY` and `BENCH_OPENROUTER_API_KEY` are new lines: add them. The others already exist in `.env.example`, some with other values.)
+(`BENCH_OPENAI_API_KEY` and `BENCH_OPENROUTER_API_KEY` are new lines: add them. The others already exist in `.env.example`, some with other values. For a reader served by Anthropic, put its key in `LLM__ANTHROPIC_API_KEY` instead of `LLM__OPENAI_API_KEY`.)
 
 ### The embedding: your choice, the same for all three models
 
@@ -249,7 +269,7 @@ If it prints names, find the `export` in `~/.bashrc` or `~/.profile`, remove it 
 To see that your key lines are there without showing a value:
 
 ```bash
-grep -nE '^(BENCH_OPENAI_API_KEY|BENCH_OPENROUTER_API_KEY|EMBEDDING__API_KEY)=.' .env | cut -d= -f1
+grep -nE '^(BENCH_OPENAI_API_KEY|BENCH_OPENROUTER_API_KEY|EMBEDDING__API_KEY|LLM__OPENAI_API_KEY)=.' .env | cut -d= -f1
 ```
 
 **Never share `.env`.** The kit never prints a key, and `make bench-package` refuses to write the results zip if a key of yours appears in any file of the run.
@@ -310,7 +330,7 @@ make bench-setup
 
 ### D4. One model at a time
 
-Run the models **in this order, and finish one completely (all its configs, the retry pass, the reports) before you start the next**:
+Run the models **in this order, and finish one completely (all its configs and its retry pass; the kit then builds its reports) before you start the next**. Its meaning column (D7) may come later, also while the next model runs ("A schedule" in "What you need"):
 
 1. `gpt-4o-mini`
 2. `qwen2.5-7b-openrouter` (part E: credit check and canary first)
@@ -332,7 +352,33 @@ make bench-run MODEL=llama-3.1-8b-openrouter RUN=2026-10-02-llama31-openrouter-l
 make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1
 ```
 
-It costs a few calls. Do the same for each OpenRouter model before its run, after its canary (`RUN=trial-qwen` and `RUN=trial-llama`, with its `MODEL=`), and run the report of one trial with your reader (`make bench-report RUN=trial-gpt READER=<your reader model>`, with the `LLM__` words of D7) so the reader's endpoint is tried once. If it ends without a `FAIL`, delete the trial folder (`rm -r evaluation/results/mailguard_bench/trial-gpt`): a trial folder is never a result. `docs/demo-runbook.md` section 9.9 step 5 explains what a good preflight looks like (for example that cases reach drafting and that retrieval did not fall back to lexical).
+It costs a few calls. Do the same for each OpenRouter model before its run, after its canary (`RUN=trial-qwen` and `RUN=trial-llama`, with its `MODEL=`), and run the report of one trial with your reader (`make bench-report RUN=trial-gpt READER=<your reader model>`, with the `LLM__` words of D7) so the reader's endpoint is tried once.
+
+**A trial passes only if all of these hold.** Ending without a `FAIL` is not enough: a case that failed is only counted.
+
+- every `ok <config>:` line says `0 error` (the line starts with `ok` even when it counts errors);
+- there is no `WARN ... still have error rows` line;
+- after the trial's `make bench-report`, every `MEANING OK` line says `0 errors`;
+- the per-case lines below show `ok` for every case, at least one case with `drafting: True` in each config (triage stops some emails before drafting; that is normal; if none drafted, run the trial again with `LIMIT=10`), and no `degraded: True`.
+
+This prints one line per case of the trial (no key, no email text):
+
+```bash
+RUN=trial-gpt
+for c in C0 C0T C7; do python3 -c "
+import json, sys
+latest = {}
+for line in open(sys.argv[1]):
+    row = json.loads(line); latest[row['case_id']] = row
+for row in latest.values():
+    res = row['result'] or {}; p = res.get('pipeline') or {}; err = row['error'] or {}
+    print(sys.argv[2], row['case_id'], row['status'], err.get('kind') or '', p.get('job_state'), 'drafting:', p.get('reached_drafting'), 'retrieved:', len(res.get('retrieved') or []), 'rerank:', p.get('rerank_applied'), 'degraded:', p.get('retrieval_degraded'))
+" evaluation/results/mailguard_bench/$RUN/raw/$c.jsonl $c; done
+```
+
+If the trial passes, delete its folder (`rm -r evaluation/results/mailguard_bench/trial-gpt`): a trial folder is never a result. If it does not, send the owner its lines and the kit's output.
+
+**What the trial does not test.** `LIMIT=5` runs the first five cases of each config, and those are LLMail attack emails. No benign email and none of the 100 RAG cases run, and only the RAG cases upload knowledge documents, so the trial never embeds a document, never retrieves one and never uses the reranker: the first time your embedding endpoint embeds documents is in the real run. The RAG cases are the last 100 of each config (case ids starting `attack-prag-` or `attack-seedrag-`), so they start after about four fifths of `C0`. **Watch `C0`'s lines when they reach those ids:** each must start with `ok`. If they start with `error`, press Ctrl+C, check the embedding (part C, and the embedding rows of G), and run the same command again. (The owner's own preflight, `docs/demo-runbook.md` section 9.9 step 5, runs all nine configs; this trial runs three.)
 
 What the run does for you, in the order of the owner's runbook (section 9.9, steps 3 to 7): it writes the model's container settings and recreates the four model-calling containers with them (it prints the model, for an OpenRouter model the pinned provider, and the embedding); for each config it switches which process drafts (the `ai-worker` container for `C0`, the guard-worker, a process on your machine, for every other config), waits until it is ready, runs the cases, stops it, and saves the containers' log lines of that config; then it makes one retry pass over the configs that left errors, and builds the reports. If the route of an OpenRouter model stops serving, the whole run stops (part E4).
 
@@ -346,7 +392,16 @@ While a run is going:
 
 If something stops (Ctrl+C, a power cut, sleep, a network failure, a `STOP` of the route), run **the same command again**. Each case is written as it finishes, a rerun skips the cases it has, and it retries cases recorded as errors. The kit log says which configs are finished, so they are not started again. Ctrl+C stops the guard-worker cleanly and prints the command that resumes. A resume refuses to mix settings: the same model, pin, embedding, guard commit and images, or a new `RUN`.
 
-A quota that runs out (a daily request cap, a used-up key limit) does not come back by waiting a few seconds: the services retry for a few seconds only, and the kit's retry pass runs right after the first pass. Watch the counts the first config prints; if error rows climb, press Ctrl+C, fix the cause (credit, tier, quota), and run the same command again, the next day if a daily cap ran out.
+A quota that runs out (a daily request cap, a used-up key limit, an OpenAI balance or a hard spend limit) does not come back by waiting a few seconds: the services retry for a few seconds only, and the kit's retry pass runs right after the first pass. For OpenRouter the run stops by itself on no credit (E4); **for OpenAI nothing stops it**: every remaining case waits out its 5-minute timeout and becomes an error row. Watch the per-case lines (`ok` or `error` and the case id); if `error` lines climb, press Ctrl+C, fix the cause (credit, tier, quota), and run the same command again, the next day if a daily cap ran out.
+
+**Splitting a run on purpose** (a Tier 1 OpenAI account, "What you need"): give the first day's command a shorter config list, and the next day the same command without it. The finished configs are skipped:
+
+```bash
+make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live CONFIGS=C0,C0T,C1,C2 CONCURRENCY=2   # day 1
+make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live CONCURRENCY=2                       # day 2: the rest
+```
+
+Keep the `RUN` name, and between the two days do not `git pull`, commit, rebuild or edit `.env` (the second day refuses other settings). Start the next model only after the second day.
 
 ### D6. What the kit logs
 
@@ -367,6 +422,17 @@ LLM__PROVIDER=openai LLM__OPENAI_BASE_URL=https://generativelanguage.googleapis.
 ```
 
 For a reader on another OpenAI-compatible endpoint, put that endpoint's URL in `LLM__OPENAI_BASE_URL`.
+
+**Check that every `MEANING OK` line says `0 errors`.** `make bench-report` ends without a `FAIL` even when the reader failed some reads (a wrong key or model name, a timeout, a used-up quota: a Gemini reader shares the quota of a Gemini embedding project), and a later `make bench-report` does not read those drafts again. The report would then give the meaning-based rate over fewer drafts, with a note that `N of M scored attacks have no current verdict`. If a line shows errors, fix the cause, then read those drafts again once and rebuild the report (the same two `LLM__` words as above, your `RUN` and your reader):
+
+```bash
+LLM__PROVIDER=openai LLM__OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai \
+  uv run --project . --with-editable agentmailguard python -m evaluation.mailguard_bench.meaning \
+  --run-dir evaluation/results/mailguard_bench/2026-10-02-gpt4omini-live --reader-model <your reader model> --retry-errors
+make bench-report RUN=2026-10-02-gpt4omini-live
+```
+
+The second line rebuilds `report.md` with the new verdicts; it calls no model.
 
 The report explains its numbers in a table at the top: the guard's rate of successful attacks (Guard ASR) is the one the owner's target is judged on, the pipeline rate counts attacks that triage already stopped, and the meaning-based rate is a second reading of the same drafts (quote both side by side).
 
@@ -400,7 +466,7 @@ make mailguard-probe MODEL=qwen2.5-7b-openrouter
 
 and the same two lines with `MODEL=llama-3.1-8b-openrouter` before the Llama run. Each makes **one** live call, under a cent:
 
-- `bench-canary` sends one strict-JSON request through rag-email's own pinned client and prints three checks: `strict_json` (the answer is valid for the schema), `provider_match` (the pinned provider served it, on the first attempt) and `captured`. It saves the request and the response, without the key, to `evaluation/results/mailguard_bench/canary/<profile>.json`, a folder git ignores. It exits 1 and says why when a check fails: 401 is the key, 402 the credit or the key's limit, 404 the privacy settings of E1, 502 or 503 the provider being down.
+- `bench-canary` sends one strict-JSON request through rag-email's own pinned client and prints three checks: `strict_json` (the answer is valid for the schema), `provider_match` (the pinned provider served it, on the first attempt) and `captured`. It saves the request and the response, without the key, to `evaluation/results/mailguard_bench/canary/<profile>.json`, a folder git ignores. It exits 1 and says why when a check fails: 401 is the key, 402 the credit or the key's limit, 404 the privacy settings of E1, 502 or 503 the provider being down. **`strict_json` FAIL while `provider_match` is `ok`** means the pinned provider served the call but did not keep to the JSON schema: do not start that model's run. Send `evaluation/results/mailguard_bench/canary/<profile>.json` to the owner and wait for their decision (you may not switch providers, E4).
 - `mailguard-probe` makes one call of the guard's judge through the guard's own client, and checks the same pin.
 
 Then do the small trial of D4 for that model. Send the canary files back with the results (part F).
@@ -409,7 +475,7 @@ Then do the small trial of D4 for that model. Send the canary files back with th
 
 - **A call another provider served**, a call the router served after a fallback, or a response that names no provider: that case is an error row (`provider_mismatch`), never a scored one.
 - **The run stops** (`STOP <config>: ...`, then the kit's `FAIL ... the model's route stopped serving`) after three such errors in a row, after three HTTP 404, 502 or 503 in a row (the pinned provider is not serving, and with fallbacks off nothing else may serve), and **at once on an HTTP 402** that is not OpenRouter's short in-flight budget (no credit, or the key's limit is used up). The kit then stops the whole campaign: no next config and no retry pass, which would only hit the same route.
-- **What to do:** fund the key (E2), or wait until the provider serves again (its uptime is on the model's OpenRouter page), then run **the same command again**: finished configs are skipped and the error rows are retried. **Never switch to another provider inside a `RUN`**: Qwen has no other provider, and Llama's others serve `fp8` or an unknown precision without structured outputs. A different provider is a new `RUN` and the owner's decision.
+- **What to do:** fund the key (E2), or wait until the provider serves again (its uptime is on the model's OpenRouter page), then run **the same command again**: finished configs are skipped and the error rows are retried. The `STOP` line also mentions `--retry-errors`: that is for a runner started by hand (the owner's runbook). With the kit, rerun the same `make bench-run` command unchanged; it already retries error rows, and it has no such option. **Never switch to another provider inside a `RUN`**: Qwen has no other provider, and Llama's others serve `fp8` or an unknown precision without structured outputs. A different provider is a new `RUN` and the owner's decision.
 - **What is recorded:** the pin is in each config's settings (a resume under another pin is refused); every guarded row records which provider served its reply and its guard calls; the containers' log lines (D6) record the provider of triage, the summarizer and `C0`'s replies; the report's "Run setup" section sums the served providers.
 
 ---
@@ -424,7 +490,7 @@ make bench-package RUN=2026-10-02-gpt4omini-live
 
 This writes `bench-results-2026-10-02-gpt4omini-live.zip` in the repository folder: the whole run folder including `raw/` and `kit-log.jsonl`, and never a key (it refuses to write the zip if a key appears in a file). Send the zip to the owner by the route the owner names. Copy it to Windows if you need to attach it: `cp bench-results-*.zip /mnt/c/Users/<your Windows name>/Desktop/`.
 
-Or commit the run to a branch and push it, as the owner does. `raw/` stays out of git on purpose (it holds attack emails), so it is only in the zip:
+**During the campaign, send zips only.** Committing changes your checkout's commit: the next `make bench-run` then refuses the containers until `make bench-setup` rebuilds them, and a committed `RUN` can no longer be resumed (the commit is part of each config's fingerprint). If the owner wants a branch, commit after the last model, and only if you have write access to the repository (`git push` needs it; without it, send the zips). `raw/` stays out of git on purpose (it holds attack emails), so it is only in the zip:
 
 ```bash
 git switch -c bench/2026-10-02-gpt4omini-live
@@ -440,7 +506,8 @@ Include in your message:
 - the reader model you chose, and when;
 - the two canary files, `evaluation/results/mailguard_bench/canary/<profile>.json` (git ignores them; they hold no key);
 - any `STOP`, `FAIL` or `WARN` line the kit or the doctor printed;
-- the usage totals the OpenAI and OpenRouter dashboards show for each run (numbers only, never a key).
+- the usage totals for each run from the OpenAI and OpenRouter dashboards, and from your embedding's and your reader's providers (numbers only, never a key);
+- what the report's `Errors (excluded)` and `AI-step fallbacks` rows say for each config. Check them before you send: errors left after the retry pass, or many fallbacks, usually mean a quota or a route problem, so say so.
 
 The zip already holds each run's `kit-log.jsonl`, the containers' log lines (`raw/services.<config>.log`) and the report, whose "Run setup" section totals the providers that served the calls.
 
@@ -448,7 +515,7 @@ The zip already holds each run's `kit-log.jsonl`, the containers' log lines (`ra
 
 ### F1. After the last model
 
-When every model's run is finished and sent: delete `.env.stack` (it holds your keys: `rm .env.stack`), and if you keep using the stack for anything but this benchmark, set `RETRIEVAL__CATEGORY_FILTER_ENABLED` back to `true` in `.env` (or delete that line) and run `make up`, so that searches are filtered by category again (runbook section 9.9, step 8).
+When every model's run is finished and sent: delete `.env.stack` (it holds your keys: `rm .env.stack`). **Before any `make up`**, put `.env` back to the normal stack: comment out the `EMBEDDING__` lines (the offline mock embedder again), set `LLM__TIMEOUT_S` back to `15.0` (or delete the line) and `RETRIEVAL__CATEGORY_FILTER_ENABLED` back to `true` (or delete the line). Compose forwards all three to the normal stack, so otherwise it keeps calling your paid embedding endpoint, with the benchmark's 60 s LLM timeout and no category filter (runbook section 9.9, step 8, which the kit's last line also names).
 
 ## G. When something goes wrong
 
@@ -460,12 +527,15 @@ When every model's run is finished and sent: delete `.env.stack` (it holds your 
 | `port is already allocated` or doctor `ports: in use by another program` | Another program holds a port the stack needs (Postgres 5433, RabbitMQ 5672 and 15672, MinIO 9010 and 9011, Prometheus 9090, Grafana 3002, the API 8000, the review UI 3001, the guard-worker 8014). Find it with `ss -ltnp \| grep :<port>` inside Ubuntu, or `netstat -ano \| findstr :<port>` in PowerShell, and stop it. |
 | Builds or containers are killed, `docker memory` fails | WSL has too little memory: part A3, then `wsl --shutdown`. |
 | `429` from the embedding endpoint (Gemini says `RESOURCE_EXHAUSTED`) | Its rate or daily limit. Every case's knowledge documents and every query that needs retrieval call the embedding model in every run. The services retry for a few seconds only; a daily limit needs the next day. Gemini applies limits per project, not per key (AI Studio shows them); OpenAI per usage tier. Raise the limit, then run the same command again. |
-| `429` from OpenAI | OpenAI shows your limits under Settings, Organization, Limits (Tier 1 caps `gpt-4o-mini` at 10,000 requests a day). An account with no balance or a hard spend limit also answers 429. Fix it, then run the same command again to retry error rows. |
+| `429` from OpenAI | OpenAI shows your limits under Settings, Organization, Limits (Tier 1 caps `gpt-4o-mini` at 10,000 requests a day). An account with no balance or a hard spend limit also answers 429. Nothing stops an OpenAI run by itself: press Ctrl+C as soon as `error` lines climb, fix it, then run the same command again to retry error rows (the next day after a daily cap; on Tier 1, split the run, D5). |
 | Many rows with `retrieval_degraded` true | The embedding call ran out of its 3000 ms budget or its quota. Check the embedding endpoint's limits, then rerun. |
 | OpenRouter `401` | The key in `BENCH_OPENROUTER_API_KEY` is wrong or deleted. Create a new one (E1). |
 | OpenRouter `402`, `STOP <config>: no_credit` | No credit, or the key's limit is used up. Add credit or raise the key's limit (E1, E2), then the same command again. |
 | OpenRouter `404`, `502` or `503`, `STOP <config>: 3 consecutive no_provider errors` | The pinned provider cannot serve: your privacy settings exclude it (404, E1), or it is down. Check E1, wait, then the same command again. Never switch providers inside a `RUN` (E4). |
 | `provider_mismatch`, `STOP <config>: 3 consecutive provider_mismatch errors` | A call was served by another provider, after a fallback, or with no provider named. Run the canary (E3) and send its file to the owner; do not go on. |
+| The `STOP` line says to rerun `with --retry-errors` | That is for a runner started by hand. With the kit, rerun the same `make bench-run` command unchanged (E4). |
+| Canary: `FAIL strict_json` while `provider_match` is `ok` | The pinned provider does not keep to the JSON schema. Do not start that model's run: send `evaluation/results/mailguard_bench/canary/<profile>.json` to the owner and wait (E3). |
+| `MEANING OK ... N errors` with N above 0 | The reader failed some reads, and `make bench-report` does not retry them. Fix the cause (the reader's key, model name or quota), then read them again as in D7. |
 | `L1 classifier` FAIL in `bench-setup` or the doctor, and the owner's file has not arrived | The run cannot start without it (D1); ask the owner before Friday. |
 | The laptop slept or the lid closed | The run stopped. Part A6, then run the same command again. If Docker looks stuck, `wsl --shutdown` in PowerShell, open Ubuntu, `docker ps`, and run the command again. |
 | A container cannot reach Ollama (`connection refused`; appendix L only) | Nothing listens on the docker0 address. Route 1 of L4: `systemctl show ollama -p Environment`, and Docker must have started before Ollama. Route 2: the `socat` forwarder is not running (it stops when Ubuntu restarts), start it again. A timeout means a firewall drops traffic from Docker's network to port 11434. |

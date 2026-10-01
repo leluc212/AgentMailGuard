@@ -138,19 +138,25 @@ uv @mg evaluation.mailguard_bench.kit.doctor --model-profile qwen2.5-7b-openrout
 # once: checks the guard and the pinned inputs (the classifier too), runs the guard smoke, brings the stack up (slow the first time)
 uv @mg evaluation.mailguard_bench.kit.campaign setup
 
+# a small trial first, under a throwaway name; it passes only as docs/BENCHMARK.md D4 says (every `ok <config>:` line says
+# `0 error`, and so on), and it runs no RAG case. Then try the reader once on it, and delete the trial folder.
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C0T,C7 --limit 5
+$env:LLM__PROVIDER = "openai"; $env:LLM__OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+uv @mg evaluation.mailguard_bench.kit.campaign report --run trial-gpt --reader <your reader model>
+Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
+Remove-Item -Recurse evaluation\results\mailguard_bench\trial-gpt
+
 # one model, completely, then the next (gpt-4o-mini, then qwen2.5-7b-openrouter, then llama-3.1-8b-openrouter)
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run 2026-10-02-gpt4omini-live --concurrency 2
 
-# before each OpenRouter run: check the credit (docs/BENCHMARK.md E2), then the canary (one live call, under a cent) and the guard's probe
+# before each OpenRouter run: check the credit (docs/BENCHMARK.md E2), then the canary (one live call, under a cent), the guard's probe
+# and a trial of that model (as above, with that model's profile, and trial-qwen or trial-llama as the run)
 uv @mg evaluation.mailguard_bench.openrouter_canary --model-profile qwen2.5-7b-openrouter
 uv @mg evaluation.mailguard_bench.guard_smoke --live-probe --model-profile qwen2.5-7b-openrouter
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b-openrouter --run 2026-10-02-qwen25-openrouter-live --concurrency 2
 uv @mg evaluation.mailguard_bench.openrouter_canary --model-profile llama-3.1-8b-openrouter
 uv @mg evaluation.mailguard_bench.guard_smoke --live-probe --model-profile llama-3.1-8b-openrouter
 uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile llama-3.1-8b-openrouter --run 2026-10-02-llama31-openrouter-live --concurrency 2
-
-# a small trial first, under a throwaway name (then delete its folder)
-uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C0T,C7 --limit 5
 
 # the meaning column, for a finished run; the reader's key is LLM__OPENAI_API_KEY in .env, and the two LLM__ variables
 # (here for a Gemini reader) are for this command only: remove them afterwards
@@ -162,11 +168,11 @@ Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL
 uv @mg evaluation.mailguard_bench.kit.campaign package --run 2026-10-02-gpt4omini-live
 ```
 
-`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. A run whose OpenRouter route stops serving (`STOP <config>`: no credit, the pinned provider down, or calls served by another provider) stops the whole campaign; fix the cause as `docs/BENCHMARK.md` part E4 says, then run the same command again. Keep an overnight run in a window you do not close, and pause Windows updates first (Settings, Windows Update, "Pause updates"). The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`, which Microsoft's reference describes as taking minutes; I did not read that `0` means never).
+`--configs` takes a comma-separated list and defaults to the v2 list; `--limit` runs only the first N cases of each config. To resume a stopped run, run the same `run` command again. A run whose OpenRouter route stops serving (`STOP <config>`: no credit, the pinned provider down, or calls served by another provider) stops the whole campaign; fix the cause as `docs/BENCHMARK.md` part E4 says, then run the same command again. Keep an overnight run in a window you do not close, and pause Windows updates first (Settings, Windows Update, "Pause updates"). The rules of `docs/BENCHMARK.md` part D apply: one model completely before the next; while a run is going do not edit `.env`, rebuild the images or commit; keep the laptop plugged in and awake (set "never sleep" on power under Settings, System, Power & battery, or with `powercfg /change standby-timeout-ac 0`: Microsoft's reference says the value is in minutes and does not spell out that `0` means never, but that is what Windows does; `docs/BENCHMARK.md` A6).
 
 After every `git pull` run `kit.campaign setup` again: the images are labelled with the commit they were built from, and `run` refuses containers built from another commit than your checkout (or a checkout with a modified tracked file).
 
-If you installed `make`, `make bench-doctor MODEL=gpt-4o-mini`, `make bench-setup`, `make bench-canary MODEL=qwen2.5-7b-openrouter` and `make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live` do the same as the commands above, with the three variables set by the Makefile itself.
+If you installed `make`, `make bench-doctor MODEL=gpt-4o-mini`, `make bench-setup`, `make bench-canary MODEL=qwen2.5-7b-openrouter` and `make bench-run MODEL=gpt-4o-mini RUN=2026-10-02-gpt4omini-live CONCURRENCY=2` do the same as the commands above, with the three variables set by the Makefile itself.
 
 **Only if the owner asks for the local route** (`docs/BENCHMARK.md` appendix L; not used on 2026-10-02), load the model first, then run it at concurrency 1:
 
