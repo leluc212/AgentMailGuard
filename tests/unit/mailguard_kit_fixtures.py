@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from evaluation.mailguard_bench.kit.campaign import KitContext, RunOptions
@@ -36,6 +37,32 @@ HOST_ENV = {
     "LLM__TIMEOUT_S": "60",
 }
 RUN = "r1"
+
+
+class EmbeddingEndpoint:
+    """A fake ``/embeddings`` endpoint for the kit's embedding check: no test reaches a real one.
+
+    ``width`` is the length of the vector it answers; ``status``/``body`` replace the answer.
+    """
+
+    def __init__(self, width: int = 1536) -> None:
+        self.width = width
+        self.status = 200
+        self.body: Any = None
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if self.status != 200:
+            return httpx.Response(self.status, json=self.body or {"error": {"message": "x"}})
+        vector = [0.01] * self.width
+        return httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": vector}], "usage": {"prompt_tokens": 9}},
+        )
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self)
 
 
 # --- the fake machine -------------------------------------------------------------------------
@@ -276,6 +303,7 @@ class Bench:
     results_root: Path
     out: list[str] = field(default_factory=list)
     err: list[str] = field(default_factory=list)
+    embedding: EmbeddingEndpoint = field(default_factory=EmbeddingEndpoint)
 
     def runner_outcomes(self, *outcomes: dict[str, int]) -> None:
         """Make the k-th live.run of the test write ``outcomes[k]`` as its result."""
@@ -308,6 +336,7 @@ def bench_fixture(tmp_path: Path) -> Bench:
     host = FakeHost(results_root)
     out: list[str] = []
     err: list[str] = []
+    embedding = EmbeddingEndpoint()
     ctx = KitContext(
         host=host,
         repo_root=repo,
@@ -316,8 +345,17 @@ def bench_fixture(tmp_path: Path) -> Bench:
         python="py",
         out=out.append,
         err=err.append,
+        embedding_transport=embedding.transport(),
     )
-    return Bench(ctx=ctx, host=host, repo=repo, results_root=results_root, out=out, err=err)
+    return Bench(
+        ctx=ctx,
+        host=host,
+        repo=repo,
+        results_root=results_root,
+        out=out,
+        err=err,
+        embedding=embedding,
+    )
 
 
 def opts(**changes: Any) -> RunOptions:

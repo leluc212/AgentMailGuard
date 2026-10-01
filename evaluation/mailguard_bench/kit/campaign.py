@@ -11,7 +11,9 @@ targets (``make bench-setup``, ``bench-run``, ``bench-report``, ``bench-package`
 the same overlay as the ``mailguard-*`` targets: the pinned AgentMailGuard worktree installed over
 rag-email's environment, which every subprocess inherits (``sys.executable -m ...``).
 
-    run:  stack env (live/stack_env.py, with its refusals) ─▶ docker compose up --no-deps ─▶ wait
+    run:  stack env (live/stack_env.py, with its refusals) ─▶ one embedding call with the
+          runner's EMBEDDING__* (kit/embedding_check.py: refused unless one 1536-wide vector comes
+          back) ─▶ docker compose up --no-deps ─▶ wait
           a guarded config pending: copy the reranker model of the ai-worker image to
                    .cache/reranker, unless that already is this image's (see below)
           for each config  C0:      docker compose start ai-worker ─▶ wait healthy ─▶ live.run
@@ -55,7 +57,8 @@ docs/demo-runbook.md section 9.9 step 4.
 
 It is pure Python: no bash, so it runs natively on Windows as well (the stop signal of the
 guard-worker is chosen by ``kit/system.py``). It never starts a model call of its own; the
-runner and the guard-worker it starts do. Ctrl+C stops the guard-worker cleanly and prints the
+runner and the guard-worker it starts do. Its one call of its own is the embedding check, before
+the stack is touched. Ctrl+C stops the guard-worker cleanly and prints the
 command that resumes; rerunning the same command resumes (live.run skips the cases it recorded,
 and a config the kit log says is finished is not started again). One JSON line per step goes to
 ``<run>/kit-log.jsonl``.
@@ -85,6 +88,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from evaluation.mailguard_bench import model_profiles
 from evaluation.mailguard_bench.guard_build import NATIVE_CONFIG
 from evaluation.mailguard_bench.guard_env import (
@@ -93,6 +98,7 @@ from evaluation.mailguard_bench.guard_env import (
     guard_paths_from_env,
     require_pinned_worktree,
 )
+from evaluation.mailguard_bench.kit.embedding_check import EmbeddingCheckError, check_embedding
 from evaluation.mailguard_bench.kit.steplog import LOG_NAME, StepLog, finished_configs
 from evaluation.mailguard_bench.kit.system import Host, ProcessHandle, SystemHost
 from evaluation.mailguard_bench.live import stack_env
@@ -198,6 +204,9 @@ class KitContext:
     out: Callable[[str], None] = print
     err: Callable[[str], None] = _eprint
     ready_url: str = GUARD_READY_URL  # the guard-worker's /readyz (its default health port)
+    # The embedding check's transport: None is the network (the runner's machine); tests pass a
+    # fake one, so no test ever reaches an embedding endpoint.
+    embedding_transport: httpx.AsyncBaseTransport | None = None
 
 
 @dataclass(frozen=True)
@@ -632,6 +641,11 @@ class _Campaign:
                 f"would do: render {out} for {self.opts.model_profile} "
                 "(evaluation.mailguard_bench.live.stack_env, with its refusals; holds API keys)"
             )
+            self.ctx.out(
+                "would do: one embedding call with the EMBEDDING__* settings of .env (the "
+                "services' embedder) and refuse unless it returns one "
+                f"{stack_env.EMBEDDING_DIMENSION}-dimension vector"
+            )
             command = stack_env.compose_command([*([env_file] if env_file.is_file() else []), out])
             self.ctx.out(f"would run: {_join(command)}")
             self.ctx.out(
@@ -662,6 +676,7 @@ class _Campaign:
             route = json.loads(values["LLM__OPENAI_PROVIDER_ROUTING"])
             self.ctx.out(f"   route     {stack_env.describe_route(route)}")
         self.ctx.out(f"   {stack_env.describe_embedding(values)}")
+        self._check_embedding(model_profiles.with_dot_env(self.ctx.environ, env_file))
         status = "ok"
         try:
             self._docker(plan.command)
@@ -678,6 +693,39 @@ class _Campaign:
                     "start": start.isoformat(),
                     "end": _now().isoformat(),
                     "status": status,
+                }
+            )
+
+    def _check_embedding(self, environ: Mapping[str, str]) -> None:
+        """One embedding call before any model call (``kit/embedding_check.py``; ADR-0014).
+
+        ``environ`` is what the host processes read (the shell over ``.env``). A refusal stops the
+        campaign before the stack is touched; the kit log records the step either way.
+        """
+        start = _now()
+        status, reason, found = "failed", None, None
+        try:
+            found = check_embedding(environ, transport=self.ctx.embedding_transport)
+            status = "ok"
+            self.ctx.out(
+                f"ok embedding {found.model} at {found.host} returned one {found.dimension}-"
+                "dimension vector (one call, before any model call)"
+            )
+        except EmbeddingCheckError as exc:
+            reason = str(exc)
+            raise _AbortError(f"the embedding check refused this run: {exc}") from exc
+        finally:
+            self.log.append(
+                {
+                    "step": "embedding_check",
+                    "model_profile": self.opts.model_profile,
+                    "embedding_model": found.model if found else None,
+                    "embedding_host": found.host if found else None,
+                    "dimension": found.dimension if found else None,
+                    "start": start.isoformat(),
+                    "end": _now().isoformat(),
+                    "status": status,
+                    "reason": reason,
                 }
             )
 

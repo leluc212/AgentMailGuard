@@ -25,7 +25,7 @@ import pytest
 
 from evaluation.mailguard_bench.kit.campaign import KitContext, RunOptions, run_campaign
 from evaluation.mailguard_bench.kit.system import SystemHost
-from tests.unit.mailguard_kit_fixtures import HOST_ENV
+from tests.unit.mailguard_kit_fixtures import HOST_ENV, EmbeddingEndpoint
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and shebangs")
 
@@ -176,6 +176,7 @@ def test_one_guarded_and_one_native_config_over_real_processes(
         out=out.append,
         err=err.append,
         ready_url=f"http://127.0.0.1:{port}/readyz",
+        embedding_transport=EmbeddingEndpoint().transport(),  # never a real endpoint
     )
     options = RunOptions(
         model_profile="gpt-4o-mini",
