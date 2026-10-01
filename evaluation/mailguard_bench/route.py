@@ -69,6 +69,13 @@ ROUTE_STOP_EXIT = 3
 1: the benchmark kit stops the whole campaign on it, because the next config and the retry pass
 would only hit the same route."""
 
+STOP_SOURCE_CHARS = 160
+"""How much of the tripping row's error the STOP line repeats, around the words that classified
+it: enough to name the service and the call (the embedding, a guard LLM stage, a model call), so
+the runner knows which account to restore. The row's message is already redacted."""
+_SOURCE_LEAD = 80
+"""Characters of the source excerpt kept before the classifying words (they name the call)."""
+
 _NO_PROVIDER = re.compile(r"(?:LLM request failed with status|HTTP)\s*:?\s*(?:404|502|503)\b")
 _NO_CREDIT = re.compile(r"(?:LLM request failed with status|HTTP)\s*:?\s*402\b")
 _TRANSIENT_402 = "openrouter_in_flight_budget"
@@ -325,12 +332,18 @@ class RouteBreaker:
         if reason == QUOTA_MARKER:
             self.tripped = (
                 f"{QUOTA_MARKER}: {_quota_detail(record)}; a provider's quota, balance, spend "
-                "limit or daily cap is used up"
+                f"limit or daily cap is used up ({stop_source(record)})"
             )
         elif reason == "no_credit":
-            self.tripped = "no_credit: the account has no credit (HTTP 402); fund it and resume"
+            self.tripped = (
+                "no_credit: the account has no credit (HTTP 402); fund it and resume "
+                f"({stop_source(record)})"
+            )
         elif self._streak >= self.limit:
-            self.tripped = f"{self._streak} consecutive {reason} errors; the route is not serving"
+            self.tripped = (
+                f"{self._streak} consecutive {reason} errors; the route is not serving "
+                f"(the last: {stop_source(record)})"
+            )
 
 
 def _quota_detail(record: Mapping[str, Any]) -> str:
@@ -338,6 +351,38 @@ def _quota_detail(record: Mapping[str, Any]) -> str:
     error = record.get("error")
     message = str(error.get("message") or "") if isinstance(error, Mapping) else ""
     return quota_in_text(message) or "unknown"
+
+
+def stop_source(record: Mapping[str, Any]) -> str:
+    """Which call tripped the stop: the row's case, its error kind, and the part of its message
+    around the words that classified it.
+
+    An embedding's daily cap and a model's print the same ``quota_exhausted: daily_limit``; the
+    words before it (``Embedding request failed``, ``guard LLM stage``, ``LLM request failed``)
+    say which service ran out, so the runner restores the right account without opening the raw
+    file. The window is cut around the classifying words because a live row's message starts
+    with the case and job ids.
+    """
+    error = record.get("error")
+    error = error if isinstance(error, Mapping) else {}
+    kind = str(error.get("kind") or "error")
+    message = " ".join(str(error.get("message") or "").split())
+    start = max(0, _anchor(message, route_failure(record)) - _SOURCE_LEAD)
+    excerpt = message[start : start + STOP_SOURCE_CHARS]
+    if start > 0:
+        excerpt = "..." + excerpt
+    if start + STOP_SOURCE_CHARS < len(message):
+        excerpt += "..."
+    return f"case {record.get('case_id') or '?'}, {kind}: {excerpt}"
+
+
+def _anchor(message: str, reason: str | None) -> int:
+    """Where the words that classified a row's error as ``reason`` start (0 when none do)."""
+    if reason == "no_credit" or reason == "no_provider":
+        match = (_NO_CREDIT if reason == "no_credit" else _NO_PROVIDER).search(message)
+        return match.start() if match else 0
+    marker = MISMATCH_MARKER if reason == "provider_mismatch" else QUOTA_MARKER
+    return max(0, message.find(marker))
 
 
 def _calls(row: Mapping[str, Any]) -> Iterable[tuple[str, Mapping[str, Any]]]:

@@ -122,6 +122,7 @@ from evaluation.mailguard_bench.runner import (
     generation_meta,
     meta_path,
     native_guard_facts,
+    progress_line,
     result_path,
     run_cases,
     settings_fingerprint,
@@ -1357,7 +1358,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
             write_json(meta_file, meta)
 
             def progress(record: dict[str, Any]) -> None:
-                print(f"{record['status']:5} {record['case_id']} (attempts={record['attempts']})")
+                print(progress_line(record))
 
             summary = await run_cases(
                 cases,

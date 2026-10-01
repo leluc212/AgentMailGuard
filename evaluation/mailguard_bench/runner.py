@@ -158,6 +158,20 @@ def build_record(
     }
 
 
+def progress_line(record: Mapping[str, Any]) -> str:
+    """The runner's line for one finished row: status, case, attempts, and an error row's kind.
+
+    The kind (``retrieval_degraded``, ``guard_route_failure``, ``PipelineJobError``, ...) tells
+    the runner at a glance which service fails while the run goes on; the message stays in the
+    raw file (it can be long, and the STOP line repeats the part that matters).
+    """
+    line = f"{record['status']:5} {record['case_id']} (attempts={record['attempts']})"
+    error = record.get("error")
+    if record.get("status") == "error" and isinstance(error, Mapping) and error.get("kind"):
+        line += f" {error['kind']}"
+    return line
+
+
 def error_kind(exc: BaseException) -> str:
     """The ``error.kind`` of an error row: the exception's own ``error_kind``, else its class name.
 
@@ -825,7 +839,7 @@ async def run(args: argparse.Namespace) -> int:
         write_json(meta_file, meta)
 
         def progress(record: dict[str, Any]) -> None:
-            print(f"{record['status']:5} {record['case_id']} (attempts={record['attempts']})")
+            print(progress_line(record))
 
         summary = await run_cases(
             cases,

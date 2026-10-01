@@ -29,7 +29,7 @@ from evaluation.mailguard_bench.route import (
     route_failure,
     stop_message,
 )
-from evaluation.mailguard_bench.runner import run_cases
+from evaluation.mailguard_bench.runner import progress_line, run_cases
 from evaluation.mailguard_bench.scoring import GUARD_ROUTE_FAILURE_KIND
 from packages.llm.protocol import LLMQuotaExhaustedError, LLMResponseError, LLMResult, ModelTier
 
@@ -313,6 +313,74 @@ def test_the_stop_line_says_what_to_restore_and_that_other_models_may_run_in_bet
         assert "`make bench-run` command unchanged" in line
         assert "other models' runs may run in between" in line
         assert "--retry-errors" in line
+
+
+JOB = "job 0b5d1f3e-8f4a-4c55-9a43-2f1d6f0f9c11"
+
+
+def _stop_line(row: dict[str, Any]) -> str:
+    breaker = RouteBreaker(routed=False)
+    breaker.observe(row)
+    assert breaker.tripped is not None
+    return stop_message("C0", breaker.tripped)
+
+
+def test_the_stop_line_names_the_service_whose_daily_cap_ran_out() -> None:
+    # The same daily cap of two services: the embedding (a query embedding the ai-worker
+    # recorded) and the model (a job the ai-worker dead-lettered). The runner must see which
+    # account to restore without opening the raw file.
+    embedding = {
+        "case_id": "attack-prag-a",
+        **error_row(
+            "retrieval_degraded",
+            f"case attack-prag-a: {JOB}: retrieval degraded (the vector branch failed: Embedding "
+            "request failed with status 429 (quota_exhausted: daily_limit))",
+        ),
+    }
+    model = {
+        "case_id": "attack-llmail-b",
+        **error_row(
+            "PipelineJobError",
+            f"case attack-llmail-b: {JOB} ended DEAD_LETTER: FatalError: LLMQuotaExhaustedError: "
+            "LLM request failed with status 429 (quota_exhausted: daily_limit): {"
+            + "x" * 400
+            + "}",
+        ),
+    }
+
+    by_embedding, by_model = _stop_line(embedding), _stop_line(model)
+
+    assert by_embedding != by_model
+    for line in (by_embedding, by_model):
+        assert line.startswith("STOP C0: quota_exhausted: daily_limit; ")
+        assert "daily cap resets the next day" in line  # the advice still reads the reason
+    assert "case attack-prag-a, retrieval_degraded: " in by_embedding
+    assert "Embedding request failed with status 429" in by_embedding
+    assert "case attack-llmail-b, PipelineJobError: " in by_model
+    assert "LLMQuotaExhaustedError: LLM request failed with status 429" in by_model
+    assert "x" * 100 not in by_model  # an excerpt, never the whole body
+
+
+def test_a_no_credit_stop_and_a_streak_stop_name_their_source_too() -> None:
+    no_credit = {
+        "case_id": "c-9",
+        **error_row(GUARD_ROUTE_FAILURE, f"{GUARD_ROUTE_FAILURE}: a guard LLM call: HTTP 402"),
+    }
+    assert "case c-9, guard_route_failure: " in _stop_line(no_credit)
+    assert "HTTP 402" in _stop_line(no_credit)
+
+    breaker = RouteBreaker(routed=True)
+    for n in range(3):
+        breaker.observe({"case_id": f"c-{n}", **GUARD_503})
+    assert breaker.tripped is not None
+    assert "(the last: case c-2, guard_route_failure: " in breaker.tripped
+
+
+def test_an_error_progress_line_names_its_kind() -> None:
+    row = {"case_id": "c-1", "attempts": 1, **error_row("retrieval_degraded", "long message")}
+    assert progress_line(row) == "error c-1 (attempts=1) retrieval_degraded"
+    ok = {"case_id": "c-2", "attempts": 2, "status": "ok", "error": None}
+    assert progress_line(ok) == "ok    c-2 (attempts=2)"
 
 
 # --- the benchmark's view of a used-up quota (owner decision B) --------------------------------
