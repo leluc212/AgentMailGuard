@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from packages.db.job import InMemoryJobStore
 from packages.domain.entities import Candidate, ContextPackage, EmailAddress, Job, NormalizedMessage
 from packages.domain.state_machine import JobState
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator
+from packages.llm.protocol import CallProvenance, LLMResult
 from packages.observability.metrics import PipelineMetrics, create_pipeline_metrics
 from services.ai_worker.drafting import UNKNOWN_CATEGORY, DraftingService
 
@@ -52,7 +54,9 @@ def _context(org_id: object) -> ContextPackage:
     )
 
 
-async def _service(metrics: object, prices: dict[str, ModelPricing]) -> tuple[DraftingService, Job]:
+async def _service(
+    metrics: object, prices: dict[str, ModelPricing], provider: FakeLLMProvider | None = None
+) -> tuple[DraftingService, Job]:
     jobs = InMemoryJobStore()
     job, _ = await jobs.create_job(
         Job(
@@ -63,7 +67,7 @@ async def _service(metrics: object, prices: dict[str, ModelPricing]) -> tuple[Dr
     )
     service = DraftingService(
         generator=SinglePassGenerator(
-            llm_provider=FakeLLMProvider(default_response=REPLY),
+            llm_provider=provider or FakeLLMProvider(default_response=REPLY),
             profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
         ),
         job_store=jobs,
@@ -166,3 +170,51 @@ async def test_created_draft_writes_one_draft_persisted_log_line(
     assert fields["cost_estimate"] == first.draft.cost_estimate
     assert fields["citation_mismatch"] is first.draft.citation_mismatch
     assert "body" not in fields
+
+
+class _RoutedFake(FakeLLMProvider):
+    """A fake that reports, as an OpenRouter-routed client does, who served each call."""
+
+    async def generate(self, **kwargs: Any) -> LLMResult:
+        result = await super().generate(**kwargs)
+        result.provenance = CallProvenance(
+            requested_model="meta-llama/llama-3.1-8b-instruct",
+            served_provider="CoreWeave",
+            attempt=1,
+            generation_id="gen-1",
+            cost=0.000004,
+        )
+        return result
+
+
+async def test_the_draft_persisted_line_names_the_provider_that_served_the_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """OpenRouter route (work package R4): the ai-worker keeps no provenance column, so the
+    structured log is where a C0 draft's served provider is recorded."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="services.ai_worker.drafting")
+    service, job = await _service(
+        create_pipeline_metrics(), PRICED, _RoutedFake(default_response=REPLY)
+    )
+
+    await service.draft(job, _context(job.organization_id), category="support")
+
+    (line,) = [r for r in caplog.records if r.getMessage() == "draft_persisted"]
+    (call,) = line.__dict__["fields"]["llm_provenance"]
+    assert call["served_provider"] == "CoreWeave" and call["generation_id"] == "gen-1"
+
+
+async def test_an_unrouted_draft_line_has_no_provenance_field(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="services.ai_worker.drafting")
+    service, job = await _service(create_pipeline_metrics(), PRICED)
+
+    await service.draft(job, _context(job.organization_id), category="support")
+
+    (line,) = [r for r in caplog.records if r.getMessage() == "draft_persisted"]
+    assert "llm_provenance" not in line.__dict__["fields"]

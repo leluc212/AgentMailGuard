@@ -626,6 +626,7 @@ The guard-worker and the runner are host processes: they read `.env` (and the sh
 
 ```dotenv
 BENCH_OPENAI_API_KEY=<your OpenAI key>          # GPT-4o-mini only
+BENCH_OPENROUTER_API_KEY=<your OpenRouter key>  # the two -openrouter profiles only (§9.10); leave the line out if you do not use them
 LLM__OPENAI_API_KEY=<your Gemini API key>       # embeddings for EVERY run, and the Gemma profile's LLM key
 EMBEDDING__MOCK=false
 EMBEDDING__MODEL_NAME=gemini-embedding-001
@@ -869,6 +870,75 @@ make up            # recreates the app containers from .env alone
 - **The guard-worker downloads the reranker model** (its log shows a Hugging Face download, or a case that retrieved shows `rerank: False` in a guarded config only): `RETRIEVAL__RERANK_MODEL_DIR` did not reach it, or `.cache/reranker` is missing or from an older image. Copy it again and start the guard-worker as in step 4 (the kit does both, and stops with a `FAIL` when it cannot copy).
 - **Many `retrieval_degraded` or `triage_stage_failure` error rows, also after the retry pass:** a live service is failing. For `retrieval_degraded` the Gemini embedding call ran out of its 3000 ms budget or its quota, or a search branch failed (check AI Studio's limits, and DNS and the network of the host and the containers). For `triage_stage_failure` read the stage error in the row's message: `All connection attempts failed` is DNS or the network, a timeout is the model or its quota. Fix the cause and run the retry pass again; do not read the row as a result.
 - **A container cannot reach Ollama:** `connection refused` means Ollama is not listening on the bridge address (`systemctl show ollama -p Environment`; Docker must have started first). A timeout means a firewall on this machine drops traffic from Docker's networks to port 11434, which is your firewall's policy to change.
+
+### 9.10 The OpenRouter route for Qwen2.5-7B and Llama-3.1-8B (work package R4, parked)
+
+**Status.** Built and tested, not merged and never run against OpenRouter. The owner decides at the meeting on 2026-10-01 at 20:00 whether this route is used (ADR-0012 decision 9 names it; its facts are OpenRouter's live listing of 2026-09-30, about 23:00 +07). rag-email's side is the branch `wp-r4-openrouter`, the guard's the branch `mailguard-openrouter` (from `1a3ef62`); merge both or drop both. Nothing in §9.1 to §9.9 changes for a run that does not use it: the two profiles below are new, and every other profile renders blank routing settings.
+
+The two models are served through OpenRouter's API instead of the desktop's Ollama, so no local GPU is used. **Each run pins one provider, with fallbacks off and structured-output support required**, and records the provider that served every call, in rag-email's generation and in the guard's judges:
+
+```
+profile ──▶ LLM__OPENAI_PROVIDER_ROUTING + metadata switch ──▶ request body "provider": {order, allow_fallbacks:false, ...}
+                                                            ──▶ header X-OpenRouter-Metadata: enabled
+response ──▶ openrouter_metadata, else the body's `provider` ──▶ checked against the pin ──┬─ match, no fallback attempt: recorded in the row
+                                                                                          └─ anything else: an ERROR of the case, never a defence
+```
+
+| `M` (`--model-profile`) | Model slug | Pinned provider | Precision | Price per 1M tokens (in / out) |
+|---|---|---|---|---|
+| `qwen2.5-7b-openrouter` | `qwen/qwen-2.5-7b-instruct` | Phala (`phala`), its only provider | undisclosed (`unknown`), so no precision filter | $0.10 / $0.20 |
+| `llama-3.1-8b-openrouter` | `meta-llama/llama-3.1-8b-instruct` | CoreWeave (`coreweave`), the only endpoint that lists structured outputs | `bf16`, sent as a filter | $0.22 / $0.22 |
+
+**Strict schema.** ADR-0012 decision 9 asks for strict JSON-schema support. rag-email's own calls (generation, triage, summary) use strict `json_schema`. The guard's judges use `json_object` with validation instead: the guard's pydantic schemas are not strict-schema compatible, and changing them would change detection behaviour. The pin's `require_parameters` keeps those calls on endpoints that support `response_format`, and every judge answer is validated, but the provider is not forced to enforce a schema there. Raise this with the owner at the meeting.
+
+Use new `RUN` names (for example `<date>-qwen25-openrouter-live`). The numbers are **not comparable with the local 4-bit runs** (another precision, another serving stack), and Qwen's precision is not even known: say so wherever they are quoted. OpenRouter and the provider may also change backends without notice, so the run records what it can (the pin, each call's served provider, generation id and cost) and no more than that.
+
+**Before the first call.**
+
+1. **The guard commit.** The pin `1a3ef62` predates this route: its provider ignores `provider_routing` in `guard_models.yaml` and would run the judges on whatever OpenRouter picks. Use the guard commit of the branch `mailguard-openrouter` (`git -C ../AgentMailGuard-openrouter rev-parse HEAD`; `915cb1e` when this was written) in a clean worktree, and name it for every command: `MAILGUARD_DIR=<that worktree> MAILGUARD_COMMIT=<its commit>`. The runner and the guard-worker refuse before any call when the guard's provider does not send exactly the run's pin (`FAIL the guard's provider for this model sends provider routing None ...`). The report records both commits, and results of two guard commits are never mixed in one `RUN`. If the route is adopted, the pin (`V2_MAILGUARD_COMMIT`, the Makefile's `MAILGUARD_COMMIT ?=`) moves to that commit by a decision of its own, with its ADR.
+2. **Fund the account.** The earlier OpenRouter account never bought credit and every call failed with HTTP 402 (commit `671f649`). Add a balance and give this key a per-key credit limit. HTTP 402 with `openrouter_in_flight_budget` is transient (`Retry-After`) and is retried with back-off; every other 402 stops the run at once (`no_credit`). Keep `--concurrency` at 1 or 2.
+3. **The key.** `BENCH_OPENROUTER_API_KEY` in `.env` (step 1's block). A missing key fails before any call and names the variable.
+
+**The canary (a few cents at most; run it before every OpenRouter run).** Run it from the repository root, inside WSL2 on Windows 11 Home (the `.env` is read from the current directory, and the capture goes to `evaluation/results/mailguard_bench/canary/`, which git ignores; the Windows and WSL path is untested). One strict-JSON call of about 40 tokens per model, through the same pinned client the run uses, and one guard-judge call:
+
+```bash
+uv run python -m evaluation.mailguard_bench.openrouter_canary --model-profile llama-3.1-8b-openrouter
+uv run python -m evaluation.mailguard_bench.openrouter_canary --model-profile qwen2.5-7b-openrouter
+G=$PWD/../AgentMailGuard-openrouter     # a clean worktree of the OpenRouter guard commit (item 1)
+make mailguard-probe MODEL=llama-3.1-8b-openrouter MAILGUARD_DIR=$G MAILGUARD_COMMIT=$(git -C $G rev-parse HEAD)   # the guard's judge, same pin
+make mailguard-probe MODEL=qwen2.5-7b-openrouter MAILGUARD_DIR=$G MAILGUARD_COMMIT=$(git -C $G rev-parse HEAD)
+```
+
+Each canary prints three checks and exits 1 when one fails, and writes `evaluation/results/mailguard_bench/canary/<profile>.json` (the request and the response with `openrouter_metadata` and the generation id; the key is never written; read it once to see what OpenRouter really sends):
+
+| Check | Passes when | A FAIL means |
+|---|---|---|
+| `strict_json` | the answer is exactly `{"answer": "pong"}` under the strict JSON schema | the pinned provider does not enforce (or ignores) the schema; OpenRouter says enforcement varies by provider. Every answer of a run is validated too, but a provider that fails here will fill the run with repair calls |
+| `provider_match` | the pinned provider served the call and the router reported no fallback (`attempt` 1 when it reports one) | `provider_mismatch`: another provider, a fallback attempt, or a response that names no provider (the pin cannot be verified). Do not run |
+| `captured` | the exchange was written | no HTTP response arrived (network, TLS, DNS) |
+
+The canary prints which response field named the provider (`read from openrouter_metadata.endpoints`, `openrouter_metadata.summary` or `response.provider`). The client reads the router's metadata first and the body's top-level `provider` field when the metadata names none; neither shape was confirmed against the live API when this was written, so read the capture once and, if the provider is named somewhere else, tell the builder before any run.
+
+Also read the `FAIL` line for HTTP errors: 401 is the key, 402 is credit (or the key's limit), 404, 502 and 503 mean no provider serves the pinned route (fallbacks are off, so there is no silent substitute: check the model's listing on OpenRouter). `mailguard-probe` prints `served_by=<provider>` for the guard's judge and fails on `provider_mismatch`.
+
+**The run** is §9.9 with these differences. `M` is one of the two profiles above; skip step 2 (no Ollama, and no `ollama` call in step 5); step 3 prints a `route` line naming the pin, and step 5's container check should also show it: `docker compose exec -T ai-worker sh -c 'echo "$LLM__OPENAI_PROVIDER_ROUTING $LLM__OPENAI_RESPONSE_METADATA"'` must print the profile's pin and `true`. The `mg` helper reads its commit from the Makefile, so for this route define it with the guard commit of item 1:
+
+```bash
+mg() {
+  MAILGUARD_DIR="${MAILGUARD_DIR:?set MAILGUARD_DIR to the worktree of the OpenRouter guard commit}" \
+  MAILGUARD_COMMIT="${MAILGUARD_COMMIT:?set MAILGUARD_COMMIT to that commit}" \
+  MAILGUARD_ARTIFACTS="$PWD/../AgentMailGuard-bench-artifacts" \
+  uv run --project "$PWD" --with-editable "$MAILGUARD_DIR" "$@"
+}
+```
+
+**What is recorded.**
+
+- Every guarded row (C0T to C3): `result.generation.provenance` (one entry per model call of the job, the repair included) and `result.guard_llm.provenance` (one per guard-judge call): `requested_model`, `served_provider`, `attempt`, `generation_id`, `prompt_tokens`, `completion_tokens`, `cost` (what OpenRouter billed, in USD) and `finish_reason`.
+- C0 in the live pipeline drafts in the `ai-worker` container, whose draft row has no column for it (adding one is a schema migration, not done here). Its `draft_persisted` structured log line carries `llm_provenance` instead: keep the container's log with the run (`docker compose logs --no-color ai-worker > $R/raw/ai-worker.log`), and the client's check still refuses a call another provider served. In the v1-style runner (`make mailguard-bench`) C0 rows carry the provenance like the others.
+- The run meta: `generation.provider_routing` and `generation.response_metadata` (part of the settings fingerprint, so a resume under another pin is refused) and `guard.provider_routing`. Each invocation's `summary.provenance` totals the calls by provider and by role, the calls served after a fallback (`fallback_attempts`), the calls that named no provider (`unverified`) and the cost. `fallback_attempts` and `unverified` should both be 0.
+
+**What stops a run.** A call served by another provider, on attempt 2 or later, or with no provider in the metadata is an error row (`LLMProviderMismatchError`, or `provider_mismatch` in a `guard_layer_error` for a guard judge), never scored as a defence. The run stops starting cases after three consecutive `provider_mismatch` or HTTP 404, 502 and 503 error rows, and at once on a 402 that is not the transient in-flight budget. It prints `STOP <config>: ...` and exits 1; the cases already recorded stay. **The rows that tripped the stop are `error` rows and a plain resume skips every recorded case**, so once the route serves again run the same command again **with `--retry-errors`**; without it those cases stay error rows. A single transient 502 or 503 from the pinned provider is not retried (fallbacks are off, and the back-off is for HTTP 429 only, so unrouted runs keep their behaviour): it is one error row, which `--retry-errors` runs again. In the live pipeline the ai-worker dead-letters a `provider_mismatch` and a 402 that is not the in-flight budget at once, without the retry ladder; the runner then records the job's last error as the row's error, and the stop applies the same way. Do not switch provider inside a `RUN`: if the pinned provider is gone, run the rest as a new, separately labelled `RUN` on another route and say so in both reports.
 
 ---
 

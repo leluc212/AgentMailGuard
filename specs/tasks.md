@@ -964,6 +964,14 @@
   - Left for 7.25: the teammate guides must list the `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` line of the `.env` (runbook §9.9 step 1 has it).
   - _Requirements: R6.6, R6.9, R12.4, R21.4, R22.12_
 
+- [~] **7.29 OpenRouter route for Qwen2.5-7B and Llama-3.1-8B (work package R4, parked)**
+  - Decision: ADR-0012 decision 9 (the teammate runs both open models through OpenRouter, one provider pinned, fallbacks off, strict JSON schema required, the served provider recorded on every call). The owner decides at the meeting on 2026-10-01 20:00 whether the route is used; the branches `wp-r4-openrouter` (rag-email) and `mailguard-openrouter` (guard, from `1a3ef62`) are built to be merged quickly or dropped.
+  - Built (unit-tested on fakes and `httpx.MockTransport`; nothing was run against OpenRouter): the profiles `qwen2.5-7b-openrouter` (Phala, no precision filter) and `llama-3.1-8b-openrouter` (CoreWeave, `bf16`); `LLM__OPENAI_PROVIDER_ROUTING` and `LLM__OPENAI_RESPONSE_METADATA` in `packages/core/settings.py` and the LLM client in `packages/llm/` (the routing object in the request body, the metadata header, `CallProvenance` on every result, `LLMProviderMismatchError` for a call another provider served or after a fallback attempt); provenance in the result rows and the run meta, the stack env and compose, `guard_models.yaml`, the guard's `OpenAIProvider` (routing, metadata, provenance) and its registry; the run stops after three consecutive provider mismatches or 404/502/503, and at once when the account has no credit; the canary `openrouter_canary.py`; runbook §9.10.
+  - Review fixes: the served provider is read from `openrouter_metadata`, else from the response body's top-level `provider` (`provenance.provider_source` records which; an absent `attempt` is accepted, a reported one must be 1); the ai-worker dead-letters `LLMProviderMismatchError` and a 402 that is not the in-flight budget (no retry ladder); the STOP message and runbook 9.10 say a resume after a stop needs `--retry-errors`; the report's limitations name the pin, the served providers and that the numbers are not comparable with the local 4-bit runs. Open for the owner: the guard's judges use `json_object` with validation, not strict `json_schema` (ADR-0012 decision 9 asks for strict); a transient 502/503 from the pinned provider is an error row, not retried.
+  - Left: the canary and the runs themselves (owner-run, after the decision and once the account has credit). If adopted: move the guard pin (`V2_MAILGUARD_COMMIT`, the Makefile's `MAILGUARD_COMMIT ?=`) to the guard commit with provider routing, with its ADR, since `1a3ef62` ignores `provider_routing`; and, for C0 in the live pipeline, add a `generated_draft` column for the provenance (today it is only in the ai-worker's `draft_persisted` log line), a migration that needs its own approval.
+  - Numbering: the branch `wp-r4-openrouter` names this task `7.23` in its commits; the number collided with 7.23 (v2 analyses) and was changed to 7.29 when the branch was merged onto main.
+  - _Requirements: R22.12, R14.7, R21.4, R21.6, R24.5_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -1038,17 +1046,17 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21, 7.25 |
 | R12 Query construction | 3.13, 7.18, 7.28 |
 | R13 Business data | 5.1–5.6, 8.4 |
-| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27 |
+| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27, 7.29 |
 | R15 Model cascade | 4.8, 4.13a, 4.13b, 7.21 |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4, 7.27 |
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

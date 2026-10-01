@@ -79,6 +79,7 @@ from evaluation.mailguard_bench.guarded_reply import GUARDED_PROMPT_VERSION
 from evaluation.mailguard_bench.live import process
 from evaluation.mailguard_bench.live.guarded_drafting import GuardedDraftingService
 from evaluation.mailguard_bench.model_profiles import PROFILES, resolve_profile, with_dot_env
+from evaluation.mailguard_bench.route import expected_guard_route
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
 from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
@@ -427,6 +428,7 @@ async def run(args: argparse.Namespace) -> int:
         l3b_llm=l3b_llm,
         l4_llm=l4_llm,
         scheme=args.scheme,
+        expected_route=expected_guard_route(llm),
     )
     missing = guard.missing_live_stages()
     if missing:

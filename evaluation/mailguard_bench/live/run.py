@@ -106,11 +106,13 @@ from evaluation.mailguard_bench.model_profiles import (
 )
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited
 from evaluation.mailguard_bench.results import RESULT_SCHEMA_V3, ResultStore
+from evaluation.mailguard_bench.route import RouteBreaker, stop_message
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.runner import (
     FINGERPRINT_KEYS,
     RESULTS_ROOT,
     RUN_META_SCHEMA,
+    add_route_summary,
     apply_model_profile,
     case_set_names,
     check_resume,
@@ -1324,6 +1326,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                 secrets=[llm.openai_api_key],
                 on_record=progress,
                 schema=RESULT_SCHEMA_V3,
+                breaker=RouteBreaker() if llm.openai_provider_routing is not None else None,
             )
             invocation["finished_at"] = datetime.now(UTC).isoformat()
             invocation["summary"] = {
@@ -1334,6 +1337,7 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
                 "torn_lines_skipped": store.skipped_lines,
                 "cleanup_failures": len(cleanup_failures),
             }
+            add_route_summary(invocation["summary"], store, summary)
             if cleanup_failures:
                 invocation["cleanup_failure_details"] = cleanup_failures
             write_json(meta_file, meta)
@@ -1346,6 +1350,9 @@ async def run(args: argparse.Namespace, deps: LiveDeps | None = None) -> int:
         f"ok {args.config}: {summary.ok} ok, {summary.error} error, "
         f"{summary.skipped} already recorded -> {store.path}"
     )
+    if summary.stopped:
+        print(stop_message(args.config, summary.stopped), file=sys.stderr)
+        return 1
     return 0
 
 

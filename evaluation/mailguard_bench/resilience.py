@@ -14,7 +14,10 @@ from dataclasses import dataclass
 import httpx
 
 _RATE_LIMIT = re.compile(
-    r"\b(?:status|HTTP)\s*:?\s*429\b|\bRESOURCE_EXHAUSTED\b|\bToo Many Requests\b",
+    r"\b(?:status|HTTP)\s*:?\s*429\b|\bRESOURCE_EXHAUSTED\b|\bToo Many Requests\b"
+    # OpenRouter's HTTP 402 for its in-flight budget is transient (Retry-After): back off and
+    # retry. Its other 402s (no credit, key limit) are not, and stop the run (route.RouteBreaker).
+    r"|\bopenrouter_in_flight_budget\b",
     re.IGNORECASE,
 )
 

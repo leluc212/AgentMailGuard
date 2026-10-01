@@ -140,8 +140,12 @@ class CaseExecution:
 
 
 def generation_summary(generation: GenerationResult | None) -> dict[str, Any]:
-    """The row's ``generation`` block: rag-email's one reply.v1 call, or ``called: False``."""
-    return {
+    """The row's ``generation`` block: rag-email's one reply.v1 call, or ``called: False``.
+
+    A routed run (OpenRouter) adds ``provenance``: which provider served each model call of the
+    job, in order (the generation and its repair). No key means the run was not routed.
+    """
+    block: dict[str, Any] = {
         "called": generation is not None,
         "model": generation.model if generation else None,
         "profile": generation.profile.profile if generation else None,
@@ -154,6 +158,9 @@ def generation_summary(generation: GenerationResult | None) -> dict[str, Any]:
         "citation_mismatch": generation.citation_mismatch if generation else False,
         "reply_v1": dict(generation.content) if generation is not None else None,
     }
+    if generation is not None and generation.provenance:
+        block["provenance"] = [call.to_dict() for call in generation.provenance]
+    return block
 
 
 def summarize_guard_outcome(
@@ -323,14 +330,18 @@ class GuardedCaseExecutor:
         # A guard that marks its failed AI steps records each one on the verdict, so the provider's
         # own error list adds nothing: a step it cannot mark crashes the layer (verdict error).
         counted = [] if self.marks_fallbacks else [f"guard_llm: {e}" for e in llm_errors]
-        guard_errors = (*failures.crashes, *counted, *failures.degraded)
+        # A judge call another provider served (OpenRouter route) is never scored, marked
+        # fallback or not: the case is an error row, so a run cannot mix two providers.
+        route_violations = [str(v) for v in guard_calls.get("route_violations", [])]
+        guard_errors = (*failures.crashes, *counted, *failures.degraded, *route_violations)
         record = {
             **outcome,
             "system_instructions": context.agent_instructions or "",
             "guarded_prompt_version": GUARDED_PROMPT_VERSION,
             "guard_llm": {
                 k: guard_calls[k] for k in ("model", "calls", "input_tokens", "output_tokens")
-            },
+            }
+            | ({"provenance": guard_calls["provenance"]} if guard_calls.get("provenance") else {}),
             "timings_ms": {
                 "guarded_total": total_ms,
                 "generation": generation_ms,

@@ -52,6 +52,12 @@ x-app-env: &app-env
   # time, is set by the image alone and deliberately not forwarded). Keep these out of .env as
   # `NAME=`: a blank value overrides the settings default too.
   LLM__TIMEOUT_S:
+  # OpenRouter route (work package R4): the pinned provider's routing object (JSON) and the
+  # metadata switch that records which provider served each call. Value-less, so a stack without
+  # them keeps the settings default (not routed); the stack env writes them blank for a profile
+  # that is not routed, which the settings read as unset.
+  LLM__OPENAI_PROVIDER_ROUTING:
+  LLM__OPENAI_RESPONSE_METADATA:
   EMBEDDING__DIMENSION:
   RETRIEVAL__RERANK_ENABLED:
   RETRIEVAL__RERANK_MODEL:

@@ -31,3 +31,32 @@ models:
     model: llama3.1:8b
     json_mode: json_object
     timeout_s: 120
+  # Work package R4 (parked, decided at the 2026-10-01 meeting): the same two models through
+  # OpenRouter with ONE provider pinned and fallbacks off. `provider_routing` is OpenRouter's
+  # `provider` request object and must equal the model profile's (a test checks it);
+  # `response_metadata` makes the guard's provider expose which provider served each call, which
+  # rag-email's CountingProvider records and checks against this pin. Base URL and key come from
+  # the process env like the other entries. json_mode stays json_object: the guard's schemas are
+  # not strict-schema compatible, and the pin's require_parameters keeps the call on an endpoint
+  # that supports response_format.
+  qwen/qwen-2.5-7b-instruct:
+    backend: openai
+    model: qwen/qwen-2.5-7b-instruct
+    json_mode: json_object
+    timeout_s: 120
+    provider_routing:
+      order: [phala]
+      allow_fallbacks: false
+      require_parameters: true
+    response_metadata: true
+  meta-llama/llama-3.1-8b-instruct:
+    backend: openai
+    model: meta-llama/llama-3.1-8b-instruct
+    json_mode: json_object
+    timeout_s: 120
+    provider_routing:
+      order: [coreweave]
+      allow_fallbacks: false
+      require_parameters: true
+      quantizations: [bf16]
+    response_metadata: true

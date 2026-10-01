@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import os
 import shlex
 import subprocess
@@ -61,6 +62,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from evaluation.mailguard_bench.model_profiles import (
@@ -201,6 +203,18 @@ def render_stack_env(
         "RETRIEVAL__RERANK_MODEL": RERANK_MODEL,
         "RETRIEVAL__RERANK_TIMEOUT_MS": str(RERANK_TIMEOUT_MS),
     }
+
+
+def describe_route(routing: Mapping[str, Any]) -> str:
+    """One line for the operator: which provider the LLM calls are pinned to, and how strictly."""
+    order = ", ".join(str(slug) for slug in routing.get("order") or [])
+    precision = "/".join(str(q) for q in routing.get("quantizations") or [])
+    parts = [f"pinned to {order}"]
+    if precision:
+        parts.append(f"precision {precision}")
+    parts.append("fallbacks off" if routing.get("allow_fallbacks") is False else "fallbacks ON")
+    parts.append("every call records the provider that served it")
+    return ", ".join(parts)
 
 
 def format_env_file(values: Mapping[str, str], *, header: str = "") -> str:
@@ -484,6 +498,8 @@ def run(argv: Sequence[str] | None = None) -> None:
         f"   llm       {profile.model} at {values['LLM__OPENAI_BASE_URL']}"
         f" (timeout {values['LLM__TIMEOUT_S']} s)"
     )
+    if values.get("LLM__OPENAI_PROVIDER_ROUTING"):
+        print(f"   route     {describe_route(json.loads(values['LLM__OPENAI_PROVIDER_ROUTING']))}")
     print(
         f"   embedding {values['EMBEDDING__MODEL_NAME']}, {values['EMBEDDING__DIMENSION']} "
         f"dimensions; retrieval budget {values['RETRIEVAL__RETRIEVAL_TIMEOUT_MS']} ms; "

@@ -21,12 +21,19 @@ explicit ``GuardConfig`` layer flags (``scheme.V2_LAYERS``), never from a preset
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from evaluation.mailguard_bench.counting import CountingProvider
-from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, checkout_commit, sha256_file
+from evaluation.mailguard_bench.guard_env import (
+    GUARD_MODELS_YAML,
+    GuardEnvError,
+    checkout_commit,
+    sha256_file,
+)
+from evaluation.mailguard_bench.route import guard_pin_problem
 
 # re-exported: report.py, runner.py and the tests import them from here
 from evaluation.mailguard_bench.scheme import ABLATION_CONFIGS as ABLATION_CONFIGS
@@ -127,6 +134,7 @@ class GuardBuild:
 
         settings = self.pipeline.settings
         l1_path = Path(settings.resolve(settings.l1.ml_model_path))
+        routing = getattr(self.guard_llm, "provider_routing", None)
         return {
             "config": self.config,
             "scheme": self.scheme,
@@ -141,6 +149,8 @@ class GuardBuild:
             "mailguard_root": str(PROJECT_ROOT),
             "mailguard_commit": git_head(Path(PROJECT_ROOT)),
             "audit_log_path": settings.l5.audit_log_path,
+            # An OpenRouter run: the pin the guard's judges send (no key means not routed, as v1)
+            **({"provider_routing": dict(routing)} if isinstance(routing, Mapping) else {}),
         }
 
 
@@ -169,6 +179,7 @@ def build_guard(
     l3b_llm: bool = False,
     l4_llm: bool = False,
     scheme: str = SCHEME_V1,
+    expected_route: Mapping[str, Any] | None = None,
 ) -> GuardBuild:
     """MailGuardPipeline for one guarded benchmark config, its LLM stages on ``model_name``.
 
@@ -184,8 +195,12 @@ def build_guard(
         l3b_llm: Also run L3b's LLM poisoned-document check on ``model_name``.
         l4_llm: Also run L4's LLM output check on ``model_name``.
         scheme: The config scheme (``scheme.SCHEMES``), which decides what ``preset`` means.
+        expected_route: The OpenRouter ``provider`` object the run pins (None: not routed). The
+            guard's provider for ``model_name`` must send exactly it and ask for the router's
+            metadata, or the build fails before any call (``route.guard_pin_problem``).
 
     Raises:
+        GuardEnvError: If ``expected_route`` is set and the guard's provider would not honour it.
         ValueError: If ``preset`` is ``C0`` (rag-email's native path has no guard) or not
             one of the guarded configs of ``scheme``.
         KeyError: If ``model_name`` is not registered (never silently disabled).
@@ -219,7 +234,11 @@ def build_guard(
     )
     settings.l5.audit_log_path = str(audit_log_path.resolve())
     registry = ModelRegistry(settings)
-    guard_llm = CountingProvider(registry.get(model_name))
+    provider = registry.get(model_name)
+    problem = guard_pin_problem(provider, expected_route)
+    if problem is not None:
+        raise GuardEnvError(problem)
+    guard_llm = CountingProvider(provider)
     config = (
         GuardConfig.preset(guard_preset)
         if scheme == SCHEME_V1

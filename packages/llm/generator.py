@@ -22,6 +22,7 @@ from packages.llm.budget import (
 from packages.llm.citations import CitationVerdict, verify_citations
 from packages.llm.profile import AgentProfile, AgentProfileRegistry
 from packages.llm.protocol import (
+    CallProvenance,
     ChatMessage,
     LLMProvider,
     LLMResult,
@@ -61,6 +62,8 @@ class GenerationResult:
     repair_attempts: int = 0
     validated_payload: DraftReplyPayload | None = None
     citation_verdict: CitationVerdict | None = None
+    provenance: tuple[CallProvenance, ...] = ()
+    """Which endpoint served each model call of the job, in order (empty when not routed)."""
 
     @property
     def citation_mismatch(self) -> bool:
@@ -318,6 +321,14 @@ class SinglePassGenerator:
             repair_attempts=repair_attempts,
             validated_payload=validated_payload,
             citation_verdict=citation_verdict,
+            provenance=tuple(
+                found
+                for found in (
+                    parse_failure.provenance if parse_failure is not None else None,
+                    *(attempt.provenance for attempt in attempts),
+                )
+                if found is not None
+            ),
         )
 
     async def _validate_with_repair(

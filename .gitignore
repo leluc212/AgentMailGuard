@@ -90,6 +90,8 @@ postgres_data/
 evaluation/results/mailguard_bench/*/raw/
 evaluation/results/mailguard_bench/*/cases.jsonl
 evaluation/results/mailguard_bench/*/ragemail__*.jsonl
+# The OpenRouter canary's captured exchange (runbook 9.10): read once, never committed.
+evaluation/results/mailguard_bench/canary/
 
 # OS specific
 .DS_Store

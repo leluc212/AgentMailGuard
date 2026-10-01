@@ -18,7 +18,9 @@ limitations"; docs/superpowers/specs/2026-09-29-mailguard-live-v2-design.md §E;
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 THREAT_MODEL_MD = """## Threat model and limitations
 
@@ -45,7 +47,7 @@ poisoned knowledge documents); MITRE ATLAS **AML.T0051** LLM Prompt Injection
   attacks adapted to a specific defence usually break it; an adaptive red-team against
   AgentMailGuard is the main next step, and the ASR here is a lower bound on what an
   adaptive attacker would reach.
-{model_bullet}
+{model_bullet}{route_bullet}
 {scoring_bullet}
 {path_bullet}{stages}
 - **Leakage.** The benchmark half is disjoint from the classifier-training half by exact
@@ -113,6 +115,30 @@ LIVE_RETRIEVAL_BULLET = """\
   the embedding and reranker settings."""
 
 
+def route_bullet(route: Mapping[str, Any]) -> str:
+    """The bullet of a run served through OpenRouter: the pin, who served the calls, what it is
+    not comparable with. ``route`` is ``RunFacts.route`` (``pin`` and the ``provenance`` totals)."""
+    pin = route.get("pin") or {}
+    totals = route.get("provenance") or {}
+    served = ", ".join(
+        f"{name}: {count}" for name, count in (totals.get("by_provider") or {}).items()
+    )
+    served_text = (
+        f"{totals.get('calls', 0)} recorded calls were served by {served or 'no named provider'}, "
+        f"with {totals.get('fallback_attempts', 0)} fallback attempts and "
+        f"{totals.get('unverified', 0)} unverified calls"
+        if totals
+        else "no call provenance was recorded"
+    )
+    return (
+        "\n- **Served through OpenRouter.** The model ran on OpenRouter with one provider pinned "
+        f"(`{json.dumps(pin, sort_keys=True)}`, fallbacks off); {served_text}. "
+        "These numbers are not comparable with the local 4-bit runs: another precision and "
+        "serving stack, and a provider whose backend OpenRouter may change without notice. "
+        "Only the pin and each call's served provider are recorded."
+    )
+
+
 def render_threat_model(
     model: str,
     stages_off: Sequence[str] = (),
@@ -120,6 +146,7 @@ def render_threat_model(
     live: bool = False,
     embedding_mock: bool = False,
     embedding_model: str | None = None,
+    route: Mapping[str, Any] | None = None,
 ) -> str:
     """The section text for a run of ``model``, ready to append to ``analyses.md``.
 
@@ -132,6 +159,8 @@ def render_threat_model(
         embedding_mock: Whether the run used the mock embedder. Only a live run's retrieval
             bullet depends on it; the in-process bullet states both cases.
         embedding_model: The embedding model the vector branch used, named when known.
+        route: The pin and served-provider totals of a run served through OpenRouter; ``None``
+            for every other run.
     """
     stages = ""
     if stages_off:
@@ -146,6 +175,7 @@ def render_threat_model(
     live_retrieval = LIVE_RETRIEVAL_BULLET.format(embedding=named)
     return THREAT_MODEL_MD.format(
         model_bullet=(LIVE_MODEL_BULLET if live else IN_PROCESS_MODEL_BULLET).format(model=model),
+        route_bullet=route_bullet(route) if route else "",
         scoring_bullet=LIVE_SCORING_BULLET if live else IN_PROCESS_SCORING_BULLET,
         path_bullet=LIVE_PATH_BULLET if live else IN_PROCESS_PATH_BULLET,
         stages=stages,

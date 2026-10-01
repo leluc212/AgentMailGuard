@@ -15,15 +15,25 @@ from typing import Any
 
 import httpx
 
+from packages.core.settings import ProviderRouting
 from packages.llm.protocol import (
+    CallProvenance,
     ChatMessage,
     LLMError,
     LLMProvider,
+    LLMProviderMismatchError,
     LLMResponseError,
     LLMResult,
     LLMSchemaValidationError,
     LLMTimeoutError,
     ModelTier,
+)
+from packages.llm.provenance import (
+    METADATA_HEADER,
+    METADATA_HEADER_VALUE,
+    MISMATCH_MARKER,
+    check_pinned_route,
+    parse_provenance,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +47,24 @@ DEFAULT_MODEL_MAP: dict[ModelTier, str] = {
 }
 
 
+def _limit_source(response: httpx.Response) -> str | None:
+    """OpenRouter's ``error.metadata.limit_source`` of an error body, when it has one."""
+    try:
+        body = response.json()
+        source = body["error"]["metadata"]["limit_source"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return source if isinstance(source, str) else None
+
+
+def _retry_after_s(response: httpx.Response) -> float | None:
+    """The ``Retry-After`` header in seconds, when it is a number of seconds."""
+    try:
+        return float(response.headers["Retry-After"])
+    except (KeyError, ValueError):
+        return None
+
+
 class HttpLLMProvider(LLMProvider):
     """HTTP client implementation of the LLMProvider protocol."""
 
@@ -47,7 +75,20 @@ class HttpLLMProvider(LLMProvider):
         model_map: dict[ModelTier, str] | None = None,
         timeout_s: float = 10.0,
         client: httpx.AsyncClient | None = None,
+        provider_routing: ProviderRouting | None = None,
+        response_metadata: bool = False,
     ) -> None:
+        """``provider_routing`` pins the serving provider on a router such as OpenRouter.
+
+        It is sent as the request's ``provider`` object. With ``response_metadata`` the router
+        is asked for its metadata and every result carries ``provenance``. A pin with fallbacks
+        off is also verified on each response: a call another provider served, or served after
+        a fallback attempt, raises ``LLMProviderMismatchError`` instead of returning a result.
+        """
+        if provider_routing is not None and not response_metadata:
+            raise ValueError("a provider pin needs response_metadata=True, or it cannot be checked")
+        self._provider_routing = provider_routing
+        self._response_metadata = response_metadata
         self._base_url = (
             base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ).rstrip("/")
@@ -59,6 +100,16 @@ class HttpLLMProvider(LLMProvider):
 
         self._client = client
         self._owns_client = client is None
+
+    @property
+    def provider_routing(self) -> dict[str, Any] | None:
+        """The ``provider`` object sent with every request; None when not routed."""
+        return None if self._provider_routing is None else self._provider_routing.request_object()
+
+    @property
+    def response_metadata(self) -> bool:
+        """Whether the router is asked for its metadata (which provider served each call)."""
+        return self._response_metadata
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -111,10 +162,15 @@ class HttpLLMProvider(LLMProvider):
                 },
             }
 
+        if self._provider_routing is not None:
+            payload["provider"] = self._provider_routing.request_object()
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        if self._response_metadata:
+            headers[METADATA_HEADER] = METADATA_HEADER_VALUE
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
@@ -143,7 +199,10 @@ class HttpLLMProvider(LLMProvider):
                 exc.response.text,
             )
             raise LLMResponseError(
-                f"LLM request failed with status {exc.response.status_code}: {exc.response.text}"
+                f"LLM request failed with status {exc.response.status_code}: {exc.response.text}",
+                status_code=exc.response.status_code,
+                limit_source=_limit_source(exc.response),
+                retry_after_s=_retry_after_s(exc.response),
             ) from exc
         except httpx.RequestError as exc:
             elapsed_ms = max(1, int((time.perf_counter() - start_time) * 1000))
@@ -155,6 +214,19 @@ class HttpLLMProvider(LLMProvider):
         choices = data.get("choices", [])
         if not choices:
             raise LLMResponseError(f"Empty choices list received from LLM: {data}")
+
+        provenance: CallProvenance | None = None
+        if self._response_metadata:
+            provenance = parse_provenance(data, response.headers, requested_model=model)
+            if self._provider_routing is not None:
+                problem = check_pinned_route(provenance.to_dict(), self._provider_routing)
+                if problem is not None:
+                    raise LLMProviderMismatchError(
+                        f"{MISMATCH_MARKER}: {problem} (model {model})",
+                        expected=tuple(self._provider_routing.order),
+                        served=provenance.served_provider,
+                        provenance=provenance,
+                    )
 
         choice = choices[0]
         # `or ""` not a default: a refusal, content filter, or tool-call-only message sends
@@ -175,6 +247,7 @@ class HttpLLMProvider(LLMProvider):
                     f"(content: {raw_content[:200]!r})",
                     raw_content=raw_content,
                     finish_reason=finish_reason,
+                    provenance=provenance,
                 ) from exc
         else:
             try:
@@ -197,6 +270,7 @@ class HttpLLMProvider(LLMProvider):
             latency_ms=elapsed_ms,
             raw_finish_reason=finish_reason,
             raw_response=data,
+            provenance=provenance,
         )
 
 
@@ -227,6 +301,8 @@ class OpenAILLMProvider(HttpLLMProvider):
         model_map: dict[ModelTier, str] | None = None,
         timeout_s: float = 10.0,
         client: httpx.AsyncClient | None = None,
+        provider_routing: ProviderRouting | None = None,
+        response_metadata: bool = False,
     ) -> None:
         super().__init__(
             base_url=base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1",
@@ -234,6 +310,8 @@ class OpenAILLMProvider(HttpLLMProvider):
             model_map=model_map or DEFAULT_OPENAI_MODELS,
             timeout_s=timeout_s,
             client=client,
+            provider_routing=provider_routing,
+            response_metadata=response_metadata,
         )
 
 
