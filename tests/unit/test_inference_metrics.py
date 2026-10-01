@@ -13,7 +13,13 @@ from packages.llm.inference_metrics import (
     count_context_tokens,
     record_inference,
 )
-from packages.llm.protocol import ChatMessage, LLMResult, ModelTier
+from packages.llm.protocol import (
+    CallProvenance,
+    ChatMessage,
+    LLMProviderMismatchError,
+    LLMResult,
+    ModelTier,
+)
 from packages.observability.logging import StructuredJSONFormatter
 from packages.observability.metrics import PipelineMetrics, create_pipeline_metrics
 
@@ -142,6 +148,54 @@ def test_failed_request_records_context_and_outcome_only(
     fields = _inference_fields(caplog)
     assert fields["outcome"] == "TimeoutError"
     assert fields["input_tokens"] is None
+
+
+SERVED = CallProvenance(
+    requested_model="model-a", served_provider="CoreWeave", attempt=1, generation_id="gen-1"
+)
+
+
+def _log_one(caplog: pytest.LogCaptureFixture, **call: object) -> dict[str, object]:
+    caplog.set_level(logging.INFO)
+    record_inference(
+        None,
+        kind="triage",
+        tier="routine",
+        context_tokens=10,
+        latency_ms=5,
+        price_table=None,
+        **call,  # type: ignore[arg-type]
+    )
+    return _inference_fields(caplog)
+
+
+def test_the_log_line_records_which_provider_served_the_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A pinned route records the served provider of every call where it ran (task 7.29):
+    # triage and the summarizer too, whose results reach no benchmark row.
+    result = _result()
+    result.provenance = SERVED
+    fields = _log_one(caplog, result=result, error=None)
+    assert fields["provenance"] == SERVED.to_dict()
+
+
+def test_a_mismatch_error_logs_the_provider_that_served_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    other = CallProvenance(requested_model="model-a", served_provider="DeepInfra", attempt=2)
+    error = LLMProviderMismatchError(
+        "provider_mismatch: x", expected=("coreweave",), served="DeepInfra", provenance=other
+    )
+    fields = _log_one(caplog, result=None, error=error)
+    assert fields["outcome"] == "LLMProviderMismatchError"
+    assert fields["provenance"] == other.to_dict()
+
+
+def test_a_call_without_router_metadata_logs_no_provenance(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert _log_one(caplog, result=_result(), error=None)["provenance"] is None
 
 
 def test_broken_metrics_never_raise() -> None:

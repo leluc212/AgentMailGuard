@@ -18,7 +18,13 @@ from typing import Any
 from packages.core.pricing import estimate_inference_cost
 from packages.core.settings import ModelPricing
 from packages.knowledge.token_counter import TokenCounter
-from packages.llm.protocol import ChatMessage, LLMProvider, LLMResult, ModelTier
+from packages.llm.protocol import (
+    CallProvenance,
+    ChatMessage,
+    LLMProvider,
+    LLMResult,
+    ModelTier,
+)
 from packages.observability.metrics import record_ai_cost
 
 logger = logging.getLogger(__name__)
@@ -72,6 +78,12 @@ def count_context_tokens(
     return sum(counter.count_tokens(f"{m.role}\n{m.content}") for m in messages)
 
 
+def _provenance(result: LLMResult | None, error: BaseException | None) -> dict[str, Any] | None:
+    """The served-provider record of the call, from its result or its error; None when absent."""
+    call = result.provenance if result is not None else getattr(error, "provenance", None)
+    return call.to_dict() if isinstance(call, CallProvenance) else None
+
+
 def record_inference(
     metrics: Any | None,
     *,
@@ -88,6 +100,12 @@ def record_inference(
     Always observes ``llm_context_tokens``. Tokens and cost are recorded only when the
     provider returned a result; a failed request has no billed usage to report. Cost is
     recorded only when ``price_table`` prices the model.
+
+    The log line carries the call's ``provenance`` when the provider asked a router for it
+    (which provider served the call, the attempt, the generation id; ``packages/llm/
+    provenance.py``), from the result or from the error that carried it (a provider mismatch,
+    an unparseable answer), so every call of a pinned route is recorded where it ran: triage,
+    the summarizer, generation and repair alike (R21.4). None otherwise.
     """
     cost: float | None = None
     if result is not None and price_table is not None:
@@ -133,6 +151,7 @@ def record_inference(
                     "latency_ms": latency_ms,
                     "outcome": "ok" if error is None else type(error).__name__,
                     "estimated_cost_usd": cost,
+                    "provenance": _provenance(result, error),
                 }
             },
         )
