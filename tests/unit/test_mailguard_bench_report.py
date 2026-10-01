@@ -786,6 +786,10 @@ def test_build_report_writes_the_live_artifacts(tmp_path: Path) -> None:
     assert "meaning" not in manifest  # no reader ran on this run
     assert manifest["counts"]["C3"] == {"records": 5, "scored": 5, "errors": 0}
     assert manifest["runs"]["C3"]["transport"] == "services-v2"
+    # ADR-0014: each run states and records what served it, for a comparison across runs.
+    assert manifest["models"]["C3"]["embedding"] == manifest["runs"]["C3"].get("embedding")
+    assert summary["setup"]["generation_model"] == manifest["runs"]["C3"]["generation_model"]
+    assert "## Run setup" in (run / "report.md").read_text("utf-8")
     with (run / "metrics.csv").open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     guard = next(r for r in rows if r["config"] == "C3" and r["metric"] == "guard_ASR")

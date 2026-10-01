@@ -74,6 +74,7 @@ from evaluation.mailguard_bench.meaning import (
 from evaluation.mailguard_bench.model_profiles import BENCH_MODELS
 from evaluation.mailguard_bench.overhead import Overhead, overhead
 from evaluation.mailguard_bench.results import ResultStore
+from evaluation.mailguard_bench.run_setup import render_run_setup, run_setup
 from evaluation.mailguard_bench.runmeta import prices_from_meta, strict_utility_from_meta
 from evaluation.mailguard_bench.scheme import (
     SCHEME_KEY,
@@ -825,6 +826,7 @@ def build_report(
             errored_ids=frozenset(e.case_id for e in errors.get("C3", [])),
         )
     )
+    setup = run_setup(run_meta)  # None for an in-process (v1) run: its report is unchanged
     attack_sets = {
         "llmail": set(case_manifest["llmail_attack_ids"]),
         "rag": rag_ids,
@@ -856,6 +858,7 @@ def build_report(
         scheme=scheme,
         target_config=target_config(scheme),
         scheme_v2=section,
+        setup=render_run_setup(setup) if setup is not None else [],
     )
     tables = {
         "llmail": llmail,
@@ -888,6 +891,8 @@ def build_report(
         payload["fallbacks"] = {c: asdict(t) for c, t in fallbacks.items()}
     if section is not None:
         payload = {"scheme": scheme, **payload, "scheme_v2": section.summary()}
+    if setup is not None:
+        payload["setup"] = setup
     if layer:
         payload["layer_ablation"] = {
             "benign_real_drafts": {c: asdict(r) for c, r in layer.summary.real_drafts().items()},
@@ -903,6 +908,8 @@ def build_report(
             "guard": meta.get("guard_models"),
             "l1_model_sha256": meta.get("l1_model_sha256"),
             "live_layers": meta.get("live_layers"),
+            # ADR-0014: the embedding is the runner's choice; a comparison across runs needs it
+            "embedding": meta.get("embedding"),
         }
         for c, meta in run_meta.items()
     }

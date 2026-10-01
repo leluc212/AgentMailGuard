@@ -965,6 +965,9 @@ class ReportInputs:
     scheme: str = "v1"
     target_config: str = "C3"
     scheme_v2: scheme_report.SchemeV2Section | None = None
+    # ``## Run setup`` of a live run (run_setup.render_run_setup): the model, its route and the
+    # embedding; empty for a v1 run, whose report is unchanged.
+    setup: list[str] = field(default_factory=list)
 
     def attack_errors_of(self, table: str, config: str, fallback: int) -> int:
         return self.attack_errors.get(table, {}).get(config, fallback)
@@ -1502,6 +1505,8 @@ def render_report(inputs: ReportInputs) -> str:
     lines += _sensitivity_lines(inputs.llmail)
     if v2 is not None:
         lines += [""] + scheme_report.render_config_section(v2)[:-1]
+    if inputs.setup:
+        lines += ["", *inputs.setup]
     lines += ["", "## LLMail-Inject (email vector; the 95 % target is stated here)", ""]
     lines += _partial_notes(inputs, "llmail", inputs.planned_llmail_attacks, "LLMail attacks")
     lines += _side_by_side("Security and usefulness", inputs.llmail)
