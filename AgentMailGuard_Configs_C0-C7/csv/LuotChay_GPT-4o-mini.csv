@@ -1,0 +1,11 @@
+﻿Cấu hình,Lớp bật,Template,Email tấn công,Email lành tính,Tài liệu độc (RAG),Tổng lượt,Đọc kết quả
+C0,Không lớp nào,prompt gốc,1000,500,300,1800,Mức bị tấn công khi không phòng thủ
+C0T,Không lớp nào,guard,1000,500,0,1500,Riêng template thay đổi được bao nhiêu
+C1,L1 + L5,guard,1000,500,0,1500,So với C6: L1 thêm được gì
+C2,L2 + L5,guard,1000,500,0,1500,So với C6: L2 thêm được gì
+C3,L3 + L5,guard,1000,500,0,1500,So với C6: L3 thêm được gì
+C4,L3b + L5,guard,1000,500,300,1800,So với C6: L3b thêm được gì (kể cả đường RAG)
+C5,L4 + L5,guard,1000,500,0,1500,So với C6: L4 thêm được gì
+C6,L5,guard,1000,500,0,1500,Đối chứng: riêng L5 làm được gì
+C7,L1 + L2 + L3 + L3b + L4 + L5,guard,1000,500,300,1800,Kết quả chính của bài báo
+TỔNG,,,9000,4500,900,14400,

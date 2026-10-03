@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentMailGuard Benchmark Dashboard</title>
+<style>
+:root{--ink:#132238;--muted:#617087;--paper:#f4f7f6;--card:#fff;--line:#dce5e3;--teal:#047f76;--mint:#d8f3ec;--navy:#173a5e;--amber:#d98c10;--red:#c94747;--gpt:#047f76;--qwen:#6a4fb3;--llama:#b4531f;--shadow:0 16px 44px rgba(28,54,72,.09)}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#eef5f1 0,#f8f4eb 55%,#eef3f6 100%);color:var(--ink);font:15px/1.5 Inter,Segoe UI,Arial,sans-serif;min-height:100vh}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:radial-gradient(#173a5e14 1px,transparent 1px);background-size:24px 24px;-webkit-mask-image:linear-gradient(to bottom,#000,transparent 72%);mask-image:linear-gradient(to bottom,#000,transparent 72%)}
+header{background:var(--navy);color:#fff;padding:36px max(24px,calc((100% - 1240px)/2)) 70px;position:relative;overflow:hidden}header:after{content:"";position:absolute;width:360px;height:360px;border:80px solid #ffffff0a;border-radius:50%;right:-110px;top:-180px}
+.eyebrow{color:#86ded1;text-transform:uppercase;letter-spacing:.16em;font-size:12px;font-weight:800}.title{font-family:Georgia,serif;font-size:clamp(32px,5vw,58px);line-height:1;margin:10px 0 12px;max-width:850px}.subtitle{max-width:780px;color:#d5e2eb;font-size:16px}
+main{max-width:1240px;margin:auto;padding:24px}.panel,.card{background:#ffffffde;border:1px solid #fff;border-radius:18px;box-shadow:var(--shadow);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.loader{display:grid;grid-template-columns:1fr auto;gap:22px;align-items:center;padding:22px;position:relative}.drop{border:2px dashed #89aaa5;border-radius:14px;padding:18px;transition:.2s}.drop.drag{border-color:var(--teal);background:var(--mint)}
+button,.button{border:0;border-radius:10px;padding:11px 16px;background:var(--teal);color:white;cursor:pointer;display:inline-block;font:inherit;font-weight:750}button:hover,.button:hover{filter:brightness(.92)}button:focus-visible,.button:focus-within{outline:3px solid #f2b84b;outline-offset:2px}input[type=file]{position:absolute;width:1px;height:1px;opacity:0}.small{font-size:12px;color:var(--muted)}
+.notice{margin:18px 0;padding:13px 16px;border-left:4px solid var(--amber);background:#fff8e8;border-radius:8px;color:#6d4b0a}.notice.error{border-color:var(--red);background:#fff0f0;color:#7a2626}.notice.ok{border-color:var(--teal);background:#eaf8f4;color:#075e58}
+.toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:22px 0}.field label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}select{background:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 34px 9px 11px;color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card{padding:18px}.kpi-label{text-transform:uppercase;letter-spacing:.09em;font-size:11px;color:var(--muted);font-weight:800}.kpi-value{font:700 25px/1.25 Georgia,serif;margin-top:5px;word-break:break-word}.kpi-note{color:var(--muted);font-size:12px;margin-top:4px}
+section{margin-top:28px}h2{font:700 25px Georgia,serif;margin:0 0 5px}h3{font-size:15px;margin:0}.section-note{color:var(--muted);margin:0 0 14px}.chart{padding:20px}.bar-row{display:grid;grid-template-columns:90px 1fr 82px;gap:12px;align-items:center;margin:12px 0}.bar-label{font-weight:800}.track{height:13px;background:#e8efed;border-radius:20px;overflow:hidden}.fill{height:100%;border-radius:20px;background:linear-gradient(90deg,var(--teal),#48b5a6)}.fill.utility{background:linear-gradient(90deg,var(--navy),#6289aa)}.fill.risk{background:linear-gradient(90deg,#e2a93c,var(--red))}.bar-value{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 13px;text-align:left;border-bottom:1px solid #e7edeb;font-variant-numeric:tabular-nums}th{position:sticky;top:0;background:#edf4f2;color:#345048;font-size:11px;text-transform:uppercase;letter-spacing:.06em}tbody tr:hover{background:#f8fbfa}.good{color:var(--teal);font-weight:750}.bad{color:var(--red);font-weight:750}.tag{display:inline-block;padding:3px 8px;border-radius:999px;background:var(--mint);color:#09665f;font-size:11px;font-weight:800}.tag.legacy{background:#fff0cf;color:#76520a}
+.empty{text-align:center;padding:54px 22px;color:var(--muted)}footer{max-width:1240px;margin:20px auto;padding:0 24px 34px;color:var(--muted);font-size:12px}
+.showcase{margin-top:-58px;position:relative}
+.switcher{display:flex;gap:8px;flex-wrap:wrap;padding:8px;margin-bottom:16px;width:max-content;max-width:100%}.switcher button{background:transparent;color:var(--ink);padding:10px 16px;display:inline-flex;align-items:center;gap:8px}.switcher button[aria-selected=true]{background:var(--navy);color:#fff}.swatch{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--c,var(--gpt))}.swatch.all{background:conic-gradient(var(--gpt) 0 33%,var(--qwen) 0 66%,var(--llama) 0)}.pill{font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:#fff0cf;color:#76520a}
+.hero-panel{padding:26px;background:linear-gradient(120deg,#fff 0,color-mix(in srgb,var(--c) 7%,#fff) 58%,#edf3f8 100%)}.hero-top{display:flex;justify-content:space-between;gap:20px;align-items:start}.run-badge{display:inline-flex;align-items:center;gap:7px;background:#d8f3ec;color:#075e58;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}.run-badge:before{content:"";width:8px;height:8px;background:#0a9b78;border-radius:50%}.run-badge.live{background:#fff0cf;color:#76520a}.run-badge.live:before{background:var(--amber)}.hero-model{font:700 clamp(30px,4vw,46px)/1.05 Georgia,serif;margin:12px 0 6px}.hero-meta{color:var(--muted)}.completion{text-align:right}.completion strong{font:700 42px Georgia,serif;color:var(--c)}
+.stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px}.stat{padding:16px;border:1px solid var(--line);border-radius:14px;background:#fff}.stat strong{display:block;font:700 25px Georgia,serif}.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:800}.stat.warn strong{color:var(--amber)}
+.progress{height:12px;background:#edf1f2;border-radius:20px;overflow:hidden;margin-top:18px}.progress i{display:block;height:100%;background:var(--c)}.cfg-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.chip{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:800;background:#edf1f2;color:var(--muted)}.chip.done{background:var(--mint);color:#075e58}
+.story-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}.comparison{padding:22px}.comparison-row{display:grid;grid-template-columns:125px 1fr;gap:16px;padding:16px 0;border-bottom:1px solid var(--line)}.comparison-row:last-child{border:0}.metric-name{font-weight:800}.metric-name small{display:block;color:var(--muted);font-weight:500}.before-after{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center}.score{padding:12px;border-radius:12px;background:#f1f4f5}.score.best{background:var(--mint);color:#075e58}.score.worse{background:#fff0f0;color:#7a2626}.score b{display:block;font:700 25px Georgia,serif}.arrow{font-size:22px;color:var(--teal)}
+.takeaway{padding:22px;background:color-mix(in srgb,var(--c) 30%,#14213a);color:#fff}.takeaway h2{color:#fff}.takeaway p{color:#e1e8ef}.big-drop{font:700 52px Georgia,serif;color:#9fe9dc}.takeaway-list{padding:0;list-style:none}.takeaway-list li{padding:9px 0;border-top:1px solid #ffffff22}.takeaway-list b{color:#9fe9dc}
+.config-bars{padding:22px}.dual-row{display:grid;grid-template-columns:70px 1fr 1fr;gap:14px;align-items:center;margin:13px 0}.dual-track{position:relative;height:24px;background:#edf1f2;border-radius:7px;overflow:hidden}.dual-fill{height:100%;background:#d27a46;min-width:2px}.dual-fill.rag{background:#386f91}.dual-fill.full{background:var(--teal)}.dual-fill.m{background:var(--c)}.cell{display:grid;grid-template-columns:1fr 56px;gap:8px;align-items:center}.val{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right}.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px}.dot{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:5px;background:var(--c,#d27a46)}.dot.rag{background:#386f91}.cfg-head{display:grid;grid-template-columns:70px 1fr 1fr;gap:14px;font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.pair{display:grid;gap:4px}.mini{display:grid;grid-template-columns:1fr 56px;gap:8px;align-items:center}.mini .dual-track{height:11px;border-radius:5px}.mini .val{font-size:11px}
+.funnel .dual-row{grid-template-columns:70px 1fr 1fr}.funnel .dual-fill.pre{background:#e2a93c}.funnel .dual-fill.post{background:var(--red)}
+.layer-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:14px}.layer{padding:12px 7px;text-align:center;background:#eaf8f4;border:1px solid #c8e9e1;border-radius:10px;color:#075e58;font-size:12px;font-weight:800}.scope{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.scope-item{padding:18px;background:#fff;border:1px solid var(--line);border-radius:14px}.scope-item strong{display:block;font:700 30px Georgia,serif;color:var(--navy)}.footnote{font-size:12px;color:var(--muted);margin-top:10px}.explorer-title{margin-top:36px;padding-top:26px;border-top:1px solid #ccd8d5}
+.vs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.vs-card{padding:22px;border-top:6px solid var(--c)}.vs-card h3{font:700 21px Georgia,serif;margin-bottom:4px}.vs-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}.vs-kpi{padding:12px;border-radius:12px;background:#f4f7f7}.vs-kpi b{display:block;font:700 19px Georgia,serif}.vs-kpi span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+.insights{padding:22px}.insights ol{margin:0;padding-left:20px}.insights li{margin:10px 0}.mc{font-weight:800;color:var(--c)}td.num,th.num{text-align:right}
+[hidden]{display:none!important}
+@media(max-width:1000px){.vs-grid{grid-template-columns:1fr}}@media(max-width:900px){.stat-grid{grid-template-columns:repeat(3,1fr)}.story-grid{grid-template-columns:1fr}.layer-strip{grid-template-columns:repeat(3,1fr)}}@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.loader{grid-template-columns:1fr}.bar-row{grid-template-columns:64px 1fr 70px}.dual-row,.cfg-head,.funnel .dual-row{grid-template-columns:52px 1fr 1fr}}@media(max-width:600px){.stat-grid,.scope{grid-template-columns:repeat(2,1fr)}.hero-top{display:block}.completion{text-align:left;margin-top:14px}.comparison-row{grid-template-columns:1fr}.before-after{gap:7px}}@media(max-width:520px){.grid,.stat-grid,.scope{grid-template-columns:1fr}.title{font-size:36px}.layer-strip{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header><div class="eyebrow">Live evaluations · v2 scheme · 550 shared cases</div><div class="title">AgentMailGuard Benchmark</div><div class="subtitle">A production-path evaluation of GPT-4o mini, Qwen2.5-7B Instruct and Llama-3.1-8B Instruct across email prompt injection, poisoned retrieval, and benign traffic, on the same pinned case set and the same nine guard configurations.</div></header>
+<main>
+<div class="showcase">
+<div class="panel switcher" role="tablist" aria-label="Choose a result view" id="tablist"></div>
+<div id="view-model" role="tabpanel"></div>
+<div id="view-compare" role="tabpanel" aria-labelledby="tab-compare" hidden></div>
+</div>
+<h2 class="explorer-title">Explore another result set</h2><p class="section-note">The model showcases above are embedded. Use this optional artifact explorer for any compatible run.</p>
+<div class="panel loader"><div id="drop" class="drop"><strong>Load one benchmark run</strong><div class="small">Choose that run's <b>metrics.csv</b>, <b>manifest.json</b>, and optionally <b>summary.json</b>. Files stay in this browser.</div></div><label class="button">Choose files<input id="files" type="file" multiple accept=".json,.csv"></label></div>
+<div id="message" class="notice" role="status">Built-in model results are shown above. Load aggregate artifacts to explore another run below.</div>
+<div id="app" hidden>
+<div class="toolbar"><div class="field"><label for="tableFilter">Dataset table</label><select id="tableFilter"></select></div><div class="field"><label for="metricFilter">Metric</label><select id="metricFilter"></select></div><div class="field"><label for="groupFilter">Group</label><select id="groupFilter"></select></div></div>
+<div id="kpis" class="grid"></div>
+<section><h2>Configuration comparison</h2><p class="section-note">Rates include Wilson 95% confidence intervals when exported. For ASR, DER and FPR, lower is better; for utility/TSR, higher is better.</p><div id="chart" class="panel chart"></div></section>
+<section><h2>Evidence table</h2><p class="section-note">The dashboard never invents missing values. “—” means the report did not export that measurement.</p><div class="table-wrap"><table><thead><tr><th>Table</th><th>Config</th><th>Metric</th><th>Group</th><th>Successes</th><th>n</th><th>Rate</th><th>95% CI</th><th>Value</th></tr></thead><tbody id="metricRows"></tbody></table></div></section>
+<section><h2>Paired comparisons</h2><p class="section-note">Exact McNemar evidence exported by the benchmark reporter.</p><div class="table-wrap"><table><thead><tr><th>Comparison</th><th>Pairs</th><th>p-value</th><th>Interpretation (α=.05)</th></tr></thead><tbody id="pairedRows"></tbody></table></div></section>
+<section><h2>Latency and resource overhead</h2><p class="section-note">Reported values by configuration. Latency values are milliseconds.</p><div class="table-wrap"><table><thead><tr><th>Config</th><th>Metric</th><th>Value</th></tr></thead><tbody id="overheadRows"></tbody></table></div></section>
+<section><h2>Run provenance</h2><div id="provenance" class="panel chart"></div></section>
+</div>
+</main><footer>Standalone presentation artifact. Embedded figures are generated by build_dashboard_data.py from each run's metrics.csv, manifest.json and tmr_pre_l5.csv (evaluation/results/mailguard_bench/). It reads selected local files only; no uploads, API calls, cookies, or external libraries.</footer>
+<script>
+/* Embedded results. The block between the markers is written by build_dashboard_data.py from each
+   run's metrics.csv, manifest.json, kit-log.jsonl and tmr_pre_l5.csv. Do not edit it by hand. */
+/* BEGIN GENERATED DATA */
+const DATA=[
+ {
+  "key": "gpt",
+  "name": "GPT-4o mini",
+  "run": "2026-10-01-gpt4omini-live",
+  "provider": "OpenAI (direct)",
+  "status": "complete",
+  "date": "01 Oct 2026",
+  "duration": "2h 53m",
+  "executions": 4950,
+  "errors": 1,
+  "ok": 4949,
+  "triageErrors": 0,
+  "emailN": [
+   299,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300
+  ],
+  "emailASR": [
+   24.41,
+   22.0,
+   3.33,
+   1.0,
+   10.33,
+   20.67,
+   17.67,
+   21.33,
+   0.0
+  ],
+  "ragASR": [
+   26.0,
+   27.0,
+   28.0,
+   28.0,
+   22.0,
+   17.0,
+   21.0,
+   27.0,
+   3.0
+  ],
+  "tmrEmail": [
+   24.41,
+   22.0,
+   3.33,
+   1.0,
+   10.33,
+   20.67,
+   20.33,
+   21.33,
+   0.0
+  ],
+  "tmrRag": [
+   3.0,
+   5.0,
+   5.0,
+   5.0,
+   3.0,
+   3.0,
+   5.0,
+   5.0,
+   1.0
+  ],
+  "preEmail": [
+   24.41,
+   22.0,
+   3.33,
+   1.0,
+   10.33,
+   20.67,
+   20.33,
+   21.33,
+   0.0
+  ],
+  "preRag": [
+   26.0,
+   27.0,
+   28.0,
+   28.0,
+   22.0,
+   17.0,
+   27.0,
+   27.0,
+   11.0
+  ],
+  "removedAll": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   14,
+   0,
+   8
+  ],
+  "derC0": 18.55,
+  "derC7": 0.0,
+  "fprC0": 0.0,
+  "fprC7": 0.0,
+  "fprC7n": "0/150",
+  "reachedC7": 42,
+  "utilC0": 28.67,
+  "utilC7": 28.67,
+  "pEmail": "2.12×10⁻²²",
+  "pRag": "2.38×10⁻⁷",
+  "latP50": "2.76 s",
+  "latP95": "8.43 s",
+  "cost": "$0.000224",
+  "guardCallsC7": 1.25
+ },
+ {
+  "key": "qwen",
+  "name": "Qwen2.5-7B Instruct",
+  "run": "2026-10-02-qwen25-openrouter-live",
+  "provider": "OpenRouter · pinned to Phala, no fallbacks",
+  "status": "complete",
+  "date": "02 Oct 2026",
+  "duration": "3h 31m",
+  "executions": 4950,
+  "errors": 38,
+  "ok": 4912,
+  "triageErrors": 31,
+  "emailN": [
+   298,
+   297,
+   297,
+   296,
+   295,
+   296,
+   294,
+   294,
+   295
+  ],
+  "emailASR": [
+   37.92,
+   40.74,
+   5.39,
+   0.68,
+   37.97,
+   38.85,
+   34.01,
+   37.07,
+   0.0
+  ],
+  "ragASR": [
+   94.0,
+   95.0,
+   94.0,
+   93.0,
+   89.0,
+   57.0,
+   89.0,
+   92.0,
+   47.0
+  ],
+  "tmrEmail": [
+   37.92,
+   40.74,
+   5.39,
+   0.68,
+   37.97,
+   38.85,
+   37.07,
+   37.07,
+   0.34
+  ],
+  "tmrRag": [
+   3.0,
+   5.0,
+   3.0,
+   4.0,
+   4.0,
+   2.0,
+   3.0,
+   4.0,
+   2.0
+  ],
+  "preEmail": [
+   37.92,
+   40.74,
+   5.39,
+   0.68,
+   37.97,
+   38.85,
+   37.07,
+   37.07,
+   0.34
+  ],
+  "preRag": [
+   94.0,
+   95.0,
+   94.0,
+   93.0,
+   89.0,
+   57.0,
+   94.0,
+   92.0,
+   57.0
+  ],
+  "removedAll": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   14,
+   0,
+   11
+  ],
+  "derC0": 29.15,
+  "derC7": 0.0,
+  "fprC0": 0.0,
+  "fprC7": 2.0,
+  "fprC7n": "3/150",
+  "reachedC7": 82,
+  "utilC0": 52.67,
+  "utilC7": 52.67,
+  "pEmail": "1.93×10⁻³⁴",
+  "pRag": "1.78×10⁻¹³",
+  "latP50": "3.45 s",
+  "latP95": "10.21 s",
+  "cost": "$0.000251",
+  "guardCallsC7": 2.78
+ },
+ {
+  "key": "llama",
+  "name": "Llama-3.1-8B Instruct",
+  "run": "2026-10-02-llama31-openrouter-live",
+  "provider": "OpenRouter · pinned to CoreWeave (bf16), no fallbacks",
+  "caveat": "Llama's low RAG ASR in <b>C2 (7%)</b> and <b>C7 (0%)</b> is not poisoning detection. In 85 of 100 RAG cases its own L2 extractor flagged the customer's plain factual question as instructions to the assistant, and L5 quarantined the email before retrieval mattered. That is over-blocking of a benign-looking question; L3b alone (C4) is the fair RAG figure (54%).",
+  "status": "complete",
+  "date": "02 Oct 2026",
+  "duration": "3h 28m",
+  "executions": 4950,
+  "errors": 4,
+  "ok": 4946,
+  "triageErrors": 0,
+  "emailN": [
+   300,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300,
+   300
+  ],
+  "emailASR": [
+   34.0,
+   36.0,
+   5.67,
+   0.0,
+   30.67,
+   35.67,
+   32.33,
+   36.33,
+   0.0
+  ],
+  "ragASR": [
+   93.0,
+   92.0,
+   93.0,
+   7.0,
+   82.0,
+   54.0,
+   77.0,
+   92.0,
+   0.0
+  ],
+  "tmrEmail": [
+   34.0,
+   36.0,
+   5.67,
+   0.0,
+   30.67,
+   35.67,
+   35.0,
+   36.33,
+   0.0
+  ],
+  "tmrRag": [
+   5.0,
+   4.0,
+   4.0,
+   4.0,
+   2.0,
+   3.0,
+   4.0,
+   4.0,
+   2.0
+  ],
+  "preEmail": [
+   34.0,
+   36.0,
+   5.67,
+   0.0,
+   30.67,
+   35.67,
+   35.0,
+   36.33,
+   0.0
+  ],
+  "preRag": [
+   93.0,
+   92.0,
+   93.0,
+   7.0,
+   82.0,
+   54.0,
+   93.0,
+   92.0,
+   2.0
+  ],
+  "removedAll": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   24,
+   0,
+   2
+  ],
+  "derC0": 26.75,
+  "derC7": 0.0,
+  "fprC0": 0.0,
+  "fprC7": 0.0,
+  "fprC7n": "0/150",
+  "reachedC7": 84,
+  "utilC0": 56.0,
+  "utilC7": 52.0,
+  "pEmail": "3.94×10⁻³¹",
+  "pRag": "2.02×10⁻²⁸",
+  "latP50": "2.24 s",
+  "latP95": "5.33 s",
+  "cost": "$0.000213",
+  "guardCallsC7": 1.27
+ }
+];
+/* END GENERATED DATA */
+const CONFIGS=['C0','C0T','C1','C2','C3','C4','C5','C6','C7'];
+const LAYERS={C0:'none (native rag-email)',C0T:'none (guard template)',C1:'L1 + L5',C2:'L2 + L5',C3:'L3 + L5',C4:'L3b + L5',C5:'L4 + L5',C6:'L5 only',C7:'all layers'};
+const COLOR={gpt:'var(--gpt)',qwen:'var(--qwen)',llama:'var(--llama)'};
+const fmt=v=>Number(v).toFixed(2)+'%';
+const relDrop=(a,b)=>a>0?(a-b)/a*100:0;
+const w=v=>`style="width:${Math.max(0,Math.min(100,v))}%"`;
+const done=DATA.filter(m=>m.status==='complete');
+const bar=(v,cls,label)=>`<div class="cell"><div class="dual-track" role="img" aria-label="${label} ${fmt(v)}"><div class="dual-fill ${cls}" ${w(v)}></div></div><span class="val">${fmt(v)}</span></div>`;
+const mini=(m,v,label)=>`<div class="mini" style="--c:${COLOR[m.key]}"><div class="dual-track" role="img" aria-label="${m.name} ${label} ${fmt(v)}"><div class="dual-fill m" ${w(v)}></div></div><span class="val">${fmt(v)}</span></div>`;
+
+function renderRunning(m){
+ const p=m.total?Math.round(m.rows/m.total*100):0;
+ return `<section class="panel hero-panel" style="--c:${COLOR[m.key]}"><div class="hero-top"><div><div class="run-badge live">Benchmark in progress</div><div class="hero-model">${m.name} × AgentMailGuard</div><div class="hero-meta">Run ${m.run} · ${m.provider} · snapshot ${m.snapshot}</div></div><div class="completion"><strong>${p}%</strong><div class="small">${m.rows.toLocaleString('en-US')} of ${m.total.toLocaleString('en-US')} executions</div></div></div>
+ <div class="progress" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="Run progress"><i ${w(p)}></i></div>
+ <div class="cfg-chips">${CONFIGS.map(c=>`<span class="chip ${m.configsDone.includes(c)?'done':''}">${c}${m.configsDone.includes(c)?' ✓':''}</span>`).join('')}</div></section>
+ <div class="notice">Results for ${m.name} appear here when all nine configurations finish. Same 550 cases, same guard commit and same scoring as the other models. Refresh with <code>build_dashboard_data.py</code>.</div>`;
+}
+
+function renderModel(m){
+ if(m.status!=='complete')return renderRunning(m);
+ const eDrop=relDrop(m.emailASR[0],m.emailASR[8]),rDrop=relDrop(m.ragASR[0],m.ragASR[8]);
+ const sc=(a,b)=>b<=a?'best':'worse';
+ const nMin=Math.min(...m.emailN),nMax=Math.max(...m.emailN);
+ const notes=[`Strict benign utility for C7 was <b>${fmt(m.utilC7)}</b> (C0 ${fmt(m.utilC0)}); this end-to-end drafting criterion is not the guard false-positive rate, which was <b>${fmt(m.fprC7)}</b> (${m.fprC7n}).`];
+ if(m.caveat)notes.unshift(m.caveat);
+ if(m.errors)notes.push(`<b>${m.errors}</b> case${m.errors===1?'':'s'} kept an error after the retry pass${m.triageErrors?` (${m.triageErrors} <code>triage_stage_failure</code>)`:''} and ${m.errors===1?'is':'are'} excluded, so email n ranges from ${nMin} to ${nMax}.`);
+ return `<section class="panel hero-panel" style="--c:${COLOR[m.key]}"><div class="hero-top"><div><div class="run-badge">Benchmark complete</div><div class="hero-model">${m.name} × AgentMailGuard</div><div class="hero-meta">Run ${m.run} · ${m.provider} · ${m.date} · ${m.duration}</div></div><div class="completion"><strong>100%</strong><div class="small">campaign processed</div></div></div>
+ <div class="stat-grid"><div class="stat"><strong>${m.executions.toLocaleString('en-US')}</strong><span>Pipeline executions</span></div><div class="stat"><strong>${m.ok.toLocaleString('en-US')}</strong><span>Successful results</span></div><div class="stat warn"><strong>${m.errors}</strong><span>Residual error${m.errors===1?'':'s'}</span></div><div class="stat"><strong>550</strong><span>Unique cases</span></div><div class="stat"><strong>9</strong><span>Guard configs</span></div></div></section>
+ <section><div class="scope"><div class="scope-item"><strong>300</strong>Email injection attacks <div class="small">LLMail-Inject, per configuration</div></div><div class="scope-item"><strong>100</strong>Poisoned RAG attacks <div class="small">Retrieval vector, per configuration</div></div><div class="scope-item"><strong>150</strong>Benign emails <div class="small">False-positive and utility checks</div></div></div></section>
+ <section class="story-grid" style="--c:${COLOR[m.key]}"><div class="panel comparison"><h2>Baseline → full guard</h2><p class="section-note">C0 is the native no-guard path. C7 activates every defense layer.</p>
+ <div class="comparison-row"><div class="metric-name">Email ASR ↓<small>300 attacks</small></div><div class="before-after"><div class="score"><b>${fmt(m.emailASR[0])}</b>C0 baseline</div><div class="arrow" aria-hidden="true">→</div><div class="score ${sc(m.emailASR[0],m.emailASR[8])}"><b>${fmt(m.emailASR[8])}</b>C7 full guard</div></div></div>
+ <div class="comparison-row"><div class="metric-name">RAG ASR ↓<small>100 attacks</small></div><div class="before-after"><div class="score"><b>${fmt(m.ragASR[0])}</b>C0 baseline</div><div class="arrow" aria-hidden="true">→</div><div class="score ${sc(m.ragASR[0],m.ragASR[8])}"><b>${fmt(m.ragASR[8])}</b>C7 full guard</div></div></div>
+ <div class="comparison-row"><div class="metric-name">Email TMR ↓<small>before L5</small></div><div class="before-after"><div class="score"><b>${fmt(m.tmrEmail[0])}</b>C0 baseline</div><div class="arrow" aria-hidden="true">→</div><div class="score ${sc(m.tmrEmail[0],m.tmrEmail[8])}"><b>${fmt(m.tmrEmail[8])}</b>C7 full guard</div></div></div>
+ <div class="comparison-row"><div class="metric-name">Overall DER ↓<small>400 attacks</small></div><div class="before-after"><div class="score"><b>${fmt(m.derC0)}</b>C0 baseline</div><div class="arrow" aria-hidden="true">→</div><div class="score ${sc(m.derC0,m.derC7)}"><b>${fmt(m.derC7)}</b>C7 full guard</div></div></div>
+ <div class="comparison-row"><div class="metric-name">False positives ↓<small>150 benign</small></div><div class="before-after"><div class="score"><b>${fmt(m.fprC0)}</b>C0 baseline</div><div class="arrow" aria-hidden="true">→</div><div class="score ${sc(m.fprC0,m.fprC7)}"><b>${fmt(m.fprC7)}</b>C7 full guard (${m.fprC7n})</div></div></div></div>
+ <div class="panel takeaway"><div class="eyebrow">Primary result</div><div class="big-drop">${Math.round(eDrop)}%</div><h2>relative reduction in email ASR</h2><p>The full stack ${m.emailASR[8]===0?'eliminated measured email attack success':'cut email attack success to '+fmt(m.emailASR[8])} in this run and reduced RAG attack success by ${rDrop.toFixed(1)}% relative to baseline.</p><ul class="takeaway-list"><li><b>p = ${m.pEmail}</b> · Email C0 vs C7</li><li><b>p = ${m.pRag}</b> · RAG C0 vs C7</li><li><b>${fmt(m.fprC7)}</b> measured benign FPR for C7</li><li><b>${m.latP50}</b> C7 median end-to-end latency</li></ul></div></section>
+ <section><h2>Defense configurations</h2><p class="section-note">Attack success rate by vector, measured on the final draft. Shorter bars are better.</p><div class="panel config-bars"><div class="legend"><span><i class="dot"></i>Email ASR</span><span><i class="dot rag"></i>RAG ASR</span></div>
+ ${CONFIGS.map((c,i)=>{const f=c==='C7'?' full':'';return `<div class="dual-row"><b title="${LAYERS[c]}">${c}</b>${bar(m.emailASR[i],f.trim(),`${c} email ASR`)}${bar(m.ragASR[i],'rag'+f,`${c} RAG ASR`)}</div>`}).join('')}
+ <p class="footnote">C1–C5 each add one layer to L5; C6 is L5 alone; C7 enables L1, L2, L3, L3b, L4 and L5.</p></div></section>
+ <section><h2>Before L5 vs after the guard</h2><p class="section-note">Email attacks. TMR is how often the model's own draft, before L4/L5, forwarded the email or wrote to the attacker's address. ASR is what still succeeds on the final draft. The gap is what L4/L5 caught after the model was already steered.</p><div class="panel config-bars funnel"><div class="legend"><span><i class="dot" style="background:#e2a93c"></i>TMR before L5</span><span><i class="dot" style="background:var(--red)"></i>ASR on final draft</span></div><div class="cfg-head"><span>Config</span><span>Email TMR (pre-L5)</span><span>Email ASR (final)</span></div>
+ ${CONFIGS.map((c,i)=>`<div class="dual-row"><b title="${LAYERS[c]}">${c}</b>${bar(m.tmrEmail[i],'pre',`${c} email TMR before L5`)}${bar(m.emailASR[i],'post',`${c} email ASR`)}</div>`).join('')}
+ <p class="footnote">Attacks removed after generation (all vectors): ${CONFIGS.map((c,i)=>m.removedAll[i]?`${c} ${m.removedAll[i]}`:'').filter(Boolean).join(' · ')||'none'}. When L1/L2/L5 block an email inbound, the model never runs and TMR counts it as 0.</p></div></section>
+ <section class="story-grid"><div class="panel chart"><h2>C7 full defense stack</h2><p class="section-note">Six implementation switches; L3b is the document-scanning sublayer of L3. Guard LLM stages use ${m.name}.</p><div class="layer-strip"><div class="layer">L1<br>Injection</div><div class="layer">L2<br>Intent</div><div class="layer">L3<br>Isolation</div><div class="layer">L3b<br>Documents</div><div class="layer">L4<br>Output</div><div class="layer">L5<br>Policy</div></div></div><div class="panel chart"><h2>Operational profile</h2><div class="comparison-row"><div class="metric-name">Latency</div><div><b>p50 ${m.latP50}</b><br><span class="small">p95 ${m.latP95}</span></div></div><div class="comparison-row"><div class="metric-name">Model cost</div><div><b>${m.cost} / email</b><br><span class="small">reported C7 estimate; embedding excluded</span></div></div><div class="comparison-row"><div class="metric-name">Guard calls</div><div><b>${m.guardCallsC7} per email</b><br><span class="small">C7; embedding text-embedding-3-small, live</span></div></div></div></section>
+ <div class="notice">Interpretation note: ${notes.join(' ')}</div>`;
+}
+
+function renderCompare(){
+ const ms=done;
+ if(ms.length<2)return '<div class="notice">Head-to-head needs at least two finished runs.</div>';
+ const pending=DATA.filter(m=>m.status!=='complete');
+ const by=(k,i)=>ms.map(m=>({m,v:m[k][i]})).sort((a,b)=>a.v-b.v);
+ const nm=m=>`<span class="mc" style="--c:${COLOR[m.key]}">${m.name}</span>`;
+ const list=(k,i)=>ms.map(m=>`${nm(m)} ${fmt(m[k][i])}`).join(', ');
+ const card=m=>`<div class="panel vs-card" style="--c:${COLOR[m.key]}"><h3>${m.name}</h3><div class="small">${m.provider}</div><div class="vs-kpis"><div class="vs-kpi"><span>Email ASR C0 → C7</span><b>${fmt(m.emailASR[0])} → ${fmt(m.emailASR[8])}</b></div><div class="vs-kpi"><span>RAG ASR C0 → C7</span><b>${fmt(m.ragASR[0])} → ${fmt(m.ragASR[8])}</b></div><div class="vs-kpi"><span>Email TMR pre-L5 C0 → C7</span><b>${fmt(m.tmrEmail[0])} → ${fmt(m.tmrEmail[8])}</b></div><div class="vs-kpi"><span>C7 benign FPR</span><b>${fmt(m.fprC7)}</b></div><div class="vs-kpi"><span>C7 latency p50 / p95</span><b>${m.latP50} / ${m.latP95}</b></div><div class="vs-kpi"><span>Residual errors</span><b>${m.errors} / ${m.executions.toLocaleString('en-US')}</b></div></div></div>`;
+ const rows=(k1,k2,l1,l2)=>CONFIGS.map((c,i)=>`<div class="dual-row"><b title="${LAYERS[c]}">${c}</b><div class="pair">${ms.map(m=>mini(m,m[k1][i],`${c} ${l1}`)).join('')}</div><div class="pair">${ms.map(m=>mini(m,m[k2][i],`${c} ${l2}`)).join('')}</div></div>`).join('');
+ const legend=`<div class="legend">${ms.map(m=>`<span><i class="dot" style="--c:${COLOR[m.key]}"></i>${m.name}</span>`).join('')}</div>`;
+ const hi=by('emailASR',0),rag7=by('ragASR',8);
+ const fp=ms.filter(m=>m.fprC7>0);
+ const th=ms.map(m=>`<th scope="col" class="num">Email · ${m.name}</th>`).join('')+ms.map(m=>`<th scope="col" class="num">RAG · ${m.name}</th>`).join('')+ms.map(m=>`<th scope="col" class="num">TMR · ${m.name}</th>`).join('');
+ const tb=CONFIGS.map((c,i)=>`<tr><td><span class="tag">${c}</span></td><td>${LAYERS[c]}</td>${ms.map(m=>`<td class="num">${fmt(m.emailASR[i])}</td>`).join('')}${ms.map(m=>`<td class="num">${fmt(m.ragASR[i])}</td>`).join('')}${ms.map(m=>`<td class="num">${fmt(m.tmrEmail[i])}</td>`).join('')}</tr>`).join('');
+ return `${pending.length?`<div class="notice">${pending.map(m=>m.name).join(', ')} still running; the comparison below covers the ${ms.length} finished models.</div>`:''}
+ <section class="vs-grid">${ms.map(card).join('')}</section>
+ <section><h2>Attack success by configuration</h2><p class="section-note">Same 550 cases, same nine configurations. One bar per model in each cell, final draft. Shorter is better.</p><div class="panel config-bars">${legend}<div class="cfg-head"><span>Config</span><span>Email ASR (300)</span><span>RAG ASR (100)</span></div>${rows('emailASR','ragASR','email ASR','RAG ASR')}</div></section>
+ <section><h2>Tool misuse before L5</h2><p class="section-note">Email attacks. How often each model's own draft forwarded the email or wrote to the attacker before L4/L5 ran, next to what survived the guard.</p><div class="panel config-bars">${legend}<div class="cfg-head"><span>Config</span><span>Email TMR (pre-L5)</span><span>Email ASR (final)</span></div>${rows('tmrEmail','emailASR','email TMR before L5','email ASR')}</div></section>
+ <section class="story-grid"><div class="panel insights"><h2>What the comparison shows</h2><ol>
+ <li>Email ASR under C7: ${list('emailASR',8)}. Baselines differ (${list('emailASR',0)}); ${nm(hi[hi.length-1].m)} is the easiest to steer without a guard.</li>
+ <li>L1 (C1) and L2 (C2) do most of the email work. L5 alone (C6) stays near baseline for every model (${list('emailASR',7)}), and email TMR before L5 is about the same as final ASR there: L5's rules rarely fire on these drafts.</li>
+ <li>Poisoned retrieval is the gap. RAG ASR at C0: ${list('ragASR',0)}; at C7: ${list('ragASR',8)}. L3b (C4) is the layer that moves RAG ASR (${list('ragASR',5)}).${ms.some(m=>m.caveat)?` ${ms.filter(m=>m.caveat).map(nm).join(', ')}: low C2/C7 RAG ASR comes from L2 quarantining the question email, not from detecting the poison (see its tab).`:''}</li>
+ <li>C7 false positives: ${ms.map(m=>`${nm(m)} ${m.fprC7n}`).join(', ')}${fp.length?'':' (none)'}.</li>
+ <li>C7 cost of the guard: ${ms.map(m=>`${nm(m)} ${m.guardCallsC7} guard calls/email, p50 ${m.latP50}`).join('; ')}.</li></ol></div>
+ <div class="panel chart"><h2>Read with care</h2><p class="small">ASR is measured on the final draft after every layer. TMR is computed by <code>tools/analysis/tmr_pre_l5.py</code> from the raw rows (the report itself shows TMR as N/A); its ASR cross-check matches metrics.csv for every config.</p><p class="small">Benign utility uses a strict end-to-end drafting rule (a real reply of at least 40 characters). It differs between models already at C0, so it reflects the pipeline's triage, not the guard.</p><p class="small">Each run has paired McNemar tests against its own C0. Models are not paired against each other, so treat cross-model gaps as descriptive.</p></div></section>
+ <section><h2>Full table</h2><div class="table-wrap"><table><caption class="small" style="text-align:left;padding:10px 13px">Email ASR, RAG ASR and email TMR before L5 (%) by configuration and model</caption><thead><tr><th scope="col">Config</th><th scope="col">Layers</th>${th}</tr></thead><tbody>${tb}</tbody></table></div></section>`;
+}
+
+const VIEWS=[...DATA.map(m=>({id:m.key,label:m.name,c:COLOR[m.key],live:m.status!=='complete'})),{id:'compare',label:'Head-to-head',all:true}];
+const tablist=document.getElementById('tablist');
+tablist.innerHTML=VIEWS.map(v=>`<button role="tab" id="tab-${v.id}" aria-selected="false" tabindex="-1" data-view="${v.id}" aria-controls="${v.id==='compare'?'view-compare':'view-model'}"><i class="swatch${v.all?' all':''}" style="--c:${v.c||''}" aria-hidden="true"></i>${v.label}${v.live?' <span class="pill">running</span>':''}</button>`).join('');
+const tabs=[...tablist.querySelectorAll('[role=tab]')];
+function show(view){
+ tabs.forEach(t=>{const on=t.dataset.view===view;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1});
+ const model=document.getElementById('view-model'),cmp=document.getElementById('view-compare');
+ if(view==='compare'){cmp.innerHTML=renderCompare();cmp.hidden=false;model.hidden=true}
+ else{model.innerHTML=renderModel(DATA.find(m=>m.key===view));model.setAttribute('aria-labelledby','tab-'+view);model.hidden=false;cmp.hidden=true}
+ if(location.hash.slice(1)!==view)history.replaceState(null,'','#'+view);
+}
+tabs.forEach((t,i)=>{t.addEventListener('click',()=>show(t.dataset.view));t.addEventListener('keydown',e=>{const d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!d)return;e.preventDefault();const n=tabs[(i+d+tabs.length)%tabs.length];n.focus();show(n.dataset.view)})});
+const ids=VIEWS.map(v=>v.id);show(ids.includes(location.hash.slice(1))?location.hash.slice(1):ids[0]);
+
+/* Artifact explorer (unchanged behaviour). */
+const state={rows:[],manifest:null,summary:null,files:[]};
+const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function parseCSV(text){const rows=[];let row=[],field='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c==='"'&&quoted&&n==='"'){field+='"';i++}else if(c==='"'){quoted=!quoted}else if(c===','&&!quoted){row.push(field);field=''}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&n==='\n')i++;row.push(field);if(row.some(x=>x!==''))rows.push(row);row=[];field=''}else field+=c}if(field||row.length){row.push(field);rows.push(row)}const head=rows.shift()||[];return rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]??''])))}
+async function loadFiles(files){state.rows=[];state.manifest=null;state.summary=null;state.files=[...files].map(f=>f.name);let errors=[];for(const f of files){try{const text=await f.text();if(f.name.toLowerCase()==='metrics.csv')state.rows=parseCSV(text);else if(f.name.toLowerCase()==='manifest.json')state.manifest=JSON.parse(text);else if(f.name.toLowerCase()==='summary.json')state.summary=JSON.parse(text)}catch(e){errors.push(`${f.name}: ${e.message}`)}}if(!state.rows.length){showMessage('error',errors.length?errors.join(' · '):'metrics.csv is required. Select aggregate files from one result directory.');return}render(errors)}
+function showMessage(type,text){$('message').className='notice '+type;$('message').textContent=text;$('app').hidden=type==='error'}
+function uniq(xs){return [...new Set(xs.filter(Boolean))]}
+function fillSelect(el,values,preferred){el.innerHTML=values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');if(values.includes(preferred))el.value=preferred}
+function num(v){const n=Number(v);return Number.isFinite(n)?n:null}
+function rate(r){return num(r.pct)} function rawValue(r){return num(r.value)}
+function inferScheme(m){const explicit=m?.scheme||Object.values(m?.runs||{}).map(r=>r.scheme).find(Boolean);if(explicit)return explicit;const cfg=Object.keys(m?.runs||{});return cfg.some(x=>/^C[4-7]$/.test(x))?'v2':'v1 / legacy'}
+function primaryModel(m){const vals=Object.values(m?.models||{}).map(x=>x.generation).filter(Boolean);return uniq(vals)[0]||Object.values(m?.runs||{})[0]?.generation_model||'Not declared'}
+function providers(m){return uniq(Object.values(m?.runs||{}).flatMap(r=>[r.generation?.served_provider,r.generation?.provider,...(r.generation?.served_providers||[])])).join(', ')||'Not declared'}
+function totalErrors(){return state.rows.filter(r=>r.metric==='errors'&&r.table!=='all').reduce((a,r)=>a+(rawValue(r)??0),0)}
+function latestSummary(m){let ok=0,errors=0,selected=0;Object.values(m?.runs||{}).forEach(r=>{const last=[...(r.invocations||[])].reverse().find(x=>x.summary)?.summary;if(last){ok+=Number(last.ok||0);errors+=Number(last.error||0);selected+=Number(last.selected||0)}});return{ok,errors,selected}}
+function card(label,value,note){return `<div class="card"><div class="kpi-label">${esc(label)}</div><div class="kpi-value">${esc(value)}</div><div class="kpi-note">${esc(note||'')}</div></div>`}
+function render(errors=[]){const tables=uniq(state.rows.map(r=>r.table).filter(x=>!['paired','overhead'].includes(x)));const metrics=uniq(state.rows.filter(r=>!['paired','overhead'].includes(r.table)).map(r=>r.metric));const groups=uniq(state.rows.filter(r=>!['paired','overhead'].includes(r.table)).map(r=>r.group));fillSelect($('tableFilter'),tables,tables.includes('all')?'all':tables[0]);fillSelect($('metricFilter'),metrics,metrics.includes('ASR')?'ASR':metrics[0]);fillSelect($('groupFilter'),groups,groups.includes('all')?'all':groups[0]);['tableFilter','metricFilter','groupFilter'].forEach(id=>$(id).onchange=renderViews);const m=state.manifest,scheme=inferScheme(m),run=m?.run_id||m?.run||'Unidentified run',model=primaryModel(m),sum=latestSummary(m);$('kpis').innerHTML=card('Run',run,m?.timestamp||'No timestamp')+card('Scheme',scheme,String(scheme).startsWith('v1')?'Legacy config meanings—do not merge with v2':'Config meanings must match this scheme')+card('Model',model,providers(m))+card('Report errors',String(totalErrors()),`${sum.ok} latest successful rows reported`);const cautions=[];if(!m)cautions.push('manifest.json was not loaded, so model and provenance checks are limited.');if(String(scheme).startsWith('v1'))cautions.push('Legacy/v1 evidence: C3 means full guard. In v2, the full guard is C7.');if(Object.values(m?.runs||{}).some(r=>r.embedding?.mock))cautions.push('This run records mock embeddings; do not present it as a fully live retrieval comparison.');if(totalErrors()>0)cautions.push(`${totalErrors()} report error row(s) remain; inspect report.md before claiming complete results.`);if(errors.length)cautions.push(errors.join(' · '));showMessage(cautions.length?'':'ok',cautions.length?cautions.join(' '):`Loaded ${state.rows.length} metrics from ${state.files.join(', ')}.`);$('app').hidden=false;renderViews();renderPaired();renderOverhead();renderProvenance()}
+function selected(){return state.rows.filter(r=>r.table===$('tableFilter').value&&r.metric===$('metricFilter').value&&r.group===$('groupFilter').value)}
+function renderViews(){const rows=selected();$('chart').innerHTML=rows.length?rows.map(r=>{const v=rate(r)??rawValue(r)??0;const risk=!['benign_utility','TSR'].includes(r.metric);return `<div class="bar-row"><div class="bar-label">${esc(r.config)}</div><div class="track"><div class="fill ${risk?'risk':'utility'}" style="width:${Math.max(0,Math.min(100,v))}%"></div></div><div class="bar-value">${rate(r)!=null?rate(r).toFixed(2)+'%':esc(r.value||'—')}</div></div>`}).join(''):'<div class="empty">No rows match these filters.</div>';const visible=state.rows.filter(r=>!['paired','overhead'].includes(r.table)&&r.table===$('tableFilter').value&&r.metric===$('metricFilter').value);$('metricRows').innerHTML=visible.map(r=>`<tr><td>${esc(r.table)}</td><td><span class="tag">${esc(r.config)}</span></td><td>${esc(r.metric)}</td><td>${esc(r.group||'—')}</td><td>${esc(r.successes||'—')}</td><td>${esc(r.total||'—')}</td><td>${r.pct!==''?esc(r.pct)+'%':'—'}</td><td>${r.ci95_lo!==''?esc(r.ci95_lo)+'–'+esc(r.ci95_hi)+'%':'—'}</td><td>${esc(r.value||'—')}</td></tr>`).join('')||'<tr><td colspan="9" class="empty">No aggregate evidence available.</td></tr>'}
+function renderPaired(){const rows=state.rows.filter(r=>r.table==='paired'),map={};rows.forEach(r=>{const key=r.config;map[key]??={name:key};if(r.metric==='mcnemar_exact_p')map[key].p=rawValue(r);if(r.metric==='n_pairs')map[key].n=rawValue(r)});$('pairedRows').innerHTML=Object.values(map).map(x=>`<tr><td>${esc(x.name)}</td><td>${x.n??'—'}</td><td>${x.p==null?'—':x.p.toExponential(3)}</td><td class="${x.p!=null&&x.p<.05?'good':''}">${x.p==null?'Not exported':x.p<.05?'Statistically significant':'Not significant'}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No paired comparisons exported.</td></tr>'}
+function renderOverhead(){const rows=state.rows.filter(r=>r.table==='overhead');$('overheadRows').innerHTML=rows.map(r=>`<tr><td><span class="tag">${esc(r.config)}</span></td><td>${esc(r.metric)}</td><td>${rawValue(r)==null?'—':esc(r.value)}</td></tr>`).join('')||'<tr><td colspan="3" class="empty">No overhead metrics exported.</td></tr>'}
+function renderProvenance(){const m=state.manifest;if(!m){$('provenance').innerHTML='<div class="empty">Load manifest.json for provenance.</div>';return}const configs=Object.keys(m.runs||m.models||{}),scheme=inferScheme(m),model=primaryModel(m),emb=Object.values(m.runs||{}).map(r=>r.embedding).find(Boolean),hash=m.case_manifest_sha256||m.cases_sha256||'Not declared';$('provenance').innerHTML=`<div class="grid"><div><div class="kpi-label">Experiment</div><strong>${esc(m.experiment||'mailguard_bench')}</strong></div><div><div class="kpi-label">Configs</div><strong>${esc(configs.join(', ')||'Not declared')}</strong></div><div><div class="kpi-label">Generation</div><strong>${esc(model)}</strong></div><div><div class="kpi-label">Scheme</div><strong><span class="tag ${String(scheme).startsWith('v1')?'legacy':''}">${esc(scheme)}</span></strong></div></div><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><div class="small"><b>Provider:</b> ${esc(providers(m))} &nbsp;·&nbsp; <b>Embedding:</b> ${esc(emb?.model||'Not declared')}${emb?.mock?' (mock)':''} &nbsp;·&nbsp; <b>Case manifest SHA-256:</b> <code>${esc(hash)}</code></div>`}
+const drop=$('drop');$('files').addEventListener('change',e=>loadFiles(e.target.files));['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>loadFiles(e.dataTransfer.files));
+</script>
+</body></html>

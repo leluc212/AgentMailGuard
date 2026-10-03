@@ -1,0 +1,13 @@
+# C2_input_layers — Layer 1 + 2 + 3 (phía đầu vào)
+config_name: C2_input_layers
+guard:
+  l1_email_scanner: true
+  l2_intent_extractor: true
+  l3_channel_isolation: true
+  l3b_doc_scanner: false
+  l4_output_scanner: false
+  l5_policy_engine: false
+run:
+  eval_set: eval_set_v1.jsonl
+  temperature: 0
+  seed: 42  # đổi thành seed nhóm chốt

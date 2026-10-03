@@ -1,0 +1,17 @@
+# C6 — Chỉ L5 — đối chứng
+config_name: C6
+prompt_template: guard_template   # rag_email_default = prompt gốc; guard_template = template của AgentMailGuard
+guard:
+  l1_email_scanner: false
+  l2_intent_extractor: false
+  l3_channel_isolation: false
+  l3b_doc_scanner: false
+  l4_output_scanner: false
+  l5_policy_engine: true
+run:
+  eval_set: eval_set_v1.jsonl
+  samples: [attack_email, benign_email]
+  temperature: 0
+  seed: 42   # đổi thành seed nhóm chốt
+  log_per_layer: true
+  log_pre_l5_tool_calls: true   # ghi lại agent có ĐỊNH gửi tới kẻ tấn công trước khi L5 chặn (TMR)

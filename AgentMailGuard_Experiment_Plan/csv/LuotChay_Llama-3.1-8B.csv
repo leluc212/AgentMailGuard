@@ -1,0 +1,13 @@
+﻿STT,Phần thí nghiệm,Cấu hình,Lớp phòng thủ bật,Số mẫu = số lượt chạy,Đo chỉ số,Ghi chú
+1,Attack email,C0,Không bật lớp nào (baseline),1000,"ASR, TMR, DER",Đo mức độ bị tấn công khi chưa phòng thủ
+2,Attack email,C1,Chỉ Layer 1,1000,"ASR, TMR, DER",So với phòng thủ một lớp
+3,Attack email,C2,Layer 1 + 2 + 3,1000,"ASR, TMR, DER",Phòng thủ phía đầu vào
+4,Attack email,C3,"Đủ 5 lớp (L1, L2, L3, L3b, L4, L5)",1000,"ASR, TMR, DER",Kết quả chính của bài báo
+5,Tài liệu độc (RAG),C0,Không bật lớp nào,300,ASR (RAG),Tài liệu knowledge base bị cài lệnh
+6,Tài liệu độc (RAG),C3,Đủ 5 lớp,300,ASR (RAG),Kiểm tra Layer 3b
+7,Email lành tính,C0,Không bật lớp nào,500,TSR,Mức trả lời đúng khi không phòng thủ
+8,Email lành tính,C3,Đủ 5 lớp,500,"TSR, FPR",Chứng minh không chặn nhầm email thật
+,TỔNG LƯỢT CHẠY,,,5600,,
+,  cộng: Attack email,,,4000,,
+,  cộng: Tài liệu độc (RAG),,,600,,
+,  cộng: Email lành tính,,,1000,,
