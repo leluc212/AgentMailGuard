@@ -2,6 +2,8 @@
 
 Review amendments (plan_v3 Q1=b', R-h, R-i, Q7–Q10, design decisions 8–14) touch Tasks 4, 5, 7, 10,
 11, 13, 15c and add Task 16 below; they are marked **[review]**. Tasks 1–2 (done) are unchanged.
+Second review (2026-10-14, plan_v3 F1–F9) touches Tasks 4, 5, 7, 8, 15, 16 and sections (b), (d);
+marked **[review 10-14]**.
 
 Source of truth, in order: the owner's messages, `plan_v3/plan_v3.md` (decisions R-a…R-g, Q1–Q6,
 D1, design decisions 1–8, task list 1–15), `docs/adr/0015-guard-architecture-v3.md` (Proposed),
@@ -82,8 +84,9 @@ never open a PR, never merge into `main`, never force-push.
 Commit message: `refactor(guard): <what changed, present tense> [task v3.N]` (docs task may use
 `docs(guard): …`, the pin commit `chore(bench): …`, always ending `[task v3.N]`). Stage files by name
 (`git add <paths>`), never `git add -A`; `.agents/` is git-ignored and must stay out of commits.
-Every commit also ticks its line in `plan_v3/plan_v3.md` "Execution log" (`- [x] Task N — <sha
-of previous> …`).
+Every commit also ticks its line in `plan_v3/plan_v3.md` "Execution log" (`- [x] Task N — on <sha
+of previous> …`), and replaces Task N-1's base sha with Task N-1's real commit sha (a commit cannot
+contain its own hash; plan_v3 F6).
 
 Cross-cutting rules for every task 3–13:
 - **Root consumer in the same commit.** Q1=b is a hard rename with no aliases, so whenever a task
@@ -183,8 +186,10 @@ Commit: `refactor(guard): v3 settings sections and LegacyConfigError for v2 env 
   "quarantined"]`, `cluster_id: str|None`, `signals: dict[str, float]` (defaults keep the parity golden
   readable). **[review, Q7]** `RetrievedChunk` → `SourceDocument` (`from_any` kept); every reader in the
   subtree and the root bench renamed in this commit (grep `RetrievedChunk`).
-  `IsolationInfo` (`mode`, `nonce`, `chunks_in`, `chunks_kept`, `markers_scrubbed`, `truncated`,
-  `error: str|None`, `latency_ms`). Decision: `merge`/`from_chunks` live in contracts now so the
+  `IsolationInfo` (`mode`, `nonce`, `chunks_in`, `chunks_kept`, `markers_scrubbed` (count),
+  `forged_markers: list[Finding]` (default `[]`; one `forged_channel_marker` finding, `metadata["stage"]=
+  "isolation"`, per marker scrubbed from thread history — plan_v3 F3), `truncated`,
+  `error: str|None`, `latency_ms`). Nothing writes to `report.inbound_guard.findings` after the gate. Decision: `merge`/`from_chunks` live in contracts now so the
   pipeline stays buildable; Tasks 5/7 move the call sites into the facades.
 - `mailguard/contracts/policy.py` `GuardReport`: `schema_version: Literal[3] = 3`, `message_id`,
   `organization_id`, `inbound_guard: InboundVerdict|None`, `doc_scanner: DocumentVerdict|None`,
@@ -213,7 +218,8 @@ Commit: `refactor(guard): v3 settings sections and LegacyConfigError for v2 env 
 - Forged markers (ADR decision 8): after removing the isolation verdict, run parity. If `x-forged`
   cases change, add a forged-channel-marker finding to the inbound scan (`rules.py`
   `obfuscation_findings`) and the chunk scanner so the email/document outcome matches the golden. Only
-  thread-history-only forgeries may become intended deltas (ADR bullet 2).
+  thread-history-only forgeries may become intended deltas (ADR bullet 2); those are recorded in
+  `IsolationInfo.forged_markers`, never in `report.inbound_guard.findings`.
 Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 and audit v3 [task v3.4]`.
 
 ### Task 5 — L1 Inbound Guard facade
@@ -229,6 +235,10 @@ Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 
 - **[review, R-i]** `extract.py`: the extractor no longer calls `max(severity, 0.6)` (or any severity
   bump) when `contains_assistant_instructions` is true; it emits a finding
   (`detector="extract"`, `rule_id="assistant_instructions"`) instead.
+- **[review 10-14, F4]** The extract sub-stage always runs its deterministic part (quoted-history
+  strip, sanitized body, `removed_ratio`, intent heuristic); only its LLM call is optional
+  (`INBOUND_GUARD__EXTRACT_LLM_ENABLED`). Test: with the extract LLM off, `InboundVerdict` still has a
+  sanitized body and `removed_ratio`, and zero extractor calls are recorded.
 - **[review, design decision 8]** New `mailguard/prompting/questions.py` with the pure function
   `question_sentences(body: str) -> list[str]` (sentences ending in `?` or starting with a request
   verb, after quoted-history strip; max 8, each ≤ 40 tokens; a ≤ 3-token question is kept). It is
@@ -289,7 +299,11 @@ Commit: `refactor(guard): GuardConfig v3 identifiers and presets [task v3.6]`.
   return without any doc call → otherwise doc_scanner (echo reference = the question sentences above,
   falling back to the caller's query or subject + sanitized body only when the list is empty) →
   inbound_gate **pass 2** with every fact; `report.inbound_decision` is pass 2 (or pass 1 when it
-  stopped) and `metadata.gate_passes` records 1 or 2. `chunks=()` → `DocScanner.scan` returns an
+  stopped) and `report.inbound_decision.metadata["gate_passes"]` records 1 or 2. **[review 10-14, F2]**
+  Audit: exactly one record, for the final decision; the `audit_id` sha256 seed includes `gate_pass`
+  (deterministic across identical runs, distinct from other runs' records). A pass-1 that passes is
+  provisional and is not audited. Tests: one audit record per job in both paths; `audit_id` equal across
+  two identical runs. `chunks=()` → `DocScanner.scan` returns an
   empty `DocumentVerdict` without touching any judge (test: a recording FakeLLMProvider sees zero
   calls). Test: an email L1 blocks never reaches the doc judge even with `doc_judge` configured.
   `build_prompt`
@@ -314,7 +328,8 @@ Commit: `refactor(guard): doc scanner runs before the inbound gate; escalated dr
   `async inspect(report, draft, …) -> tuple[OutputVerdict, PolicyDecision]`: scan, then
   `policy.decide(stage="outbound")`, then the floor exactly as plan_v3 design decision 1
   (`CATCH_ALL` = ids of rules whose `when` is empty — today `P99-default` — computed from the loaded
-  policy, not hard-coded; strictest action; OR of `requires_human`; max risk tier; winner tie →
+  policy, not hard-coded; **[review 10-14, F1]** a floor exists only when `rank(inbound.action) >
+  rank(AUTO_SEND)`; strictest action; OR of `requires_human`; max risk tier; winner tie →
   outbound; `matched_rule_ids` union with `inbound:` prefix; `metadata.decided_by`,
   `metadata.carried_from_inbound`; reason `"carried from inbound_gate: <rule> (<action>)"`; auto_send
   allowlist after the merge). Not configurable.
@@ -322,7 +337,13 @@ Commit: `refactor(guard): doc scanner runs before the inbound gate; escalated dr
   "outbound gate" from code/comments.
 - New `tests/unit/test_output_guard_floor.py`: parametrized table (inbound action × outbound action ×
   inbound rule catch-all/specific × allowlist) asserting the 4 invariants; audit_id equal across two
-  identical runs. Parity deltas under ADR bullet 1 (floor carried).
+  identical runs. Required row: specific inbound rule returning `auto_send` × outbound `auto_send` +
+  allowlist ⇒ final `auto_send`, `carried_from_inbound = false`. Parity deltas under ADR bullet 1
+  (floor carried).
+- **[review 10-14, F3]** `policy/engine.py` `facts()` for `stage="outbound"` adds
+  `isolation_forged_markers = len(report.isolation.forged_markers)` (0 when isolation is off). No rule in
+  `policy.yaml` uses it by default (no parity delta); test: the fact equals the scrubbed thread-history
+  marker count on a fixture.
 Commit: `refactor(guard): L4 Output Guard merges the inbound floor; outbound gate removed [task v3.8]`.
 
 ### Task 9 — Host review queue contract (additive)
@@ -411,8 +432,9 @@ Commit: `docs(guard): v3 architecture in docs, paper, specs; ADR-0015 accepted [
 - 15a: `agentmailguard/tests/unit/test_no_legacy_identifiers.py` scans `mailguard/ services/
   evaluation/ training/ configs/ tests/` for `l1_injection_scanner|l2_intent_extractor|
   l3_channel_isolation|l3b_document_scanner|l4_output_scanner|l5_policy_engine|\bL[1-5]B?__|
-  GUARD_MODELS__(JUDGE|EXTRACTOR|DOC_SCANNER)\b|report\.l3b|\.l[1-5]\b attribute access`; whitelist:
-  the ratchet itself, `tests/golden/`, `tests/parity.py` docstring, `LEGACY_ENV_KEYS`, the artifact
+  GUARD_MODELS__(JUDGE|EXTRACTOR|DOC_SCANNER)\b|report\.l3b|\.l[1-5]\b attribute access`; whitelist
+  (plan_v3 F5): the ratchet itself, `evaluation/mailguard_bench/legacy_reader.py`, `tests/golden/`,
+  `tests/parity.py` (docstring and the `GOLDEN_PROMPT_KEY` map), `LEGACY_ENV_KEYS`, the artifact
   name `l1_injection_clf_v1`, `train_l1_classifier`/`build_l1_corpus`. Root twin
   `tests/unit/test_mailguard_v3_identifiers.py` over `evaluation/mailguard_bench` (excluding
   `evaluation/results/`). Remove dead helpers (`pipeline.severity_of`, `verdict_or_none` if unused).
@@ -427,7 +449,9 @@ Commit: `docs(guard): v3 architecture in docs, paper, specs; ADR-0015 accepted [
 - 15c: full acceptance (all of section (c), incl. Docker stack healthy and integration tests); tick
   Task 15 in plan_v3; report final state. **[review]** Push, then ask the owner to run `make ci` on a
   Linux checkout; Task 15 is complete only when that run is green, because the Windows baseline of 63
-  environment failures cannot prove the make/bash recipes still work.
+  environment failures cannot prove the make/bash recipes still work. **[review 10-14, F9]** The
+  authoritative baseline is GitHub CI (green at `c98cdfe`: unit, overlay, quality, UI, integration);
+  the Windows 63-failure list is only for local regression comparison.
 
 ### Task 16 — Live benchmark v3 (acceptance of the refactor) **[review, Q10 / ADR decision 13]**
 Runs on the Windows machine with Docker Desktop (compose stack) and the OpenRouter/GPT-4o-mini profile
@@ -450,8 +474,12 @@ from task 7.19; it never touches `agentmailguard/` (the pin from 15b is what is 
   (c) benign: ≤ 5% of question emails and ≤ 2% of clean documents quarantined/escalated;
   (d) overhead table present: guard calls per job ≤ 5 for every config, p95 end-to-end reported
   (SC5 p95 < 10 s stays a target, not a fail condition of this task);
-  (e) ablations: `C3-L1` worse than C3 on LLMail-Inject, `C3-L2` worse than C3 on the poisoned-document
-  route (otherwise the layer is not earning its place and the ADR must say so).
+  (e) ablations, measured per route **[review 10-14, F8]**: `C3-L1` — inbound catch rate (attacks
+  blocked/quarantined before generation ÷ all attacks, LLMail-Inject) clearly lower than C3; `C3-L2` —
+  "every poisoned chunk caught" on the 100 poisoned-document cases lower than C3 (otherwise the layer
+  is not earning its place and the ADR must say so). Final ASR is reported for every config but is not
+  criterion (e), since L4 can still catch injections with L1 off. `scoring.py`/`overhead.py` (Task 13)
+  must compute the inbound catch rate per config.
   Any of (a)–(c) failing reopens Task 5 or 7 through the divergence protocol with the measured numbers
   in ADR-0015; thresholds are never re-tuned on the pinned cases. ADR-0015 moves to Accepted only after
   16c; Task 14 leaves it at "Accepted pending Task 16".
@@ -490,9 +518,10 @@ After EVERY task, `agentmailguard/tests/unit/test_guard_parity.py` (part of the 
 pass: each of the 87 matrix cases (`tests.parity.cases()`) equals `tests/golden/guard_v2_baseline.json` updated only by
 `tests/parity.INTENDED_DELTAS`. Rules: the golden file is never regenerated or edited; each delta
 entry lists only the changed fields plus `why` citing an ADR-0015 "Intended behaviour changes" bullet;
-expected delta sources are Task 7 (doc scanner before the gate), Task 8 (inbound floor), Task 11
-(fail-closed judge, only if a fake judge answer is invalid) and Task 4 (thread-history-only forged
-markers). Tasks 2, 3, 5, 6, 9, 10 must add no delta. The reviewer of each loop checks every new delta
+expected delta sources are Task 4 (thread-history-only forged markers, ≤ 3), Task 5 (extractor no
+longer raises severity, R-i, ≤ 6), Task 7 (doc scanner before the gate and new cheap-stage signals,
+≤ 20), Task 8 (inbound floor, ≤ 6) and Task 11 (fail-closed judge, only if a fake judge answer is
+invalid, ≤ 5). **[review 10-14, F7]** Tasks 2, 3, 6, 9, 10, 12, 13 must add no delta. The reviewer of each loop checks every new delta
 against the ADR list and that ADR-0015's list matches `INTENDED_DELTAS` by Task 14.
 
 ## Open points / assumptions

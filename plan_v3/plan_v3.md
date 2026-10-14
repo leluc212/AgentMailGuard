@@ -39,6 +39,16 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | Q8 | ADR-0015 giữ cho kiến trúc v3 (file này). Host hook (review-UI badge, `knowledge_document.trust_level`, `exclude_document_ids`, re-retrieval, ingestion scan) là **ADR-0016**, làm sau Task 15, không nằm trong 15 task này |
 | Q9 | **Push `refactor/guard-v3` sau mỗi task** (push không phải merge; không PR, không merge vào `main`). Lý do: 15 commit trên một máy Windows chưa push thì không ai review được code trước Task 15 và mất máy là mất hết |
 | Q10 | **Task 16 — live benchmark v3** nằm trong phạm vi của người thực hiện plan này. Refactor chưa được coi là xong khi chưa có số đo live (xem Task 16); parity offline chỉ chứng minh không hỏng, không chứng minh tốt hơn |
+| **Review 2026-10-14** | Sửa sau review thứ hai; không thay số task |
+| F1 | Inbound floor chỉ tồn tại khi action inbound **nghiêm hơn `auto_send`** (Design 1); bất biến (2) giữ nguyên |
+| F2 | Gate chạy 2 lần: report và audit chỉ giữ quyết định cuối, `metadata.gate_passes` (Design 9) |
+| F3 | Forged marker trong thread history nằm trong `IsolationInfo.forged_markers`, không chạm `inbound_guard.findings` sau gate (Design 10) |
+| F4 | Sub-stage extract luôn chạy deterministic; chỉ LLM của nó là tùy chọn (Design 8) |
+| F5 | Task 15 tách 15a/15b/15c; allowlist của ratchet ghi sẵn |
+| F6 | Quy ước hash trong Execution log (xem mục đó) |
+| F7 | Ngân sách delta cho mọi task (Design 14) |
+| F8 | Tiêu chí (e) của Task 16 đo theo route, không theo ASR cuối |
+| F9 | Baseline có thẩm quyền là GitHub CI; baseline Windows chỉ để so regression cục bộ |
 
 Bất biến carry-over được test bằng bảng tổ hợp parametrize, không thêm dependency.
 LLM set judge dựa trên PoisonedRAG / poisoning phân tán qua nhiều chunk.
@@ -65,9 +75,12 @@ LLM set judge dựa trên PoisonedRAG / poisoning phân tán qua nhiều chunk.
 ```mermaid
 flowchart LR
   E[Customer email] --> IG[L1 Inbound Guard<br/>scan + extract]
+  IG -- InboundVerdict --> G1[L3 Inbound Gate pass 1<br/>L1 facts, docs not scanned]
+  G1 -- block/quarantine --> ESC
+  G1 -- pass --> DS
   D[Retrieved docs] --> DS[L2 Doc Scanner<br/>per chunk + set judge]
-  IG -- sanitized body + question_sentences --> DS
-  IG -- InboundVerdict --> G[L3 Inbound Gate<br/>PolicyEngine stage=inbound]
+  QS[question_sentences<br/>pure function] --> DS
+  IG -- InboundVerdict --> G[L3 Inbound Gate pass 2<br/>PolicyEngine stage=inbound]
   DS -- DocumentVerdict --> G
   G -- block/quarantine --> ESC[Escalated draft<br/>no model call]
   G -- pass: intent + clean body + kept chunks --> CI[Channel Isolation<br/>SecurePrompt]
@@ -101,7 +114,9 @@ flowchart LR
 1. **Inbound floor (D1=A, thực thi trong code, không tắt được bằng config)**
    ```python
    CATCH_ALL = {"default"} | {id các rule có when rỗng}
-   floor = inbound if inbound and inbound.matched_rule_id not in CATCH_ALL else None
+   floor = inbound if (inbound
+                       and inbound.matched_rule_id not in CATCH_ALL
+                       and rank(inbound.action) > rank(AUTO_SEND)) else None   # F1
    outbound = policy.decide(report, stage="outbound", ...)
    final_action   = strictest(outbound.action, floor.action) if floor else outbound.action
    requires_human = outbound.requires_human or floor.requires_human
@@ -113,6 +128,10 @@ flowchart LR
    `"carried from inbound_gate: <rule> (<action>)"`. Allowlist auto_send áp dụng sau merge.
    Bất biến: (1) có floor ⇒ final.rank ≥ floor.rank; (2) auto_send chỉ khi không floor ∧ allowlist;
    (3) requires_human = OR; (4) audit_id idempotent.
+   Vì floor chỉ tồn tại khi action inbound nghiêm hơn `auto_send`, một rule inbound cụ thể trả
+   `auto_send` không tạo floor; bất biến (2) giữ được mà không cần ngoại lệ. Bảng test Task 8 có hàng:
+   rule inbound cụ thể trả `auto_send` × outbound `auto_send` + allowlist ⇒ final `auto_send`,
+   `carried_from_inbound = false`.
 2. Doc Scanner chạy **trước** Inbound Gate → P01/P04 fire ở inbound; quarantine dừng trước
    generation. Delta có chủ đích, ghi vào golden parity + ADR.
 3. Fail-closed judge: `LLMSchemaValidationError`/`LLMError` → `verdict.error="judge_invalid:<stage>"`
@@ -127,6 +146,9 @@ flowchart LR
    error nếu một sub-stage lỗi; latency = tổng. Extractor trả `contains_assistant_instructions=true`
    mà scan sạch → severity vẫn sạch, chỉ có finding để policy có thể dùng làm fact riêng
    (`extract_flagged`) nếu muốn — không có rule nào bật fact này mặc định.
+   Sub-stage extract **luôn chạy deterministic** (strip quoted history, sanitized body,
+   `removed_ratio`, intent heuristic); LLM của nó chỉ bật khi `INBOUND_GUARD__EXTRACT_LLM_ENABLED=true`
+   (F4). Design 13 đếm model call, không đếm stage.
    `InboundVerdict` ghi lại `question_sentences: list[str]` nhưng **không sở hữu** việc rút câu hỏi:
    `question_sentences(body)` là hàm thuần trong `mailguard/prompting/questions.py`, pipeline luôn
    gọi nó (trên sanitized body nếu L1 bật, trên body thô nếu L1 tắt) rồi truyền cho L2. Nhờ vậy
@@ -152,11 +174,20 @@ flowchart LR
      (cheap stage + judge) → gate lần 2 với đủ fact. Gate deterministic, không tốn gì; cách này giữ
      tính chất v2 "email bị chặn không trả tiền doc judge". `chunks=()` (job `workflow_hint=template`)
      → L2 là no-op theo hợp đồng, không có call nào.
-10. Channel Isolation không có verdict, nhưng `IsolationInfo.markers_scrubbed` > 0 trong thread
-    history được ghi thành một finding `forged_channel_marker` (stage `isolation`) gắn vào
-    `report.inbound_guard.findings` để bench vẫn nhìn thấy kênh tấn công này; không đổi severity.
-    **Lưu ý thời điểm:** isolation chạy khi dựng prompt, tức *sau* Inbound Gate; finding này chỉ
+   - **Hai lần gate (F2):** `report.inbound_decision` chỉ giữ quyết định cuối — lần 2, hoặc lần 1
+     nếu lần 1 đã block/quarantine và dừng. `report.inbound_decision.metadata.gate_passes ∈ {1, 2}`.
+     Audit ghi **một** bản ghi cho quyết định cuối; seed của `audit_id` có thêm `gate_pass` để vẫn
+     idempotent và không trùng bản ghi của lần chạy khác. Lần 1 nếu pass thì không audit (quyết định
+     tạm).
+10. Channel Isolation không có verdict (F3). Marker giả bị scrub khỏi thread history được ghi trong
+    `IsolationInfo.forged_markers: list[Finding]` (finding `forged_channel_marker`, stage `isolation`);
+    `IsolationInfo.markers_scrubbed` giữ nguyên là số đếm. Policy engine có fact
+    `isolation_forged_markers` (= `len(forged_markers)`) cho stage outbound; không có rule nào dùng fact
+    này mặc định (như `extract_flagged`), nên không sinh delta parity. `report.inbound_guard.findings`
+    **không bị chạm sau gate**: verdict inbound trong report luôn khớp với cái gate đã thấy.
+    **Lưu ý thời điểm:** isolation chạy khi dựng prompt, tức *sau* Inbound Gate; thông tin này chỉ
     tới được fact của L4 Output Guard và bench, không bao giờ ảnh hưởng quyết định inbound.
+    Ảnh hưởng Task 4 (contract `IsolationInfo`) và Task 8 (fact).
 11. Bench reader (Q1=b'): `evaluation/mailguard_bench/legacy_reader.py` đọc run meta + report v1/v2
     từ folder đã commit, chỉ để `make mailguard-report` tái tạo bảng cũ; mọi đường chạy mới, scoring
     v3, ablation từ chối `schema_version < 3` như cũ.
@@ -169,8 +200,9 @@ flowchart LR
     toàn bộ ma trận parity; Task 13 (`overhead.py`) báo số call và latency p50/p95 theo config.
 14. **Parity không được trở thành "mọi thứ đều là delta có chủ đích".** Mỗi entry trong
     `INTENDED_DELTAS` phải ghi `test` = node id của một unit test chứng minh hành vi mới độc lập với
-    golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task được ghi
-    trước trong exec plan (Task 4: ≤3, Task 5: ≤6, Task 7: ≤20, Task 8: ≤6, Task 11: ≤5).
+    golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task (F7):
+    Task 4 ≤ 3, Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 6, 9, 10, 12, 13 = 0.
+    Vượt trần = dừng và hỏi, không nâng trần.
 
 ## Task Breakdown (16 task sau review)
 
@@ -182,7 +214,7 @@ flowchart LR
 6. `GuardConfig` + presets v3.
 7. Doc Scanner trước L3 Inbound Gate + `build_escalated_draft` + cheap stage mới (R-h, design 9)
    + `SourceDocument` (Q7) + `GUARDED_PROMPT_VERSION=guarded.v3`.
-8. L4 Output Guard thay Outbound Gate (inbound floor D1).
+8. L4 Output Guard thay Outbound Gate (inbound floor D1, F1; fact `isolation_forged_markers`, F3).
 9. Contract Host review queue (additive, kiểm tra consumer phía core trước).
 10. LLM set judge (cờ, tắt mặc định; chỉ chạy khi có chunk trong dải nghi ngờ; monotonic).
 11. Fail-closed invalid judge (cờ) + test guard không gọi tool.
@@ -190,9 +222,17 @@ flowchart LR
 13. Bench scheme v3 — scoring & report (reader v3 từ chối `schema_version < 3`; `legacy_reader.py`
     chỉ đọc cho folder v1/v2 đã commit — Q1=b').
 14. Docs, paper, specs, ADR → Accepted.
-15. Test ratchet cấm identifier cũ, dọn dẹp, nghiệm thu toàn bộ CI. **15c phải chạy thêm `make ci`
-    trên một checkout Linux** (laptop của chủ dự án) vì Windows baseline 63 test fail không chứng
-    minh được regression-safety cho recipe make/bash.
+15. Test ratchet cấm identifier cũ, dọn dẹp, nghiệm thu toàn bộ CI (F5):
+    - **15a** — ratchet + cleanup. Allowlist ghi sẵn: `evaluation/mailguard_bench/legacy_reader.py`,
+      `agentmailguard/tests/golden/`, `agentmailguard/tests/parity.py` (map `GOLDEN_PROMPT_KEY`),
+      `LEGACY_ENV_KEYS`, tên artifact `l1_injection_clf_v1`, `train_l1_classifier`/`build_l1_corpus`,
+      và chính file ratchet.
+    - **15b** — dời pin sang commit 15a; không chạm `agentmailguard/`.
+    - **15c** — nghiệm thu: phải chạy thêm `make ci` trên một checkout Linux (laptop của chủ dự án).
+    Baseline (F9): **GitHub CI trên `main`** là baseline có thẩm quyền (xanh tại `c98cdfe`: 5 job
+    unit/overlay/quality/UI/integration). Baseline Windows 63 fail (`make`/bash/WSL/env, đo bằng
+    `mg_root_tests.ps1`) chỉ để so regression cục bộ; nó không chứng minh được regression-safety cho
+    recipe make/bash. Con số "1 failed + 3945 passed" trong log Task 2 là `make test-unit`, một lệnh khác.
 16. **Live benchmark v3 (Q10)** — một run GPT-4o-mini (model rẻ nhất đã có profile) với scheme v3:
     C0, C1, C2, C3, `C3-L1…C3-L4`, `C3-ISO`, fail-closed bật; tập dữ liệu: LLMail-Inject như v1,
     100 poisoned-doc case đã pin, **và tập benign mới** (≥100 email hỏi thông thường + ≥100 tài liệu
@@ -200,8 +240,11 @@ flowchart LR
     run meta và paper: (a) C3 ASR ≤ 5% trên LLMail-Inject; (b) poisoned-doc route: tỉ lệ "bắt đủ
     chunk độc" ≥ 80/100 (replay cho 85–89); (c) benign: quarantine/escalate ≤ 5% email hỏi thông
     thường, ≤ 2% tài liệu sạch; (d) overhead: số call guard ≤ 5, p95 end-to-end theo `overhead.py`
-    được báo cáo (SC5 p95 < 10 s là mục tiêu, không phải điều kiện fail của task này); (e) C3-L1 và
-    C3-L2 mỗi cái kém C3 trên đúng route của nó (chứng minh ablation có nghĩa). Không chạm
+    được báo cáo (SC5 p95 < 10 s là mục tiêu, không phải điều kiện fail của task này); (e) ablation
+    đo theo route (F8): **C3-L1** — tỉ lệ bắt ở inbound (số attack bị block/quarantine trước generation
+    ÷ tổng attack, LLMail-Inject) phải thấp hơn C3 rõ rệt; **C3-L2** — tỉ lệ "bắt đủ chunk độc" trên
+    100 poisoned-doc case phải thấp hơn C3. ASR cuối vẫn báo cáo cho mọi config nhưng không dùng làm
+    tiêu chí (e), vì khi bỏ L1 thì L4 Output Guard vẫn có thể bắt injection. Không chạm
     `agentmailguard/`; kết quả zip vào `evaluation/results/mailguard_bench/<run>/`; không commit trong
     lúc RUN đang chạy (`rag_email_commit` được fingerprint). Nếu (a)–(c) fail → quay lại Task 5/7 với
     ADR ghi rõ, không chỉnh ngưỡng trên 100 case đã pin.
@@ -210,10 +253,13 @@ flowchart LR
 
 Xem mục "Execution log" cuối file; cập nhật sau mỗi task.
 
+Quy ước hash (F6): một commit không thể chứa hash của chính nó. Dòng log của Task N được tick trong
+commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng đó thành hash thật của Task N.
+
 ## Execution log
 
 - [x] Task 1 — commit `f572a3f`: plan, ADR-0015 (Proposed), golden v2 baseline + `test_guard_parity.py` (182 case).
-- [x] Task 2 — trên `f572a3f`: layout `layers/inbound_guard`, `layers/doc_scanner`, `layers/output_guard`,
+- [x] Task 2 — commit `c98cdfe`: layout `layers/inbound_guard`, `layers/doc_scanner`, `layers/output_guard`,
   `policy/`, `prompting/`, prompt đổi tên (`inbound_scan_judge`, `inbound_extractor`, `doc_chunk_judge`,
   `output_judge`), test file đổi tên v3; move-only, parity 0 delta (golden giữ khóa `llm_calls` v2 qua
   `GOLDEN_PROMPT_KEY`). Root `make test-unit`: 1 failed (`..._is_the_v2_pin`, đọc tree HEAD nên đổi theo mọi
