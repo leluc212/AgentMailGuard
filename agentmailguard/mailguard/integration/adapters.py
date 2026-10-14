@@ -143,6 +143,9 @@ def decision_to_job_result(report: GuardReport, draft: DraftCandidate | None) ->
             "redactions": d.redactions_applied if d else 0,
             "max_severity": str(report.max_severity),
             "latency_ms": report.total_latency_ms,
+            "reason": d.reasons[0] if d and d.reasons else None,
+            "decided_by": d.metadata.get("decided_by") if d else None,
+            "guard_schema_version": report.schema_version,
         },
         "draft": None
         if draft is None or action in (PolicyAction.BLOCK, PolicyAction.QUARANTINE)

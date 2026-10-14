@@ -328,3 +328,8 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `test_output_guard_floor.py` (120 tổ hợp + hàng `auto_send` bắt buộc + pipeline). Subtree 560 passed; root
   63 fail = baseline, 0 new; thêm strict-xfail `V3_OUTPUT_GUARD_DECIDES` (C3-L5 bench, hết hạn Task 12).
   Còn mở: docs `docs/overview/layers/*` và README còn chữ "outbound gate" (Task 14).
+- [x] Task 9 — on `ed3c9df`: `integration/adapters.py::decision_to_job_result` giữ nguyên mọi key/value,
+  thêm `reason` (phần tử đầu của `decision.reasons` hoặc None), `decided_by` (`decision.metadata.get(
+  "decided_by")`) và `guard_schema_version` (`report.schema_version`) vào khối `mailguard` (ADR-0015 mục 7).
+  Core không đọc khóa `mailguard` (grep `packages/`, `services/`, `evaluation/mailguard_bench/live`: 0 reader).
+  `test_job_result_contract.py` (4 test). Parity 0 delta (outcome không chứa job result).
