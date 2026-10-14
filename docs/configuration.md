@@ -433,3 +433,56 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 - **Host processes.** C0 drafts in the `ai-worker` container, but C0T and C1 to C7 draft in the guard-worker, a host process, and the live runner is one too. They take the model profile's `LLM__*` keys from the profile and every other setting from the shell and `.env`, never from `.env.stack`. `stack_env` therefore refuses to write while `.env` (or the shell) would give them other settings than the containers: `.env` must hold the embedding lines of the runner's choice (§2.5) with `EMBEDDING__MOCK=false`, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000`, `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` (the code default, `true`, would filter the guarded configs by category and not C0) and `LLM__TIMEOUT_S=60` (the value `--llm-timeout-s` sets; `60` and `60.0` are the same number) as `docs/demo-runbook.md` §9.9 step 1 lists them; it may hold the three `RETRIEVAL__RERANK_*` lines only with the values above; `SUMMARIZATION__SUMMARIZER_MODEL` must be unset or the profile's model; and `ROUTING__CONFIGURED_CONSUMERS` must be unset (§2.16). The message names each setting and what it must be, never the value it found, which may be a key. The preflight in §9.9 step 5 prints the same settings from an `ai-worker` container and from the host, so a difference shows before any quota is spent.
 - **Host alias.** `api`, `triage-worker`, `knowledge-worker` and `ai-worker` get `extra_hosts: ["host.docker.internal:host-gateway"]`. On Linux, Docker Engine resolves `host-gateway` to the host's address on the default bridge (`docker0`), so a local Ollama must listen there (`docs/demo-runbook.md` §9.9).
 - **After the benchmark.** `make up` forwards `.env`'s own lines, so set `RETRIEVAL__CATEGORY_FILTER_ENABLED` back to `true` (or delete the line) with the other benchmark lines (`docs/demo-runbook.md` §9.9 step 8), or the normal stack keeps searching without the category filter.
+
+### 2.23 AgentMailGuard guard keys (v3)
+*Read by the guard (`agentmailguard/mailguard/config/settings.py`, `MailGuardSettings`) from the shell and the `.env` of the guard's working directory (`agentmailguard/.env` when run from there); template `agentmailguard/.env.example`. rag-email's own services do not read them. Guard v3, ADR-0015.*
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `GUARD_MODELS__INBOUND_JUDGE` | `str` | `fake` | model (from `configs/models.yaml`) of the L1 Inbound Guard scan judge |
+| `GUARD_MODELS__INBOUND_EXTRACTOR` | `str` | `fake` | model of the L1 Inbound Guard intent extractor |
+| `GUARD_MODELS__DOC_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner per-chunk judge |
+| `GUARD_MODELS__DOC_SET_JUDGE` | `str` | `fake` | model of the Doc Scanner set judge; not read yet (guard v3 Task 10) |
+| `GUARD_MODELS__OUTPUT_JUDGE` | `str` | `fake` | model of the L4 Output Guard judge |
+| `GUARD_MODELS__MODELS_PATH` | `str` | `configs/models.yaml` | model registry, relative to `agentmailguard/` |
+| `INBOUND_GUARD__RULES_PATH` | `str` | `configs/injection_rules.yaml` | injection rules (scan and extract) |
+| `INBOUND_GUARD__ML_MODEL_PATH` | `str` | `artifacts/models/l1_injection_clf_v1.joblib` | injection classifier artifact (pinned name) |
+| `INBOUND_GUARD__RULE_CONFIDENCE_THRESHOLD` | `float` 0–1 | `0.90` | a rule score at or above it skips the ML stage |
+| `INBOUND_GUARD__ML_CONFIDENCE_THRESHOLD` | `float` 0–1 | `0.80` | validated, not read by any stage (as in v2) |
+| `INBOUND_GUARD__SCAN_LLM_ENABLED` | `bool` | `true` | scan judge for uncertain scores |
+| `INBOUND_GUARD__BLOCK_THRESHOLD` | `float` 0–1 | `0.85` | score at or above it is HIGH severity; must be ≥ `FLAG_THRESHOLD` |
+| `INBOUND_GUARD__FLAG_THRESHOLD` | `float` 0–1 | `0.50` | score at or above it is MEDIUM severity |
+| `INBOUND_GUARD__MAX_CHARS` | `int` ≥ 200 | `12000` | characters the scan classifier reads |
+| `INBOUND_GUARD__EXTRACT_LLM_ENABLED` | `bool` | `true` | LLM step of the extractor; its deterministic part always runs |
+| `INBOUND_GUARD__MAX_BODY_CHARS` | `int` ≥ 200 | `6000` | body characters the extractor reads |
+| `INBOUND_GUARD__STRIP_THRESHOLD` | `float` 0–1 | `0.50` | a segment scoring at or above it is stripped |
+| `DOC_SCANNER__QUARANTINE_THRESHOLD` | `float` 0–1 | `0.70` | chunk score at or above it is quarantined |
+| `DOC_SCANNER__LLM_ENABLED` | `bool` | `false` | per-chunk judge for uncertain chunks |
+| `DOC_SCANNER__MAX_QUARANTINE_RATIO` | `float` 0–1 | `0.60` | above this share of quarantined chunks the reply escalates |
+| `CHANNEL_ISOLATION__SPOTLIGHTING_MODE` | `delimit` \| `datamark` \| `encode` | `datamark` | how untrusted text is marked in the prompt |
+| `CHANNEL_ISOLATION__DATAMARK_CHAR` | one character | `^` | datamark character |
+| `CHANNEL_ISOLATION__CHANNELS_PATH` | `str` | `configs/channels.yaml` | channel definitions |
+| `CHANNEL_ISOLATION__MAX_UNTRUSTED_TOKENS` | `int` ≥ 100 | `6000` | cap on untrusted tokens per prompt |
+| `OUTPUT_GUARD__PII_PATTERNS_PATH` | `str` | `configs/pii_patterns.yaml` | PII / secret patterns |
+| `OUTPUT_GUARD__REDACT_PII` | `bool` | `true` | redact PII in drafts |
+| `OUTPUT_GUARD__SYSTEM_PROMPT_LEAK_NGRAM` | `int` ≥ 3 | `8` | n-gram length of the system-prompt leak check |
+| `OUTPUT_GUARD__LLM_ENABLED` | `bool` | `false` | output judge for doubtful drafts |
+| `OUTPUT_GUARD__EXTERNAL_DOMAIN_ALLOWLIST` | JSON list of `str` | `[]` | extra recipient domains a draft may address besides the thread's own |
+| `POLICY__POLICY_PATH` | `str` | `configs/policy.yaml` | policy rules |
+| `POLICY__AUDIT_LOG_PATH` | `str` | `logs/mailguard_audit.jsonl` | JSONL audit log |
+
+**Migration from v2.** v2 keys are no longer read. If one is set in the shell or in the `.env` the guard reads, `MailGuardSettings` raises `LegacyConfigError` before loading, listing every v2 key it found with its v3 name (the table is `LEGACY_ENV_KEYS` in `settings.py`). Matching is case-insensitive.
+
+| v2 key | v3 key |
+|---|---|
+| `L1__LLM_ENABLED` | `INBOUND_GUARD__SCAN_LLM_ENABLED` |
+| `L1__<KEY>` (any other) | `INBOUND_GUARD__<KEY>` |
+| `L2__LLM_ENABLED` | `INBOUND_GUARD__EXTRACT_LLM_ENABLED` |
+| `L2__<KEY>` (any other) | `INBOUND_GUARD__<KEY>` |
+| `L3__<KEY>` | `CHANNEL_ISOLATION__<KEY>` |
+| `L3B__<KEY>` | `DOC_SCANNER__<KEY>` |
+| `L4__<KEY>` | `OUTPUT_GUARD__<KEY>` |
+| `L5__<KEY>` | `POLICY__<KEY>` |
+| `GUARD_MODELS__JUDGE` | `GUARD_MODELS__INBOUND_JUDGE` |
+| `GUARD_MODELS__EXTRACTOR` | `GUARD_MODELS__INBOUND_EXTRACTOR` |
+| `GUARD_MODELS__DOC_SCANNER` | `GUARD_MODELS__DOC_JUDGE` |

@@ -43,11 +43,13 @@ def gemini_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_guard_settings_point_every_stage_at_one_model(tmp_path: Path) -> None:
     settings = guard_settings(DEFAULT_GUARD_MODEL, l1_model_path=tmp_path / "clf.joblib")
     gm = settings.guard_models
-    assert {gm.judge, gm.extractor, gm.doc_scanner, gm.output_judge} == {DEFAULT_GUARD_MODEL}
+    assert {gm.inbound_judge, gm.inbound_extractor, gm.doc_judge, gm.output_judge} == {
+        DEFAULT_GUARD_MODEL
+    }
     assert Path(gm.models_path) == GUARD_MODELS_YAML.resolve()
-    assert settings.l1.ml_model_path == str((tmp_path / "clf.joblib").resolve())
-    assert settings.l3b.llm_enabled is False
-    assert settings.l4.llm_enabled is False
+    assert settings.inbound_guard.ml_model_path == str((tmp_path / "clf.joblib").resolve())
+    assert settings.doc_scanner.llm_enabled is False
+    assert settings.output_guard.llm_enabled is False
 
 
 def test_gemma_resolves_to_the_openai_backend_without_a_call(

@@ -106,13 +106,15 @@ class MailGuardPipeline:
         self.registry = registry
         gm = self.settings.guard_models
         self.l1 = l1 or EmailInjectionScanner(
-            self.settings, judge=judge or self._provider(gm.judge), judge_name=gm.judge
+            self.settings,
+            judge=judge or self._provider(gm.inbound_judge),
+            judge_name=gm.inbound_judge,
         )
         self.l2 = l2 or UserIntentExtractor(
             self.settings,
             rules=self.l1.rules,
             classifier=self.l1.classifier,
-            llm=extractor_llm or self._provider(gm.extractor),
+            llm=extractor_llm or self._provider(gm.inbound_extractor),
         )
         self.l3 = l3 or ChannelIsolation(self.settings, enabled=self.config.l3)
         self.l3b = l3b or RetrievedDocumentScanner(
@@ -120,12 +122,14 @@ class MailGuardPipeline:
             rules=self.l1.rules,
             classifier=self.l1.classifier,
             llm=doc_llm
-            or (self._provider(gm.doc_scanner) if self.settings.l3b.llm_enabled else None),
+            or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
         )
         self.l4 = l4 or OutputScanner(
             self.settings,
             llm=output_llm
-            or (self._provider(gm.output_judge) if self.settings.l4.llm_enabled else None),
+            or (
+                self._provider(gm.output_judge) if self.settings.output_guard.llm_enabled else None
+            ),
         )
         self.l5 = l5 or PolicyEngine(self.settings, audit=audit)
 

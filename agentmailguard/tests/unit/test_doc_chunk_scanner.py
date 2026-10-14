@@ -36,7 +36,7 @@ def test_scan_quarantines_poison_and_keeps_clean(settings, kb_chunks, poisoned_c
 
 
 async def test_llm_stage_on_uncertain_band(settings):
-    settings.l3b.llm_enabled = True
+    settings.doc_scanner.llm_enabled = True
     llm = FakeLLMProvider(
         default_response={
             "is_poisoned": True,

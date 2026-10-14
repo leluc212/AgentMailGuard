@@ -103,7 +103,7 @@ class PolicyEngine:
         audit: bool = True,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l5
+        self.cfg = self.settings.policy
         self.policy_path = policy_path or self.settings.resolve(self.cfg.policy_path)
         self.audit_path = audit_path or self.settings.resolve(self.cfg.audit_log_path)
         self.audit_enabled = audit

@@ -38,14 +38,14 @@ def guard_settings(
     Absolute paths are used as given by MailGuardSettings.resolve.
     """
     settings = MailGuardSettings(_env_file=None)
-    settings.guard_models.judge = model_name
-    settings.guard_models.extractor = model_name
-    settings.guard_models.doc_scanner = model_name
+    settings.guard_models.inbound_judge = model_name
+    settings.guard_models.inbound_extractor = model_name
+    settings.guard_models.doc_judge = model_name
     settings.guard_models.output_judge = model_name
     settings.guard_models.models_path = str(models_path.resolve())
-    settings.l1.ml_model_path = str(l1_model_path.resolve())
-    settings.l3b.llm_enabled = l3b_llm
-    settings.l4.llm_enabled = l4_llm
+    settings.inbound_guard.ml_model_path = str(l1_model_path.resolve())
+    settings.doc_scanner.llm_enabled = l3b_llm
+    settings.output_guard.llm_enabled = l4_llm
     return settings
 
 

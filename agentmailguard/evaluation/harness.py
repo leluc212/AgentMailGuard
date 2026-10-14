@@ -437,9 +437,9 @@ def build_pipeline(
 
     s = settings or MailGuardSettings(_env_file=None)  # type: ignore[call-arg]
     if guard_model:
-        s.guard_models.judge = guard_model
-        s.guard_models.extractor = guard_model
-        s.guard_models.doc_scanner = guard_model
+        s.guard_models.inbound_judge = guard_model
+        s.guard_models.inbound_extractor = guard_model
+        s.guard_models.doc_judge = guard_model
         s.guard_models.output_judge = guard_model
     registry = ModelRegistry(s) if guard_model else None
     return MailGuardPipeline(s, GuardConfig.preset(config), registry=registry, audit=audit)

@@ -35,7 +35,12 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
-from mailguard.config.settings import GuardModelSettings, L1Settings, L5Settings, MailGuardSettings
+from mailguard.config.settings import (
+    GuardModelSettings,
+    InboundGuardSettings,
+    MailGuardSettings,
+    PolicySettings,
+)
 from mailguard.contracts.policy import GuardReport, PolicyDecision
 from mailguard.contracts.verdict import Severity
 from mailguard.llm.fake import FakeLLMProvider
@@ -278,20 +283,27 @@ def offline_settings(tmp_dir: Path) -> MailGuardSettings:
     """No network, no classifier file, no registered guard model, audit log under ``tmp_dir``."""
     tmp_dir = Path(tmp_dir)
     return _OfflineSettings(
+        _env_file=None,
         guard_models=GuardModelSettings(
-            judge="none", extractor="none", doc_scanner="none", output_judge="none"
+            inbound_judge="none",
+            inbound_extractor="none",
+            doc_judge="none",
+            doc_set_judge="none",
+            output_judge="none",
         ),
-        l1=L1Settings(ml_model_path=str(tmp_dir / "absent-l1-classifier.joblib")),
-        l5=L5Settings(audit_log_path=str(tmp_dir / "audit.jsonl")),
+        inbound_guard=InboundGuardSettings(
+            ml_model_path=str(tmp_dir / "absent-l1-classifier.joblib")
+        ),
+        policy=PolicySettings(audit_log_path=str(tmp_dir / "audit.jsonl")),
     )
 
 
 def _case_settings(case: ParityCase, settings: MailGuardSettings) -> MailGuardSettings:
-    """``llm`` also switches on the L3b and L4 judges (off by default in v2)."""
+    """``llm`` also switches on the doc scanner and output guard judges (off by default in v2)."""
     return settings.model_copy(
         update={
-            "l3b": settings.l3b.model_copy(update={"llm_enabled": case.llm}),
-            "l4": settings.l4.model_copy(update={"llm_enabled": case.llm}),
+            "doc_scanner": settings.doc_scanner.model_copy(update={"llm_enabled": case.llm}),
+            "output_guard": settings.output_guard.model_copy(update={"llm_enabled": case.llm}),
         }
     )
 

@@ -76,7 +76,7 @@ def test_sanitized_body_and_intent_channel(settings, attack_email):
 
 
 def test_token_budget_truncates(settings):
-    settings.l3.max_untrusted_tokens = 120
+    settings.channel_isolation.max_untrusted_tokens = 120
     iso = ChannelIsolation(settings, mode="delimit")
     big = RetrievedChunk(chunk_id="c", content="word " * 5000)
     prompt, verdict = iso.build(

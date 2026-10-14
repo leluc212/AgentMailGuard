@@ -265,3 +265,11 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `GOLDEN_PROMPT_KEY`). Root `make test-unit`: 1 failed (`..._is_the_v2_pin`, đọc tree HEAD nên đổi theo mọi
   commit chạm guard) + 3945 passed; `make lint` sạch.
   Pin test `test_the_committed_guard_folder_is_the_v2_pin` is strict-xfail until Task 15b (Linux equivalent of the Windows transient-failure list).
+- [x] Task 3 — on `079ac25`: `InboundGuardSettings` (`scan_llm_enabled`/`extract_llm_enabled`),
+  `DocScannerSettings`, `ChannelIsolationSettings`, `OutputGuardSettings`, `PolicySettings`;
+  `GuardModelSettings.inbound_judge/inbound_extractor/doc_judge/doc_set_judge/output_judge`;
+  `LegacyConfigError` + `LEGACY_ENV_KEYS` (env + dotenv, case-insensitive); readers in subtree and root
+  bench renamed; `.env.example`, `docs/configuration.md` §2.23, README. Subtree 378 passed (parity 188,
+  0 delta; `test_settings_v3.py` 48); root 63 fail = Windows baseline, 0 new; ruff/mypy chỉ noise cũ.
+  Còn mở (không chặn): dạng JSON lồng nhau (`GUARD_MODELS='{"judge":…}'`) chưa bị từ chối;
+  Task 10 phải set `doc_set_judge` trong `harness.build_pipeline` và `guard_factory.guard_settings`.

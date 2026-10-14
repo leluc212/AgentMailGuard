@@ -1,3 +1,15 @@
-from mailguard.config.settings import PROJECT_ROOT, MailGuardSettings, get_settings
+from mailguard.config.settings import (
+    LEGACY_ENV_KEYS,
+    PROJECT_ROOT,
+    LegacyConfigError,
+    MailGuardSettings,
+    get_settings,
+)
 
-__all__ = ["PROJECT_ROOT", "MailGuardSettings", "get_settings"]
+__all__ = [
+    "LEGACY_ENV_KEYS",
+    "PROJECT_ROOT",
+    "LegacyConfigError",
+    "MailGuardSettings",
+    "get_settings",
+]

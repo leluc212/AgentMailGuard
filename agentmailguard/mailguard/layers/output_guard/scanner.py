@@ -156,7 +156,7 @@ class OutputScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l4
+        self.cfg = self.settings.output_guard
         self.patterns = (
             patterns
             if patterns is not None

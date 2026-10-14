@@ -157,7 +157,9 @@ def test_build_guard_wires_one_counted_registry_model_into_the_llm_stages(
     assert (guard.preset, guard.config) == ("C3", "C3")
     assert guard.pipeline.l1.judge is guard.guard_llm
     assert guard.pipeline.l2.llm is guard.guard_llm
-    assert guard.pipeline.settings.l5.audit_log_path == str((tmp_path / "audit.jsonl").resolve())
+    assert guard.pipeline.settings.policy.audit_log_path == str(
+        (tmp_path / "audit.jsonl").resolve()
+    )
     assert guard.describe()["active_layers"] == ["l1", "l2", "l3", "l3b", "l4", "l5"]
 
 

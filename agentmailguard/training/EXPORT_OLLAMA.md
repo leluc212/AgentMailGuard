@@ -20,5 +20,5 @@
      tag: mailguard-qwen2.5-7b:v1
      num_ctx: 8192
    ```
-   and point `GUARD_MODELS__JUDGE=mailguard-qwen2.5-7b` in `.env`.
+   and point `GUARD_MODELS__INBOUND_JUDGE=mailguard-qwen2.5-7b` in `.env`.
 5. Re-run `python -m evaluation.run_benchmark --agent qwen2.5-7b-instruct --guard-model mailguard-qwen2.5-7b --config all`.

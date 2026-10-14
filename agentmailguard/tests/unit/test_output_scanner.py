@@ -100,7 +100,7 @@ def test_clean_draft(settings, benign_email):
 
 
 async def test_llm_judge_flags_unsafe(settings, attack_email):
-    settings.l4.llm_enabled = True
+    settings.output_guard.llm_enabled = True
     llm = FakeLLMProvider(
         default_response={
             "safe": False,

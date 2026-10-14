@@ -206,10 +206,10 @@ class UserIntentExtractor:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l2
-        self.rules = rules or RuleEngine.load(self.settings.resolve(self.settings.l1.rules_path))
+        self.cfg = self.settings.inbound_guard
+        self.rules = rules or RuleEngine.load(self.settings.resolve(self.cfg.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
-            Path(self.settings.resolve(self.settings.l1.ml_model_path))
+            Path(self.settings.resolve(self.cfg.ml_model_path))
         )
         self.llm = llm
         self.fail_closed = (
@@ -280,7 +280,7 @@ class UserIntentExtractor:
         with timed() as sw:
             try:
                 intent = self._extract_heuristic(email)
-                if self.cfg.llm_enabled and self.llm is not None:
+                if self.cfg.extract_llm_enabled and self.llm is not None:
                     intent = await self._refine_with_llm(email, intent)
             except Exception as exc:
                 logger.exception("L2 extraction failed")

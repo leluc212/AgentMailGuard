@@ -17,7 +17,7 @@ import logging
 import re
 from pathlib import Path
 
-from mailguard.config.settings import L1Settings, MailGuardSettings, get_settings
+from mailguard.config.settings import InboundGuardSettings, MailGuardSettings, get_settings
 from mailguard.contracts.email import GuardedEmail
 from mailguard.contracts.verdict import Finding, LayerName, LayerVerdict, Severity, ThreatType
 from mailguard.layers.base import error_verdict, timed
@@ -67,14 +67,16 @@ class EmailInjectionScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        cfg: L1Settings = self.settings.l1
+        cfg: InboundGuardSettings = self.settings.inbound_guard
         self.cfg = cfg
         self.rules = rules or RuleEngine.load(self.settings.resolve(cfg.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
             Path(self.settings.resolve(cfg.ml_model_path))
         )
         self.judge = judge
-        self.judge_name = judge_name or (self.settings.guard_models.judge if judge else None)
+        self.judge_name = judge_name or (
+            self.settings.guard_models.inbound_judge if judge else None
+        )
         self.fail_closed = (
             self.settings.mailguard.fail_closed if fail_closed is None else fail_closed
         )
@@ -127,7 +129,7 @@ class EmailInjectionScanner:
                 verdict = self._inspect_cheap(email)
                 fused = float(verdict.metadata.get("fused_cheap", verdict.score))
                 if (
-                    self.cfg.llm_enabled
+                    self.cfg.scan_llm_enabled
                     and self.judge is not None
                     and verdict.error is None
                     and self.needs_llm(fused)

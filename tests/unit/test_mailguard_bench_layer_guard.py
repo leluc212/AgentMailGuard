@@ -79,8 +79,8 @@ def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]
         l1_model_path=tmp_path / "clf.joblib",
     )
     pipeline = guard.pipeline
-    pipeline.settings.l3b.llm_enabled = True  # so an absent L3b/L4 model would count
-    pipeline.settings.l4.llm_enabled = True
+    pipeline.settings.doc_scanner.llm_enabled = True  # so an absent L3b/L4 model would count
+    pipeline.settings.output_guard.llm_enabled = True
     pipeline.l3b.llm = pipeline.l4.llm = guard.guard_llm
     pipeline.l1.classifier.pipeline = guard.guard_llm  # any non-None: classifier "available"
     for part in off:

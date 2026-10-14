@@ -17,8 +17,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.fixture
 def settings(tmp_path: Path) -> MailGuardSettings:
     s = MailGuardSettings(_env_file=None)  # type: ignore[call-arg]
-    s.l5.audit_log_path = str(tmp_path / "audit.jsonl")
-    s.l1.ml_model_path = str(
+    s.policy.audit_log_path = str(tmp_path / "audit.jsonl")
+    s.inbound_guard.ml_model_path = str(
         tmp_path / "missing.joblib"
     )  # ML stage disabled unless a test trains one
     return s

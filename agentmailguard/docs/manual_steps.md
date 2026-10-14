@@ -34,7 +34,7 @@ Khuyến nghị: pilot 200–300 case trên laptop qua đêm, hoặc chạy full
 | C2 | (Chỉ cho Llama) Vào https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct bấm "Agree", tạo token tại https://huggingface.co/settings/tokens, dán vào ô `HF_TOKEN` của cell 3. Qwen không cần token. |
 | C3 | Chạy các cell từ trên xuống. Cell 5: đặt `MAX_STEPS = 60` để thử nhanh (~10 phút), `0` để train đủ 1 epoch (~2 giờ). Cell 6 in ra P/R/F1 của judge sau fine-tune. |
 | C4 | Cell 7 lưu adapter + file GGUF `q4_k_m` + `Modelfile` vào Google Drive (`MyDrive/AgentMailGuard/…`). Tải thư mục `gguf` về máy. |
-| C5 | Trên máy: `cd <thư mục gguf>` → `ollama create mailguard-qwen2.5-7b:v1 -f Modelfile`. Thêm vào `configs/models.yaml`: `mailguard-qwen2.5-7b: {backend: ollama, tag: mailguard-qwen2.5-7b:v1, num_ctx: 8192}`, đặt `GUARD_MODELS__JUDGE=mailguard-qwen2.5-7b` trong `.env`. |
+| C5 | Trên máy: `cd <thư mục gguf>` → `ollama create mailguard-qwen2.5-7b:v1 -f Modelfile`. Thêm vào `configs/models.yaml`: `mailguard-qwen2.5-7b: {backend: ollama, tag: mailguard-qwen2.5-7b:v1, num_ctx: 8192}`, đặt `GUARD_MODELS__INBOUND_JUDGE=mailguard-qwen2.5-7b` trong `.env`. |
 | C6 | Chạy lại B4/B5 với `--guard-model mailguard-qwen2.5-7b` để có hàng "fine-tuned judge" trong paper. |
 
 Ghi chú: `training/finetune_llm_judge.py` (HF transformers + peft, không Unsloth) làm cùng việc nếu có máy GPU riêng;

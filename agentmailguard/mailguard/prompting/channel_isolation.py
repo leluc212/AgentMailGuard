@@ -128,7 +128,7 @@ class ChannelIsolation:
         mode: str | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l3
+        self.cfg = self.settings.channel_isolation
         self.config = config or ChannelConfig.load(self.settings.resolve(self.cfg.channels_path))
         self.enabled = enabled
         self.mode = mode or self.cfg.spotlighting_mode

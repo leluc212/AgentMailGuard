@@ -90,7 +90,7 @@ def test_build_guard_wires_the_one_counted_model_into_l3b_and_l4_when_asked(
         l4_llm=True,
     )
     settings = guard.pipeline.settings
-    assert (settings.l3b.llm_enabled, settings.l4.llm_enabled) == (True, True)
+    assert (settings.doc_scanner.llm_enabled, settings.output_guard.llm_enabled) == (True, True)
     assert guard.pipeline.l3b.llm is guard.guard_llm  # counted with the L1/L2 calls
     assert guard.pipeline.l4.llm is guard.guard_llm
     stages = guard.live_stages()

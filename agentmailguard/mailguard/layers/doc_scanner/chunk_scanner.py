@@ -203,10 +203,11 @@ class RetrievedDocumentScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l3b
-        self.rules = rules or RuleEngine.load(self.settings.resolve(self.settings.l1.rules_path))
+        self.cfg = self.settings.doc_scanner
+        inbound = self.settings.inbound_guard
+        self.rules = rules or RuleEngine.load(self.settings.resolve(inbound.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
-            Path(self.settings.resolve(self.settings.l1.ml_model_path))
+            Path(self.settings.resolve(inbound.ml_model_path))
         )
         self.llm = llm
         self.fail_closed = (

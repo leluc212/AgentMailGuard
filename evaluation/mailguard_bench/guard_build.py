@@ -88,8 +88,10 @@ class GuardBuild:
         settings = pipeline.settings
         return {
             "l1.classifier": bool(pipeline.l1.classifier.available),
-            "l1.judge": pipeline.l1.judge is not None and bool(settings.l1.llm_enabled),
-            "l2.llm": pipeline.l2.llm is not None and bool(settings.l2.llm_enabled),
+            "l1.judge": pipeline.l1.judge is not None
+            and bool(settings.inbound_guard.scan_llm_enabled),
+            "l2.llm": pipeline.l2.llm is not None
+            and bool(settings.inbound_guard.extract_llm_enabled),
             "l3b.llm": pipeline.l3b.llm is not None,
             "l4.llm": pipeline.l4.llm is not None,
         }
@@ -116,13 +118,13 @@ class GuardBuild:
         else:
             if config.l1 or config.l2 or config.l3b:
                 required.append("l1.classifier")
-            if config.l1 and settings.l1.llm_enabled:
+            if config.l1 and settings.inbound_guard.scan_llm_enabled:
                 required.append("l1.judge")
-            if config.l2 and settings.l2.llm_enabled:
+            if config.l2 and settings.inbound_guard.extract_llm_enabled:
                 required.append("l2.llm")
-            if config.l3b and settings.l3b.llm_enabled:
+            if config.l3b and settings.doc_scanner.llm_enabled:
                 required.append("l3b.llm")
-            if config.l4 and settings.l4.llm_enabled:
+            if config.l4 and settings.output_guard.llm_enabled:
                 required.append("l4.llm")
         return [stage for stage in required if not live[stage]]
 
@@ -133,7 +135,7 @@ class GuardBuild:
         from evaluation.mailguard_bench.guard_factory import live_layers
 
         settings = self.pipeline.settings
-        l1_path = Path(settings.resolve(settings.l1.ml_model_path))
+        l1_path = Path(settings.resolve(settings.inbound_guard.ml_model_path))
         routing = getattr(self.guard_llm, "provider_routing", None)
         return {
             "config": self.config,
@@ -148,7 +150,7 @@ class GuardBuild:
             "l1_model_sha256": sha256_file(l1_path) if l1_path.exists() else None,
             "mailguard_root": str(PROJECT_ROOT),
             "mailguard_commit": git_head(Path(PROJECT_ROOT)),
-            "audit_log_path": settings.l5.audit_log_path,
+            "audit_log_path": settings.policy.audit_log_path,
             # An OpenRouter run: the pin the guard's judges send (no key means not routed, as v1)
             **({"provider_routing": dict(routing)} if isinstance(routing, Mapping) else {}),
         }
@@ -232,7 +234,7 @@ def build_guard(
         l3b_llm=l3b_llm,
         l4_llm=l4_llm,
     )
-    settings.l5.audit_log_path = str(audit_log_path.resolve())
+    settings.policy.audit_log_path = str(audit_log_path.resolve())
     registry = ModelRegistry(settings)
     provider = registry.get(model_name)
     problem = guard_pin_problem(provider, expected_route)
@@ -250,8 +252,8 @@ def build_guard(
         registry=registry,
         judge=guard_llm,
         extractor_llm=guard_llm,
-        doc_llm=guard_llm if settings.l3b.llm_enabled else None,
-        output_llm=guard_llm if settings.l4.llm_enabled else None,
+        doc_llm=guard_llm if settings.doc_scanner.llm_enabled else None,
+        output_llm=guard_llm if settings.output_guard.llm_enabled else None,
         audit=True,
     )
     return GuardBuild(

@@ -62,10 +62,10 @@ The L1 classifier `l1_injection_clf_v1.joblib` is not in git; the owner sends it
 
 | Route | Classifier location |
 |---|---|
-| Direct use (Python, CLI) | `agentmailguard/artifacts/models/l1_injection_clf_v1.joblib`, or any path in `L1__ML_MODEL_PATH` |
+| Direct use (Python, CLI) | `agentmailguard/artifacts/models/l1_injection_clf_v1.joblib`, or any path in `INBOUND_GUARD__ML_MODEL_PATH` |
 | Benchmark | `evaluation/mailguard_bench/pinned/`; check with `cd evaluation/mailguard_bench/pinned && sha256sum -c SHA256SUMS` |
 
-Without the owner's file, `make mailguard-prep` downloads the datasets and trains a classifier (network, no API key) into `../AgentMailGuard-bench-artifacts`. Use it for direct use through `L1__ML_MODEL_PATH`; its hash differs from the pin, so the pinned benchmark rejects it.
+Without the owner's file, `make mailguard-prep` downloads the datasets and trains a classifier (network, no API key) into `../AgentMailGuard-bench-artifacts`. Use it for direct use through `INBOUND_GUARD__ML_MODEL_PATH`; its hash differs from the pin, so the pinned benchmark rejects it.
 
 See it work, from `agentmailguard/` (an injected email; with the rules alone L1 and L2 report critical and L5 quarantines it before any reply call):
 
@@ -259,10 +259,10 @@ The guard reads its settings from the environment and from the `.env` of its wor
 
 | Stage | Model setting | Stage switch |
 |---|---|---|
-| L1 judge (uncertain L1 scores only) | `GUARD_MODELS__JUDGE` | `L1__LLM_ENABLED`, default `true` |
-| L2 extractor | `GUARD_MODELS__EXTRACTOR` | `L2__LLM_ENABLED`, default `true` |
-| L3b document scanner (uncertain chunks only) | `GUARD_MODELS__DOC_SCANNER` | `L3B__LLM_ENABLED`, default **`false`**: set `true` |
-| L4 output judge (doubtful drafts only) | `GUARD_MODELS__OUTPUT_JUDGE` | `L4__LLM_ENABLED`, default **`false`**: set `true` |
+| L1 judge (uncertain L1 scores only) | `GUARD_MODELS__INBOUND_JUDGE` | `INBOUND_GUARD__SCAN_LLM_ENABLED`, default `true` |
+| L2 extractor | `GUARD_MODELS__INBOUND_EXTRACTOR` | `INBOUND_GUARD__EXTRACT_LLM_ENABLED`, default `true` |
+| L3b document scanner (uncertain chunks only) | `GUARD_MODELS__DOC_JUDGE` | `DOC_SCANNER__LLM_ENABLED`, default **`false`**: set `true` |
+| L4 output judge (doubtful drafts only) | `GUARD_MODELS__OUTPUT_JUDGE` | `OUTPUT_GUARD__LLM_ENABLED`, default **`false`**: set `true` |
 
 The registry is `configs/models.yaml` (`GUARD_MODELS__MODELS_PATH`, relative to `agentmailguard/`). It ships `gpt-4o-mini`, `qwen2.5-7b-instruct` and `llama-3.1-8b-instruct` (Ollama, 4-bit tags), `qwen/qwen-2.5-7b-instruct` and `meta-llama/llama-3.1-8b-instruct` (OpenRouter, pinned), and `fake`. Entry formats:
 
@@ -330,12 +330,12 @@ EMBEDDING__DIMENSION=1536
 Guard, `agentmailguard/.env`, plus `export OPENAI_API_KEY=<your-openai-key>` in the shell:
 
 ```dotenv
-GUARD_MODELS__JUDGE=gpt-4o-mini
-GUARD_MODELS__EXTRACTOR=gpt-4o-mini
-GUARD_MODELS__DOC_SCANNER=gpt-4o-mini
+GUARD_MODELS__INBOUND_JUDGE=gpt-4o-mini
+GUARD_MODELS__INBOUND_EXTRACTOR=gpt-4o-mini
+GUARD_MODELS__DOC_JUDGE=gpt-4o-mini
 GUARD_MODELS__OUTPUT_JUDGE=gpt-4o-mini
-L3B__LLM_ENABLED=true
-L4__LLM_ENABLED=true
+DOC_SCANNER__LLM_ENABLED=true
+OUTPUT_GUARD__LLM_ENABLED=true
 ```
 
 **OpenRouter, Llama-3.1-8B pinned to CoreWeave.** rag-email `.env` (the embedding lines as in the first example):
@@ -355,12 +355,12 @@ LLM__PRICE_TABLE='{"meta-llama/llama-3.1-8b-instruct":{"input_per_m":0.22,"outpu
 Guard, `agentmailguard/.env` (the registry entry carries the same pin), plus `export OPENAI_BASE_URL=https://openrouter.ai/api/v1 OPENAI_API_KEY=<your-openrouter-key>`:
 
 ```dotenv
-GUARD_MODELS__JUDGE=meta-llama/llama-3.1-8b-instruct
-GUARD_MODELS__EXTRACTOR=meta-llama/llama-3.1-8b-instruct
-GUARD_MODELS__DOC_SCANNER=meta-llama/llama-3.1-8b-instruct
+GUARD_MODELS__INBOUND_JUDGE=meta-llama/llama-3.1-8b-instruct
+GUARD_MODELS__INBOUND_EXTRACTOR=meta-llama/llama-3.1-8b-instruct
+GUARD_MODELS__DOC_JUDGE=meta-llama/llama-3.1-8b-instruct
 GUARD_MODELS__OUTPUT_JUDGE=meta-llama/llama-3.1-8b-instruct
-L3B__LLM_ENABLED=true
-L4__LLM_ENABLED=true
+DOC_SCANNER__LLM_ENABLED=true
+OUTPUT_GUARD__LLM_ENABLED=true
 ```
 
 **Local Ollama, Qwen2.5-7B** (`ollama pull qwen2.5:7b-instruct`). rag-email `.env` (the containers reach the host's Ollama as `host.docker.internal`; a host process uses `http://localhost:11434/v1`):
@@ -378,12 +378,12 @@ LLM__PRICE_TABLE='{"qwen2.5:7b-instruct":{"input_per_m":0,"output_per_m":0}}'
 Guard, `agentmailguard/.env` (the `ollama` entry `qwen2.5-7b-instruct`; no key):
 
 ```dotenv
-GUARD_MODELS__JUDGE=qwen2.5-7b-instruct
-GUARD_MODELS__EXTRACTOR=qwen2.5-7b-instruct
-GUARD_MODELS__DOC_SCANNER=qwen2.5-7b-instruct
+GUARD_MODELS__INBOUND_JUDGE=qwen2.5-7b-instruct
+GUARD_MODELS__INBOUND_EXTRACTOR=qwen2.5-7b-instruct
+GUARD_MODELS__DOC_JUDGE=qwen2.5-7b-instruct
 GUARD_MODELS__OUTPUT_JUDGE=qwen2.5-7b-instruct
-L3B__LLM_ENABLED=true
-L4__LLM_ENABLED=true
+DOC_SCANNER__LLM_ENABLED=true
+OUTPUT_GUARD__LLM_ENABLED=true
 OLLAMA__BASE_URL=http://localhost:11434
 ```
 
@@ -443,7 +443,7 @@ docs/  specs/  tests/        guides, ADRs and runbook; requirements, design, tas
 
 ## Configuration
 
-Settings are environment variables read through Pydantic Settings, from the shell or `.env`. The template is [.env.example](.env.example); every key is described in [docs/configuration.md](docs/configuration.md). Main groups: `DATABASE__*`, `BROKER__*`, `OBJECT_STORAGE__*`, `LLM__*`, `EMBEDDING__*`, `RETRIEVAL__*`, `TRIAGE__*`, `CONCURRENCY__*`, `FRONTEND__*`. The guard's own settings (`GUARD_MODELS__*`, `L1__*`, `OLLAMA__*`) are read from the `.env` of the guard's working directory (`agentmailguard/.env` when run from there); see [Configure the models](#configure-the-models).
+Settings are environment variables read through Pydantic Settings, from the shell or `.env`. The template is [.env.example](.env.example); every key is described in [docs/configuration.md](docs/configuration.md). Main groups: `DATABASE__*`, `BROKER__*`, `OBJECT_STORAGE__*`, `LLM__*`, `EMBEDDING__*`, `RETRIEVAL__*`, `TRIAGE__*`, `CONCURRENCY__*`, `FRONTEND__*`. The guard's own settings (`GUARD_MODELS__*`, `INBOUND_GUARD__*`, `OLLAMA__*`) are read from the `.env` of the guard's working directory (`agentmailguard/.env` when run from there); see [Configure the models](#configure-the-models).
 
 ## Tests
 
