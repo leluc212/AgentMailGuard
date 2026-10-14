@@ -1,4 +1,4 @@
-# Layer 5 - Email Policy Engine: risk-tiered action gating.
+# Policy Engine: risk-tiered action gating (L3 Inbound Gate, stage inbound; L4 Output Guard, stage outbound).
 #
 # Every rule whose `when` block fully matches is collected and the STRICTEST action
 # wins (quarantine > block > human_approval > draft_only > auto_send). Equal actions go
@@ -9,17 +9,17 @@
 #   max_severity_at_most:      none|low|medium|high|critical
 #   threat_types_any:          [..ThreatType..]        (any finding across layers)
 #   layers_flagged_any:        [..LayerName..]         (verdict severity >= medium)
-#   layer_error_any:           true                    (any layer failed, fail-closed)
-#   quarantine_ratio_at_least: 0.0-1.0                 (L3b quarantined / retrieved)
-#   removed_ratio_at_least:    0.0-1.0                 (L2 stripped / total)
-#   complied_with_injected_goal: true                  (L4)
-#   citation_mismatch:         true                    (L4)
-#   redactions_at_least:       int                     (L4)
+#   layer_error_any:           true                    (any layer or channel isolation failed)
+#   quarantine_ratio_at_least: 0.0-1.0                 (doc_scanner quarantined / retrieved)
+#   removed_ratio_at_least:    0.0-1.0                 (inbound_guard stripped / total)
+#   complied_with_injected_goal: true                  (output_guard)
+#   citation_mismatch:         true                    (output_guard)
+#   redactions_at_least:       int                     (output_guard)
 #   stage:                     inbound|outbound        (which gate is being evaluated)
 #   category_in:               [..triage categories..]
 #   action_in:                 [reply|forward|escalate] (draft action)
 # Actions: auto_send | draft_only | human_approval | block | quarantine
-version: "2026.09-v2"   # v2: strictest-match selection (was first-match by priority)
+version: "2026.10-v3"   # v3: schema-3 report facts (ADR-0015); rules unchanged from 2026.09-v2
 default_action: draft_only
 auto_send_categories: [acknowledgement, scheduling]   # only ever auto-sent when clean
 

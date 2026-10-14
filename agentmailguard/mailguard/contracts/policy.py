@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from mailguard.contracts.verdict import (
-    ChunkVerdict,
+    DocumentVerdict,
+    InboundVerdict,
+    IsolationInfo,
     LayerVerdict,
     OutputVerdict,
-    SanitizedIntent,
     Severity,
 )
 
@@ -89,27 +90,38 @@ class PolicyDecision(BaseModel):
 
 
 class GuardReport(BaseModel):
-    """Everything the guard knows about one email job, in pipeline order."""
+    """Everything the guard knows about one email job, in pipeline order (schema 3).
 
+    ``extra="forbid"``: a v2 dump (``l1``, ``l2``, ``l3``, ``l3b``, ``l4``) does not validate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[3] = 3
     message_id: str = ""
     organization_id: str = ""
-    l1: LayerVerdict | None = None
-    l2: SanitizedIntent | None = None
-    l3: LayerVerdict | None = None
-    l3b: list[ChunkVerdict] = Field(default_factory=list)
-    l4: OutputVerdict | None = None
+    inbound_guard: InboundVerdict | None = None
+    doc_scanner: DocumentVerdict | None = None
+    isolation: IsolationInfo | None = None
     inbound_decision: PolicyDecision | None = Field(
-        default=None, description="Gate decision taken after L1/L2, before generation"
+        default=None, description="Inbound gate decision, taken before generation"
     )
+    output_guard: OutputVerdict | None = None
     decision: PolicyDecision | None = Field(
         default=None, description="Latest (final) gate decision"
     )
     total_latency_ms: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def verdicts(self) -> list[LayerVerdict]:
-        out: list[LayerVerdict] = [v for v in (self.l1, self.l2, self.l3, self.l4) if v is not None]
-        out.extend(self.l3b)
-        return out
+        """The layer verdicts present, in pipeline order (isolation has none)."""
+        return [
+            v for v in (self.inbound_guard, self.doc_scanner, self.output_guard) if v is not None
+        ]
+
+    @property
+    def quarantined_chunk_ids(self) -> list[str]:
+        return list(self.doc_scanner.quarantined_chunk_ids) if self.doc_scanner else []
 
     @property
     def max_severity(self) -> Severity:

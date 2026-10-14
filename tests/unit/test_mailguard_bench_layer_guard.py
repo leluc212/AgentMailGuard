@@ -7,6 +7,7 @@ No network: the guard's model is the registry's built-in "fake" backend or a stu
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -205,6 +206,18 @@ async def test_every_ablation_preset_makes_one_generation_call_for_a_benign_emai
     assert execution.record["final_draft"] is not None
 
 
+def _v3_part(report: dict[str, Any], removed: str) -> Any:
+    """The part of a schema-3 report dump that the v2 layer ``removed`` would have filled."""
+    stages = ((report.get("inbound_guard") or {}).get("metadata") or {}).get("stages") or {}
+    return {
+        "l1": stages.get("scan"),
+        "l2": stages.get("extract"),
+        "l3": report["isolation"],
+        "l3b": report["doc_scanner"],
+        "l4": report["output_guard"],
+    }[removed]
+
+
 @pytest.mark.parametrize("config", ABLATION_CONFIGS)
 async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_path: Path) -> None:
     executor, _, _ = _executor(config, tmp_path)
@@ -212,11 +225,10 @@ async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_pat
     execution = await executor.execute(_prepared(INJECTION))
 
     report = execution.record["report"]
+    assert report["schema_version"] == 3
     removed = REMOVED[config]
-    if removed in ("l1", "l2", "l3", "l4"):
-        assert report[removed] is None
-    if removed == "l3b":
-        assert report["l3b"] == []
+    if removed in ("l1", "l2", "l3", "l3b", "l4"):
+        assert _v3_part(report, removed) is None
     if removed == "l5":
         assert report["decision"] is None and execution.record["blocked"] is False
     assert execution.guard_errors == ()
@@ -230,8 +242,8 @@ async def test_without_l1_the_injection_is_still_seen_by_the_other_layers(
     execution = await executor.execute(_prepared(INJECTION))
 
     assert "l1_injection_scanner" not in execution.record["detected_layers"]
-    assert execution.record["report"]["l1"] is None
-    assert execution.record["report"]["l2"] is not None
+    assert _v3_part(execution.record["report"], "l1") is None
+    assert _v3_part(execution.record["report"], "l2") is not None
 
 
 def test_ablation_configs_need_a_guard_like_c3(tmp_path: Path) -> None:

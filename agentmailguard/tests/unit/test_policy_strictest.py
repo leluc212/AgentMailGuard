@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from mailguard.contracts.policy import GuardReport, PolicyAction
+from mailguard.contracts.policy import PolicyAction
 from mailguard.contracts.verdict import (
     ChunkVerdict,
     Finding,
@@ -29,6 +29,7 @@ from mailguard.contracts.verdict import (
     ThreatType,
 )
 from mailguard.policy import PolicyEngine
+from tests.reports import v3_report
 
 
 def finding(layer: LayerName, tt: ThreatType, score: float) -> Finding:
@@ -43,10 +44,10 @@ def finding(layer: LayerName, tt: ThreatType, score: float) -> Finding:
 
 def l1_verdict(severity: Severity, score: float, *tts: ThreatType) -> LayerVerdict:
     return LayerVerdict(
-        layer=LayerName.L1_INJECTION_SCANNER,
+        layer=LayerName.INBOUND_GUARD,
         severity=severity,
         score=score,
-        findings=[finding(LayerName.L1_INJECTION_SCANNER, tt, score) for tt in tts],
+        findings=[finding(LayerName.INBOUND_GUARD, tt, score) for tt in tts],
     )
 
 
@@ -58,7 +59,7 @@ def unsafe_l4() -> OutputVerdict:
     return OutputVerdict(
         severity=Severity.HIGH,
         score=0.9,
-        findings=[finding(LayerName.L4_OUTPUT_SCANNER, ThreatType.UNSAFE_ACTION, 0.9)],
+        findings=[finding(LayerName.OUTPUT_GUARD, ThreatType.UNSAFE_ACTION, 0.9)],
     )
 
 
@@ -81,10 +82,10 @@ def engine(settings) -> PolicyEngine:
 
 # ------------------------------------------------------------------ the two defect cases
 def test_layer_error_plus_critical_injection_quarantines(engine):
-    report = GuardReport(
+    report = v3_report(
         message_id="m",
-        l1=l1_verdict(Severity.CRITICAL, 0.98, ThreatType.INSTRUCTION_OVERRIDE),
-        l2=failed_l2(),
+        scan=l1_verdict(Severity.CRITICAL, 0.98, ThreatType.INSTRUCTION_OVERRIDE),
+        extract=failed_l2(),
     )
     d = engine.decide(report, stage="inbound")
     assert d.action is PolicyAction.QUARANTINE
@@ -94,14 +95,14 @@ def test_layer_error_plus_critical_injection_quarantines(engine):
 
 
 def test_layer_error_alone_is_still_human_approval(engine):
-    d = engine.decide(GuardReport(l2=failed_l2()), stage="inbound")
+    d = engine.decide(v3_report(extract=failed_l2()), stage="inbound")
     assert d.action is PolicyAction.HUMAN_APPROVAL
     assert d.matched_rule_id == "P00-internal-error-fail-closed"
 
 
 def test_layer_error_plus_exfiltration_blocks(engine):
-    report = GuardReport(
-        l1=l1_verdict(Severity.HIGH, 0.93, ThreatType.DATA_EXFILTRATION), l2=failed_l2()
+    report = v3_report(
+        scan=l1_verdict(Severity.HIGH, 0.93, ThreatType.DATA_EXFILTRATION), extract=failed_l2()
     )
     d = engine.decide(report, stage="inbound")
     assert d.action is PolicyAction.BLOCK
@@ -109,7 +110,7 @@ def test_layer_error_plus_exfiltration_blocks(engine):
 
 
 def test_high_severity_unsafe_forward_blocks_instead_of_human_approval(engine):
-    d = engine.decide(GuardReport(l4=unsafe_l4()), stage="outbound", draft_action="forward")
+    d = engine.decide(v3_report(output=unsafe_l4()), stage="outbound", draft_action="forward")
     assert d.action is PolicyAction.BLOCK
     assert d.matched_rule_id == "P06-outbound-unsafe-action-block"
     assert d.matched_rule_ids == [
@@ -120,7 +121,7 @@ def test_high_severity_unsafe_forward_blocks_instead_of_human_approval(engine):
 
 
 def test_rag_poisoning_plus_unsafe_forward_blocks(engine):
-    report = GuardReport(l3b=quarantined_chunks(2, 3), l4=unsafe_l4())
+    report = v3_report(chunks=quarantined_chunks(2, 3), output=unsafe_l4())
     d = engine.decide(report, stage="outbound", draft_action="forward")
     assert d.action is PolicyAction.BLOCK
     assert d.matched_rule_id == "P06-outbound-unsafe-action-block"
@@ -136,7 +137,7 @@ def test_rag_poisoning_plus_unsafe_forward_blocks(engine):
 # ------------------------------------------------------------------ ties and recording
 def test_equal_actions_go_to_the_lowest_priority_number(engine):
     # P04 and P05 are both human_approval; P04 (priority 30) must win, as before
-    d = engine.decide(GuardReport(l3b=quarantined_chunks(2, 3)), stage="outbound")
+    d = engine.decide(v3_report(chunks=quarantined_chunks(2, 3)), stage="outbound")
     assert d.action is PolicyAction.HUMAN_APPROVAL
     assert d.matched_rule_id == "P04-rag-poisoning-escalate"
     assert d.matched_rule_ids == [
@@ -146,9 +147,9 @@ def test_equal_actions_go_to_the_lowest_priority_number(engine):
     ]
 
     # P02 (20) and P03 (25) are both block
-    report = GuardReport(
-        l1=l1_verdict(Severity.HIGH, 0.93, ThreatType.DATA_EXFILTRATION),
-        l4=OutputVerdict(severity=Severity.HIGH, score=0.95, complied_with_injected_goal=True),
+    report = v3_report(
+        scan=l1_verdict(Severity.HIGH, 0.93, ThreatType.DATA_EXFILTRATION),
+        output=OutputVerdict(severity=Severity.HIGH, score=0.95, complied_with_injected_goal=True),
     )
     d2 = engine.decide(report, stage="outbound")
     assert d2.matched_rule_id == "P02-exfiltration-or-tool-abuse-block"
@@ -159,26 +160,26 @@ def test_equal_actions_go_to_the_lowest_priority_number(engine):
 
 
 def test_decision_takes_requires_human_and_reason_from_the_winner(engine):
-    d = engine.decide(GuardReport(l4=unsafe_l4()), stage="outbound", draft_action="forward")
+    d = engine.decide(v3_report(output=unsafe_l4()), stage="outbound", draft_action="forward")
     assert d.reasons[0].startswith("Draft attempted a forward")
     assert d.requires_human
 
 
 def test_audit_ids_stay_deterministic_and_track_the_winner(engine):
-    report = GuardReport(message_id="m", organization_id="o", l4=unsafe_l4())
+    report = v3_report(message_id="m", organization_id="o", output=unsafe_l4())
     d1 = engine.decide(report, stage="outbound", draft_action="forward")
     d2 = engine.decide(report, stage="outbound", draft_action="forward")
     assert d1.audit_id == d2.audit_id
     assert len(d1.audit_id) == 32
     other = engine.decide(
-        GuardReport(message_id="m2", organization_id="o", l4=unsafe_l4()), stage="outbound"
+        v3_report(message_id="m2", organization_id="o", output=unsafe_l4()), stage="outbound"
     )
     assert other.audit_id != d1.audit_id
 
 
 def test_audit_log_records_winner_and_all_matched_rules(settings, tmp_path):
     engine = PolicyEngine(settings)
-    d = engine.decide(GuardReport(message_id="m1", l4=unsafe_l4()), stage="outbound")
+    d = engine.decide(v3_report(message_id="m1", output=unsafe_l4()), stage="outbound")
     rec = json.loads(Path(engine.audit_path).read_text(encoding="utf-8").splitlines()[-1])
     assert rec["rule"] == d.matched_rule_id == "P06-outbound-unsafe-action-block"
     assert rec["matched_rules"] == d.matched_rule_ids
@@ -186,21 +187,20 @@ def test_audit_log_records_winner_and_all_matched_rules(settings, tmp_path):
 
 
 def test_policy_version_records_the_new_selection_semantics(engine):
-    assert engine.version == "2026.09-v2"
+    # 2026.09-v2 introduced strictest-match; 2026.10-v3 keeps it on schema-3 facts
+    assert engine.version == "2026.10-v3"
 
 
 # ------------------------------------------------------------------ fallback rule stays a fallback
 def test_clean_report_uses_only_the_default_rule(engine):
-    d = engine.decide(
-        GuardReport(l1=LayerVerdict(layer=LayerName.L1_INJECTION_SCANNER)), stage="inbound"
-    )
+    d = engine.decide(v3_report(scan=LayerVerdict(layer=LayerName.INBOUND_GUARD)), stage="inbound")
     assert d.action is PolicyAction.DRAFT_ONLY
     assert d.matched_rule_id == "P99-default"
     assert d.matched_rule_ids == ["P99-default"]
 
 
 def test_catch_all_default_does_not_outrank_clean_auto_send(engine):
-    clean = GuardReport(l4=OutputVerdict(severity=Severity.NONE))
+    clean = v3_report(output=OutputVerdict(severity=Severity.NONE))
     d = engine.decide(clean, stage="outbound", category="acknowledgement", draft_action="reply")
     assert d.action is PolicyAction.AUTO_SEND
     assert d.matched_rule_id == "P10-clean-auto-send"
@@ -215,7 +215,7 @@ def test_heavy_sanitization_still_beats_auto_send(engine):
         ],
     )
     d = engine.decide(
-        GuardReport(l2=l2, l4=OutputVerdict(severity=Severity.NONE)),
+        v3_report(extract=l2, output=OutputVerdict(severity=Severity.NONE)),
         stage="outbound",
         category="acknowledgement",
         draft_action="reply",
@@ -261,7 +261,7 @@ def report_space():
         OutputVerdict(severity=Severity.MEDIUM, score=0.6, citation_mismatch=True),
     ]
     for l1, l2, l3b, l4 in itertools.product(l1s, l2s, l3bs, l4s):
-        yield GuardReport(message_id="m", l1=l1, l2=l2, l3b=l3b, l4=l4)
+        yield v3_report(message_id="m", scan=l1, extract=l2, chunks=l3b, output=l4)
 
 
 def test_strictest_wins_and_only_differs_from_first_match_when_a_weaker_rule_used_to_win(engine):
@@ -300,7 +300,7 @@ def test_default_rule_and_clean_paths_are_unchanged_across_the_space(engine):
         [None, "support", "acknowledgement", "scheduling"],
         [None, "reply", "forward"],
     ):
-        report = GuardReport(l4=OutputVerdict())
+        report = v3_report(output=OutputVerdict())
         facts = engine.facts(report, stage=stage, category=category, draft_action=draft)
         old = legacy_decision(engine, facts)
         new = engine.decide(report, stage=stage, category=category, draft_action=draft)

@@ -78,12 +78,14 @@ async def offline_checks(paths: GuardPaths) -> None:
     """Check 4: C0 runs no layer; C3 on the fake guard model reaches an L5 decision."""
     c0 = build_guard_pipeline("C0", guard_settings("fake", l1_model_path=paths.l1_model))
     r0 = await c0.inspect_inbound(SMOKE_EMAIL, category="support")
-    if r0.l1 is not None or r0.inbound_decision is not None:
+    if r0.inbound_guard is not None or r0.inbound_decision is not None:
         raise GuardEnvError("preset C0 produced guard verdicts; C0 must run no layer")
     c3 = build_guard_pipeline("C3", guard_settings("fake", l1_model_path=paths.l1_model))
     r3 = await c3.inspect_inbound(SMOKE_EMAIL, category="support")
-    if r3.l1 is None or r3.inbound_decision is None:
-        raise GuardEnvError("preset C3 did not reach an L1 verdict and an L5 inbound decision")
+    if r3.inbound_guard is None or r3.inbound_decision is None:
+        raise GuardEnvError(
+            "preset C3 did not reach an inbound_guard verdict and an inbound gate decision"
+        )
     print(f"ok offline C0 (no verdicts) / C3 (inbound action={r3.inbound_decision.action})")
 
 

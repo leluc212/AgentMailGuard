@@ -78,6 +78,15 @@ GOLDEN_PROMPT_KEY: dict[str, str] = {
     "doc_chunk_judge.v1": "l3b_doc_judge.v1",
     "output_judge.v1": "l4_output_judge.v1",
 }
+# The golden keys layer_severities by the v2 LayerName values. Schema 3 reports the scan and
+# extract sub-stages of the Inbound Guard, the Doc Scanner and the Output Guard; they are
+# reported under these v2 keys so the golden stays untouched. Channel isolation has no verdict
+# in v3 (ADR-0015 R-d), so the golden's isolation entry is dropped by ``project_golden``.
+V2_SCAN_KEY = "l1_injection_scanner"
+V2_EXTRACT_KEY = "l2_intent_extractor"
+V2_ISOLATION_KEY = "l3_channel_isolation"
+V2_DOCS_KEY = "l3b_document_scanner"
+V2_OUTPUT_KEY = "l4_output_scanner"
 OUTCOME_KEYS: tuple[str, ...] = (
     "inbound_action",
     "inbound_rule",
@@ -396,14 +405,26 @@ def _rule(decision: PolicyDecision | None) -> str | None:
 
 
 def _layer_severities(report: GuardReport) -> dict[str, dict[str, Any]]:
+    """Per-layer severities under the golden's v2 keys, read from the schema-3 report.
+
+    The two Inbound Guard sub-stages map to the v2 scanner and extractor keys. Channel
+    isolation has no verdict in v3 (ADR-0015 R-d): its v2 key is never produced, which the
+    projection tolerates through ``V2_ISOLATION_KEY`` (see ``project_golden``).
+    """
     out: dict[str, dict[str, Any]] = {}
-    for v in (report.l1, report.l2, report.l3, report.l4):
-        if v is not None:
-            out[str(v.layer)] = {"severity": str(v.severity), "score": round(v.score, 3)}
-    if report.l3b:
-        severity = Severity.max(*(c.severity for c in report.l3b))
-        score = max(c.score for c in report.l3b)
-        out[str(report.l3b[0].layer)] = {"severity": str(severity), "score": round(score, 3)}
+    inbound = report.inbound_guard
+    for stage, key in (("scan", V2_SCAN_KEY), ("extract", V2_EXTRACT_KEY)):
+        record = inbound.stage(stage) if inbound is not None else None
+        if record is not None:
+            out[key] = {"severity": str(record["severity"]), "score": round(record["score"], 3)}
+    if report.output_guard is not None:
+        v = report.output_guard
+        out[V2_OUTPUT_KEY] = {"severity": str(v.severity), "score": round(v.score, 3)}
+    if report.doc_scanner is not None and report.doc_scanner.chunks:
+        chunks = report.doc_scanner.chunks
+        severity = Severity.max(*(c.severity for c in chunks))
+        score = max(c.score for c in chunks)
+        out[V2_DOCS_KEY] = {"severity": str(severity), "score": round(score, 3)}
     return dict(sorted(out.items()))
 
 
@@ -438,6 +459,8 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
         category=case.email.get("category"),
     )
     final = report.decision
+    inbound = report.inbound_guard
+    extracted = inbound is not None and inbound.stage("extract") is not None
     return {
         "inbound_action": _action(report.inbound_decision),
         "inbound_rule": _rule(report.inbound_decision),
@@ -446,14 +469,31 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
         "requires_human": final.requires_human if final is not None else None,
         "risk_tier": str(final.risk_tier) if final is not None else None,
         "layer_severities": _layer_severities(report),
-        "quarantined_chunk_ids": sorted(c.chunk_id for c in report.l3b if c.quarantined),
+        "quarantined_chunk_ids": sorted(report.quarantined_chunk_ids),
         "kept_chunk_ids": sorted(c.chunk_id for c in bundle.kept_chunks) if bundle else [],
-        "removed_ratio": round(report.l2.removed_ratio, 3) if report.l2 is not None else None,
+        "removed_ratio": round(inbound.removed_ratio, 3) if inbound and extracted else None,
         "draft_body": draft.body if draft is not None else None,
         "generation_called": bool(generated),
         "llm_calls": _llm_calls(fake),
-        "errors": sorted(v.error for v in report.verdicts() if v.error),
+        "errors": _errors(report),
     }
+
+
+def _errors(report: GuardReport) -> list[str]:
+    """Every sub-stage, chunk, output and isolation error, one entry each (the v2 shape)."""
+    out: list[str] = []
+    inbound = report.inbound_guard
+    for stage in ("scan", "extract"):
+        record = inbound.stage(stage) if inbound is not None else None
+        if record is not None and record.get("error"):
+            out.append(str(record["error"]))
+    if report.doc_scanner is not None:
+        out += [c.error for c in report.doc_scanner.chunks if c.error]
+    if report.output_guard is not None and report.output_guard.error:
+        out.append(report.output_guard.error)
+    if report.isolation is not None and report.isolation.error:
+        out.append(report.isolation.error)
+    return sorted(out)
 
 
 def run_case(case: ParityCase, settings: MailGuardSettings) -> dict[str, Any]:
@@ -480,7 +520,63 @@ def load_golden(path: Path = GOLDEN_PATH) -> dict[str, dict[str, Any]]:
     return golden
 
 
-INTENDED_DELTAS: dict[str, dict[str, Any]] = {}
+_ISOLATION_DELTA_FIELDS: dict[str, Any] = {"final_rule": "P99-default", "risk_tier": "t0_clean"}
+_THREAD_FORGED_WHY = (
+    "ADR-0015 intended change 2 (R-d, decision 10): a marker forged in thread history is still "
+    "scrubbed by channel isolation but no longer graded; it is recorded in "
+    "IsolationInfo.forged_markers, so P08 (medium) no longer matches and the default applies. "
+    "The action stays draft_only. [task v3.4]"
+)
+_DOC_FORGED_NO_SCANNER_WHY = (
+    "ADR-0015 R-d (isolation is not a layer) with the Doc Scanner off: the marker forged in a "
+    "kept chunk is scrubbed from the prompt but no layer grades it, so P08 no longer matches. "
+    "The action stays draft_only; with the Doc Scanner on (C3, C3-L1) the chunk is still "
+    "quarantined. Owner decision 2026-10-14: Task 4 cap 10, isolation deltas only. [task v3.4]"
+)
+_THREAD_TEST = (
+    "tests/unit/test_channel_isolation.py::test_thread_forged_markers_are_recorded_not_graded"
+)
+_DOC_TEST = (
+    "tests/unit/test_channel_isolation.py::"
+    "test_document_forged_markers_are_scrubbed_without_a_verdict"
+)
+
+INTENDED_DELTAS: dict[str, dict[str, Any]] = {
+    **{
+        f"b-005|{config}|llm={llm}|docs=thread-forged": {
+            "fields": dict(_ISOLATION_DELTA_FIELDS),
+            "why": _THREAD_FORGED_WHY,
+            "test": _THREAD_TEST,
+        }
+        for config in ("C2", "C3", "C3-L1", "C3-L3B")
+        for llm in (0, 1)
+    },
+    **{
+        f"b-004|{config}|llm=0|docs=x-forged": {
+            "fields": dict(_ISOLATION_DELTA_FIELDS),
+            "why": _DOC_FORGED_NO_SCANNER_WHY,
+            "test": _DOC_TEST,
+        }
+        for config in ("C2", "C3-L3B")
+    },
+}
+
+
+def project_golden(golden: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The golden as schema 3 can report it: without the isolation verdict (R-d).
+
+    Removing a reporting key is not a behaviour change, so it is not an intended delta. Any
+    decision that moved because the isolation verdict no longer reaches the policy is one.
+    """
+    out = copy.deepcopy(golden)
+    for record in out.values():
+        record["layer_severities"].pop(V2_ISOLATION_KEY, None)
+    return out
+
+
+def expected_outcomes(golden: dict[str, dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
+    """The projected golden with every intended delta applied: what the guard must produce."""
+    return apply_deltas(project_golden(golden or load_golden()), INTENDED_DELTAS)
 
 
 def apply_deltas(

@@ -22,7 +22,7 @@ import logging
 import sys
 from typing import Any
 
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.integration.adapters import decision_to_job_result
 from mailguard.pipeline import GuardConfig, MailGuardPipeline
 
@@ -31,7 +31,7 @@ logger = logging.getLogger("services.guard_worker")
 
 async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[str, Any]:
     email = GuardedEmail.from_any(job.get("email") or {})
-    chunks = [RetrievedChunk.from_any(c) for c in job.get("chunks") or []]
+    chunks = [SourceDocument.from_any(c) for c in job.get("chunks") or []]
     category = job.get("category") or email.category
     system = str(job.get("system_instructions") or "You are a customer support assistant.")
     if job.get("draft"):  # outbound-only inspection of an existing draft
@@ -46,8 +46,8 @@ async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[
             protected_texts=[system],
             category=category,
         )
-        if report.l4 is not None:
-            draft = draft.model_copy(update={"body": report.l4.redacted_text})
+        if report.output_guard is not None:
+            draft = draft.model_copy(update={"body": report.output_guard.redacted_text})
     else:
         report = await pipeline.inspect_inbound(email, category=category)
         draft = None

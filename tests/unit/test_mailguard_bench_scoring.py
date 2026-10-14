@@ -11,6 +11,7 @@ import pytest
 
 from evaluation.mailguard_bench.scoring import (
     L1,
+    L2,
     L3B,
     L4,
     RawRecord,
@@ -191,6 +192,24 @@ def test_flagged_layers_use_medium_threshold_in_pipeline_order() -> None:
     }
     assert flagged_layers(report) == [L1, L3B, L4]
     assert flagged_layers(None) == []
+
+
+def test_flagged_layers_read_a_schema_3_report_in_the_v2_vocabulary() -> None:
+    # guard v3 Task 4: scan/extract sub-stages are L1/L2, doc_scanner quarantine L3b, output L4;
+    # channel isolation has no verdict, so L3 never flags (ADR-0015 R-d)
+    report = {
+        "schema_version": 3,
+        "inbound_guard": {
+            "severity": "medium",
+            "metadata": {"stages": {"scan": {"severity": "low"}, "extract": {"severity": "high"}}},
+        },
+        "doc_scanner": {"severity": "high", "quarantined_chunk_ids": ["c1"]},
+        "isolation": {"markers_scrubbed": 3},
+        "output_guard": {"severity": "medium"},
+    }
+    assert flagged_layers(report) == [L2, L3B, L4]
+    clean = {"schema_version": 3, "inbound_guard": None, "doc_scanner": None, "output_guard": None}
+    assert flagged_layers(clean) == []
 
 
 @pytest.fixture(scope="module")

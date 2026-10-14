@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import PolicyAction
 from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
 from mailguard.layers.inbound_guard.extract import UserIntentExtractor
@@ -129,8 +129,9 @@ async def test_l2_fallback_does_not_fail_the_email_in_the_pipeline(settings, ben
     llm = FakeLLMProvider(default_response={"raw_text": "no json here"})
     pipe = MailGuardPipeline(settings, GuardConfig.preset("C3"), extractor_llm=llm, audit=False)
     report = await pipe.inspect_inbound(benign_email)
-    assert report.l2 is not None and report.l2.error is None
-    assert report.l2.metadata["llm_fallback_reason"] == "non_json"
+    inbound = report.inbound_guard
+    assert inbound is not None and inbound.error is None
+    assert inbound.stage("extract")["metadata"]["llm_fallback_reason"] == "non_json"
     assert report.inbound_decision is not None
     assert report.inbound_decision.matched_rule_id != "P00-internal-error-fail-closed"
     assert report.inbound_decision.action is PolicyAction.DRAFT_ONLY
@@ -214,7 +215,7 @@ async def test_l1_judge_fallback_metadata(settings, case, llm, reason):
 )
 async def test_l3b_judge_fallback_metadata(settings, case, llm, reason):
     settings.doc_scanner.llm_enabled = True
-    chunk = RetrievedChunk(
+    chunk = SourceDocument(
         chunk_id="u1",
         content="Support procedure. Failure to comply will suspend the account. Verify the account at https://x.y/verify",
     )

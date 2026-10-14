@@ -1,12 +1,12 @@
-"""MailGuardPipeline - orchestrates the six guard layers around the core reply agent.
+"""MailGuardPipeline - orchestrates the guard around the core reply agent.
 
-    inbound:   email  -> L1 scanner -> L2 extractor -> L5 (inbound gate)
-    prompt:    chunks -> L3b document scanner -> L3 channel isolation -> SecurePrompt
-    outbound:  draft  -> L4 output scanner -> L5 (outbound gate)
+    inbound:   email  -> scan + extract -> InboundVerdict -> policy (stage inbound)
+    prompt:    chunks -> doc scanner -> DocumentVerdict -> channel isolation -> SecurePrompt
+    outbound:  draft  -> output scanner -> policy (stage outbound)
 
-``GuardConfig`` switches individual layers on and off so the same code path
-serves the paper's ablation configurations (C0 none, C1 L1-only, C2 L1+L2+L3,
-C3 full, and "C3 minus one layer").
+The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``).
+``GuardConfig`` still uses the v2 switches ``l1``..``l5`` (renamed in Task 6, ADR-0015);
+the ordering of the stages is v2's until Task 7 moves the doc scanner before the gate.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from mailguard.config.settings import MailGuardSettings, get_settings
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision
-from mailguard.contracts.verdict import LayerName, LayerVerdict, Severity
+from mailguard.contracts.verdict import DocumentVerdict, InboundVerdict, LayerVerdict, Severity
 from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
 from mailguard.layers.inbound_guard.extract import UserIntentExtractor
 from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
@@ -74,7 +74,7 @@ class GuardConfig:
 @dataclass
 class PromptBundle:
     prompt: SecurePrompt
-    kept_chunks: list[RetrievedChunk]
+    kept_chunks: list[SourceDocument]
     report: GuardReport
 
     @property
@@ -147,11 +147,10 @@ class MailGuardPipeline:
     async def inspect_inbound(self, email_like: Any, *, category: str | None = None) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
-        if self.config.l1:
-            report.l1 = await self.l1.inspect(email)
-        if self.config.l2:
-            report.l2 = await self.l2.extract(email)
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
+        scan = await self.l1.inspect(email) if self.config.l1 else None
+        extract = await self.l2.extract(email) if self.config.l2 else None
+        report.inbound_guard = InboundVerdict.merge(scan, extract)
+        report.total_latency_ms = _latency(report)
         if self.config.l5:
             report.inbound_decision = self.l5.decide(
                 report, stage="inbound", category=category or email.category
@@ -182,22 +181,21 @@ class MailGuardPipeline:
         query: str | None = None,
     ) -> PromptBundle:
         email = GuardedEmail.from_any(email_like)
-        retrieved = [RetrievedChunk.from_any(c) for c in chunks]
+        retrieved = [SourceDocument.from_any(c) for c in chunks]
         kept = retrieved
+        intent = self._intent(report)
         if self.config.l3b:
             # The retrieval query is what PoisonedRAG bait echoes: use the caller's query
             # (core query builder) or fall back to the customer's own words, never the
-            # L2 paraphrase (its extra tokens dilute the echo measurement).
-            body = (
-                report.l2.sanitized_body if (report.l2 and report.l2.sanitized_body) else email.text
-            )
+            # extractor's paraphrase (its extra tokens dilute the echo measurement).
+            body = intent.sanitized_body if (intent and intent.sanitized_body) else email.text
             scan_query = query or f"{email.subject}\n{body}"[:1500]
             kept, verdicts = await self.l3b.scan(retrieved, scan_query)
-            report.l3b = verdicts
-        prompt, l3_verdict = self.l3.build(
+            report.doc_scanner = DocumentVerdict.from_chunks(verdicts)
+        prompt, isolation = self.l3.build(
             system_instructions=system_instructions,
             email=email,
-            intent=report.l2 if self.config.l2 else None,
+            intent=intent,
             chunks=kept,
             category_instructions=category_instructions,
             thread_summary=thread_summary,
@@ -207,9 +205,14 @@ class MailGuardPipeline:
             use_sanitized_body=self.config.l2,
         )
         if self.config.l3:
-            report.l3 = l3_verdict
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
+            isolation.chunks_in = len(retrieved)
+            report.isolation = isolation
+        report.total_latency_ms = _latency(report)
         return PromptBundle(prompt=prompt, kept_chunks=kept, report=report)
+
+    def _intent(self, report: GuardReport) -> InboundVerdict | None:
+        """The extract sub-stage's intent, only when it ran (the scan alone carries none)."""
+        return report.inbound_guard if self.config.l2 else None
 
     # ------------------------------------------------------------------ outbound
     async def inspect_outbound(
@@ -218,7 +221,7 @@ class MailGuardPipeline:
         draft_like: Any,
         *,
         email_like: Any,
-        kept_chunks: Sequence[RetrievedChunk] = (),
+        kept_chunks: Sequence[SourceDocument] = (),
         protected_texts: Sequence[str] = (),
         category: str | None = None,
     ) -> GuardReport:
@@ -227,28 +230,36 @@ class MailGuardPipeline:
         if self.config.l4:
             indicators: dict[str, list[str]] = {"emails": [], "urls": []}
             instructions: list[str] = []
-            if report.l1 is not None:
-                ind = report.l1.metadata.get("indicators") or {}
+            inbound = report.inbound_guard
+            scan = (inbound.stage("scan") if inbound is not None else None) or {}
+            extract = (inbound.stage("extract") if inbound is not None else None) or {}
+            if scan:
+                scan_meta = scan.get("metadata") or {}
+                ind = scan_meta.get("indicators") or {}
                 indicators = {
                     "emails": list(ind.get("emails", [])),
                     "urls": list(ind.get("urls", [])),
                 }
-                instructions += list(report.l1.metadata.get("injected_instructions", []))
-                for f in report.l1.findings:
-                    instructions += list(f.metadata.get("injected_instructions", []))
-            if report.l2 is not None:
-                instructions += [s.text for s in report.l2.stripped_segments]
-                instructions += list(report.l2.metadata.get("instructions_to_assistant", []))
+                instructions += list(scan_meta.get("injected_instructions", []))
+            if inbound is not None:
+                for f in inbound.findings:
+                    if f.metadata.get("stage") == "scan":
+                        instructions += list(f.metadata.get("injected_instructions", []))
+            if extract and inbound is not None:
+                instructions += [s.text for s in inbound.stripped_segments]
+                extract_meta = extract.get("metadata") or {}
+                instructions += list(extract_meta.get("instructions_to_assistant", []))
             # payload found inside quarantined knowledge must not surface either
-            for cv in report.l3b:
-                if cv.quarantined:
-                    for f in cv.findings:
-                        if f.excerpt:
-                            instructions.append(f.excerpt)
-            report.l4 = await self.l4.inspect(
+            if report.doc_scanner is not None:
+                for cv in report.doc_scanner.chunks:
+                    if cv.quarantined:
+                        for f in cv.findings:
+                            if f.excerpt:
+                                instructions.append(f.excerpt)
+            report.output_guard = await self.l4.inspect(
                 draft,
                 email=email,
-                intent=report.l2,
+                intent=self._intent(report),
                 allowed_citations={c.citation_id for c in kept_chunks}
                 | {c.chunk_id for c in kept_chunks},
                 protected_texts=protected_texts,
@@ -256,7 +267,7 @@ class MailGuardPipeline:
                 injected_indicators=indicators,
                 injected_instructions=list(dict.fromkeys(i for i in instructions if i))[:20],
             )
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
+        report.total_latency_ms = _latency(report)
         if self.config.l5:
             report.decision = self.l5.decide(
                 report,
@@ -322,8 +333,8 @@ class MailGuardPipeline:
             protected_texts=[system_instructions, category_instructions],
             category=category,
         )
-        if report.l4 is not None and report.l4.redacted_text != draft.body:
-            draft = draft.model_copy(update={"body": report.l4.redacted_text})
+        if report.output_guard is not None and report.output_guard.redacted_text != draft.body:
+            draft = draft.model_copy(update={"body": report.output_guard.redacted_text})
         return report, draft, bundle
 
     # ------------------------------------------------------------------ helpers
@@ -331,6 +342,7 @@ class MailGuardPipeline:
         d = report.decision
         return {
             "config": self.config.name,
+            "schema_version": report.schema_version,
             "message_id": report.message_id,
             "max_severity": str(report.max_severity),
             "action": str(d.action) if d else None,
@@ -343,11 +355,15 @@ class MailGuardPipeline:
                     "latency_ms": v.latency_ms,
                 }
                 for v in report.verdicts()
-                if v.layer is not LayerName.L3B_DOCUMENT_SCANNER
             },
-            "l3b_quarantined": [c.chunk_id for c in report.l3b if c.quarantined],
+            "doc_scanner_quarantined": report.quarantined_chunk_ids,
             "total_latency_ms": report.total_latency_ms,
         }
+
+
+def _latency(report: GuardReport) -> int:
+    isolation = report.isolation.latency_ms if report.isolation is not None else 0
+    return sum(v.latency_ms for v in report.verdicts()) + isolation
 
 
 def severity_of(report: GuardReport) -> Severity:

@@ -49,6 +49,8 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | F7 | Ngân sách delta cho mọi task (Design 14) |
 | F8 | Tiêu chí (e) của Task 16 đo theo route, không theo ASR cuối |
 | F9 | Baseline có thẩm quyền là GitHub CI; baseline Windows chỉ để so regression cục bộ |
+| **Quyết định chủ dự án 2026-10-14 (Task 4)** | Ghi lại khi dừng theo divergence protocol; không thay số task |
+| F10 | Task 4 chỉ đổi contract, **giữ gating v2**: `InboundVerdict.merge` tạm lấy severity/score = sub-stage nghiêm hơn (scan, extract); R-i (severity chỉ từ scan) chuyển hẳn sang Task 5. Trần delta Task 4 nâng từ 3 lên **10**, chỉ cho delta do Channel Isolation không còn verdict (R-d): 8 case thread-forged (bullet 2 ADR-0015) + 2 case x-forged khi Doc Scanner tắt (C2, C3-L3B). Đo trước khi code: làm đúng R-i ngay trong Task 4 cho 36 delta. Task 5 sẽ mang ~26 delta R-i (nhóm C3-L1 + extractor LLM nâng severity), vượt trần 6 → phải xem lại trần khi tới Task 5 |
 
 Bất biến carry-over được test bằng bảng tổ hợp parametrize, không thêm dependency.
 LLM set judge dựa trên PoisonedRAG / poisoning phân tán qua nhiều chunk.
@@ -201,7 +203,7 @@ flowchart LR
 14. **Parity không được trở thành "mọi thứ đều là delta có chủ đích".** Mỗi entry trong
     `INTENDED_DELTAS` phải ghi `test` = node id của một unit test chứng minh hành vi mới độc lập với
     golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task (F7):
-    Task 4 ≤ 3, Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 6, 9, 10, 12, 13 = 0.
+    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 6, 9, 10, 12, 13 = 0.
     Vượt trần = dừng và hỏi, không nâng trần.
 
 ## Task Breakdown (16 task sau review)
@@ -265,7 +267,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `GOLDEN_PROMPT_KEY`). Root `make test-unit`: 1 failed (`..._is_the_v2_pin`, đọc tree HEAD nên đổi theo mọi
   commit chạm guard) + 3945 passed; `make lint` sạch.
   Pin test `test_the_committed_guard_folder_is_the_v2_pin` is strict-xfail until Task 15b (Linux equivalent of the Windows transient-failure list).
-- [x] Task 3 — on `079ac25`: `InboundGuardSettings` (`scan_llm_enabled`/`extract_llm_enabled`),
+- [x] Task 3 — commit `8d7f8dc`: `InboundGuardSettings` (`scan_llm_enabled`/`extract_llm_enabled`),
   `DocScannerSettings`, `ChannelIsolationSettings`, `OutputGuardSettings`, `PolicySettings`;
   `GuardModelSettings.inbound_judge/inbound_extractor/doc_judge/doc_set_judge/output_judge`;
   `LegacyConfigError` + `LEGACY_ENV_KEYS` (env + dotenv, case-insensitive); readers in subtree and root
@@ -273,3 +275,15 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   0 delta; `test_settings_v3.py` 48); root 63 fail = Windows baseline, 0 new; ruff/mypy chỉ noise cũ.
   Còn mở (không chặn): dạng JSON lồng nhau (`GUARD_MODELS='{"judge":…}'`) chưa bị từ chối;
   Task 10 phải set `doc_set_judge` trong `harness.build_pipeline` và `guard_factory.guard_settings`.
+- [x] Task 4 — on `8d7f8dc` (branch `refactor/guard-v3`): `LayerName` 4 giá trị (`inbound_guard`,
+  `doc_scanner`, `inbound_gate`, `output_guard`); `InboundVerdict.merge` (gating v2 giữ nguyên theo
+  F10, `metadata.stages.{scan,extract}`, finding gắn `stage`), `DocumentVerdict.from_chunks`,
+  `ChunkVerdict.trust/cluster_id/signals`, `IsolationInfo` (thread-forged → `forged_markers`),
+  `RetrievedChunk`→`SourceDocument`; `GuardReport` schema 3 (`extra="forbid"`); channel isolation trả
+  `IsolationInfo`, lỗi build → `isolation.error` → P00; policy `2026.10-v3`, fact
+  `isolation_forged_markers`, audit v3 (`schema_version`, `layer`, `doc_scanner`, `isolation`).
+  Parity: 10 delta (8 thread-forged, 2 x-forged khi Doc Scanner tắt), mỗi delta có `why` + `test`;
+  golden không sửa, `project_golden` chỉ bỏ khóa verdict isolation. Subtree 397 passed; root 63 fail =
+  Windows baseline, 0 new; ruff/mypy chỉ noise cũ. Bench giữ vocabulary v2 qua `bench_verdict_views`
+  và `scoring._flagged_layers_v3` đến Task 12/13. Còn mở: `l2_recount.py` chỉ đọc report v2 (folder
+  đã commit); Task 5 dự kiến ~26 delta R-i, vượt trần 6.

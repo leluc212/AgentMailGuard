@@ -48,7 +48,7 @@ from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L2_INTENT_EXTRACTOR
+LAYER = LayerName.INBOUND_GUARD
 PROMPT_NAME = "inbound_extractor.v1"
 
 _PARA_SPLIT = re.compile(r"\n\s*\n")

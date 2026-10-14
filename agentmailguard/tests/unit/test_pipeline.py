@@ -61,8 +61,11 @@ async def test_c3_blocks_attack_inbound(settings, attack_email, kb_chunks, poiso
     assert report.inbound_decision is not None
     assert report.inbound_decision.action is PolicyAction.QUARANTINE
     assert draft is None and bundle is None
-    assert report.l1 is not None and report.l1.severity is Severity.CRITICAL
-    assert report.l2 is not None and report.l2.stripped_segments
+    inbound = report.inbound_guard
+    assert inbound is not None and inbound.severity is Severity.CRITICAL
+    assert inbound.stage("scan")["severity"] == "critical"
+    assert inbound.stripped_segments
+    assert report.doc_scanner is None and report.isolation is None
 
 
 async def test_c3_benign_with_poisoned_kb(settings, benign_emails, kb_chunks, poisoned_chunk):
@@ -78,9 +81,15 @@ async def test_c3_benign_with_poisoned_kb(settings, benign_emails, kb_chunks, po
     assert report.inbound_decision.action is PolicyAction.DRAFT_ONLY
     assert [c.chunk_id for c in bundle.kept_chunks] == ["kb-warranty-1", "kb-refund-1"]
     assert "warranty is void" not in draft.body
-    assert report.l4 is not None and not report.l4.complied_with_injected_goal
+    assert report.output_guard is not None and not report.output_guard.complied_with_injected_goal
     assert report.decision.action is PolicyAction.HUMAN_APPROVAL  # poisoned chunk -> reviewer
     assert report.decision.quarantined_chunk_ids == ["kb-poison-1"]
+    docs = report.doc_scanner
+    assert docs is not None and docs.quarantined_chunk_ids == ["kb-poison-1"]
+    assert docs.kept_chunk_ids == ["kb-warranty-1", "kb-refund-1"]
+    assert [c.trust for c in docs.chunks] == ["untrusted", "untrusted", "quarantined"]
+    assert report.isolation is not None and report.isolation.chunks_in == 3
+    assert report.isolation.chunks_kept == 2
 
 
 async def test_l4_catches_compliant_draft_when_upstream_missed(settings, attack_email, kb_chunks):
@@ -102,7 +111,7 @@ async def test_l4_catches_compliant_draft_when_upstream_missed(settings, attack_
         system_instructions=SYSTEM,
         stop_on_inbound_block=False,
     )
-    assert report.l4.complied_with_injected_goal
+    assert report.output_guard.complied_with_injected_goal
     assert report.decision.action in (PolicyAction.BLOCK, PolicyAction.QUARANTINE)
 
 
@@ -133,4 +142,6 @@ async def test_summary_and_duck_typed_inputs(settings, kb_chunks):
     report = await pipe.inspect_inbound(email)
     s = pipe.summary(report)
     assert s["message_id"] == "d1" and s["action"] == "draft_only"
+    assert s["schema_version"] == 3
+    assert set(s["layers"]) == {"inbound_guard"} and s["doc_scanner_quarantined"] == []
     assert isinstance(GuardedEmail.from_any(email), GuardedEmail)

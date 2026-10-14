@@ -1,7 +1,7 @@
-"""Layer 5 - Email Policy Engine (risk-tiered action gating).
+"""Policy Engine (risk-tiered action gating), shared by the L3 Inbound Gate and L4 Output Guard.
 
 Rules are declared in ``configs/policy.yaml`` and evaluated over *facts* derived from
-the ``GuardReport``. Every matching rule is collected and the STRICTEST action wins
+the schema-3 ``GuardReport``. Every matching rule is collected and the STRICTEST action wins
 (``quarantine > block > human_approval > draft_only > auto_send``); ties go to the lowest
 priority number. A rule with an empty ``when`` is the catch-all fallback: it applies only
 when no other rule matched. The engine is deterministic and
@@ -27,7 +27,8 @@ from mailguard.contracts.verdict import LayerName, Severity, ThreatType
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L5_POLICY_ENGINE
+# the inbound gate's layer; a decision at stage "outbound" belongs to OUTPUT_GUARD (layer_for_stage)
+LAYER = LayerName.INBOUND_GATE
 
 _SEVERITIES = list(Severity)
 
@@ -138,6 +139,11 @@ class PolicyEngine:
     def facts(
         report: GuardReport, *, stage: str, category: str | None, draft_action: str | None
     ) -> dict[str, Any]:
+        """Summary facts of a schema-3 report (never the text).
+
+        ``layer_error`` is set by any verdict's ``error`` or by ``report.isolation.error``.
+        ``isolation_forged_markers`` counts thread-history forgeries; no default rule reads it.
+        """
         verdicts = report.verdicts()
         threat_types: set[str] = set()
         layers_flagged: set[str] = set()
@@ -146,22 +152,24 @@ class PolicyEngine:
                 threat_types.add(str(f.threat_type))
             if v.severity.rank >= Severity.MEDIUM.rank:
                 layers_flagged.add(str(v.layer))
-        quarantine_ratio = (
-            sum(1 for c in report.l3b if c.quarantined) / len(report.l3b) if report.l3b else 0.0
-        )
+        docs = report.doc_scanner
+        isolation = report.isolation
+        out = report.output_guard
         return {
             "stage": stage,
             "max_severity": report.max_severity,
             "threat_types": threat_types,
             "layers_flagged": layers_flagged,
-            "layer_error": any(v.error for v in verdicts),
-            "quarantine_ratio": quarantine_ratio,
-            "removed_ratio": report.l2.removed_ratio if report.l2 is not None else 0.0,
-            "complied_with_injected_goal": bool(
-                report.l4 and report.l4.complied_with_injected_goal
+            "layer_error": any(v.error for v in verdicts)
+            or bool(isolation is not None and isolation.error),
+            "quarantine_ratio": docs.quarantine_ratio if docs is not None else 0.0,
+            "removed_ratio": (
+                report.inbound_guard.removed_ratio if report.inbound_guard is not None else 0.0
             ),
-            "citation_mismatch": bool(report.l4 and report.l4.citation_mismatch),
-            "redactions": len(report.l4.redactions) if report.l4 else 0,
+            "isolation_forged_markers": len(isolation.forged_markers) if isolation else 0,
+            "complied_with_injected_goal": bool(out and out.complied_with_injected_goal),
+            "citation_mismatch": bool(out and out.citation_mismatch),
+            "redactions": len(out.redactions) if out else 0,
             "category": category,
             "draft_action": draft_action,
         }
@@ -223,6 +231,8 @@ class PolicyEngine:
             for v in report.verdicts()
             if v.severity.rank >= Severity.MEDIUM.rank or v.error
         ]
+        if report.isolation is not None and report.isolation.error:
+            reasons.append(f"channel_isolation: error ({report.isolation.error[:120]})")
         seed = "|".join(
             [
                 report.message_id or "",
@@ -243,10 +253,11 @@ class PolicyEngine:
             reasons=reasons[:12],
             requires_human=requires_human,
             redactions_applied=facts["redactions"],
-            quarantined_chunk_ids=[c.chunk_id for c in report.l3b if c.quarantined],
+            quarantined_chunk_ids=report.quarantined_chunk_ids,
             policy_version=self.version,
             metadata={
                 "stage": stage,
+                "layer": str(layer_for_stage(stage)),
                 "category": category,
                 "draft_action": draft_action,
                 "threat_types": sorted(facts["threat_types"]),
@@ -260,41 +271,58 @@ class PolicyEngine:
         return decision
 
     # ------------------------------------------------------------------ audit
+    @staticmethod
+    def audit_record(decision: PolicyDecision, report: GuardReport) -> dict[str, Any]:
+        """The schema-3 audit line: ids, scores, rule ids and hashes only, never email text."""
+        docs = report.doc_scanner
+        isolation = report.isolation
+        return {
+            "schema_version": 3,
+            "ts": datetime.now(UTC).isoformat(),
+            "audit_id": decision.audit_id,
+            "message_id": report.message_id,
+            "organization_id": report.organization_id,
+            "stage": decision.metadata.get("stage"),
+            "layer": decision.metadata.get("layer"),
+            "action": str(decision.action),
+            "risk_tier": str(decision.risk_tier),
+            "rule": decision.matched_rule_id,
+            "matched_rules": decision.matched_rule_ids,
+            "policy_version": decision.policy_version,
+            "requires_human": decision.requires_human,
+            "layers": {
+                str(v.layer): {"severity": str(v.severity), "score": v.score, "by": v.decided_by}
+                for v in report.verdicts()
+            },
+            "doc_scanner": {
+                "chunks": len(docs.chunks) if docs is not None else 0,
+                "quarantined": decision.quarantined_chunk_ids,
+            },
+            "isolation": None
+            if isolation is None
+            else {
+                "mode": isolation.mode,
+                "markers_scrubbed": isolation.markers_scrubbed,
+                "forged_markers": len(isolation.forged_markers),
+                "error": bool(isolation.error),
+            },
+            "threat_types": decision.metadata.get("threat_types", []),
+            "redactions": decision.redactions_applied,
+        }
+
     def _audit(self, decision: PolicyDecision, report: GuardReport) -> None:
         try:
             self.audit_path.parent.mkdir(parents=True, exist_ok=True)
-            record = {
-                "ts": datetime.now(UTC).isoformat(),
-                "audit_id": decision.audit_id,
-                "message_id": report.message_id,
-                "organization_id": report.organization_id,
-                "stage": decision.metadata.get("stage"),
-                "action": str(decision.action),
-                "risk_tier": str(decision.risk_tier),
-                "rule": decision.matched_rule_id,
-                "matched_rules": decision.matched_rule_ids,
-                "policy_version": decision.policy_version,
-                "requires_human": decision.requires_human,
-                "layers": {
-                    str(v.layer): {
-                        "severity": str(v.severity),
-                        "score": v.score,
-                        "by": v.decided_by,
-                    }
-                    for v in report.verdicts()
-                    if v.layer is not LayerName.L3B_DOCUMENT_SCANNER
-                },
-                "l3b": {
-                    "chunks": len(report.l3b),
-                    "quarantined": decision.quarantined_chunk_ids,
-                },
-                "threat_types": decision.metadata.get("threat_types", []),
-                "redactions": decision.redactions_applied,
-            }
+            record = self.audit_record(decision, report)
             with open(self.audit_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError as exc:  # never fail a decision because the log is unavailable
             logger.error("audit log write failed: %s", exc)
 
 
-__all__ = ["PolicyEngine", "PolicyRule", "ThreatType"]
+def layer_for_stage(stage: str) -> LayerName:
+    """The layer a policy decision belongs to: the inbound gate, or the output guard."""
+    return LayerName.INBOUND_GATE if stage == "inbound" else LayerName.OUTPUT_GUARD
+
+
+__all__ = ["PolicyEngine", "PolicyRule", "ThreatType", "layer_for_stage"]

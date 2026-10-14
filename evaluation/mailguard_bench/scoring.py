@@ -528,6 +528,8 @@ def flagged_layers(report: Mapping[str, Any] | None) -> list[str]:
     """
     if not report:
         return []
+    if report.get("schema_version") == 3:
+        return _flagged_layers_v3(report)
     out: list[str] = []
     for key, name in (("l1", L1), ("l2", L2)):
         verdict = report.get(key)
@@ -540,6 +542,29 @@ def flagged_layers(report: Mapping[str, Any] | None) -> list[str]:
         verdict = report.get(key)
         if isinstance(verdict, Mapping) and _rank(verdict.get("severity")) >= _FLAG_RANK:
             out.append(name)
+    return out
+
+
+def _flagged_layers_v3(report: Mapping[str, Any]) -> list[str]:
+    """``flagged_layers`` of a schema-3 report (guard v3), in the v2 bench vocabulary.
+
+    The Inbound Guard's scan and extract sub-stages are L1 and L2, a quarantined doc-scanner
+    chunk is L3b, the Output Guard is L4. Channel isolation has no verdict in schema 3
+    (ADR-0015 R-d), so L3 is never flagged. Scheme v3 (guard v3 Task 13) replaces this view.
+    """
+    out: list[str] = []
+    inbound = report.get("inbound_guard")
+    stages = (inbound.get("metadata") or {}).get("stages") if isinstance(inbound, Mapping) else None
+    for stage, name in (("scan", L1), ("extract", L2)):
+        record = (stages or {}).get(stage)
+        if isinstance(record, Mapping) and _rank(record.get("severity")) >= _FLAG_RANK:
+            out.append(name)
+    docs = report.get("doc_scanner")
+    if isinstance(docs, Mapping) and docs.get("quarantined_chunk_ids"):
+        out.append(L3B)
+    output = report.get("output_guard")
+    if isinstance(output, Mapping) and _rank(output.get("severity")) >= _FLAG_RANK:
+        out.append(L4)
     return out
 
 

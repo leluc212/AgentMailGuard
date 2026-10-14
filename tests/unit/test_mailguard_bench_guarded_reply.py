@@ -359,7 +359,9 @@ async def test_a_429_seen_only_in_llm_error_metadata_is_rate_limited(tmp_path: P
 
     async def run_then_mark(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.metadata["llm_error"] = "OpenAI HTTP 429: RESOURCE_EXHAUSTED"
+        report.inbound_guard.stage("scan")["metadata"]["llm_error"] = (
+            "OpenAI HTTP 429: RESOURCE_EXHAUSTED"
+        )
         return report, draft, bundle
 
     executor.pipeline.run = run_then_mark  # pipeline is typed Any: no ignore needed
@@ -378,7 +380,7 @@ async def test_a_layer_crash_whose_text_says_429_is_retried_not_an_error_row(
 
     async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.error = "HTTPStatusError: HTTP 429 Too Many Requests"
+        report.inbound_guard.stage("scan")["error"] = "HTTPStatusError: HTTP 429 Too Many Requests"
         return report, draft, bundle
 
     executor.pipeline.run = run_then_crash
@@ -393,7 +395,7 @@ async def test_a_layer_crash_without_429_stays_a_guard_error(tmp_path: Path) -> 
 
     async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.error = "ValueError: boom"
+        report.inbound_guard.stage("scan")["error"] = "ValueError: boom"
         return report, draft, bundle
 
     executor.pipeline.run = run_then_crash

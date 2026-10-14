@@ -69,17 +69,18 @@ async def main_async(args: argparse.Namespace) -> int:
     print("=" * 72)
     for v in report.verdicts():
         print(
-            f"[{v.layer.value:22s}] severity={v.severity.value:8s} score={v.score:.2f} by={v.decided_by:8s} {v.latency_ms}ms"
+            f"[{v.layer.value:14s}] severity={v.severity.value:8s} score={v.score:.2f} by={v.decided_by:8s} {v.latency_ms}ms"
         )
         for f in v.findings[: args.max_findings]:
             print(f"    - {f.detector:9s} {f.rule_id or '':32s} {f.score:.2f} {f.technique or ''}")
             if f.excerpt and args.verbose:
                 print(f"      > {f.excerpt[:160]}")
-    if report.l2 is not None:
-        print(f"\nIntent: {report.l2.user_intent}")
-        if report.l2.stripped_segments:
+    inbound = report.inbound_guard
+    if inbound is not None and inbound.stage("extract") is not None:
+        print(f"\nIntent: {inbound.user_intent}")
+        if inbound.stripped_segments:
             print(
-                f"Stripped {len(report.l2.stripped_segments)} segment(s), removed_ratio={report.l2.removed_ratio:.2f}"
+                f"Stripped {len(inbound.stripped_segments)} segment(s), removed_ratio={inbound.removed_ratio:.2f}"
             )
     if report.inbound_decision:
         d = report.inbound_decision

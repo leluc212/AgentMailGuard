@@ -44,6 +44,66 @@ GUARDED_PROMPT_VERSION = "guarded.v2"
 fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a); a v1
 guarded run and a v2 one are never mixed."""
 
+# The bench scores in the v2 layer vocabulary until scheme v3 (guard v3 Tasks 12-13). A schema-3
+# report is read through this view: the Inbound Guard's scan and extract sub-stages are the v2
+# scanner and extractor, the Doc Scanner's chunks the v2 document scanner, the Output Guard the v2
+# output scanner. Channel isolation has no verdict in schema 3 (ADR-0015 R-d).
+V2_SCAN_LAYER = "l1_injection_scanner"
+V2_EXTRACT_LAYER = "l2_intent_extractor"
+V2_OUTPUT_LAYER = "l4_output_scanner"
+
+
+@dataclass(frozen=True)
+class BenchVerdictView:
+    """One v2-named verdict of a schema-3 report: what fallback and detection counting read."""
+
+    layer: str
+    severity: str
+    error: str | None
+    metadata: dict[str, Any]
+
+    @property
+    def flagged(self) -> bool:
+        return self.severity in ("medium", "high", "critical")
+
+
+def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
+    """The schema-3 report's verdicts under their v2 bench layer names, in pipeline order."""
+    views: list[BenchVerdictView] = []
+    inbound = report.inbound_guard
+    for stage, layer in (("scan", V2_SCAN_LAYER), ("extract", V2_EXTRACT_LAYER)):
+        record = inbound.stage(stage) if inbound is not None else None
+        if record is not None:
+            views.append(
+                BenchVerdictView(
+                    layer=layer,
+                    severity=str(record.get("severity") or "none"),
+                    error=record.get("error"),
+                    metadata=dict(record.get("metadata") or {}),
+                )
+            )
+    if report.doc_scanner is not None:
+        views += [
+            BenchVerdictView(
+                layer=L3B_LAYER,
+                severity=_value(chunk.severity),
+                error=chunk.error,
+                metadata=dict(chunk.metadata),
+            )
+            for chunk in report.doc_scanner.chunks
+        ]
+    out = report.output_guard
+    if out is not None:
+        views.append(
+            BenchVerdictView(
+                layer=V2_OUTPUT_LAYER,
+                severity=_value(out.severity),
+                error=out.error,
+                metadata=dict(out.metadata),
+            )
+        )
+    return views
+
 
 def guarded_system_instructions(agent_instructions: str | None) -> str:
     """The TRUSTED system instructions of the guarded prompt: the profile's, then the reply format.
@@ -181,12 +241,9 @@ def summarize_guard_outcome(
     blocked_inbound = bool(blocked(inbound))
     blocked_outbound = bool(final is not None and final is not inbound and blocked(final))
     is_blocked = blocked_inbound or blocked_outbound
-    detected = {
-        _value(v.layer)
-        for v in report.verdicts()
-        if v.severity.rank >= 2 and _value(v.layer) != L3B_LAYER
-    }
-    quarantined = [str(chunk.chunk_id) for chunk in report.l3b if chunk.quarantined]
+    views = bench_verdict_views(report)
+    detected = {v.layer for v in views if v.flagged and v.layer != L3B_LAYER}
+    quarantined = [str(chunk_id) for chunk_id in report.quarantined_chunk_ids]
     if quarantined:
         detected.add(L3B_LAYER)
     metadata: dict[str, Any] = dict(final.metadata) if final is not None else {}
@@ -316,11 +373,12 @@ class GuardedCaseExecutor:
         # A stage that caught LLMError after generate() returned (the schema-validation
         # failure call_structured raises when the guard model answers in prose or with
         # missing fields) keeps its cheap verdict and writes metadata["llm_error"].
-        # CountingProvider never sees that, so read it from every verdict (L1, L2, L3,
-        # each L3b chunk, L4). A guard that marks the failure (llm_fallback) keeps the case
+        # CountingProvider never sees that, so read it from every verdict (the Inbound Guard's
+        # scan and extract sub-stages, each doc-scanner chunk, the Output Guard). A guard that
+        # marks the failure (llm_fallback) keeps the case
         # scored and the failure is counted per layer and reason (ADR-0012 decision 4); a guard
         # that does not is a weaker guard and the case is an error row, never a defence.
-        failures = classify_ai_step_failures(report.verdicts())
+        failures = classify_ai_step_failures(bench_verdict_views(report))
         limited = [
             e
             for e in [

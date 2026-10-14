@@ -29,7 +29,7 @@ from mailguard.llm.structured import mark_llm_fallback
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L1_INJECTION_SCANNER
+LAYER = LayerName.INBOUND_GUARD
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _URL_RE = re.compile(r"https?://[^\s<>\"'\)\]]+", re.IGNORECASE)

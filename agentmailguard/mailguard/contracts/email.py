@@ -104,7 +104,7 @@ class GuardedEmail(BaseModel):
         )
 
 
-class RetrievedChunk(BaseModel):
+class SourceDocument(BaseModel):
     """A knowledge chunk returned by hybrid RAG (mirrors core ``Candidate`` by duck typing)."""
 
     chunk_id: str
@@ -119,8 +119,8 @@ class RetrievedChunk(BaseModel):
         return self.external_id or self.chunk_id
 
     @classmethod
-    def from_any(cls, obj: Any) -> RetrievedChunk:
-        if isinstance(obj, RetrievedChunk):
+    def from_any(cls, obj: Any) -> SourceDocument:
+        if isinstance(obj, SourceDocument):
             return obj
         return cls(
             chunk_id=str(_get(obj, "chunk_id", "id", default="")),

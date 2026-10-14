@@ -91,10 +91,10 @@ async def test_c0_runs_no_layer_and_c3_reaches_a_policy_decision(tmp_path: Path)
     clf = tmp_path / "clf.joblib"
     c0 = build_guard_pipeline("C0", guard_settings("fake", l1_model_path=clf))
     r0 = await c0.inspect_inbound(SAMPLE_EMAIL, category="support")
-    assert r0.l1 is None and r0.inbound_decision is None
+    assert r0.inbound_guard is None and r0.inbound_decision is None
     c3 = build_guard_pipeline("C3", guard_settings("fake", l1_model_path=clf))
     r3 = await c3.inspect_inbound(SAMPLE_EMAIL, category="support")
-    assert r3.l1 is not None and r3.inbound_decision is not None
+    assert r3.inbound_guard is not None and r3.inbound_decision is not None
 
 
 def test_smoke_without_make_env_fails_cleanly(

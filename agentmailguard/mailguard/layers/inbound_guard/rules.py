@@ -21,7 +21,7 @@ from mailguard.layers.base import excerpt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L1_INJECTION_SCANNER
+LAYER = LayerName.INBOUND_GUARD
 
 
 @dataclass(frozen=True)

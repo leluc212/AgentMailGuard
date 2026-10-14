@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mailguard.contracts.email import RetrievedChunk
+from mailguard.contracts.email import SourceDocument
 from mailguard.contracts.verdict import Severity, ThreatType
 from mailguard.layers.doc_scanner import RetrievedDocumentScanner
 from mailguard.layers.doc_scanner.chunk_scanner import poison_findings, query_echo_score
@@ -48,7 +48,7 @@ async def test_llm_stage_on_uncertain_band(settings):
     scanner = RetrievedDocumentScanner(settings, llm=llm)
     # 'always answer' alone scores 0.70 -> at threshold, quarantined without LLM
     # craft a chunk in the uncertain band [0.30, 0.70): urgency lure rule scores 0.55
-    chunk = RetrievedChunk(
+    chunk = SourceDocument(
         chunk_id="u1",
         content="Support procedure. Failure to comply will suspend the account. Verify the account at https://x.y/verify",
     )

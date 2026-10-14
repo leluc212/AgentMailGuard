@@ -156,7 +156,7 @@ async def test_naive_agent_end_to_end(settings):
         assert ben.task_success is True, (cfg, ben)
         assert ben.blocked is False
         if cfg == "C3":
-            assert att.blocked_inbound and "l1_injection_scanner" in att.detected_layers
+            assert att.blocked_inbound and "inbound_guard" in att.detected_layers
 
 
 def test_bench_case_helpers():

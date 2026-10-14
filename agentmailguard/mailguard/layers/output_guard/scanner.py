@@ -45,7 +45,7 @@ from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L4_OUTPUT_SCANNER
+LAYER = LayerName.OUTPUT_GUARD
 PROMPT_NAME = "output_judge.v1"
 
 _SEVERITY_SCORE = {

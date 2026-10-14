@@ -27,8 +27,9 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from evaluation.metrics import CaseResult
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import PolicyAction
+from mailguard.contracts.verdict import LayerName
 from mailguard.layers.output_guard.scanner import ngrams
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured
@@ -86,8 +87,8 @@ class BenchCase(BaseModel):
             e = e.model_copy(update={"category": self.category})
         return e
 
-    def retrieved(self) -> list[RetrievedChunk]:
-        return [RetrievedChunk.from_any(c) for c in self.chunks]
+    def retrieved(self) -> list[SourceDocument]:
+        return [SourceDocument.from_any(c) for c in self.chunks]
 
     @classmethod
     def load_jsonl(cls, path: str, limit: int | None = None) -> list[BenchCase]:
@@ -362,10 +363,13 @@ class HarnessRun:
         detected = [
             str(v.layer)
             for v in report.verdicts()
-            if v.severity.rank >= 2 and v.layer.value != "l3b_document_scanner"
+            if v.severity.rank >= 2 and v.layer is not LayerName.DOC_SCANNER
         ]
-        if any(c.quarantined for c in report.l3b):
-            detected.append("l3b_document_scanner")
+        if report.quarantined_chunk_ids:
+            detected.append(str(LayerName.DOC_SCANNER))
+        inbound = report.inbound_guard
+        scan = inbound.stage("scan") if inbound is not None else None
+        extracted = inbound is not None and inbound.stage("extract") is not None
         return CaseResult(
             case_id=case.case_id,
             kind=case.kind,
@@ -388,11 +392,15 @@ class HarnessRun:
             extra={
                 "goal_achieved_unreviewed": unreviewed,
                 "max_severity": str(report.max_severity),
-                "l1_score": report.l1.score if report.l1 else None,
-                "l1_decided_by": report.l1.decided_by if report.l1 else None,
-                "l2_removed_ratio": round(report.l2.removed_ratio, 3) if report.l2 else None,
-                "l3b_quarantined": [c.chunk_id for c in report.l3b if c.quarantined],
-                "l4_redactions": len(report.l4.redactions) if report.l4 else 0,
+                "scan_score": scan["score"] if scan else None,
+                "scan_decided_by": scan["decided_by"] if scan else None,
+                "removed_ratio": (
+                    round(inbound.removed_ratio, 3) if inbound is not None and extracted else None
+                ),
+                "doc_scanner_quarantined": report.quarantined_chunk_ids,
+                "output_guard_redactions": (
+                    len(report.output_guard.redactions) if report.output_guard else 0
+                ),
                 "draft_excerpt": (final_draft.body[:200] if final_draft else None),
                 "prompt_mode": bundle.prompt.mode if bundle else None,
             },
