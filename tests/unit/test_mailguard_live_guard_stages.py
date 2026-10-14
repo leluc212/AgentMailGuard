@@ -53,7 +53,7 @@ def _layers(tmp_path: Path, *, l3b: bool, l4: bool) -> LiveLayers:
 
 def _train_classifier(path: Path) -> None:
     """A tiny real L1 artifact, so the smoke check sees a loaded classifier."""
-    from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
+    from mailguard.layers.inbound_guard.classifier import InjectionClassifier
 
     classifier = InjectionClassifier()
     classifier.fit(

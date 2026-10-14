@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mailguard.contracts.email import GuardedEmail
 from mailguard.contracts.verdict import Severity
-from mailguard.layers.l2_intent_extractor.extractor import (
+from mailguard.layers.inbound_guard.extract import (
     UserIntentExtractor,
     heuristic_actions,
     heuristic_entities,

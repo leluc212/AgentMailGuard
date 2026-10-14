@@ -6,9 +6,9 @@ import pytest
 
 from mailguard.contracts.email import GuardedEmail, RetrievedChunk
 from mailguard.contracts.verdict import SanitizedIntent, Severity
-from mailguard.layers.l3_channel_isolation import ChannelIsolation, GuardedLLMProvider
 from mailguard.llm.fake import FakeLLMProvider
 from mailguard.llm.protocol import ChatMessage
+from mailguard.prompting import ChannelIsolation, GuardedLLMProvider
 
 SYSTEM = "You are the Acme support assistant."
 

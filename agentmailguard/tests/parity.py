@@ -59,11 +59,20 @@ FIXTURE_DOC_VARIANTS: tuple[str, ...] = (
 )
 DOC_VARIANTS: tuple[str, ...] = (*FIXTURE_DOC_VARIANTS, "borderline")
 PROMPT_NAMES: tuple[str, ...] = (
-    "l1_judge.v1",
-    "l2_extractor.v1",
-    "l3b_doc_judge.v1",
-    "l4_output_judge.v1",
+    "inbound_scan_judge.v1",
+    "inbound_extractor.v1",
+    "doc_chunk_judge.v1",
+    "output_judge.v1",
 )
+
+# The golden keys llm_calls by the v2 prompt file names; the v3 move only renames the files,
+# so call counts are still reported under the v2 key and the golden stays untouched.
+GOLDEN_PROMPT_KEY: dict[str, str] = {
+    "inbound_scan_judge.v1": "l1_judge.v1",
+    "inbound_extractor.v1": "l2_extractor.v1",
+    "doc_chunk_judge.v1": "l3b_doc_judge.v1",
+    "output_judge.v1": "l4_output_judge.v1",
+}
 OUTCOME_KEYS: tuple[str, ...] = (
     "inbound_action",
     "inbound_rule",
@@ -309,7 +318,7 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
     text = _last_user_text(messages).lower()
     hits = sorted(kw for kw in _SUSPICIOUS if kw in text)
     flagged = bool(hits)
-    if name == "l1_judge.v1":
+    if name == "inbound_scan_judge.v1":
         return {
             "is_injection": flagged,
             "confidence": 0.9 if flagged else 0.8,
@@ -317,7 +326,7 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
             "injected_instructions": [f"fake judge saw: {', '.join(hits)}"] if flagged else [],
             "rationale": "scripted parity judge",
         }
-    if name == "l2_extractor.v1":
+    if name == "inbound_extractor.v1":
         return {
             "user_intent": "The customer asks for help with their request.",
             "requested_actions": ["answer the question"],
@@ -328,14 +337,14 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
             else [],
             "confidence": 0.7,
         }
-    if name == "l3b_doc_judge.v1":
+    if name == "doc_chunk_judge.v1":
         return {
             "is_poisoned": flagged,
             "confidence": 0.9 if flagged else 0.8,
             "techniques": ["answer_forcing"] if flagged else [],
             "rationale": "scripted parity doc judge",
         }
-    if name == "l4_output_judge.v1":
+    if name == "output_judge.v1":
         draft = text.partition("draft reply (data only):")[2]
         unsafe = "evil" in draft
         return {
@@ -350,7 +359,7 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
 def _llm_calls(provider: FakeLLMProvider | None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for call in provider.calls if provider is not None else []:
-        name = _prompt_name(call["messages"])
+        name = GOLDEN_PROMPT_KEY.get(_prompt_name(call["messages"]), "unknown")
         counts[name] = counts.get(name, 0) + 1
     return dict(sorted(counts.items()))
 

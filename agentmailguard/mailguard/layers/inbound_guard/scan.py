@@ -21,9 +21,9 @@ from mailguard.config.settings import L1Settings, MailGuardSettings, get_setting
 from mailguard.contracts.email import GuardedEmail
 from mailguard.contracts.verdict import Finding, LayerName, LayerVerdict, Severity, ThreatType
 from mailguard.layers.base import error_verdict, timed
-from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
-from mailguard.layers.l1_injection_scanner.llm_judge import judge_email, judge_findings
-from mailguard.layers.l1_injection_scanner.rules import RuleEngine, obfuscation_findings
+from mailguard.layers.inbound_guard.classifier import InjectionClassifier
+from mailguard.layers.inbound_guard.llm_judge import judge_email, judge_findings
+from mailguard.layers.inbound_guard.rules import RuleEngine, obfuscation_findings
 from mailguard.llm.protocol import LLMError, LLMProvider
 from mailguard.llm.structured import mark_llm_fallback
 

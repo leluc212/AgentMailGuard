@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from mailguard.contracts.email import RetrievedChunk
 from mailguard.contracts.verdict import Severity, ThreatType
-from mailguard.layers.l3b_document_scanner import RetrievedDocumentScanner
-from mailguard.layers.l3b_document_scanner.scanner import poison_findings, query_echo_score
+from mailguard.layers.doc_scanner import RetrievedDocumentScanner
+from mailguard.layers.doc_scanner.chunk_scanner import poison_findings, query_echo_score
 from mailguard.llm.fake import FakeLLMProvider
 
 

@@ -20,14 +20,14 @@ from mailguard.config.settings import MailGuardSettings, get_settings
 from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision
 from mailguard.contracts.verdict import LayerName, LayerVerdict, Severity
-from mailguard.layers.l1_injection_scanner.scanner import EmailInjectionScanner
-from mailguard.layers.l2_intent_extractor.extractor import UserIntentExtractor
-from mailguard.layers.l3_channel_isolation.isolation import ChannelIsolation, SecurePrompt
-from mailguard.layers.l3b_document_scanner.scanner import RetrievedDocumentScanner
-from mailguard.layers.l4_output_scanner.scanner import OutputScanner
-from mailguard.layers.l5_policy_engine.engine import PolicyEngine
+from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
+from mailguard.layers.inbound_guard.extract import UserIntentExtractor
+from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
+from mailguard.layers.output_guard.scanner import OutputScanner
 from mailguard.llm.protocol import ChatMessage, LLMProvider
 from mailguard.llm.registry import ModelRegistry
+from mailguard.policy.engine import PolicyEngine
+from mailguard.prompting.channel_isolation import ChannelIsolation, SecurePrompt
 
 logger = logging.getLogger(__name__)
 

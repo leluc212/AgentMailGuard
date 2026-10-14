@@ -16,6 +16,7 @@ import pytest
 from tests.parity import (
     DOC_VARIANTS,
     GOLDEN_PATH,
+    GOLDEN_PROMPT_KEY,
     INTENDED_DELTAS,
     OUTCOME_KEYS,
     PROMPT_NAMES,
@@ -73,7 +74,8 @@ def test_matrix_size():
 def test_parity_matrix_exercises_every_judge_prompt():
     golden = load_golden()
     uses = {
-        name: sum(1 for r in golden.values() if name in r["llm_calls"]) for name in PROMPT_NAMES
+        name: sum(1 for r in golden.values() if GOLDEN_PROMPT_KEY[name] in r["llm_calls"])
+        for name in PROMPT_NAMES
     }
     print(f"golden entries calling each guard prompt: {uses}")
     thin = {name: n for name, n in uses.items() if n < 8}

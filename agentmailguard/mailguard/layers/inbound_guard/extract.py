@@ -39,9 +39,9 @@ from mailguard.contracts.verdict import (
     ThreatType,
 )
 from mailguard.layers.base import error_verdict, timed
-from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
-from mailguard.layers.l1_injection_scanner.llm_judge import wrap_untrusted
-from mailguard.layers.l1_injection_scanner.rules import RuleEngine
+from mailguard.layers.inbound_guard.classifier import InjectionClassifier
+from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.layers.inbound_guard.rules import RuleEngine
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured, mark_llm_fallback
 from mailguard.prompts import load_prompt
@@ -49,7 +49,7 @@ from mailguard.prompts import load_prompt
 logger = logging.getLogger(__name__)
 
 LAYER = LayerName.L2_INTENT_EXTRACTOR
-PROMPT_NAME = "l2_extractor.v1"
+PROMPT_NAME = "inbound_extractor.v1"
 
 _PARA_SPLIT = re.compile(r"\n\s*\n")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(\[])")

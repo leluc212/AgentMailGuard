@@ -130,6 +130,13 @@ def test_the_two_generations_have_different_trees() -> None:
     assert V1_MAILGUARD_TREE != V2_MAILGUARD_TREE
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "ADR-0015: the committed guard tree diverges from the v2 pin "
+        "until the v3 pin moves in task v3.15b"
+    ),
+)
 def test_the_committed_guard_folder_is_the_v2_pin() -> None:
     """HEAD's ``agentmailguard/`` is the tree the v2 benchmark pins (ADR-0014 decision 4).
 

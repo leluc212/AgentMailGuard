@@ -5,7 +5,7 @@
     python -m evaluation.eval_llm_judge --model llama-3.1-8b-instruct --set corpus-test bench-emails
 
 Models come from configs/models.yaml (Ollama tags or the OpenAI API; a fine-tuned judge
-registered in Ollama works the same way). The prompt is mailguard/prompts/l1_judge.v1.txt
+registered in Ollama works the same way). The prompt is mailguard/prompts/inbound_scan_judge.v1.txt
 and the email is wrapped in nonce markers exactly as in production.
 
 Sets
@@ -32,7 +32,7 @@ import numpy as np
 from evaluation.baselines import load_bench_emails, load_corpus_test
 from mailguard.config.settings import PROJECT_ROOT, MailGuardSettings
 from mailguard.contracts.email import GuardedEmail
-from mailguard.layers.l1_injection_scanner.llm_judge import judge_email
+from mailguard.layers.inbound_guard.llm_judge import judge_email
 from mailguard.llm.protocol import LLMError
 from mailguard.llm.registry import ModelRegistry
 from training.train_l1_classifier import binary_metrics

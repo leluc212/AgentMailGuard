@@ -14,7 +14,7 @@ from mailguard.contracts.verdict import (
     StrippedSegment,
     ThreatType,
 )
-from mailguard.layers.l5_policy_engine import PolicyEngine
+from mailguard.policy import PolicyEngine
 
 
 def finding(layer, tt, score):

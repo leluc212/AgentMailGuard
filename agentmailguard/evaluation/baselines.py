@@ -49,7 +49,7 @@ class Detector:
 
 class MailGuardL1(Detector):
     def __init__(self, with_rules: bool = False) -> None:
-        from mailguard.layers.l1_injection_scanner.scanner import EmailInjectionScanner
+        from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
 
         self.name = "mailguard-l1r" if with_rules else "mailguard-l1"
         self.with_rules = with_rules

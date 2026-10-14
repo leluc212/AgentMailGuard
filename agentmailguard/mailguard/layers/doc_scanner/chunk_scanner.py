@@ -28,10 +28,10 @@ from mailguard.config.settings import MailGuardSettings, get_settings
 from mailguard.contracts.email import GuardedEmail, RetrievedChunk
 from mailguard.contracts.verdict import ChunkVerdict, Finding, LayerName, Severity, ThreatType
 from mailguard.layers.base import error_verdict, timed
-from mailguard.layers.l1_injection_scanner.classifier import InjectionClassifier
-from mailguard.layers.l1_injection_scanner.llm_judge import wrap_untrusted
-from mailguard.layers.l1_injection_scanner.rules import RuleEngine, obfuscation_findings
-from mailguard.layers.l1_injection_scanner.scanner import noisy_or
+from mailguard.layers.inbound_guard.classifier import InjectionClassifier
+from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.layers.inbound_guard.rules import RuleEngine, obfuscation_findings
+from mailguard.layers.inbound_guard.scan import noisy_or
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured, mark_llm_fallback
 from mailguard.prompts import load_prompt
@@ -39,7 +39,7 @@ from mailguard.prompts import load_prompt
 logger = logging.getLogger(__name__)
 
 LAYER = LayerName.L3B_DOCUMENT_SCANNER
-PROMPT_NAME = "l3b_doc_judge.v1"
+PROMPT_NAME = "doc_chunk_judge.v1"
 
 _ANSWER_FORCING = [
     (

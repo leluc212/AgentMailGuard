@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mailguard.contracts.email import DraftCandidate, GuardedEmail
 from mailguard.contracts.verdict import Severity, ThreatType
-from mailguard.layers.l4_output_scanner import OutputScanner, luhn_ok
+from mailguard.layers.output_guard import OutputScanner, luhn_ok
 from mailguard.llm.fake import FakeLLMProvider
 
 SYSTEM = (

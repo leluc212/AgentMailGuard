@@ -4,7 +4,7 @@ import pytest
 
 from mailguard.contracts.email import GuardedEmail
 from mailguard.contracts.verdict import Severity, ThreatType
-from mailguard.layers.l1_injection_scanner import (
+from mailguard.layers.inbound_guard import (
     EmailInjectionScanner,
     InjectionClassifier,
     RuleEngine,

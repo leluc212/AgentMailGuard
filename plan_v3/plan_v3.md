@@ -212,11 +212,10 @@ Xem mục "Execution log" cuối file; cập nhật sau mỗi task.
 
 ## Execution log
 
-- [x] Task 1 — commit `7ecaf82`: plan, ADR-0015 (Proposed), golden v2 baseline + `test_guard_parity.py` (87 case).
-- [x] Task 2 — trên `7ecaf82`: layout `layers/inbound_guard`, `layers/doc_scanner`, `layers/output_guard`,
-  `policy/`, `prompting/` (mới, HEAD không có `prompting`), prompt đổi tên + `PROMPT_NAME`, test file đổi tên
-  v3. `inbound_guard/__init__` export thêm `UserIntentExtractor`, `segment_text` (API của package L2 cũ).
-  Không thêm vào `.git-blame-ignore-revs` (commit có sửa import, không phải move-only; blame vẫn theo rename).
-  Kiểm tra: subtree `pytest tests/unit` 230 passed (parity 87 case, 0 delta); `ruff check` chỉ 30 lỗi notebook;
-  `ruff format --check` chỉ notebook; `mypy mailguard` 30 lỗi trong 4 file `datasets/` (không mới); root
-  `mg_root_tests.ps1` 64 failed = 63 baseline + 1 transient (`..._is_the_v2_pin`), 0 regression.
+- [x] Task 1 — commit `f572a3f`: plan, ADR-0015 (Proposed), golden v2 baseline + `test_guard_parity.py` (182 case).
+- [x] Task 2 — trên `f572a3f`: layout `layers/inbound_guard`, `layers/doc_scanner`, `layers/output_guard`,
+  `policy/`, `prompting/`, prompt đổi tên (`inbound_scan_judge`, `inbound_extractor`, `doc_chunk_judge`,
+  `output_judge`), test file đổi tên v3; move-only, parity 0 delta (golden giữ khóa `llm_calls` v2 qua
+  `GOLDEN_PROMPT_KEY`). Root `make test-unit`: 1 failed (`..._is_the_v2_pin`, đọc tree HEAD nên đổi theo mọi
+  commit chạm guard) + 3945 passed; `make lint` sạch.
+  Pin test `test_the_committed_guard_folder_is_the_v2_pin` is strict-xfail until Task 15b (Linux equivalent of the Windows transient-failure list).

@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from mailguard.config.settings import PROJECT_ROOT
-from mailguard.layers.l1_injection_scanner.classifier import MODEL_VERSION, InjectionClassifier
+from mailguard.layers.inbound_guard.classifier import MODEL_VERSION, InjectionClassifier
 
 logger = logging.getLogger("training.l1")
 

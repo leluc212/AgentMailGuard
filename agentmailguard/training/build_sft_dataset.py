@@ -3,7 +3,7 @@
     python -m training.build_sft_dataset            # -> datasets/processed/sft_judge/{train,val}.jsonl
 
 Each line: {"messages": [{"role": "system", ...}, {"role": "user", ...}, {"role": "assistant", ...}]}
-where the assistant turn is the JSON object the judge must emit (see prompts/l1_judge.v1.txt).
+where the assistant turn is the JSON object the judge must emit (see prompts/inbound_scan_judge.v1.txt).
 Labels come from the corpus; confidence is set to 0.95 / 0.05 and the technique tag is the
 corpus technique when known. Emails are wrapped in the same nonce markers used at inference.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 from mailguard.config.settings import PROJECT_ROOT
 from mailguard.contracts.email import GuardedEmail
-from mailguard.layers.l1_injection_scanner.llm_judge import build_judge_messages
+from mailguard.layers.inbound_guard.llm_judge import build_judge_messages
 
 logger = logging.getLogger("training.sft")
 CORPUS = PROJECT_ROOT / "datasets" / "processed" / "l1_injection"

@@ -24,8 +24,8 @@ from evaluation.metrics import Proportion
 from mailguard.config.settings import PROJECT_ROOT, MailGuardSettings
 from mailguard.contracts.email import RetrievedChunk
 from mailguard.contracts.verdict import Severity
-from mailguard.layers.l1_injection_scanner.scanner import EmailInjectionScanner
-from mailguard.layers.l3b_document_scanner.scanner import RetrievedDocumentScanner
+from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
+from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
 
 OUT_DIR = PROJECT_ROOT / "evaluation" / "results" / "detectors"
 

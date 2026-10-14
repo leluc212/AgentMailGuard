@@ -14,10 +14,10 @@ import pytest
 
 from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
 from mailguard.contracts.policy import PolicyAction
-from mailguard.layers.l1_injection_scanner.scanner import EmailInjectionScanner
-from mailguard.layers.l2_intent_extractor.extractor import UserIntentExtractor
-from mailguard.layers.l3b_document_scanner.scanner import RetrievedDocumentScanner
-from mailguard.layers.l4_output_scanner.scanner import OutputScanner
+from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
+from mailguard.layers.inbound_guard.extract import UserIntentExtractor
+from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
+from mailguard.layers.output_guard.scanner import OutputScanner
 from mailguard.llm.fake import FakeLLMProvider
 from mailguard.llm.protocol import (
     LLMError,
@@ -158,7 +158,7 @@ def test_fallback_reason_mapping(make_exc, reason):
 
 
 async def test_call_structured_reports_why_the_schema_failed():
-    from mailguard.layers.l1_injection_scanner.llm_judge import JudgeOutput
+    from mailguard.layers.inbound_guard.llm_judge import JudgeOutput
 
     async def fail_with(content: dict) -> LLMSchemaValidationError:
         with pytest.raises(LLMSchemaValidationError) as info:

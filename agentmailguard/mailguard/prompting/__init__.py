@@ -1,6 +1,6 @@
-"""Layer 3 - Channel Isolation."""
+"""Prompting - channel isolation."""
 
-from mailguard.layers.l3_channel_isolation.isolation import (
+from mailguard.prompting.channel_isolation import (
     ChannelConfig,
     ChannelIsolation,
     GuardedLLMProvider,

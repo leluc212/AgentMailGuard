@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from evaluation.metrics import CaseResult
 from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
 from mailguard.contracts.policy import PolicyAction
-from mailguard.layers.l4_output_scanner.scanner import ngrams
+from mailguard.layers.output_guard.scanner import ngrams
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured
 from mailguard.pipeline import GuardConfig, MailGuardPipeline

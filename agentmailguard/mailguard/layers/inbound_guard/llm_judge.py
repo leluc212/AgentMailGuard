@@ -21,7 +21,7 @@ from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-PROMPT_NAME = "l1_judge.v1"
+PROMPT_NAME = "inbound_scan_judge.v1"
 
 TECHNIQUE_TO_THREAT: dict[str, ThreatType] = {
     "instruction_override": ThreatType.INSTRUCTION_OVERRIDE,
