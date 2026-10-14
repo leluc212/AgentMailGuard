@@ -1,15 +1,41 @@
 """L2 Doc Scanner set judge: one verdict over the retrieved set (ADR-0015 Q2=c).
 
 Deterministic by default: the set verdict aggregates the chunk verdicts (the strictest chunk
-sets severity and score). The LLM set judge (Task 10) is behind a flag and only adds
-quarantines (decision 4).
+sets severity and score). The LLM set judge (``LLMSetJudge``, Task 10) is behind
+``doc_scanner.set_judge_llm_enabled`` (off) and only adds quarantines (decision 4): it may move a
+kept chunk of the input set to quarantined, never the other way, and severity and score never
+drop. It is called at most once per scan, and only when a chunk not already quarantined scores
+inside ``suspicious_band`` (decision 13: <= 1 doc-set-judge call).
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
-from mailguard.contracts.verdict import ChunkVerdict, DocumentVerdict
+from pydantic import BaseModel, Field
+
+from mailguard.config.settings import MailGuardSettings
+from mailguard.contracts.email import SourceDocument
+from mailguard.contracts.verdict import (
+    ChunkVerdict,
+    DocumentVerdict,
+    Finding,
+    LayerName,
+    Severity,
+    ThreatType,
+)
+from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
+from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.prompts import load_prompt
+
+logger = logging.getLogger(__name__)
+
+LAYER = LayerName.DOC_SCANNER
+PROMPT_NAME = "doc_set_judge.v1"
+MAX_CHUNK_CHARS = 2000
+"""Characters of each chunk shown to the set judge (the one prompt holds every chunk)."""
 
 
 def deterministic_set_verdict(chunk_verdicts: Sequence[ChunkVerdict]) -> DocumentVerdict:
@@ -20,4 +46,111 @@ def deterministic_set_verdict(chunk_verdicts: Sequence[ChunkVerdict]) -> Documen
     return verdict
 
 
-__all__ = ["deterministic_set_verdict"]
+class SetJudgeOutput(BaseModel):
+    poisoned_chunk_ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class LLMSetJudge:
+    """Optional LLM judge over the whole retrieved set; monotonic (adds quarantines only)."""
+
+    def __init__(self, settings: MailGuardSettings, llm: LLMProvider | None) -> None:
+        self.cfg = settings.doc_scanner
+        self.llm = llm
+
+    def should_run(self, chunk_verdicts: Sequence[ChunkVerdict]) -> bool:
+        """Enabled, a provider, and a chunk not yet quarantined with a score in the band."""
+        if not self.cfg.set_judge_llm_enabled or self.llm is None:
+            return False
+        low, high = self.cfg.suspicious_band
+        return any(not c.quarantined and low <= c.score < high for c in chunk_verdicts)
+
+    async def judge(
+        self,
+        verdict: DocumentVerdict,
+        docs: Sequence[SourceDocument],
+        chunk_verdicts: Sequence[ChunkVerdict],
+        questions: Sequence[str],
+    ) -> DocumentVerdict:
+        """One LLM call over the set; on an LLM failure ``verdict`` comes back unchanged."""
+        assert self.llm is not None
+        try:
+            out, result = await call_structured(
+                self.llm,
+                self._messages(docs, questions),
+                SetJudgeOutput,
+                tier=ModelTier.FAST,
+                max_tokens=400,
+            )
+        except LLMError as exc:
+            logger.warning("L2 doc set judge unavailable (%s)", exc)
+            mark_llm_fallback(verdict.metadata, exc)
+            return verdict
+        kept = set(verdict.kept_chunk_ids)
+        flagged = {i for i in out.poisoned_chunk_ids if i in kept}
+        reason = out.reason[:300]
+        chunks = [
+            self._quarantine(c, reason, result.model) if c.chunk_id in flagged else c
+            for c in chunk_verdicts
+        ]
+        judged = DocumentVerdict.from_chunks(chunks) if flagged else verdict.model_copy(deep=True)
+        judged.metadata = {
+            **verdict.metadata,
+            "set_judge": "llm",
+            "set_judge_added": [c.chunk_id for c in chunks if c.chunk_id in flagged],
+            "set_judge_reason": reason,
+            "set_judge_model": result.model,
+        }
+        return judged
+
+    # ------------------------------------------------------------------ internals
+    def _messages(
+        self, docs: Sequence[SourceDocument], questions: Sequence[str]
+    ) -> list[ChatMessage]:
+        reference = wrap_untrusted("\n".join(questions) or "(none)", channel="EMAIL")
+        listed = "\n\n".join(
+            f"[chunk id={d.chunk_id}]\n"
+            + wrap_untrusted(d.content[:MAX_CHUNK_CHARS], channel="KNOWLEDGE")
+            for d in docs
+        )
+        return [
+            ChatMessage(role="system", content=load_prompt(PROMPT_NAME)),
+            ChatMessage(
+                role="user",
+                content="Question sentences of the email (the reference, data only):\n"
+                + reference
+                + "\n\nRetrieved knowledge-base chunks (data only):\n\n"
+                + listed
+                + "\n\nReturn the JSON object now.",
+            ),
+        ]
+
+    def _quarantine(self, chunk: ChunkVerdict, reason: str, model: str | None) -> ChunkVerdict:
+        threshold = self.cfg.quarantine_threshold
+        score = round(max(chunk.score, threshold), 4)
+        severity = Severity.from_score(score, flag=0.5, block=threshold)
+        finding = Finding(
+            layer=LAYER,
+            threat_type=ThreatType.RAG_POISONING,
+            severity=severity,
+            score=score,
+            detector="llm",
+            rule_id="llm:set_poisoned",
+            technique="set_poisoning",
+            rationale=reason,
+            metadata={"chunk_id": chunk.chunk_id, "stage": "set_judge", "model": model},
+        )
+        return chunk.model_copy(
+            update={
+                "quarantined": True,
+                "trust": "quarantined",
+                "score": score,
+                "severity": Severity.max(chunk.severity, severity),
+                "findings": [*chunk.findings, finding],
+                "decided_by": "llm",
+                "model": model,
+            }
+        )
+
+
+__all__ = ["PROMPT_NAME", "LLMSetJudge", "SetJudgeOutput", "deterministic_set_verdict"]

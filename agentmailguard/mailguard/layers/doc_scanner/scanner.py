@@ -4,6 +4,7 @@
     signals     echo_vs_question / ordered_prefix against the email's question sentences
     set         bait clusters across the set, then the deterministic set judge
     LLM         the per-chunk judge only for a chunk the cheap stages left uncertain
+    LLM set     optional set judge (flag, off): one call when a kept chunk is in the band
 
 ``scan`` returns one ``DocumentVerdict``; every ``ChunkVerdict`` records its signals, trust and
 cluster. No chunks means no work and no model call.
@@ -26,7 +27,7 @@ from mailguard.contracts.verdict import (
 )
 from mailguard.layers.base import timed
 from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
-from mailguard.layers.doc_scanner.set_judge import deterministic_set_verdict
+from mailguard.layers.doc_scanner.set_judge import LLMSetJudge, deterministic_set_verdict
 from mailguard.layers.doc_scanner.signals import (
     bait_clusters,
     content_tokens,
@@ -54,11 +55,16 @@ class DocScanner:
         rules: Any = None,
         classifier: Any = None,
         llm: LLMProvider | None = None,
+        set_judge: LLMSetJudge | None = None,
+        set_judge_llm: LLMProvider | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.cfg = self.settings.doc_scanner
         self.chunks = chunk_scanner or RetrievedDocumentScanner(
             self.settings, rules=rules, classifier=classifier, llm=llm
+        )
+        self.set_judge = set_judge or (
+            LLMSetJudge(self.settings, set_judge_llm) if set_judge_llm is not None else None
         )
 
     @property
@@ -113,6 +119,10 @@ class DocScanner:
                 verdicts.append(self._graded(verdict))
         result = deterministic_set_verdict(verdicts)
         result.latency_ms = max(result.latency_ms, sw.elapsed_ms)
+        if self.set_judge is not None and self.set_judge.should_run(verdicts):
+            with timed() as judge_sw:
+                result = await self.set_judge.judge(result, docs, verdicts, questions)
+            result.latency_ms = max(result.latency_ms, sw.elapsed_ms) + judge_sw.elapsed_ms
         return result
 
     # ------------------------------------------------------------------ internals

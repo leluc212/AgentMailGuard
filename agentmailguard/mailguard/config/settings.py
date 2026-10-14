@@ -72,7 +72,7 @@ class GuardModelSettings(BaseModel):
     inbound_judge: str = Field(default="fake", description="Inbound Guard scan LLM judge")
     inbound_extractor: str = Field(default="fake", description="Inbound Guard intent extractor")
     doc_judge: str = Field(default="fake", description="Doc Scanner per-chunk LLM judge")
-    doc_set_judge: str = Field(default="fake", description="Doc Scanner set judge (Task 10)")
+    doc_set_judge: str = Field(default="fake", description="Doc Scanner LLM set judge")
     output_judge: str = Field(default="fake", description="Output Guard LLM judge")
     models_path: str = Field(default="configs/models.yaml")
 
@@ -117,6 +117,11 @@ class ChannelIsolationSettings(BaseModel):
 class DocScannerSettings(BaseModel):
     quarantine_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     llm_enabled: bool = Field(default=False)
+    set_judge_llm_enabled: bool = Field(
+        default=False,
+        description="LLM set judge over the retrieved set (GUARD_MODELS__DOC_SET_JUDGE); adds "
+        "quarantines only, at most one call, only when a kept chunk scores in suspicious_band",
+    )
     max_quarantine_ratio: float = Field(
         default=0.60, ge=0.0, le=1.0, description="If more chunks are quarantined, escalate"
     )

@@ -442,7 +442,7 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 | `GUARD_MODELS__INBOUND_JUDGE` | `str` | `fake` | model (from `configs/models.yaml`) of the L1 Inbound Guard scan judge |
 | `GUARD_MODELS__INBOUND_EXTRACTOR` | `str` | `fake` | model of the L1 Inbound Guard intent extractor |
 | `GUARD_MODELS__DOC_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner per-chunk judge |
-| `GUARD_MODELS__DOC_SET_JUDGE` | `str` | `fake` | model of the Doc Scanner set judge; not read yet (guard v3 Task 10) |
+| `GUARD_MODELS__DOC_SET_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner LLM set judge; read only when `DOC_SCANNER__SET_JUDGE_LLM_ENABLED=true` |
 | `GUARD_MODELS__OUTPUT_JUDGE` | `str` | `fake` | model of the L4 Output Guard judge |
 | `GUARD_MODELS__MODELS_PATH` | `str` | `configs/models.yaml` | model registry, relative to `agentmailguard/` |
 | `INBOUND_GUARD__RULES_PATH` | `str` | `configs/injection_rules.yaml` | injection rules (scan and extract) |
@@ -458,6 +458,7 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 | `INBOUND_GUARD__STRIP_THRESHOLD` | `float` 0–1 | `0.50` | a segment scoring at or above it is stripped |
 | `DOC_SCANNER__QUARANTINE_THRESHOLD` | `float` 0–1 | `0.70` | chunk score at or above it is quarantined |
 | `DOC_SCANNER__LLM_ENABLED` | `bool` | `false` | per-chunk judge for uncertain chunks |
+| `DOC_SCANNER__SET_JUDGE_LLM_ENABLED` | `bool` | `false` | LLM set judge over the whole retrieved set: at most one call, made only when a chunk not yet quarantined scores inside `DOC_SCANNER__SUSPICIOUS_BAND`; it can only add quarantines, never remove one |
 | `DOC_SCANNER__MAX_QUARANTINE_RATIO` | `float` 0–1 | `0.60` | above this share of quarantined chunks the reply escalates |
 | `DOC_SCANNER__ECHO_THRESHOLD` | `float` 0–1 | `0.90` | a chunk whose opening echoes the email's question at or above it is quarantined (chosen on the dev split) |
 | `DOC_SCANNER__ECHO_MIN_QUESTION_TOKENS` | `int` | `4` | echo and ordered-prefix count only for a question of at least this many content tokens |

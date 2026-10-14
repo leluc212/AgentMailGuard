@@ -100,6 +100,9 @@ PROMPT_NAMES: tuple[str, ...] = (
     "doc_chunk_judge.v1",
     "output_judge.v1",
 )
+# Guard prompts new in v3, absent from the v2 golden (the parity matrix never enables them):
+# their calls are counted under their own name, not "unknown".
+V3_PROMPT_NAMES: tuple[str, ...] = ("doc_set_judge.v1",)
 
 # The golden keys llm_calls by the v2 prompt file names; the v3 move only renames the files,
 # so call counts are still reported under the v2 key and the golden stays untouched.
@@ -354,7 +357,7 @@ _SUSPICIOUS = ("ignore", "instruction", "forward", "assistant", "system", "evil"
 
 def _prompt_name(messages: list[ChatMessage]) -> str:
     system = messages[0].content if messages and messages[0].role == "system" else ""
-    for name in PROMPT_NAMES:
+    for name in (*PROMPT_NAMES, *V3_PROMPT_NAMES):
         if system == load_prompt(name):
             return name
     return "unknown"
@@ -411,7 +414,8 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
 def _llm_calls(provider: FakeLLMProvider | None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for call in provider.calls if provider is not None else []:
-        name = GOLDEN_PROMPT_KEY.get(_prompt_name(call["messages"]), "unknown")
+        prompt = _prompt_name(call["messages"])
+        name = GOLDEN_PROMPT_KEY.get(prompt, prompt)
         counts[name] = counts.get(name, 0) + 1
     return dict(sorted(counts.items()))
 

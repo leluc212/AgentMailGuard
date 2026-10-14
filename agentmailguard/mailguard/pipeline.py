@@ -125,6 +125,7 @@ class MailGuardPipeline:
         inbound_judge: LLMProvider | None = None,
         inbound_extractor: LLMProvider | None = None,
         doc_judge: LLMProvider | None = None,
+        doc_set_judge: LLMProvider | None = None,
         output_judge: LLMProvider | None = None,
         inbound_guard: InboundGuard | None = None,
         channel_isolation: ChannelIsolation | None = None,
@@ -152,6 +153,12 @@ class MailGuardPipeline:
             classifier=self.inbound_guard.classifier,
             llm=doc_judge
             or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
+            set_judge_llm=doc_set_judge
+            or (
+                self._provider(gm.doc_set_judge)
+                if self.settings.doc_scanner.set_judge_llm_enabled
+                else None
+            ),
         )
         self.policy = policy or PolicyEngine(self.settings, audit=audit)
         self.inbound_gate = InboundGate(self.policy)

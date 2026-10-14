@@ -328,8 +328,17 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `test_output_guard_floor.py` (120 tổ hợp + hàng `auto_send` bắt buộc + pipeline). Subtree 560 passed; root
   63 fail = baseline, 0 new; thêm strict-xfail `V3_OUTPUT_GUARD_DECIDES` (C3-L5 bench, hết hạn Task 12).
   Còn mở: docs `docs/overview/layers/*` và README còn chữ "outbound gate" (Task 14).
-- [x] Task 9 — on `ed3c9df`: `integration/adapters.py::decision_to_job_result` giữ nguyên mọi key/value,
+- [x] Task 9 — commit `6d8d861`: `integration/adapters.py::decision_to_job_result` giữ nguyên mọi key/value,
   thêm `reason` (phần tử đầu của `decision.reasons` hoặc None), `decided_by` (`decision.metadata.get(
   "decided_by")`) và `guard_schema_version` (`report.schema_version`) vào khối `mailguard` (ADR-0015 mục 7).
   Core không đọc khóa `mailguard` (grep `packages/`, `services/`, `evaluation/mailguard_bench/live`: 0 reader).
   `test_job_result_contract.py` (4 test). Parity 0 delta (outcome không chứa job result).
+- [x] Task 10 — on `6d8d861`: `layers/doc_scanner/set_judge.py::LLMSetJudge` (prompt `doc_set_judge.v1`,
+  question sentences `wrap_untrusted(EMAIL)` làm tham chiếu, mỗi chunk `[chunk id=…]` + `wrap_untrusted(
+  KNOWLEDGE)`, output `{"poisoned_chunk_ids", "reason"}`); đơn điệu: chỉ chuyển id đang kept → quarantined,
+  id lạ/đã quarantine bị bỏ qua, severity/score không giảm; metadata `set_judge="llm"`, `set_judge_added`,
+  `set_judge_reason`. `should_run`: cờ `DOC_SCANNER__SET_JUDGE_LLM_ENABLED` (mặc định false) + có provider +
+  ≥1 chunk chưa quarantine có score trong `[suspicious_band)` → ≤1 call (quyết định 13). `LLMError` →
+  `mark_llm_fallback`, verdict giữ nguyên (fail-closed: Task 11). Pipeline kwarg `doc_set_judge`
+  (`GUARD_MODELS__DOC_SET_JUDGE`). `tests/parity.py` đếm call theo tên `doc_set_judge.v1` (`V3_PROMPT_NAMES`,
+  ngoài golden). `test_doc_set_judge.py` (11 test). Parity 0 delta. Subtree 575 passed.
