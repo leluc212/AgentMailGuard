@@ -54,6 +54,7 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | F11 | Task 5: R-i áp dụng khi scan có chạy. **Luật chuyển tiếp** trong `InboundVerdict.merge`: khi scan không chạy (preset v2 `C3-L1`: scan tắt, extract bật) thì sub-stage extract chấm severity như v2. Task 6 bật/tắt hai sub-stage cùng nhau nên luật này thành code chết và **Task 6 phải xóa nó**. Trần delta Task 5 nâng từ 6 lên **11** (toàn bộ bullet 4: b-004 ×5 config, s-001/s-003 × C2/C3/C3-L3B, đều `llm=1`); trần Task 6 nâng từ 0 lên **26** (26/26 case `C3-L1` đổi khi preset này nghĩa là "không có Inbound Guard": `removed_ratio`, `inbound_rule`, `llm_calls`). Đo trước: R-i không luật chuyển tiếp cho 27 delta ở Task 5 rồi C3-L1 đổi lần nữa ở Task 6 |
 | F12 | Task 6: `GuardConfig` một công tắc Inbound Guard (R-a). Preset golden v2 `C1` (chỉ scan) cũng đổi nghĩa — không có trong ước lượng F11 — nên trần Task 6 nâng từ 26 lên **52**: 26 case `C3-L1` (không còn sub-stage nào) + 26 case `C1` (thêm sub-stage extract: `removed_ratio`, 1 call extractor khi `llm=1`; action không đổi, s-001/s-003 `llm=1` P99→P09). Delta lưu ở `agentmailguard/tests/deltas/task6_guard_config.json`, gộp với delta Task 4/5 bằng `_merge_deltas`. Quyết định outbound tạm đi theo `inbound_gate` tới Task 8. Root bench: tập layer v2 → cờ v3 qua `guard_factory.v3_guard_config` (Inbound Guard bật khi có `l1`), `realized_layers` ghi cái thực chạy; 8 assertion chỉ-v2 là strict-xfail `V3_CANNOT`, **Task 12 phải xóa hết** |
 | F13 | Task 7: Doc Scanner chạy trước Inbound Gate, gate 2 lượt, cheap signals (`echo_vs_question`, `ordered_prefix`, `bait_clusters`), `build_escalated_draft`, `guarded.v3`. Trần delta Task 7 nâng từ 20 lên **21** (toàn bộ bullet 1: C3/C3-L1 × docs poisoned/x-forged/borderline). Ngưỡng chọn trên dev split `agentmailguard/datasets/splits/rag_poison_dev.json` (90 item PoisonedRAG ngoài pool benchmark và ngoài 89 case pin, 3 style; 600 chunk clean Bitext): v3 bắt đủ chunk độc 78 % prefix / 79 % mid / 0 % paraphrase, 7/600 clean bị flag (v2: 28 / 0 / 0 %, 1/600). Paraphrase không bắt được bằng cheap stage → việc của LLM set judge (Task 10) |
+| F14 | Task 8: L4 Output Guard sở hữu quyết định outbound (R-e), không còn Outbound Gate. Preset golden v2 `C3-L5` (L5 tắt = không có quyết định nào) chạy như v3 `inbound_gate=False`, nên Output Guard giờ ra quyết định sau generation: 26/26 case `C3-L5` đổi `final_action`/`final_rule`/`requires_human`/`risk_tier` (draft và call không đổi). Inbound floor tự nó không đổi case nào. Trần delta Task 8 nâng từ 6 lên **26**; delta ở `agentmailguard/tests/deltas/task8_output_guard.json`, ADR-0015 intended change 6 |
 
 
 
@@ -208,7 +209,7 @@ flowchart LR
 14. **Parity không được trở thành "mọi thứ đều là delta có chủ đích".** Mỗi entry trong
     `INTENDED_DELTAS` phải ghi `test` = node id của một unit test chứng minh hành vi mới độc lập với
     golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task (F7):
-    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 11 và Task 6 ≤ 52 (F11, F12; ban đầu 6 và 0), Task 7 ≤ 21 (F13; ban đầu 20), Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 9, 10, 12, 13 = 0.
+    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 11 và Task 6 ≤ 52 (F11, F12; ban đầu 6 và 0), Task 7 ≤ 21 (F13; ban đầu 20), Task 8 ≤ 26 (F14; ban đầu 6), Task 11 ≤ 5; Task 3, 9, 10, 12, 13 = 0.
     Vượt trần = dừng và hỏi, không nâng trần.
 
 ## Task Breakdown (16 task sau review)
@@ -309,10 +310,21 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   70 case có delta. Subtree 414 passed; root 63 fail = baseline, 0 new, 8 strict-xfail `V3_CANNOT`
   (hết hạn Task 12). Còn mở: quyết định outbound vẫn theo `inbound_gate` tới Task 8; bench vẫn
   vocabulary v2 (`v3_guard_config`, `realized_layers`) tới Task 12/13.
-- [x] Task 7 — on `606ac1d`: `inspect_inbound(email, chunks, …)` = Inbound Guard → gate lượt 1 → Doc Scanner →
+- [x] Task 7 — commit `993572b`: `inspect_inbound(email, chunks, …)` = Inbound Guard → gate lượt 1 → Doc Scanner →
   gate lượt 2 (dừng ở lượt 1 thì không quét tài liệu, không gọi doc judge; audit 1 dòng, seed có `gate_pass`);
   `DocScanner`, `signals.py`, `set_judge.py`, `InboundGate`; `build_prompt` chỉ dùng chunk được giữ, render
   `[chunk id=… trust=…]`; `build_escalated_draft`; `GUARDED_PROMPT_VERSION=guarded.v3`; `build_rag_poison
   --style/--dev-split`, `training/tune_doc_scanner.py`, ngưỡng mới trong `DocScannerSettings` (F13). Parity 21
   delta (bullet 1). Subtree 434 passed; root 63 fail = baseline, 0 new. Còn mở: style paraphrase 0 % (Task 10);
   `runmeta.py` ghi `guarded.v3` ở Task 13; raw dataset chỉ có trên máy này (gitignore), dev split chỉ commit id.
+
+- [x] Task 8 — on `993572b`: `layers/output_guard/guard.py` `OutputGuard` (scan → `policy.decide(stage=
+  "outbound")` → inbound floor, design 1/F1: catch-all từ policy đã nạp, floor chỉ khi rule cụ thể và
+  action > `auto_send`, strictest, OR `requires_human`, max risk tier, hòa → outbound, `inbound:` prefix,
+  `decided_by`/`carried_from_inbound`/`inbound_floor`, allowlist sau merge); chỉ quyết định đã merge được
+  audit (`PolicyEngine.write_audit`); luật chuyển tiếp F12 đã xóa; Output Guard tắt → `report.decision` =
+  quyết định inbound. Fact `isolation_forged_markers` đã có từ Task 4 (test trong `test_channel_isolation.py`).
+  Parity 26 delta (F14, toàn bộ `C3-L5`, `tests/deltas/task8_output_guard.json`); floor tự nó 0 delta.
+  `test_output_guard_floor.py` (120 tổ hợp + hàng `auto_send` bắt buộc + pipeline). Subtree 560 passed; root
+  63 fail = baseline, 0 new; thêm strict-xfail `V3_OUTPUT_GUARD_DECIDES` (C3-L5 bench, hết hạn Task 12).
+  Còn mở: docs `docs/overview/layers/*` và README còn chữ "outbound gate" (Task 14).

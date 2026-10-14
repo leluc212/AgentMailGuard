@@ -752,6 +752,32 @@ def _task7_deltas() -> dict[str, dict[str, Any]]:
 
 INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task7_deltas())
 
+# Task 8: the L4 Output Guard owns the outbound policy decision (ADR-0015 R-e, intended change
+# 6); no separate policy step follows L4. The golden's v2 C3-L5 (L5 off: neither stage decided) runs as
+# v3 inbound_gate=False, so the Output Guard now decides after generation. The inbound floor
+# itself moves no case. Owner decision 2026-10-14 (plan_v3 F14): Task 8 cap 26.
+TASK8_DELTAS_PATH = TESTS_DIR / "deltas" / "task8_output_guard.json"
+_TASK8_WHY = (
+    "ADR-0015 intended change 6 (R-e): the L4 Output Guard is draft scan + outbound policy, so "
+    "with the inbound gate off (v2 C3-L5) the job still gets a final decision after generation; "
+    "v2 had none because one L5 switch made both decisions. Generation is unchanged. [task v3.8]"
+)
+_TASK8_TEST = (
+    "tests/unit/test_output_guard_floor.py::test_the_output_guard_decides_without_the_inbound_gate"
+)
+
+
+def _task8_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK8_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {"fields": record, "why": _TASK8_WHY, "test": _TASK8_TEST}
+        for case_id, record in fields.items()
+    }
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task8_deltas())
+
 
 def project_golden(golden: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """The golden as schema 3 can report it: without the isolation verdict (R-d).

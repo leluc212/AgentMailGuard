@@ -45,8 +45,8 @@ V1_PRESET_LAYERS: dict[str, tuple[str, ...]] = {
 
 
 def v3_guard_config(name: str, layers: tuple[str, ...] | list[str]) -> GuardConfig:
-    """The guard v3 ``GuardConfig`` for a v2 layer set (l5 switches the inbound gate, and
-    until guard v3 Task 8 the outbound decision too)."""
+    """The guard v3 ``GuardConfig`` for a v2 layer set (l5 switches the inbound gate; the
+    outbound decision belongs to the Output Guard, l4, since guard v3 Task 8)."""
     wanted = set(layers)
     unknown = wanted - set(V2_FULL_LAYERS)
     if unknown:

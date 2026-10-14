@@ -138,6 +138,9 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
   escalated by severity (decision 9); it keeps a finding only.
 - Poisoned chunks that echo the question sentences, or form a bait cluster, are quarantined by the
   cheap stage where v2 kept them (decision 4).
+- The outbound policy decision belongs to the L4 Output Guard (R-e); there is no outbound gate.
+  With the inbound gate off, a job still gets a final decision after generation (v2's single L5
+  switch made both decisions, so turning it off left none). Owner decision 2026-10-14 (plan_v3 F14).
 
 ## Consequences
 

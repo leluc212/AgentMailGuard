@@ -273,7 +273,7 @@ class PolicyEngine:
             },
         )
         if self.audit_enabled if audit is None else (audit and self.audit_enabled):
-            self._audit(decision, report)
+            self.write_audit(decision, report)
         return decision
 
     # ------------------------------------------------------------------ audit
@@ -316,7 +316,8 @@ class PolicyEngine:
             "redactions": decision.redactions_applied,
         }
 
-    def _audit(self, decision: PolicyDecision, report: GuardReport) -> None:
+    def write_audit(self, decision: PolicyDecision, report: GuardReport) -> None:
+        """Append one schema-3 audit line (the Output Guard audits its merged decision)."""
         try:
             self.audit_path.parent.mkdir(parents=True, exist_ok=True)
             record = self.audit_record(decision, report)

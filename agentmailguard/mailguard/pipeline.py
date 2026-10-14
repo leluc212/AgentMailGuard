@@ -1,12 +1,11 @@
 """MailGuardPipeline - orchestrates the guard around the core reply agent.
 
-    inbound:   email  -> scan + extract -> InboundVerdict -> policy (stage inbound)
-    prompt:    chunks -> doc scanner -> DocumentVerdict -> channel isolation -> SecurePrompt
-    outbound:  draft  -> output scanner -> policy (stage outbound)
+    inbound:   email -> L1 Inbound Guard -> L3 gate pass 1 -> L2 Doc Scanner -> L3 gate pass 2
+    prompt:    kept chunks + intent -> channel isolation -> SecurePrompt
+    outbound:  draft -> L4 Output Guard (scan + policy stage outbound + inbound floor)
 
 The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``)
-and ``GuardConfig`` uses the v3 switches. The ordering of the stages is v2's until Task 7
-moves the doc scanner before the gate.
+and ``GuardConfig`` uses the v3 switches.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from mailguard.contracts.verdict import InboundVerdict, LayerVerdict, Severity
 from mailguard.layers.doc_scanner.scanner import DocScanner
 from mailguard.layers.inbound_gate.gate import InboundGate
 from mailguard.layers.inbound_guard.guard import InboundGuard
+from mailguard.layers.output_guard.guard import OutputGuard
 from mailguard.layers.output_guard.scanner import OutputScanner
 from mailguard.llm.protocol import ChatMessage, LLMProvider
 from mailguard.llm.registry import ModelRegistry
@@ -53,8 +53,9 @@ class GuardConfig:
     ablations ``C3-L1`` .. ``C3-L4`` (C3 minus one layer) and ``C3-ISO`` (C3 without isolation).
     The v2 names ``C3-L3B`` and ``C3-L5`` no longer exist.
 
-    Until Task 8 the outbound policy decision follows ``inbound_gate`` (the v2 ``l5`` switch
-    made both decisions); Task 8 moves it into the Output Guard (plan_v3 F12).
+    ``inbound_gate`` makes the decision before generation; ``output_guard`` makes the one
+    after it (outbound policy merged with the inbound floor). Off, the Output Guard leaves
+    ``report.decision`` at the inbound gate's decision.
     """
 
     name: str = "C3"
@@ -128,7 +129,7 @@ class MailGuardPipeline:
         inbound_guard: InboundGuard | None = None,
         channel_isolation: ChannelIsolation | None = None,
         doc_scanner: DocScanner | None = None,
-        output_guard: OutputScanner | None = None,
+        output_guard: OutputGuard | None = None,
         policy: PolicyEngine | None = None,
         audit: bool = True,
     ) -> None:
@@ -152,15 +153,21 @@ class MailGuardPipeline:
             llm=doc_judge
             or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
         )
-        self.output_guard = output_guard or OutputScanner(
-            self.settings,
-            llm=output_judge
-            or (
-                self._provider(gm.output_judge) if self.settings.output_guard.llm_enabled else None
-            ),
-        )
         self.policy = policy or PolicyEngine(self.settings, audit=audit)
         self.inbound_gate = InboundGate(self.policy)
+        self.output_guard = output_guard or OutputGuard(
+            self.settings,
+            scanner=OutputScanner(
+                self.settings,
+                llm=output_judge
+                or (
+                    self._provider(gm.output_judge)
+                    if self.settings.output_guard.llm_enabled
+                    else None
+                ),
+            ),
+            policy=self.policy,
+        )
 
     def _provider(self, name: str) -> LLMProvider | None:
         if name in ("", "none", "fake") and self.registry is None:
@@ -340,57 +347,24 @@ class MailGuardPipeline:
         protected_texts: Sequence[str] = (),
         category: str | None = None,
     ) -> GuardReport:
+        """L4 Output Guard: scan the draft, decide outbound, carry the inbound floor.
+
+        ``report.decision`` becomes the merged decision. With the Output Guard off there is no
+        decision after generation: ``report.decision`` stays the inbound gate's (or None).
+        """
         email = GuardedEmail.from_any(email_like)
         draft = DraftCandidate.from_any(draft_like)
         if self.config.output_guard:
-            indicators: dict[str, list[str]] = {"emails": [], "urls": []}
-            instructions: list[str] = []
-            inbound = report.inbound_guard
-            scan = (inbound.stage("scan") if inbound is not None else None) or {}
-            extract = (inbound.stage("extract") if inbound is not None else None) or {}
-            if scan:
-                scan_meta = scan.get("metadata") or {}
-                ind = scan_meta.get("indicators") or {}
-                indicators = {
-                    "emails": list(ind.get("emails", [])),
-                    "urls": list(ind.get("urls", [])),
-                }
-                instructions += list(scan_meta.get("injected_instructions", []))
-            if inbound is not None:
-                for f in inbound.findings:
-                    if f.metadata.get("stage") == "scan":
-                        instructions += list(f.metadata.get("injected_instructions", []))
-            if extract and inbound is not None:
-                instructions += [s.text for s in inbound.stripped_segments]
-                extract_meta = extract.get("metadata") or {}
-                instructions += list(extract_meta.get("instructions_to_assistant", []))
-            # payload found inside quarantined knowledge must not surface either
-            if report.doc_scanner is not None:
-                for cv in report.doc_scanner.chunks:
-                    if cv.quarantined:
-                        for f in cv.findings:
-                            if f.excerpt:
-                                instructions.append(f.excerpt)
-            report.output_guard = await self.output_guard.inspect(
+            report.output_guard, report.decision = await self.output_guard.inspect(
+                report,
                 draft,
                 email=email,
                 intent=self._intent(report),
-                allowed_citations={c.citation_id for c in kept_chunks}
-                | {c.chunk_id for c in kept_chunks},
+                kept_chunks=kept_chunks,
                 protected_texts=protected_texts,
-                trusted_texts=[c.content for c in kept_chunks],
-                injected_indicators=indicators,
-                injected_instructions=list(dict.fromkeys(i for i in instructions if i))[:20],
+                category=category or draft.category or email.category,
             )
         report.total_latency_ms = _latency(report)
-        # transitional (F12): the outbound decision follows inbound_gate until Task 8
-        if self.config.inbound_gate:
-            report.decision = self.policy.decide(
-                report,
-                stage="outbound",
-                category=category or draft.category or email.category,
-                draft_action=draft.action,
-            )
         return report
 
     # ------------------------------------------------------------------ end to end

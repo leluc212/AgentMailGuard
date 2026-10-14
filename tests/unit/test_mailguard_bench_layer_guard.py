@@ -51,6 +51,11 @@ LIVE = f"OpenAIProvider:{MODEL}"
 V3_CANNOT = pytest.mark.xfail(
     strict=True, reason="guard v3 Task 6: one Inbound Guard switch; expires Task 12"
 )
+# guard v3 Task 8 (plan_v3 F14): the outbound decision belongs to the Output Guard (l4), so a v2
+# layer set without l5 still gets a final decision after generation. Same expiry as V3_CANNOT.
+V3_OUTPUT_GUARD_DECIDES = pytest.mark.xfail(
+    strict=True, reason="guard v3 Task 8: the Output Guard decides outbound; expires Task 12"
+)
 
 
 @pytest.mark.parametrize(
@@ -248,7 +253,15 @@ def _v3_part(report: dict[str, Any], removed: str) -> Any:
 
 
 @pytest.mark.parametrize(
-    "config", [pytest.param(c, marks=V3_CANNOT) if c in ("C3-L2",) else c for c in ABLATION_CONFIGS]
+    "config",
+    [
+        pytest.param(c, marks=V3_CANNOT)
+        if c == "C3-L2"
+        else pytest.param(c, marks=V3_OUTPUT_GUARD_DECIDES)
+        if c == "C3-L5"
+        else c
+        for c in ABLATION_CONFIGS
+    ],
 )
 async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_path: Path) -> None:
     executor, _, _ = _executor(config, tmp_path)
