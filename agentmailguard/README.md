@@ -93,8 +93,9 @@ python -m evaluation.run_benchmark --agent gpt-4o-mini --guard-model gpt-4o-mini
 python -m evaluation.report evaluation/results/<run-dir> --out paper/tables        # Table V / VI (md + LaTeX)
 ```
 
-Configurations: `C0` no defense, `C1` L1 only, `C2` L1+L2+L3, `C3` all layers, `C3-L1` ... `C3-L5`
-one-layer ablations. Metrics: ASR, TMR, DER, TSR, FPR, latency, with Wilson 95 % CIs and
+Configurations (guard v3): `C0` no defense, `C1` Inbound Guard + Inbound Gate, `C2` C1 + Doc
+Scanner + channel isolation, `C3` everything, `C3-L1` ... `C3-L4` and `C3-ISO` one-layer ablations.
+Metrics: ASR, TMR, DER, TSR, FPR, latency, with Wilson 95 % CIs and
 McNemar tests for ablations (`evaluation/metrics.py`).
 
 ## Repository layout

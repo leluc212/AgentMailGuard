@@ -217,20 +217,22 @@ class InboundVerdict(SanitizedIntent):
         """Fold the two sub-stage verdicts into one (pure; ``None`` when neither ran).
 
         ADR-0015 decision 8 (R-i): severity, score, decided_by and model come from ``scan``;
-        the extractor's findings join the union (tagged ``extract``) but never raise the
-        severity while a scan ran. Intent, sanitized body and stripped segments come from
-        ``extract``; the error is set when either sub-stage errored; latency is the sum.
-
-        Transitional rule (owner decision 2026-10-14, plan_v3 F11): when the scan did not run
-        (v2 preset C3-L1, scan off and extract on), the extract sub-stage grades the email as in
-        v2. Task 6 switches both sub-stages together, which makes this rule dead; it removes it.
+        without a scan the email is ungraded (``none``). The extractor's findings join the
+        union (tagged ``extract``) but never raise the severity. Intent, sanitized body and
+        stripped segments come from ``extract``; the error is set when either sub-stage
+        errored; latency is the sum. (The F11 transitional rule was removed in Task 6: the
+        Inbound Guard runs both sub-stages or neither.)
         """
         parts: list[tuple[str, LayerVerdict]] = [
             (name, v) for name, v in (("scan", scan), ("extract", extract)) if v is not None
         ]
         if not parts:
             return None
-        grader: LayerVerdict = scan if scan is not None else parts[0][1]
+        grader: LayerVerdict = (
+            scan
+            if scan is not None
+            else LayerVerdict(layer=LayerName.INBOUND_GUARD, decided_by="none")
+        )
         findings: list[Finding] = []
         for name, v in parts:
             findings += _tag_stage(v.findings, name)

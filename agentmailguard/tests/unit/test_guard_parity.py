@@ -110,7 +110,10 @@ def test_intended_deltas_name_an_existing_test():
     for case_id, delta in INTENDED_DELTAS.items():
         assert set(delta) == {"fields", "why", "test"}, f"{case_id}: malformed delta"
         assert delta["why"].strip(), f"{case_id}: delta does not say why"
-    wanted = {delta["test"] for delta in INTENDED_DELTAS.values()}
+    wanted: set[str] = set()
+    for delta in INTENDED_DELTAS.values():
+        tests = delta["test"]
+        wanted |= {tests} if isinstance(tests, str) else set(tests)
     if not wanted:
         return
     # addopts already holds -q; clear it so a single -q lists one node id per line

@@ -109,7 +109,7 @@ Cross-cutting rules for every task 3–13:
   regression → fix code, or stop and ask (divergence protocol §7). **[review, design decision 14]**
   Each entry also carries `test: "<pytest node id>"` of a unit test that proves the new behaviour
   without the golden; `test_guard_parity.py` asserts that node id exists (collect-only). Maximum deltas
-  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 26 (F11; were 6 and 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
+  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 52 (F11, F12; were 6 and 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
   and ask, not raise the cap.
 
 ### Task 0 — Docker re-baseline on main (no commit)
@@ -391,6 +391,8 @@ Commit: `refactor(guard): optional LLM set judge for the doc scanner, off by def
 Commit: `refactor(guard): invalid judge answers fail closed behind a flag; no tool calls [task v3.11]`.
 
 ### Task 12 — Bench scheme v3, configuration (root)
+- **[F12]** Remove every `V3_CANNOT` strict-xfail mark in `tests/unit/test_mailguard_bench_{layer,scheme}_guard.py` and the v2-to-v3 shim in `guard_factory.py` (`v3_guard_config`,
+  `v1_preset_config`, `realized_layers`): scheme v3 names the guard's own layers.
 - `evaluation/mailguard_bench/scheme.py` scheme `v3` with the v3 presets incl. `C3-ISO`;
   `guard_build.py`, `guard_factory.py` (`LiveLayers` fields renamed to v3 labels, e.g.
   `inbound_judge`, `inbound_extractor`, `doc_judge`, `doc_set_judge`, `output_judge`), `guard_models.yaml`,

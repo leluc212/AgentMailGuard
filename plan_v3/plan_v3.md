@@ -52,6 +52,8 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | **Quyết định chủ dự án 2026-10-14 (Task 4)** | Ghi lại khi dừng theo divergence protocol; không thay số task |
 | F10 | Task 4 chỉ đổi contract, **giữ gating v2**: `InboundVerdict.merge` tạm lấy severity/score = sub-stage nghiêm hơn (scan, extract); R-i (severity chỉ từ scan) chuyển hẳn sang Task 5. Trần delta Task 4 nâng từ 3 lên **10**, chỉ cho delta do Channel Isolation không còn verdict (R-d): 8 case thread-forged (bullet 2 ADR-0015) + 2 case x-forged khi Doc Scanner tắt (C2, C3-L3B). Đo trước khi code: làm đúng R-i ngay trong Task 4 cho 36 delta. Task 5 sẽ mang ~26 delta R-i (nhóm C3-L1 + extractor LLM nâng severity), vượt trần 6 → phải xem lại trần khi tới Task 5 |
 | F11 | Task 5: R-i áp dụng khi scan có chạy. **Luật chuyển tiếp** trong `InboundVerdict.merge`: khi scan không chạy (preset v2 `C3-L1`: scan tắt, extract bật) thì sub-stage extract chấm severity như v2. Task 6 bật/tắt hai sub-stage cùng nhau nên luật này thành code chết và **Task 6 phải xóa nó**. Trần delta Task 5 nâng từ 6 lên **11** (toàn bộ bullet 4: b-004 ×5 config, s-001/s-003 × C2/C3/C3-L3B, đều `llm=1`); trần Task 6 nâng từ 0 lên **26** (26/26 case `C3-L1` đổi khi preset này nghĩa là "không có Inbound Guard": `removed_ratio`, `inbound_rule`, `llm_calls`). Đo trước: R-i không luật chuyển tiếp cho 27 delta ở Task 5 rồi C3-L1 đổi lần nữa ở Task 6 |
+| F12 | Task 6: `GuardConfig` một công tắc Inbound Guard (R-a). Preset golden v2 `C1` (chỉ scan) cũng đổi nghĩa — không có trong ước lượng F11 — nên trần Task 6 nâng từ 26 lên **52**: 26 case `C3-L1` (không còn sub-stage nào) + 26 case `C1` (thêm sub-stage extract: `removed_ratio`, 1 call extractor khi `llm=1`; action không đổi, s-001/s-003 `llm=1` P99→P09). Delta lưu ở `agentmailguard/tests/deltas/task6_guard_config.json`, gộp với delta Task 4/5 bằng `_merge_deltas`. Quyết định outbound tạm đi theo `inbound_gate` tới Task 8. Root bench: tập layer v2 → cờ v3 qua `guard_factory.v3_guard_config` (Inbound Guard bật khi có `l1`), `realized_layers` ghi cái thực chạy; 8 assertion chỉ-v2 là strict-xfail `V3_CANNOT`, **Task 12 phải xóa hết** |
+
 
 
 Bất biến carry-over được test bằng bảng tổ hợp parametrize, không thêm dependency.
@@ -205,7 +207,7 @@ flowchart LR
 14. **Parity không được trở thành "mọi thứ đều là delta có chủ đích".** Mỗi entry trong
     `INTENDED_DELTAS` phải ghi `test` = node id của một unit test chứng minh hành vi mới độc lập với
     golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task (F7):
-    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 11 và Task 6 ≤ 26 (F11; ban đầu 6 và 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 9, 10, 12, 13 = 0.
+    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 11 và Task 6 ≤ 52 (F11, F12; ban đầu 6 và 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 9, 10, 12, 13 = 0.
     Vượt trần = dừng và hỏi, không nâng trần.
 
 ## Task Breakdown (16 task sau review)
@@ -289,7 +291,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   Windows baseline, 0 new; ruff/mypy chỉ noise cũ. Bench giữ vocabulary v2 qua `bench_verdict_views`
   và `scoring._flagged_layers_v3` đến Task 12/13. Còn mở: `l2_recount.py` chỉ đọc report v2 (folder
   đã commit); Task 5 dự kiến ~26 delta R-i, vượt trần 6.
-- [x] Task 5 — on `3b58c81`: `layers/inbound_guard/guard.py` `InboundGuard` (scan + extract, rules và
+- [x] Task 5 — commit `d343cf4`: `layers/inbound_guard/guard.py` `InboundGuard` (scan + extract, rules và
   classifier dùng chung, ≤ 2 LLM call); pipeline `inbound_guard`/`inbound_judge`/`inbound_extractor`
   thay `l1`/`l2`/`judge`/`extractor_llm`; R-i: extractor không nâng severity (finding
   `detector="extract"`, `rule_id="assistant_instructions"`), `merge` lấy severity từ scan, luật
@@ -299,3 +301,10 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   passed; root 63 fail = baseline, 0 new; ruff/mypy chỉ noise cũ. Root bench: `pipeline.inbound_guard.*`.
   Còn mở: Task 6 xóa luật chuyển tiếp và `run_scan`/`run_extract` (26 delta C3-L1); finding
   `llm:assistant_instructions` cũ vẫn được `l2_recount.py` đọc trên folder v1/v2.
+- [x] Task 6 — on `d343cf4`: `GuardConfig(name, inbound_guard, doc_scanner, inbound_gate, output_guard,
+  channel_isolation)`, preset C0/C1/C2/C3, `C3-L1…C3-L4`, `C3-ISO`; `C3-L3B`/`C3-L5` → `ValueError`;
+  pipeline `channel_isolation`/`doc_scanner`/`output_guard`/`policy`, kwargs `doc_judge`/`output_judge`;
+  luật chuyển tiếp F11 và `run_scan`/`run_extract` đã xóa. Parity 52 delta mới (F12: 26 C1, 26 C3-L1),
+  70 case có delta. Subtree 414 passed; root 63 fail = baseline, 0 new, 8 strict-xfail `V3_CANNOT`
+  (hết hạn Task 12). Còn mở: quyết định outbound vẫn theo `inbound_gate` tới Task 8; bench vẫn
+  vocabulary v2 (`v3_guard_config`, `realized_layers`) tới Task 12/13.

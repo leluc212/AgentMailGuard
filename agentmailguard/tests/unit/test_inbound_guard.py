@@ -70,13 +70,27 @@ async def test_severity_comes_from_the_scan_only(settings, attack_email):
     assert verdict.stripped_segments  # extract still strips the injected paragraph
 
 
-async def test_without_the_scan_the_extract_stage_grades_until_task_6(settings, attack_email):
-    """F11 transitional rule: v2 preset C3-L1 (scan off, extract on) keeps v2 grading."""
-    verdict = await InboundGuard(settings).inspect(attack_email, run_scan=False)
-    assert verdict is not None and verdict.stage("scan") is None
-    assert str(verdict.severity) == verdict.stage("extract")["severity"]
-    assert verdict.severity.rank >= Severity.HIGH.rank
-    assert verdict.stripped_segments and verdict.removed_ratio > 0.3
+async def test_c3_l1_runs_no_inbound_guard_sub_stage(settings, attack_email, kb_chunks):
+    """Task 6: the Inbound Guard is one switch; C3-L1 runs neither scan nor extract."""
+    llm = FakeLLMProvider(default_response=FLAGGING_EXTRACTOR)
+    pipe = MailGuardPipeline(
+        settings, GuardConfig.preset("C3-L1"), inbound_judge=llm, inbound_extractor=llm,
+        audit=False,
+    )  # fmt: skip
+    report = await pipe.inspect_inbound(attack_email)
+    assert report.inbound_guard is None and llm.calls == []
+    assert report.metadata["question_sentences"]  # still extracted for the Doc Scanner
+    bundle = await pipe.build_prompt(report, attack_email, kb_chunks, system_instructions="s")
+    assert "IGNORE^ALL^PREVIOUS" in bundle.messages[1].content  # raw body, unsanitized (datamark)
+
+
+async def test_c1_runs_both_inbound_guard_sub_stages(settings, attack_email):
+    """Task 6: v3 C1 is the whole Inbound Guard, so extract (strip + intent) runs with the scan."""
+    pipe = MailGuardPipeline(settings, GuardConfig.preset("C1"), audit=False)
+    report = await pipe.inspect_inbound(attack_email)
+    inbound = report.inbound_guard
+    assert inbound is not None and set(inbound.metadata["stages"]) == {"scan", "extract"}
+    assert inbound.removed_ratio > 0.3
 
 
 async def test_extract_runs_deterministically_without_its_llm(settings, attack_email):

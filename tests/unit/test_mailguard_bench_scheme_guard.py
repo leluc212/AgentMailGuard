@@ -20,9 +20,25 @@ from evaluation.mailguard_bench.guard_build import (  # noqa: E402
     live_guard_llm_stages,
 )
 from evaluation.mailguard_bench.guard_env import GuardEnvError  # noqa: E402
-from evaluation.mailguard_bench.guard_factory import live_layers, require_live  # noqa: E402
+from evaluation.mailguard_bench.guard_factory import (  # noqa: E402  # noqa: E402
+    live_layers,
+    realized_layers,
+    require_live,
+    v3_guard_config,
+    v3_layers,
+)
 
 V2_GUARDED = tuple(c for c in scheme.V2_CONFIGS if c != "C0")
+# guard v3 Task 6: the pipeline parts behind the bench's v2 stage names
+PIPELINE_PART = {"l3b": "doc_scanner", "l4": "output_guard"}
+
+# guard v3 Task 6 (plan_v3 F12): v3 has one Inbound Guard switch, so a v2 layer set naming only
+# one of l1 (scan) and l2 (extract) is not expressible. Strict xfail; scheme v3 replaces these
+# assertions in Task 12, which must remove every V3_CANNOT mark.
+V3_CANNOT = pytest.mark.xfail(
+    strict=True, reason="guard v3 Task 6: one Inbound Guard switch; expires Task 12"
+)
+
 MODEL = "gpt-4o-mini"
 
 
@@ -43,15 +59,15 @@ def _build(config: str, tmp_path: Path, *, scheme_name: str = "v2", llm: bool = 
 def test_a_v2_config_is_built_from_explicit_layer_flags(config: str, tmp_path: Path) -> None:
     guard = _build(config, tmp_path)
     flags = guard.pipeline.config
-    for layer in scheme.FULL_LAYERS:
-        assert getattr(flags, layer) is (layer in scheme.V2_LAYERS[config]), (config, layer)
-    assert tuple(flags.active_layers) == scheme.V2_LAYERS[config]
+    assert flags == v3_guard_config(scheme.v2_guard_name(config), scheme.V2_LAYERS[config])
+    assert realized_layers(flags) == v3_layers(scheme.V2_LAYERS[config])
     assert flags.name == scheme.v2_guard_name(config)
     described = guard.describe()
     assert described["scheme"] == "v2"
     assert described["preset"] == scheme.v2_guard_name(config)
     assert described["config"] == config
-    assert described["active_layers"] == list(scheme.V2_LAYERS[config])
+    assert described["active_layers"] == list(v3_layers(scheme.V2_LAYERS[config]))
+    assert described["guard_v3_layers"] == flags.active_layers
 
 
 def test_no_v2_config_uses_a_preset_of_the_guard(
@@ -67,6 +83,7 @@ def test_no_v2_config_uses_a_preset_of_the_guard(
         _build(config, tmp_path)
 
 
+@V3_CANNOT
 def test_a_v1_build_is_the_guards_own_preset_as_before(tmp_path: Path) -> None:
     for config, layers in (
         ("C0T", ()),
@@ -81,7 +98,7 @@ def test_a_v1_build_is_the_guards_own_preset_as_before(tmp_path: Path) -> None:
             audit_log_path=tmp_path / "a.jsonl",
             l1_model_path=tmp_path / "clf.joblib",
         )
-        assert tuple(guard.pipeline.config.active_layers) == layers, config
+        assert realized_layers(guard.pipeline.config) == layers, config
         assert guard.describe()["scheme"] == "v1"
     with pytest.raises(ValueError, match="C4"):
         build_guard(
@@ -155,7 +172,7 @@ def test_the_live_stage_check_expects_exactly_the_configs_stages(
         elif stage == "l2.llm":
             pipeline.inbound_guard.extract.llm = None
         else:
-            getattr(pipeline, stage.split(".")[0]).llm = None
+            getattr(pipeline, PIPELINE_PART[stage.split(".")[0]]).llm = None
         assert guard.missing_live_stages() == ([stage] if stage in expected else []), (
             config,
             stage,
@@ -173,23 +190,22 @@ def test_a_v2_stage_that_is_not_on_is_missing_even_if_the_layer_is_active(
     assert guard.missing_live_stages() == want
 
 
-@pytest.mark.parametrize("config", V2_GUARDED)
+@pytest.mark.parametrize(
+    "config",
+    [pytest.param(c, marks=V3_CANNOT) if c == "C2" else c for c in V2_GUARDED],
+)
 def test_require_live_accepts_a_v2_guard_with_the_configs_flags(
     config: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
-    from mailguard.pipeline import GuardConfig
 
     from evaluation.mailguard_bench.guard_factory import build_guard_pipeline, guard_settings
 
     l3b, l4 = scheme.v2_llm_stages(config)
     settings = guard_settings(MODEL, l1_model_path=tmp_path / "clf.joblib", l3b_llm=l3b, l4_llm=l4)
     pipeline = build_guard_pipeline("C0", settings)
-    pipeline.config = GuardConfig(
-        scheme.v2_guard_name(config),
-        **{layer: layer in scheme.V2_LAYERS[config] for layer in scheme.FULL_LAYERS},
-    )
+    pipeline.config = v3_guard_config(scheme.v2_guard_name(config), scheme.V2_LAYERS[config])
     layers = dataclasses.replace(live_layers(pipeline), l1_classifier=True)
     require_live(layers, model_name=MODEL, l3b_llm=l3b, l4_llm=l4)
     if scheme.V2_AI_STAGES[config]:

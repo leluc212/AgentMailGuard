@@ -23,6 +23,69 @@ from evaluation.mailguard_bench.guard_env import (
     GuardEnvError,
 )
 
+# --- guard v3 GuardConfig from the bench's v2 layer vocabulary (guard v3 Task 6) ------------
+# The bench names layers l1, l2, l3, l3b, l4, l5 until scheme v3 (guard v3 Tasks 12-13). Guard
+# v3 has one Inbound Guard switch for the old l1 (scan) and l2 (extract). Under R-i only the scan
+# grades, so the Inbound Guard runs exactly when the set names l1 (with its extract sub-stage);
+# a set with l2 but no l1 runs none. ``realized_layers`` reports what really ran, and the
+# report's degradation check then flags a config that asked for one sub-stage only. The guard's
+# parity matrix (agentmailguard/tests/parity.py, V2_CONFIG_FLAGS) uses the same rule.
+V2_FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
+V1_PRESET_LAYERS: dict[str, tuple[str, ...]] = {
+    "C0": (),
+    "C1": ("l1", "l5"),
+    "C2": ("l1", "l2", "l3", "l5"),
+    "C3": V2_FULL_LAYERS,
+    **{
+        f"C3-{layer.upper()}": tuple(x for x in V2_FULL_LAYERS if x != layer)
+        for layer in V2_FULL_LAYERS
+    },
+}
+"""The v2 guard presets the v1 scheme names, as v2 layer sets (``GuardConfig.preset`` is v3)."""
+
+
+def v3_guard_config(name: str, layers: tuple[str, ...] | list[str]) -> GuardConfig:
+    """The guard v3 ``GuardConfig`` for a v2 layer set (l5 switches the inbound gate, and
+    until guard v3 Task 8 the outbound decision too)."""
+    wanted = set(layers)
+    unknown = wanted - set(V2_FULL_LAYERS)
+    if unknown:
+        raise ValueError(f"unknown v2 layers {sorted(unknown)}")
+    return GuardConfig(
+        name,
+        inbound_guard="l1" in wanted,
+        doc_scanner="l3b" in wanted,
+        inbound_gate="l5" in wanted,
+        output_guard="l4" in wanted,
+        channel_isolation="l3" in wanted,
+    )
+
+
+def v3_layers(layers: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """The v2-named layers guard v3 runs when the bench asks for ``layers`` (l1 → l1 + l2)."""
+    return realized_layers(v3_guard_config("probe", layers))
+
+
+def realized_layers(config: GuardConfig) -> tuple[str, ...]:
+    """The v2-named layers a v3 ``GuardConfig`` really runs, in v2 order."""
+    on = {
+        "l1": config.inbound_guard,
+        "l2": config.inbound_guard,
+        "l3": config.channel_isolation,
+        "l3b": config.doc_scanner,
+        "l4": config.output_guard,
+        "l5": config.inbound_gate,
+    }
+    return tuple(layer for layer in V2_FULL_LAYERS if on[layer])
+
+
+def v1_preset_config(preset: str) -> GuardConfig:
+    """``GuardConfig`` for a v1-scheme guard preset name (C0, C1, C2, C3, C3-L1 .. C3-L5)."""
+    key = preset.upper()
+    if key not in V1_PRESET_LAYERS:
+        raise ValueError(f"unknown v1 guard preset {preset!r}")
+    return v3_guard_config(key, V1_PRESET_LAYERS[key])
+
 
 def guard_settings(
     model_name: str,
@@ -50,9 +113,9 @@ def guard_settings(
 
 
 def build_guard_pipeline(preset: str, settings: MailGuardSettings) -> MailGuardPipeline:
-    """A pipeline for one GuardConfig preset (C0, C1, C2, C3, C3-L1..C3-L5), audit log off."""
+    """A pipeline for one v1 guard preset (C0, C1, C2, C3, C3-L1..C3-L5), audit log off."""
     return MailGuardPipeline(
-        settings, GuardConfig.preset(preset), registry=ModelRegistry(settings), audit=False
+        settings, v1_preset_config(preset), registry=ModelRegistry(settings), audit=False
     )
 
 
@@ -85,12 +148,12 @@ def live_layers(pipeline: MailGuardPipeline) -> LiveLayers:
     """Read what the pipeline actually built (the guard degrades silently otherwise)."""
     return LiveLayers(
         preset=str(pipeline.config.name),
-        active_layers=tuple(pipeline.config.active_layers),
+        active_layers=realized_layers(pipeline.config),
         l1_classifier=bool(pipeline.inbound_guard.classifier.available),
         l1_judge=provider_label(pipeline.inbound_guard.judge),
         l2_llm=provider_label(pipeline.inbound_guard.extract.llm),
-        l3b_llm=provider_label(pipeline.l3b.llm),
-        l4_llm=provider_label(pipeline.l4.llm),
+        l3b_llm=provider_label(pipeline.doc_scanner.llm),
+        l4_llm=provider_label(pipeline.output_guard.llm),
     )
 
 

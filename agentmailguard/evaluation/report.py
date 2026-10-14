@@ -19,15 +19,14 @@ from pathlib import Path
 
 from evaluation.metrics import CaseResult, Proportion, paired_comparison, summarize
 
-ABLATIONS = ["C3", "C3-L1", "C3-L2", "C3-L3", "C3-L3b", "C3-L4", "C3-L5"]
+ABLATIONS = ["C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"]
 LAYER_LABEL = {
     "C3": "C3 Full (baseline for ablation)",
-    "C3-L1": "C3 $-$ Layer 1 (no Email Scanner)",
-    "C3-L2": "C3 $-$ Layer 2 (no Intent Extract)",
-    "C3-L3": "C3 $-$ Layer 3 (no Channel Iso.)",
-    "C3-L3b": "C3 $-$ Layer 3b (no Doc Scanner)",
-    "C3-L4": "C3 $-$ Layer 4 (no Output Scan)",
-    "C3-L5": "C3 $-$ Layer 5 (no Policy Engine)",
+    "C3-L1": "C3 $-$ L1 (no Inbound Guard)",
+    "C3-L2": "C3 $-$ L2 (no Doc Scanner)",
+    "C3-L3": "C3 $-$ L3 (no Inbound Gate)",
+    "C3-L4": "C3 $-$ L4 (no Output Guard)",
+    "C3-ISO": "C3 $-$ Channel Isolation",
 }
 
 

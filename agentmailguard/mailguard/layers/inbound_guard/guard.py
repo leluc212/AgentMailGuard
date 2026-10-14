@@ -71,18 +71,14 @@ class InboundGuard:
     def extractor_llm(self, provider: LLMProvider | None) -> None:
         self.extract.llm = provider
 
-    async def inspect(
-        self, email: GuardedEmail, *, run_scan: bool = True, run_extract: bool = True
-    ) -> InboundVerdict | None:
-        """Scan, then extract; ``None`` when neither sub-stage runs.
-
-        ``run_scan`` / ``run_extract`` exist only while ``GuardConfig`` still switches the two
-        sub-stages apart (v2 presets); Task 6 makes the Inbound Guard a single switch. The
-        extract sub-stage always runs its deterministic part; only its LLM is optional (F4).
-        """
-        scan = await self.scan.inspect(email) if run_scan else None
-        extract = await self.extract.extract(email) if run_extract else None
-        return InboundVerdict.merge(scan, extract)
+    async def inspect(self, email: GuardedEmail) -> InboundVerdict:
+        """Scan, then extract; one verdict. The extract sub-stage always runs its
+        deterministic part; only its LLM is optional (F4)."""
+        scan = await self.scan.inspect(email)
+        extract = await self.extract.extract(email)
+        merged = InboundVerdict.merge(scan, extract)
+        assert merged is not None  # both sub-stages ran
+        return merged
 
 
 __all__ = ["InboundGuard"]

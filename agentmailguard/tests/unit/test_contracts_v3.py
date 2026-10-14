@@ -106,8 +106,8 @@ def test_merge_grades_by_the_scan_only():
     assert merged.stage("extract")["severity"] == "medium"
     assert any(f.metadata["stage"] == "extract" for f in merged.findings)
     no_scan = InboundVerdict.merge(None, _extract(0.9))
-    # transitional (F11, removed in Task 6): without a scan the extract sub-stage grades
-    assert no_scan is not None and no_scan.severity is Severity.HIGH and no_scan.score == 0.9
+    # without a scan the email is ungraded (Task 6 removed the F11 transitional rule)
+    assert no_scan is not None and no_scan.severity is Severity.NONE and no_scan.score == 0.0
 
 
 @pytest.mark.parametrize(("scan_err", "extract_err"), [("boom", None), (None, "bad"), ("a", "b")])

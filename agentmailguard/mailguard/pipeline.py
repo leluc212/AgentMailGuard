@@ -4,9 +4,9 @@
     prompt:    chunks -> doc scanner -> DocumentVerdict -> channel isolation -> SecurePrompt
     outbound:  draft  -> output scanner -> policy (stage outbound)
 
-The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``).
-``GuardConfig`` still uses the v2 switches ``l1``..``l5`` (renamed in Task 6, ADR-0015);
-the ordering of the stages is v2's until Task 7 moves the doc scanner before the gate.
+The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``)
+and ``GuardConfig`` uses the v3 switches. The ordering of the stages is v2's until Task 7
+moves the doc scanner before the gate.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, ClassVar
 
 from mailguard.config.settings import MailGuardSettings, get_settings
 from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
@@ -36,39 +36,64 @@ DraftFactory = Callable[[list[ChatMessage]], Awaitable[DraftCandidate | dict[str
 
 @dataclass(frozen=True)
 class GuardConfig:
-    """Which layers are active. Presets reproduce the paper's Table IV / VI."""
+    """Which guard layers are active (ADR-0015, schema 3).
+
+    The four layers, in pipeline order: ``inbound_guard`` (L1), ``doc_scanner`` (L2),
+    ``inbound_gate`` (L3), ``output_guard`` (L4). ``channel_isolation`` is a separate switch,
+    not a layer (R-d): off, the prompt is plain concatenation (the no-defence baseline).
+
+    Presets: ``C0`` nothing; ``C1`` L1 + L3; ``C2`` C1 + L2 + isolation; ``C3`` everything;
+    ablations ``C3-L1`` .. ``C3-L4`` (C3 minus one layer) and ``C3-ISO`` (C3 without isolation).
+    The v2 names ``C3-L3B`` and ``C3-L5`` no longer exist.
+
+    Until Task 8 the outbound policy decision follows ``inbound_gate`` (the v2 ``l5`` switch
+    made both decisions); Task 8 moves it into the Output Guard (plan_v3 F12).
+    """
 
     name: str = "C3"
-    l1: bool = True
-    l2: bool = True
-    l3: bool = True
-    l3b: bool = True
-    l4: bool = True
-    l5: bool = True
+    inbound_guard: bool = True
+    doc_scanner: bool = True
+    inbound_gate: bool = True
+    output_guard: bool = True
+    channel_isolation: bool = True
 
-    PRESETS = ("C0", "C1", "C2", "C3")
+    LAYERS: ClassVar[tuple[str, ...]] = (
+        "inbound_guard",
+        "doc_scanner",
+        "inbound_gate",
+        "output_guard",
+    )
+    PRESETS: ClassVar[tuple[str, ...]] = ("C0", "C1", "C2", "C3")
+    ABLATIONS: ClassVar[dict[str, str]] = {
+        "C3-L1": "inbound_guard",
+        "C3-L2": "doc_scanner",
+        "C3-L3": "inbound_gate",
+        "C3-L4": "output_guard",
+        "C3-ISO": "channel_isolation",
+    }
 
     @classmethod
     def preset(cls, name: str) -> GuardConfig:
         key = name.upper().replace(" ", "")
         if key == "C0":
-            return cls("C0", False, False, False, False, False, False)
+            return cls("C0", False, False, False, False, False)
         if key == "C1":
-            return cls("C1", True, False, False, False, False, True)
+            return cls("C1", inbound_guard=True, doc_scanner=False, inbound_gate=True,
+                       output_guard=False, channel_isolation=False)  # fmt: skip
         if key == "C2":
-            return cls("C2", True, True, True, False, False, True)
+            return cls("C2", inbound_guard=True, doc_scanner=True, inbound_gate=True,
+                       output_guard=False, channel_isolation=True)  # fmt: skip
         if key == "C3":
             return cls("C3")
-        if key.startswith("C3-"):  # ablation: C3-L1, C3-L2, C3-L3, C3-L3B, C3-L4, C3-L5
-            layer = key[3:].lower()
-            if layer not in {"l1", "l2", "l3", "l3b", "l4", "l5"}:
-                raise ValueError(f"unknown ablation layer {layer}")
-            return replace(cls("C3"), name=key, **{layer: False})
-        raise ValueError(f"unknown preset {name}")
+        if key in cls.ABLATIONS:
+            return replace(cls("C3"), name=key, **{cls.ABLATIONS[key]: False})
+        known = ", ".join((*cls.PRESETS, *cls.ABLATIONS))
+        raise ValueError(f"unknown preset {name!r}; the v3 presets are {known}")
 
     @property
     def active_layers(self) -> list[str]:
-        return [k for k in ("l1", "l2", "l3", "l3b", "l4", "l5") if getattr(self, k)]
+        """The active layers among the four, in pipeline order (isolation is not one)."""
+        return [layer for layer in self.LAYERS if getattr(self, layer)]
 
 
 @dataclass
@@ -91,13 +116,13 @@ class MailGuardPipeline:
         registry: ModelRegistry | None = None,
         inbound_judge: LLMProvider | None = None,
         inbound_extractor: LLMProvider | None = None,
-        doc_llm: LLMProvider | None = None,
-        output_llm: LLMProvider | None = None,
+        doc_judge: LLMProvider | None = None,
+        output_judge: LLMProvider | None = None,
         inbound_guard: InboundGuard | None = None,
-        l3: ChannelIsolation | None = None,
-        l3b: RetrievedDocumentScanner | None = None,
-        l4: OutputScanner | None = None,
-        l5: PolicyEngine | None = None,
+        channel_isolation: ChannelIsolation | None = None,
+        doc_scanner: RetrievedDocumentScanner | None = None,
+        output_guard: OutputScanner | None = None,
+        policy: PolicyEngine | None = None,
         audit: bool = True,
     ) -> None:
         self.settings = settings or get_settings()
@@ -110,22 +135,24 @@ class MailGuardPipeline:
             judge_name=gm.inbound_judge,
             extractor_llm=inbound_extractor or self._provider(gm.inbound_extractor),
         )
-        self.l3 = l3 or ChannelIsolation(self.settings, enabled=self.config.l3)
-        self.l3b = l3b or RetrievedDocumentScanner(
+        self.channel_isolation = channel_isolation or ChannelIsolation(
+            self.settings, enabled=self.config.channel_isolation
+        )
+        self.doc_scanner = doc_scanner or RetrievedDocumentScanner(
             self.settings,
             rules=self.inbound_guard.rules,
             classifier=self.inbound_guard.classifier,
-            llm=doc_llm
+            llm=doc_judge
             or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
         )
-        self.l4 = l4 or OutputScanner(
+        self.output_guard = output_guard or OutputScanner(
             self.settings,
-            llm=output_llm
+            llm=output_judge
             or (
                 self._provider(gm.output_judge) if self.settings.output_guard.llm_enabled else None
             ),
         )
-        self.l5 = l5 or PolicyEngine(self.settings, audit=audit)
+        self.policy = policy or PolicyEngine(self.settings, audit=audit)
 
     def _provider(self, name: str) -> LLMProvider | None:
         if name in ("", "none", "fake") and self.registry is None:
@@ -141,13 +168,12 @@ class MailGuardPipeline:
     async def inspect_inbound(self, email_like: Any, *, category: str | None = None) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
-        report.inbound_guard = await self.inbound_guard.inspect(
-            email, run_scan=self.config.l1, run_extract=self.config.l2
-        )
+        if self.config.inbound_guard:
+            report.inbound_guard = await self.inbound_guard.inspect(email)
         self._record_questions(report, email)
         report.total_latency_ms = _latency(report)
-        if self.config.l5:
-            report.inbound_decision = self.l5.decide(
+        if self.config.inbound_gate:
+            report.inbound_decision = self.policy.decide(
                 report, stage="inbound", category=category or email.category
             )
             report.decision = report.inbound_decision
@@ -203,15 +229,15 @@ class MailGuardPipeline:
         retrieved = [SourceDocument.from_any(c) for c in chunks]
         kept = retrieved
         intent = self._intent(report)
-        if self.config.l3b:
+        if self.config.doc_scanner:
             # The retrieval query is what PoisonedRAG bait echoes: use the caller's query
             # (core query builder) or fall back to the customer's own words, never the
             # extractor's paraphrase (its extra tokens dilute the echo measurement).
             body = intent.sanitized_body if (intent and intent.sanitized_body) else email.text
             scan_query = query or f"{email.subject}\n{body}"[:1500]
-            kept, verdicts = await self.l3b.scan(retrieved, scan_query)
+            kept, verdicts = await self.doc_scanner.scan(retrieved, scan_query)
             report.doc_scanner = DocumentVerdict.from_chunks(verdicts)
-        prompt, isolation = self.l3.build(
+        prompt, isolation = self.channel_isolation.build(
             system_instructions=system_instructions,
             email=email,
             intent=intent,
@@ -221,17 +247,17 @@ class MailGuardPipeline:
             recent_messages=recent_messages,
             business_data=business_data,
             task_instructions=task_instructions,
-            use_sanitized_body=self.config.l2,
+            use_sanitized_body=self.config.inbound_guard,
         )
-        if self.config.l3:
+        if self.config.channel_isolation:
             isolation.chunks_in = len(retrieved)
             report.isolation = isolation
         report.total_latency_ms = _latency(report)
         return PromptBundle(prompt=prompt, kept_chunks=kept, report=report)
 
     def _intent(self, report: GuardReport) -> InboundVerdict | None:
-        """The extract sub-stage's intent, only when it ran (the scan alone carries none)."""
-        return report.inbound_guard if self.config.l2 else None
+        """The Inbound Guard verdict carries the intent and sanitized body (None when off)."""
+        return report.inbound_guard if self.config.inbound_guard else None
 
     # ------------------------------------------------------------------ outbound
     async def inspect_outbound(
@@ -246,7 +272,7 @@ class MailGuardPipeline:
     ) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         draft = DraftCandidate.from_any(draft_like)
-        if self.config.l4:
+        if self.config.output_guard:
             indicators: dict[str, list[str]] = {"emails": [], "urls": []}
             instructions: list[str] = []
             inbound = report.inbound_guard
@@ -275,7 +301,7 @@ class MailGuardPipeline:
                         for f in cv.findings:
                             if f.excerpt:
                                 instructions.append(f.excerpt)
-            report.output_guard = await self.l4.inspect(
+            report.output_guard = await self.output_guard.inspect(
                 draft,
                 email=email,
                 intent=self._intent(report),
@@ -287,8 +313,9 @@ class MailGuardPipeline:
                 injected_instructions=list(dict.fromkeys(i for i in instructions if i))[:20],
             )
         report.total_latency_ms = _latency(report)
-        if self.config.l5:
-            report.decision = self.l5.decide(
+        # transitional (F12): the outbound decision follows inbound_gate until Task 8
+        if self.config.inbound_gate:
+            report.decision = self.policy.decide(
                 report,
                 stage="outbound",
                 category=category or draft.category or email.category,
@@ -315,7 +342,7 @@ class MailGuardPipeline:
     ) -> tuple[GuardReport, DraftCandidate | None, PromptBundle | None]:
         """Full path. Returns (report, guarded draft or None, prompt bundle or None).
 
-        ``query`` is the retrieval query the core used to fetch ``chunks`` (L3b echo check);
+        ``query`` is the retrieval query the core used to fetch ``chunks`` (doc-scanner echo check);
         when omitted the customer's own subject + body is used.
         """
         email = GuardedEmail.from_any(email_like)

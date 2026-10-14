@@ -15,7 +15,11 @@ pytest.importorskip("mailguard")
 
 from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, build_guard  # noqa: E402
 from evaluation.mailguard_bench.guard_env import GuardEnvError  # noqa: E402
-from evaluation.mailguard_bench.guard_factory import LiveLayers, require_live  # noqa: E402
+from evaluation.mailguard_bench.guard_factory import (  # noqa: E402
+    LiveLayers,
+    realized_layers,  # noqa: E402
+    require_live,
+)
 from evaluation.mailguard_bench.guarded_reply import GuardedCaseExecutor  # noqa: E402
 from evaluation.mailguard_bench.runner import prepared_case_executor  # noqa: E402
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator  # noqa: E402
@@ -35,11 +39,33 @@ REMOVED = {
     "C3-L4": "l4",
     "C3-L5": "l5",
 }
+# guard v3 Task 6: the pipeline parts behind the bench's v2 stage names
+PIPELINE_PART = {"l3b": "doc_scanner", "l4": "output_guard"}
+
 MODEL = "gpt-4o-mini"
 LIVE = f"OpenAIProvider:{MODEL}"
 
+# guard v3 Task 6 (plan_v3 F12): v3 has one Inbound Guard switch, so a v2 layer set naming only
+# one of l1 (scan) and l2 (extract) is not expressible. Strict xfail; scheme v3 replaces these
+# assertions in Task 12, which must remove every V3_CANNOT mark.
+V3_CANNOT = pytest.mark.xfail(
+    strict=True, reason="guard v3 Task 6: one Inbound Guard switch; expires Task 12"
+)
 
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(c, marks=V3_CANNOT)
+        if c
+        in (
+            "C3-L1",
+            "C3-L2",
+        )
+        else c
+        for c in ABLATION_CONFIGS
+    ],
+)
 def test_each_config_builds_the_guards_own_preset_of_the_same_name(
     config: str, tmp_path: Path
 ) -> None:
@@ -51,7 +77,7 @@ def test_each_config_builds_the_guards_own_preset_of_the_same_name(
     )
     assert (guard.config, guard.preset) == (config, config)
     assert guard.pipeline.config.name == config
-    assert tuple(guard.pipeline.config.active_layers) == tuple(
+    assert realized_layers(guard.pipeline.config) == tuple(
         layer for layer in FULL if layer != REMOVED[config]
     )
     assert guard.describe()["preset"] == config
@@ -82,7 +108,7 @@ def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]
     pipeline = guard.pipeline
     pipeline.settings.doc_scanner.llm_enabled = True  # so an absent L3b/L4 model would count
     pipeline.settings.output_guard.llm_enabled = True
-    pipeline.l3b.llm = pipeline.l4.llm = guard.guard_llm
+    pipeline.doc_scanner.llm = pipeline.output_guard.llm = guard.guard_llm
     # any non-None: classifier "available"
     pipeline.inbound_guard.classifier.pipeline = guard.guard_llm
     for part in off:
@@ -94,7 +120,7 @@ def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]
             pipeline.inbound_guard.extract.llm = None
         else:
             layer, _, _ = part.partition(".")
-            getattr(pipeline, layer).llm = None
+            getattr(pipeline, PIPELINE_PART[layer]).llm = None
     return guard.missing_live_stages()
 
 
@@ -105,8 +131,8 @@ def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]
         ("C3-L1", "l1.judge", []),  # no L1, so no L1 judge
         ("C3-L2", "l1.judge", ["l1.judge"]),
         ("C3", "l2.llm", ["l2.llm"]),
-        ("C3-L2", "l2.llm", []),  # no L2 LLM step
-        ("C3-L1", "l2.llm", ["l2.llm"]),
+        pytest.param("C3-L2", "l2.llm", [], marks=V3_CANNOT),  # no L2 LLM step
+        pytest.param("C3-L1", "l2.llm", ["l2.llm"], marks=V3_CANNOT),
         ("C3", "l3b.llm", ["l3b.llm"]),
         ("C3-L3B", "l3b.llm", []),
         ("C3-L4", "l3b.llm", ["l3b.llm"]),
@@ -221,7 +247,9 @@ def _v3_part(report: dict[str, Any], removed: str) -> Any:
     }[removed]
 
 
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
+@pytest.mark.parametrize(
+    "config", [pytest.param(c, marks=V3_CANNOT) if c in ("C3-L2",) else c for c in ABLATION_CONFIGS]
+)
 async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_path: Path) -> None:
     executor, _, _ = _executor(config, tmp_path)
 
@@ -237,6 +265,7 @@ async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_pat
     assert execution.guard_errors == ()
 
 
+@V3_CANNOT
 async def test_without_l1_the_injection_is_still_seen_by_the_other_layers(
     tmp_path: Path,
 ) -> None:
@@ -266,3 +295,23 @@ def test_ablation_configs_need_a_guard_like_c3(tmp_path: Path) -> None:
     executor = prepared_case_executor("C3-L5", generator=generator, guard=guard)
     assert isinstance(executor, GuardedCaseExecutor)
     assert executor.pipeline.config.name == "C3-L5"
+
+
+def test_v2_layer_sets_map_onto_guard_v3_switches() -> None:
+    """guard v3 Task 6: l1 switches the whole Inbound Guard (the scan grades, R-i).
+
+    A set with l2 but no l1 runs no Inbound Guard sub-stage.
+    """
+    from evaluation.mailguard_bench.guard_factory import v1_preset_config, v3_guard_config
+
+    full = v3_guard_config("x", FULL)
+    assert full.active_layers == ["inbound_guard", "doc_scanner", "inbound_gate", "output_guard"]
+    assert full.channel_isolation
+    assert realized_layers(v3_guard_config("x", ("l1", "l5"))) == ("l1", "l2", "l5")
+    assert realized_layers(v3_guard_config("x", ("l2", "l5"))) == ("l5",)
+    assert realized_layers(v3_guard_config("x", ("l3", "l5"))) == ("l3", "l5")
+    assert realized_layers(v1_preset_config("C3-L1")) == ("l3", "l3b", "l4", "l5")
+    assert realized_layers(v1_preset_config("C3-L2")) == FULL
+    assert realized_layers(v1_preset_config("C3-L5")) == ("l1", "l2", "l3", "l3b", "l4")
+    with pytest.raises(ValueError, match="unknown v2 layers"):
+        v3_guard_config("x", ("l6",))

@@ -73,7 +73,7 @@ def test_build_guard_leaves_the_l3b_and_l4_llm_stages_off_by_default(tmp_path: P
         audit_log_path=tmp_path / "audit.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
     )
-    assert guard.pipeline.l3b.llm is None and guard.pipeline.l4.llm is None
+    assert guard.pipeline.doc_scanner.llm is None and guard.pipeline.output_guard.llm is None
     stages = guard.live_stages()
     assert (stages["l3b.llm"], stages["l4.llm"]) == (False, False)
 
@@ -91,8 +91,8 @@ def test_build_guard_wires_the_one_counted_model_into_l3b_and_l4_when_asked(
     )
     settings = guard.pipeline.settings
     assert (settings.doc_scanner.llm_enabled, settings.output_guard.llm_enabled) == (True, True)
-    assert guard.pipeline.l3b.llm is guard.guard_llm  # counted with the L1/L2 calls
-    assert guard.pipeline.l4.llm is guard.guard_llm
+    assert guard.pipeline.doc_scanner.llm is guard.guard_llm  # counted with the L1/L2 calls
+    assert guard.pipeline.output_guard.llm is guard.guard_llm
     stages = guard.live_stages()
     assert (stages["l3b.llm"], stages["l4.llm"]) == (True, True)
     assert not {"l3b.llm", "l4.llm"} & set(guard.missing_live_stages())
@@ -108,8 +108,8 @@ def test_build_guard_can_turn_the_two_stages_on_one_at_a_time(tmp_path: Path) ->
         l1_model_path=tmp_path / "clf.joblib",
         l4_llm=True,
     )
-    assert guard.pipeline.l3b.llm is None
-    assert guard.pipeline.l4.llm is guard.guard_llm
+    assert guard.pipeline.doc_scanner.llm is None
+    assert guard.pipeline.output_guard.llm is guard.guard_llm
 
 
 @pytest.mark.parametrize(
@@ -147,8 +147,8 @@ def test_an_enabled_stage_that_did_not_come_up_is_a_missing_live_stage(tmp_path:
         l3b_llm=True,
         l4_llm=True,
     )
-    guard.pipeline.l3b.llm = None  # what MailGuardPipeline leaves when a model is unknown
-    guard.pipeline.l4.llm = None
+    guard.pipeline.doc_scanner.llm = None  # what MailGuardPipeline leaves when a model is unknown
+    guard.pipeline.output_guard.llm = None
     assert {"l3b.llm", "l4.llm"} <= set(guard.missing_live_stages())
 
 

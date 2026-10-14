@@ -37,8 +37,8 @@ from evaluation.mailguard_bench.route import guard_pin_problem
 
 # re-exported: report.py, runner.py and the tests import them from here
 from evaluation.mailguard_bench.scheme import ABLATION_CONFIGS as ABLATION_CONFIGS
+from evaluation.mailguard_bench.scheme import LAYER_ABLATIONS as LAYER_ABLATIONS
 from evaluation.mailguard_bench.scheme import (
-    FULL_LAYERS,
     SCHEME_V1,
     SCHEME_V2,
     V2_LAYERS,
@@ -48,7 +48,6 @@ from evaluation.mailguard_bench.scheme import (
     v2_llm_stages,
     v2_required_stages,
 )
-from evaluation.mailguard_bench.scheme import LAYER_ABLATIONS as LAYER_ABLATIONS
 
 NATIVE_CONFIG = "C0"
 # benchmark config -> AgentMailGuard GuardConfig preset
@@ -92,8 +91,8 @@ class GuardBuild:
             and bool(settings.inbound_guard.scan_llm_enabled),
             "l2.llm": pipeline.inbound_guard.extract.llm is not None
             and bool(settings.inbound_guard.extract_llm_enabled),
-            "l3b.llm": pipeline.l3b.llm is not None,
-            "l4.llm": pipeline.l4.llm is not None,
+            "l3b.llm": pipeline.doc_scanner.llm is not None,
+            "l4.llm": pipeline.output_guard.llm is not None,
         }
 
     def missing_live_stages(self) -> list[str]:
@@ -109,22 +108,24 @@ class GuardBuild:
         that list names counts as missing when it is off, even where the guard's own settings
         would have left it out.
         """
-        config = self.pipeline.config
+        from evaluation.mailguard_bench.guard_factory import realized_layers
+
+        layers = set(realized_layers(self.pipeline.config))
         settings = self.pipeline.settings
         live = self.live_stages()
         required: list[str] = []
         if self.scheme == SCHEME_V2:
             required = list(v2_required_stages(self.config))
         else:
-            if config.l1 or config.l2 or config.l3b:
+            if layers & {"l1", "l2", "l3b"}:
                 required.append("l1.classifier")
-            if config.l1 and settings.inbound_guard.scan_llm_enabled:
+            if "l1" in layers and settings.inbound_guard.scan_llm_enabled:
                 required.append("l1.judge")
-            if config.l2 and settings.inbound_guard.extract_llm_enabled:
+            if "l2" in layers and settings.inbound_guard.extract_llm_enabled:
                 required.append("l2.llm")
-            if config.l3b and settings.doc_scanner.llm_enabled:
+            if "l3b" in layers and settings.doc_scanner.llm_enabled:
                 required.append("l3b.llm")
-            if config.l4 and settings.output_guard.llm_enabled:
+            if "l4" in layers and settings.output_guard.llm_enabled:
                 required.append("l4.llm")
         return [stage for stage in required if not live[stage]]
 
@@ -132,7 +133,7 @@ class GuardBuild:
         """Guard facts for raw/<CONFIG>.meta.json and manifest.json (spec §4b artifacts)."""
         from mailguard.config.settings import PROJECT_ROOT
 
-        from evaluation.mailguard_bench.guard_factory import live_layers
+        from evaluation.mailguard_bench.guard_factory import live_layers, realized_layers
 
         settings = self.pipeline.settings
         l1_path = Path(settings.resolve(settings.inbound_guard.ml_model_path))
@@ -141,7 +142,9 @@ class GuardBuild:
             "config": self.config,
             "scheme": self.scheme,
             "preset": self.preset,
-            "active_layers": list(self.pipeline.config.active_layers),
+            "active_layers": list(realized_layers(self.pipeline.config)),
+            "guard_v3_layers": list(self.pipeline.config.active_layers),
+            "channel_isolation": bool(self.pipeline.config.channel_isolation),
             "guard_model": self.model_name,
             "live_stages": self.live_stages(),
             "missing_live_stages": self.missing_live_stages(),
@@ -223,9 +226,13 @@ def build_guard(
         require_config(scheme, key)
     guard_preset = GUARDED_CONFIGS[key] if scheme == SCHEME_V1 else v2_guard_name(key)
     from mailguard.llm.registry import ModelRegistry
-    from mailguard.pipeline import GuardConfig, MailGuardPipeline
+    from mailguard.pipeline import MailGuardPipeline
 
-    from evaluation.mailguard_bench.guard_factory import guard_settings
+    from evaluation.mailguard_bench.guard_factory import (
+        guard_settings,
+        v1_preset_config,
+        v3_guard_config,
+    )
 
     settings = guard_settings(
         model_name,
@@ -242,9 +249,9 @@ def build_guard(
         raise GuardEnvError(problem)
     guard_llm = CountingProvider(provider)
     config = (
-        GuardConfig.preset(guard_preset)
+        v1_preset_config(guard_preset)
         if scheme == SCHEME_V1
-        else GuardConfig(guard_preset, **{layer: layer in V2_LAYERS[key] for layer in FULL_LAYERS})
+        else v3_guard_config(guard_preset, V2_LAYERS[key])
     )
     pipeline = MailGuardPipeline(
         settings,
@@ -252,8 +259,8 @@ def build_guard(
         registry=registry,
         inbound_judge=guard_llm,
         inbound_extractor=guard_llm,
-        doc_llm=guard_llm if settings.doc_scanner.llm_enabled else None,
-        output_llm=guard_llm if settings.output_guard.llm_enabled else None,
+        doc_judge=guard_llm if settings.doc_scanner.llm_enabled else None,
+        output_judge=guard_llm if settings.output_guard.llm_enabled else None,
         audit=True,
     )
     return GuardBuild(

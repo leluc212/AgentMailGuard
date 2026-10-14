@@ -53,6 +53,37 @@ FIXTURE_EMAILS = TESTS_DIR / "fixtures" / "emails.json"
 GOLDEN_PATH = TESTS_DIR / "golden" / "guard_v2_baseline.json"
 
 CONFIGS: tuple[str, ...] = ("C0", "C1", "C2", "C3", "C3-L1", "C3-L3B", "C3-L5")
+# The golden is keyed by the v2 preset names. Each runs as the v3 GuardConfig with the same
+# layer set where v3 can express it (Task 6). v3 has one Inbound Guard switch, so v2 C1 (scan
+# only) gains the extract sub-stage and v2 C3-L1 (extract only) loses it: their intended deltas.
+V2_CONFIG_FLAGS: dict[str, dict[str, bool]] = {
+    "C0": dict.fromkeys(GuardConfig.LAYERS + ("channel_isolation",), False),
+    "C1": {
+        "inbound_guard": True,
+        "doc_scanner": False,
+        "inbound_gate": True,
+        "output_guard": False,
+        "channel_isolation": False,
+    },  # fmt: skip
+    "C2": {
+        "inbound_guard": True,
+        "doc_scanner": False,
+        "inbound_gate": True,
+        "output_guard": False,
+        "channel_isolation": True,
+    },  # fmt: skip
+    "C3": {},
+    "C3-L1": {"inbound_guard": False},
+    "C3-L3B": {"doc_scanner": False},
+    "C3-L5": {"inbound_gate": False},
+}
+
+
+def guard_config_for(v2_name: str) -> GuardConfig:
+    """The v3 ``GuardConfig`` a golden (v2-named) config runs as."""
+    return GuardConfig(f"v2-{v2_name}", **V2_CONFIG_FLAGS[v2_name])
+
+
 # Fixture emails cycle through FIXTURE_DOC_VARIANTS; the synthetic borderline emails always
 # get "borderline" (2 clean chunks + 1 chunk whose cheap score sits in the L3b judge band).
 FIXTURE_DOC_VARIANTS: tuple[str, ...] = (
@@ -433,11 +464,11 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
     fake = FakeLLMProvider(responder=_fake_answer) if case.llm else None
     pipeline = MailGuardPipeline(
         settings,
-        GuardConfig.preset(case.config),
+        guard_config_for(case.config),
         inbound_judge=fake,
         inbound_extractor=fake,
-        doc_llm=fake,
-        output_llm=fake,
+        doc_judge=fake,
+        output_judge=fake,
         audit=False,
     )
     if pipeline.inbound_guard.classifier.available:
@@ -615,6 +646,39 @@ _TASK5_DELTAS: dict[str, dict[str, Any]] = {
     for case_id, fields in _TASK5_FIELDS.items()
 }
 
+# Task 6: GuardConfig v3 has one Inbound Guard switch (R-a). The golden's v2 C1 ran the scan only
+# and v2 C3-L1 the extract only; v3 runs both sub-stages or neither. The new outcome of every
+# changed case is recorded in tests/deltas/task6_guard_config.json (owner decision 2026-10-14,
+# plan_v3 F11/F12: Task 6 cap 52).
+TASK6_DELTAS_PATH = TESTS_DIR / "deltas" / "task6_guard_config.json"
+_TASK6_WHY = {
+    "C1": "ADR-0015 R-a (L1 Inbound Guard = scan + extract) and Task 6 preset C1 = Inbound Guard + "
+    "Inbound Gate: v2 C1 ran the scan only, v3 C1 also runs the extract sub-stage (removed_ratio "
+    "recorded, one extractor call with llm=1). Actions are unchanged; s-001/s-003 llm=1 move "
+    "P99 -> P09 (draft_only). [task v3.6]",
+    "C3-L1": "ADR-0015 Task 6 ablation C3-L1 = C3 without the Inbound Guard: v2 C3-L1 still ran the "
+    "extract sub-stage, v3 runs neither sub-stage, so no inbound severity, removed_ratio or "
+    "extractor call; the F11 transitional rule is removed. [task v3.6]",
+}
+_TASK6_TEST = {
+    "C1": "tests/unit/test_inbound_guard.py::test_c1_runs_both_inbound_guard_sub_stages",
+    "C3-L1": "tests/unit/test_inbound_guard.py::test_c3_l1_runs_no_inbound_guard_sub_stage",
+}
+
+
+def _task6_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK6_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {
+            "fields": record,
+            "why": _TASK6_WHY[case_id.split("|")[1]],
+            "test": _TASK6_TEST[case_id.split("|")[1]],
+        }
+        for case_id, record in fields.items()
+    }
+
+
 INTENDED_DELTAS: dict[str, dict[str, Any]] = {
     **{
         f"b-005|{config}|llm={llm}|docs=thread-forged": {
@@ -635,6 +699,32 @@ INTENDED_DELTAS: dict[str, dict[str, Any]] = {
     },
     **_TASK5_DELTAS,
 }
+
+
+def _merge_deltas(*layers: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Stack the tasks' deltas in order: a later task's fields win, every why and test is kept.
+
+    A later task's fields are measured against the outcome with the earlier deltas applied, so
+    they only ever add to or override an earlier entry of the same case.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for layer in layers:
+        for case_id, delta in layer.items():
+            tests = [delta["test"]] if isinstance(delta["test"], str) else list(delta["test"])
+            if case_id not in out:
+                out[case_id] = {"fields": dict(delta["fields"]), "why": delta["why"], "test": tests}
+                continue
+            prev = out[case_id]
+            prev["fields"].update(delta["fields"])
+            prev["why"] = f"{prev['why']} | {delta['why']}"
+            prev["test"] = [*prev["test"], *(t for t in tests if t not in prev["test"])]
+    for delta in out.values():
+        if len(delta["test"]) == 1:
+            delta["test"] = delta["test"][0]
+    return out
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task6_deltas())
 
 
 def project_golden(golden: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

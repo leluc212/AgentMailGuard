@@ -35,12 +35,23 @@ async def naive_agent(messages: list[ChatMessage]) -> DraftCandidate:
 
 def test_presets():
     assert GuardConfig.preset("C0").active_layers == []
-    assert GuardConfig.preset("C1").active_layers == ["l1", "l5"]
-    assert GuardConfig.preset("C2").active_layers == ["l1", "l2", "l3", "l5"]
-    assert GuardConfig.preset("C3").active_layers == ["l1", "l2", "l3", "l3b", "l4", "l5"]
-    assert GuardConfig.preset("C3-L3b").active_layers == ["l1", "l2", "l3", "l4", "l5"]
-    with pytest.raises(ValueError):
-        GuardConfig.preset("C7")
+    assert GuardConfig.preset("C1").active_layers == ["inbound_guard", "inbound_gate"]
+    c2 = GuardConfig.preset("C2")
+    assert c2.active_layers == ["inbound_guard", "doc_scanner", "inbound_gate"]
+    assert c2.channel_isolation and not GuardConfig.preset("C1").channel_isolation
+    assert GuardConfig.preset("C3").active_layers == list(GuardConfig.LAYERS)
+    assert GuardConfig.preset("C3-L2").active_layers == [
+        "inbound_guard",
+        "inbound_gate",
+        "output_guard",
+    ]
+    iso = GuardConfig.preset("c3-iso")
+    assert iso.active_layers == list(GuardConfig.LAYERS) and not iso.channel_isolation
+    for name, layer in GuardConfig.ABLATIONS.items():
+        assert getattr(GuardConfig.preset(name), layer) is False
+    for old in ("C3-L3B", "C3-L5", "C7"):
+        with pytest.raises(ValueError, match="v3 presets"):
+            GuardConfig.preset(old)
 
 
 async def test_c0_is_vulnerable(settings, attack_email, kb_chunks, poisoned_chunk):
@@ -95,7 +106,7 @@ async def test_c3_benign_with_poisoned_kb(settings, benign_emails, kb_chunks, po
 async def test_l4_catches_compliant_draft_when_upstream_missed(settings, attack_email, kb_chunks):
     # disable inbound blocking to exercise L4: pretend L1/L2 are off
     pipe = MailGuardPipeline(settings, GuardConfig.preset("C3-L1"), audit=False)
-    pipe.config = GuardConfig("test", l1=True, l2=False, l3=False, l3b=True, l4=True, l5=True)
+    pipe.config = GuardConfig("test", channel_isolation=False)
 
     async def stubborn_agent(_messages):
         return DraftCandidate(
