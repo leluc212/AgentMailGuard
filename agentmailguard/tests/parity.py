@@ -417,7 +417,7 @@ def _llm_calls(provider: FakeLLMProvider | None) -> dict[str, int]:
 
 
 # --------------------------------------------------------------------------- one case
-_CHUNK_ID = re.compile(r"\[chunk[\s^]id=([^\]\s^]+)\]")
+_CHUNK_ID = re.compile(r"\[chunk[\s^]id=([^\]\s^]+)(?:[\s^]trust=[^\]\s^]+)?\]")
 
 
 def draft_for(messages: list[ChatMessage]) -> str:
@@ -725,6 +725,32 @@ def _merge_deltas(*layers: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any
 
 
 INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task6_deltas())
+
+# Task 7: the Doc Scanner runs before the inbound gate (ADR-0015 decision 2, intended change 1).
+# Poisoned, forged or borderline knowledge is now decided at the inbound gate (P05/P02 instead of
+# the default), and a block there stops generation. Every change is in C3 or C3-L1 (the configs
+# with the Doc Scanner and the gate); no newly flagged chunk (intended change 5) moves a case.
+TASK7_DELTAS_PATH = TESTS_DIR / "deltas" / "task7_doc_scanner_before_gate.json"
+_TASK7_WHY = (
+    "ADR-0015 intended change 1 (decision 2): the Doc Scanner runs before the inbound gate, so "
+    "a quarantined or high-severity chunk is decided at inbound (human approval, or a block that "
+    "stops generation) instead of after the draft. [task v3.7]"
+)
+_TASK7_TEST = (
+    "tests/unit/test_inbound_gate.py::test_pass_2_sees_the_documents_and_is_the_one_audited"
+)
+
+
+def _task7_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK7_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {"fields": record, "why": _TASK7_WHY, "test": _TASK7_TEST}
+        for case_id, record in fields.items()
+    }
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task7_deltas())
 
 
 def project_golden(golden: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

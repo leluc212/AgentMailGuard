@@ -459,6 +459,11 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 | `DOC_SCANNER__QUARANTINE_THRESHOLD` | `float` 0–1 | `0.70` | chunk score at or above it is quarantined |
 | `DOC_SCANNER__LLM_ENABLED` | `bool` | `false` | per-chunk judge for uncertain chunks |
 | `DOC_SCANNER__MAX_QUARANTINE_RATIO` | `float` 0–1 | `0.60` | above this share of quarantined chunks the reply escalates |
+| `DOC_SCANNER__ECHO_THRESHOLD` | `float` 0–1 | `0.90` | a chunk whose opening echoes the email's question at or above it is quarantined (chosen on the dev split) |
+| `DOC_SCANNER__ECHO_MIN_QUESTION_TOKENS` | `int` | `4` | echo and ordered-prefix count only for a question of at least this many content tokens |
+| `DOC_SCANNER__ECHO_SHORT_QUESTION_TOKENS` | `int` | `3` | a question this short echoes only as an exact phrase in a chunk's first 20 content tokens |
+| `DOC_SCANNER__CLUSTER_ECHO_THRESHOLD` | `float` 0–1 | `0.70` | near-copies at or above this echo form a bait cluster, quarantined whole |
+| `DOC_SCANNER__SUSPICIOUS_BAND` | `[low, high]` | `[0.30, 0.70]` | chunk scores in the band are `untrusted`, below it `trusted` |
 | `CHANNEL_ISOLATION__SPOTLIGHTING_MODE` | `delimit` \| `datamark` \| `encode` | `datamark` | how untrusted text is marked in the prompt |
 | `CHANNEL_ISOLATION__DATAMARK_CHAR` | one character | `^` | datamark character |
 | `CHANNEL_ISOLATION__CHANNELS_PATH` | `str` | `configs/channels.yaml` | channel definitions |

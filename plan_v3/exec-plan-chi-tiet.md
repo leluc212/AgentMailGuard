@@ -109,7 +109,7 @@ Cross-cutting rules for every task 3–13:
   regression → fix code, or stop and ask (divergence protocol §7). **[review, design decision 14]**
   Each entry also carries `test: "<pytest node id>"` of a unit test that proves the new behaviour
   without the golden; `test_guard_parity.py` asserts that node id exists (collect-only). Maximum deltas
-  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 52 (F11, F12; were 6 and 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
+  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 52 (F11, F12; were 6 and 0), Task 7 ≤ 21 (F13; was 20), Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
   and ask, not raise the cap.
 
 ### Task 0 — Docker re-baseline on main (no commit)

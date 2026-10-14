@@ -89,7 +89,8 @@ async def test_c3_benign_with_poisoned_kb(settings, benign_emails, kb_chunks, po
         system_instructions=SYSTEM,
         category="support",
     )
-    assert report.inbound_decision.action is PolicyAction.DRAFT_ONLY
+    # the poisoned chunk is decided before generation now (Task 7): a reviewer at inbound
+    assert report.inbound_decision.action is PolicyAction.HUMAN_APPROVAL
     assert [c.chunk_id for c in bundle.kept_chunks] == ["kb-warranty-1", "kb-refund-1"]
     assert "warranty is void" not in draft.body
     assert report.output_guard is not None and not report.output_guard.complied_with_injected_goal
@@ -98,7 +99,7 @@ async def test_c3_benign_with_poisoned_kb(settings, benign_emails, kb_chunks, po
     docs = report.doc_scanner
     assert docs is not None and docs.quarantined_chunk_ids == ["kb-poison-1"]
     assert docs.kept_chunk_ids == ["kb-warranty-1", "kb-refund-1"]
-    assert [c.trust for c in docs.chunks] == ["untrusted", "untrusted", "quarantined"]
+    assert [c.trust for c in docs.chunks] == ["trusted", "trusted", "quarantined"]
     assert report.isolation is not None and report.isolation.chunks_in == 3
     assert report.isolation.chunks_kept == 2
 

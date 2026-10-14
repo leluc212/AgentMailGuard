@@ -28,7 +28,7 @@ import json
 import logging
 import re
 import secrets
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -195,6 +195,7 @@ class ChannelIsolation:
         email: GuardedEmail | None = None,
         intent: SanitizedIntent | None = None,
         chunks: Sequence[SourceDocument] = (),
+        chunk_trust: Mapping[str, str] | None = None,
         category_instructions: str = "",
         thread_summary: str | None = None,
         recent_messages: Sequence[str] = (),
@@ -215,6 +216,7 @@ class ChannelIsolation:
                     email=email,
                     intent=intent,
                     chunks=chunks,
+                    chunk_trust=chunk_trust or {},
                     category_instructions=category_instructions,
                     thread_summary=thread_summary,
                     recent_messages=recent_messages,
@@ -268,6 +270,7 @@ class ChannelIsolation:
         email: GuardedEmail | None,
         intent: SanitizedIntent | None,
         chunks: Sequence[SourceDocument],
+        chunk_trust: Mapping[str, str],
         category_instructions: str,
         thread_summary: str | None,
         recent_messages: Sequence[str],
@@ -345,7 +348,13 @@ class ChannelIsolation:
                 tokens_removed += t
                 text, cut = self.truncate(text, self.config.per_chunk_max_tokens)
                 truncated = truncated or cut
-                rendered.append(f"[chunk id={c.citation_id}]\n{text}")
+                trust = chunk_trust.get(c.chunk_id)
+                label = (
+                    f"[chunk id={c.citation_id} trust={trust}]"
+                    if trust
+                    else f"[chunk id={c.citation_id}]"
+                )
+                rendered.append(f"{label}\n{text}")
             sections.append(untrusted("knowledge", "\n\n".join(rendered)))
 
         task = task_instructions or _DEFAULT_TASK

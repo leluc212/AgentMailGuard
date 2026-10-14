@@ -19,8 +19,9 @@ from typing import Any, ClassVar
 from mailguard.config.settings import MailGuardSettings, get_settings
 from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision
-from mailguard.contracts.verdict import DocumentVerdict, InboundVerdict, LayerVerdict, Severity
-from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
+from mailguard.contracts.verdict import InboundVerdict, LayerVerdict, Severity
+from mailguard.layers.doc_scanner.scanner import DocScanner
+from mailguard.layers.inbound_gate.gate import InboundGate
 from mailguard.layers.inbound_guard.guard import InboundGuard
 from mailguard.layers.output_guard.scanner import OutputScanner
 from mailguard.llm.protocol import ChatMessage, LLMProvider
@@ -30,6 +31,12 @@ from mailguard.prompting.channel_isolation import ChannelIsolation, SecurePrompt
 from mailguard.prompting.questions import question_sentences
 
 logger = logging.getLogger(__name__)
+
+ESCALATED_BODY = (
+    "Thank you for your message. It needs a review by our team before we can reply; "
+    "we will get back to you."
+)
+"""Fixed body of ``build_escalated_draft`` (never generated, never quotes the email)."""
 
 DraftFactory = Callable[[list[ChatMessage]], Awaitable[DraftCandidate | dict[str, Any] | str]]
 
@@ -120,7 +127,7 @@ class MailGuardPipeline:
         output_judge: LLMProvider | None = None,
         inbound_guard: InboundGuard | None = None,
         channel_isolation: ChannelIsolation | None = None,
-        doc_scanner: RetrievedDocumentScanner | None = None,
+        doc_scanner: DocScanner | None = None,
         output_guard: OutputScanner | None = None,
         policy: PolicyEngine | None = None,
         audit: bool = True,
@@ -138,7 +145,7 @@ class MailGuardPipeline:
         self.channel_isolation = channel_isolation or ChannelIsolation(
             self.settings, enabled=self.config.channel_isolation
         )
-        self.doc_scanner = doc_scanner or RetrievedDocumentScanner(
+        self.doc_scanner = doc_scanner or DocScanner(
             self.settings,
             rules=self.inbound_guard.rules,
             classifier=self.inbound_guard.classifier,
@@ -153,6 +160,7 @@ class MailGuardPipeline:
             ),
         )
         self.policy = policy or PolicyEngine(self.settings, audit=audit)
+        self.inbound_gate = InboundGate(self.policy)
 
     def _provider(self, name: str) -> LLMProvider | None:
         if name in ("", "none", "fake") and self.registry is None:
@@ -165,19 +173,77 @@ class MailGuardPipeline:
             return None
 
     # ------------------------------------------------------------------ inbound
-    async def inspect_inbound(self, email_like: Any, *, category: str | None = None) -> GuardReport:
+    async def inspect_inbound(
+        self,
+        email_like: Any,
+        chunks: Sequence[Any] = (),
+        *,
+        category: str | None = None,
+        query: str | None = None,
+    ) -> GuardReport:
+        """L1 Inbound Guard -> L3 gate pass 1 -> L2 Doc Scanner -> L3 gate pass 2.
+
+        Pass 1 sees the Inbound Guard's facts only. A block or quarantine there stops the job:
+        no document is scanned and no doc judge is called (``report.doc_scanner`` stays None).
+        Otherwise the Doc Scanner scans ``chunks`` (echo reference: the email's question
+        sentences, else ``query`` or subject + sanitized body) and pass 2 decides on every
+        fact. ``report.inbound_decision`` is the final pass; ``metadata["gate_passes"]`` says
+        which. Only the final pass is audited.
+        """
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
+        category = category or email.category
         if self.config.inbound_guard:
             report.inbound_guard = await self.inbound_guard.inspect(email)
         self._record_questions(report, email)
-        report.total_latency_ms = _latency(report)
+        docs = [SourceDocument.from_any(c) for c in chunks]
+        scan = self.config.doc_scanner and bool(docs)
         if self.config.inbound_gate:
-            report.inbound_decision = self.policy.decide(
-                report, stage="inbound", category=category or email.category
+            first = self.inbound_gate.decide(report, category=category, gate_pass=1, final=not scan)
+            if not scan or self.inbound_gate.stops(first):
+                if scan:  # the provisional pass stopped the job: it is the final decision now
+                    first = self.inbound_gate.decide(
+                        report, category=category, gate_pass=1, final=True
+                    )
+                report.inbound_decision = report.decision = first
+                report.total_latency_ms = _latency(report)
+                return report
+        if scan:
+            report.doc_scanner = await self.doc_scanner.scan(
+                docs,
+                question_sentences=self.question_sentences_of(report),
+                query=self._echo_query(report, email, query),
             )
-            report.decision = report.inbound_decision
+        if self.config.inbound_gate:
+            report.inbound_decision = report.decision = self.inbound_gate.decide(
+                report, category=category, gate_pass=2, final=True
+            )
+        report.total_latency_ms = _latency(report)
         return report
+
+    def _echo_query(self, report: GuardReport, email: GuardedEmail, query: str | None) -> str:
+        """The caller's retrieval query, else the customer's own words (never the paraphrase)."""
+        intent = self._intent(report)
+        body = intent.sanitized_body if (intent and intent.sanitized_body) else email.text
+        return query or f"{email.subject}\n{body}"[:1500]
+
+    def build_escalated_draft(self, report: GuardReport) -> DraftCandidate:
+        """The holding draft a host files when the inbound gate stopped the job (no model call).
+
+        ``action="escalate"``; the body never quotes the email; the subject names the rule and
+        the reason that stopped it. ``run()`` does not return it.
+        """
+        decision = report.inbound_decision
+        reason = decision.reasons[0] if decision is not None and decision.reasons else ""
+        rule = decision.matched_rule_id if decision is not None else "none"
+        return DraftCandidate(
+            message_id=report.message_id,
+            organization_id=report.organization_id,
+            action="escalate",
+            subject=f"[needs review] {rule}: {reason}"[:200],
+            body=ESCALATED_BODY,
+            category=decision.metadata.get("category") if decision is not None else None,
+        )
 
     @staticmethod
     def _record_questions(report: GuardReport, email: GuardedEmail) -> None:
@@ -225,23 +291,27 @@ class MailGuardPipeline:
         task_instructions: str | None = None,
         query: str | None = None,
     ) -> PromptBundle:
+        """Assemble the guarded prompt from the chunks the Doc Scanner kept (it scans nothing).
+
+        ``chunks`` are the retrieved chunks passed to ``inspect_inbound``; each kept chunk is
+        rendered with its trust. ``query`` is accepted for backward compatibility and unused.
+        """
+        del query
         email = GuardedEmail.from_any(email_like)
         retrieved = [SourceDocument.from_any(c) for c in chunks]
-        kept = retrieved
-        intent = self._intent(report)
-        if self.config.doc_scanner:
-            # The retrieval query is what PoisonedRAG bait echoes: use the caller's query
-            # (core query builder) or fall back to the customer's own words, never the
-            # extractor's paraphrase (its extra tokens dilute the echo measurement).
-            body = intent.sanitized_body if (intent and intent.sanitized_body) else email.text
-            scan_query = query or f"{email.subject}\n{body}"[:1500]
-            kept, verdicts = await self.doc_scanner.scan(retrieved, scan_query)
-            report.doc_scanner = DocumentVerdict.from_chunks(verdicts)
+        docs = report.doc_scanner
+        if docs is not None:
+            keep = set(docs.kept_chunk_ids)
+            kept = [c for c in retrieved if c.chunk_id in keep]
+            trust = {c.chunk_id: c.trust for c in docs.chunks}
+        else:
+            kept, trust = retrieved, {}
         prompt, isolation = self.channel_isolation.build(
             system_instructions=system_instructions,
             email=email,
-            intent=intent,
+            intent=self._intent(report),
             chunks=kept,
+            chunk_trust=trust,
             category_instructions=category_instructions,
             thread_summary=thread_summary,
             recent_messages=recent_messages,
@@ -346,7 +416,7 @@ class MailGuardPipeline:
         when omitted the customer's own subject + body is used.
         """
         email = GuardedEmail.from_any(email_like)
-        report = await self.inspect_inbound(email, category=category)
+        report = await self.inspect_inbound(email, chunks, category=category, query=query)
         if stop_on_inbound_block and self.blocked(report.inbound_decision):
             return report, None, None
         bundle = await self.build_prompt(

@@ -167,6 +167,7 @@ class PolicyEngine:
                 report.inbound_guard.removed_ratio if report.inbound_guard is not None else 0.0
             ),
             "isolation_forged_markers": len(isolation.forged_markers) if isolation else 0,
+            "docs_scanned": docs is not None,
             "complied_with_injected_goal": bool(out and out.complied_with_injected_goal),
             "citation_mismatch": bool(out and out.citation_mismatch),
             "redactions": len(out.redactions) if out else 0,
@@ -199,7 +200,11 @@ class PolicyEngine:
         stage: str = "outbound",
         category: str | None = None,
         draft_action: str | None = None,
+        gate_pass: int | None = None,
+        audit: bool | None = None,
     ) -> PolicyDecision:
+        """Decide one stage. ``gate_pass`` (inbound gate, 1 or 2) joins the audit seed;
+        ``audit=False`` skips the audit line (a provisional pass), ``None`` follows the engine."""
         facts = self.facts(report, stage=stage, category=category, draft_action=draft_action)
         matched, all_matched = self.select(facts)
         if matched is None:
@@ -242,6 +247,7 @@ class PolicyEngine:
                 str(action),
                 rule_id,
                 str(facts["max_severity"]),
+                *([f"gate_pass={gate_pass}"] if gate_pass is not None else []),
             ]
         )
         decision = PolicyDecision(
@@ -266,7 +272,7 @@ class PolicyEngine:
                 "removed_ratio": round(facts["removed_ratio"], 3),
             },
         )
-        if self.audit_enabled:
+        if self.audit_enabled if audit is None else (audit and self.audit_enabled):
             self._audit(decision, report)
         return decision
 

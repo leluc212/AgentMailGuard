@@ -984,7 +984,7 @@ def _worker_meta(
         "guard_model": GUARD_MODEL,
         "guard_llm_stages": {"l3b_llm": on, "l4_llm": on},
         "mailguard_commit": guard["mailguard_commit"],
-        "guarded_prompt_version": "guarded.v2",
+        "guarded_prompt_version": "guarded.v3",
         "l1_model_sha256": guard["l1_model_sha256"],
         "live_layers": guard["live_layers"],
         "embedding": embedding_facts(settings.embedding),
@@ -1089,8 +1089,8 @@ def test_the_live_meta_and_fingerprint_record_the_guarded_prompt_version(config:
 
     meta = _meta(config)
 
-    assert meta["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v2"
-    assert meta["fingerprint"]["guarded_prompt_version"] == "guarded.v2"
+    assert meta["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v3"
+    assert meta["fingerprint"]["guarded_prompt_version"] == "guarded.v3"
 
 
 def test_every_live_fact_is_in_the_fingerprint_and_none_of_them_is_none() -> None:

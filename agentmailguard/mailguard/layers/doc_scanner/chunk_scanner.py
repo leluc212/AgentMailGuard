@@ -250,10 +250,15 @@ class RetrievedDocumentScanner:
 
     async def scan_chunk(self, chunk: SourceDocument, query: str | None = None) -> ChunkVerdict:
         verdict = self.scan_chunk_sync(chunk, query)
+        return await self.refine(chunk, verdict)
+
+    async def refine(self, chunk: SourceDocument, verdict: ChunkVerdict) -> ChunkVerdict:
+        """The optional LLM judge, for a chunk whose cheap score sits in the uncertain band."""
         if (
             self.cfg.llm_enabled
             and self.llm is not None
             and verdict.error is None
+            and not verdict.quarantined
             and 0.30 <= verdict.score < self.cfg.quarantine_threshold
         ):
             with timed() as sw:

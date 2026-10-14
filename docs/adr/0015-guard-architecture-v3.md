@@ -123,7 +123,7 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
 14. **Parity deltas are bounded.** Every `INTENDED_DELTAS` entry names the unit test that proves the
     new behaviour independently of the golden, and each task has a pre-declared maximum number of
     deltas (Task 4 ≤ 10, raised from 3 by the owner on 2026-10-14 for the isolation deltas only,
-    plan_v3 F10; 5 ≤ 11 and 6 ≤ 52, raised by the owner on 2026-10-14, plan_v3 F11/F12; 7 ≤ 20,
+    plan_v3 F10; 5 ≤ 11 and 6 ≤ 52, raised by the owner on 2026-10-14, plan_v3 F11/F12; 7 ≤ 21, F13;
     8 ≤ 6, 11 ≤ 5; every other task 0). The golden is never
     regenerated.
 

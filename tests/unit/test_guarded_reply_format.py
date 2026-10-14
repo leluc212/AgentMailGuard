@@ -24,7 +24,7 @@ AGENT = "You are an enterprise support assistant."
 
 
 def test_the_guarded_prompt_has_its_own_recorded_version() -> None:
-    assert GUARDED_PROMPT_VERSION == "guarded.v2"
+    assert GUARDED_PROMPT_VERSION == "guarded.v3"
 
 
 def test_the_agent_instructions_come_first_then_every_shared_rule() -> None:

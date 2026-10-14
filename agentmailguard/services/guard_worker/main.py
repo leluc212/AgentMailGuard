@@ -35,7 +35,7 @@ async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[
     category = job.get("category") or email.category
     system = str(job.get("system_instructions") or "You are a customer support assistant.")
     if job.get("draft"):  # outbound-only inspection of an existing draft
-        report = await pipeline.inspect_inbound(email, category=category)
+        report = await pipeline.inspect_inbound(email, chunks, category=category)
         bundle = await pipeline.build_prompt(report, email, chunks, system_instructions=system)
         draft = DraftCandidate.from_any(job["draft"])
         report = await pipeline.inspect_outbound(
@@ -49,7 +49,7 @@ async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[
         if report.output_guard is not None:
             draft = draft.model_copy(update={"body": report.output_guard.redacted_text})
     else:
-        report = await pipeline.inspect_inbound(email, category=category)
+        report = await pipeline.inspect_inbound(email, chunks, category=category)
         draft = None
     result = decision_to_job_result(report, draft)
     result["job_id"] = job.get("job_id")

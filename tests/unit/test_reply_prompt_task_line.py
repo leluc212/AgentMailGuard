@@ -152,4 +152,4 @@ def test_the_guarded_prompt_does_not_carry_a_template_task_line() -> None:
     for line in lines:
         assert line not in instructions
     assert "Draft the reply email" not in instructions
-    assert GUARDED_PROMPT_VERSION == "guarded.v2"
+    assert GUARDED_PROMPT_VERSION == "guarded.v3"

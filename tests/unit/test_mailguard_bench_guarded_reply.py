@@ -239,7 +239,7 @@ async def test_the_trusted_system_message_carries_the_reply_format_rules(
     for rule in REPLY_FORMAT_RULES:
         assert system.content.count(rule) == 1
         assert rule not in user.content
-    assert execution.record["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v2"
+    assert execution.record["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v3"
 
 
 async def test_untrusted_email_text_never_reaches_the_trusted_system_message(

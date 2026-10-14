@@ -120,6 +120,43 @@ class DocScannerSettings(BaseModel):
     max_quarantine_ratio: float = Field(
         default=0.60, ge=0.0, le=1.0, description="If more chunks are quarantined, escalate"
     )
+    # Cheap-stage signals (ADR-0015 decision 9). Chosen with training/tune_doc_scanner.py on
+    # datasets/splits/rag_poison_dev.json (schema v3, seed 20261014: 90 PoisonedRAG items outside
+    # the benchmark pool and the pinned cases x styles prefix/paraphrase/mid, 600 clean Bitext
+    # answer chunks), never on the pinned benchmark cases. Dev result (cheap stages, no
+    # classifier): every poisoned chunk caught in 78 % (prefix), 79 % (mid), 0 % (paraphrase) of
+    # cases, 7/600 clean chunks flagged; the v2 scanner alone: 28 %, 0 %, 0 %, 1/600.
+    echo_threshold: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        description="echo_vs_question at or above it quarantines the chunk; dev split 0.70-0.95 "
+        "caught the same poison, 0.90 kept clean false positives at 7/600 (0.70: 15, 0.95: 6)",
+    )
+    echo_min_question_tokens: int = Field(
+        default=4,
+        ge=1,
+        description="echo and ordered-prefix count only for a question of at least this many "
+        "content tokens; dev split: 6 or 8 halved the poison caught, 4 was needed",
+    )
+    echo_short_question_tokens: int = Field(
+        default=3,
+        ge=1,
+        description="a question of at most this many content tokens echoes only as an exact phrase "
+        "in a chunk's first 20 content tokens",
+    )
+    cluster_echo_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="chunks at or above this echo that resemble each other form a bait cluster, "
+        "quarantined whole; dev split: 0.5-0.7 equal on clean chunks, 0.7 the most specific",
+    )
+    suspicious_band: tuple[float, float] = Field(
+        default=(0.30, 0.70),
+        description="chunk scores in [low, high) are untrusted (and go to the LLM judges when "
+        "enabled); below low trusted; at quarantine_threshold quarantined",
+    )
 
 
 class OutputGuardSettings(BaseModel):

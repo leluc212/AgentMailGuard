@@ -39,10 +39,11 @@ from packages.llm.protocol import ChatMessage, LLMQuotaExhaustedError
 from packages.llm.reply_format import render_reply_format_rules
 
 L3B_LAYER = "l3b_document_scanner"
-GUARDED_PROMPT_VERSION = "guarded.v2"
+GUARDED_PROMPT_VERSION = "guarded.v3"
 """The version of the guarded prompt (C0T, C1, C2, C3), recorded in every run meta and settings
-fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a); a v1
-guarded run and a v2 one are never mixed."""
+fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a);
+guarded.v3 renders each kept chunk with its trust (guard v3 Task 7, ADR-0015 decision 12). Runs
+of two versions are never mixed."""
 
 # The bench scores in the v2 layer vocabulary until scheme v3 (guard v3 Tasks 12-13). A schema-3
 # report is read through this view: the Inbound Guard's scan and extract sub-stages are the v2
