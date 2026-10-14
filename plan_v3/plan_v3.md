@@ -51,6 +51,8 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | F9 | Baseline có thẩm quyền là GitHub CI; baseline Windows chỉ để so regression cục bộ |
 | **Quyết định chủ dự án 2026-10-14 (Task 4)** | Ghi lại khi dừng theo divergence protocol; không thay số task |
 | F10 | Task 4 chỉ đổi contract, **giữ gating v2**: `InboundVerdict.merge` tạm lấy severity/score = sub-stage nghiêm hơn (scan, extract); R-i (severity chỉ từ scan) chuyển hẳn sang Task 5. Trần delta Task 4 nâng từ 3 lên **10**, chỉ cho delta do Channel Isolation không còn verdict (R-d): 8 case thread-forged (bullet 2 ADR-0015) + 2 case x-forged khi Doc Scanner tắt (C2, C3-L3B). Đo trước khi code: làm đúng R-i ngay trong Task 4 cho 36 delta. Task 5 sẽ mang ~26 delta R-i (nhóm C3-L1 + extractor LLM nâng severity), vượt trần 6 → phải xem lại trần khi tới Task 5 |
+| F11 | Task 5: R-i áp dụng khi scan có chạy. **Luật chuyển tiếp** trong `InboundVerdict.merge`: khi scan không chạy (preset v2 `C3-L1`: scan tắt, extract bật) thì sub-stage extract chấm severity như v2. Task 6 bật/tắt hai sub-stage cùng nhau nên luật này thành code chết và **Task 6 phải xóa nó**. Trần delta Task 5 nâng từ 6 lên **11** (toàn bộ bullet 4: b-004 ×5 config, s-001/s-003 × C2/C3/C3-L3B, đều `llm=1`); trần Task 6 nâng từ 0 lên **26** (26/26 case `C3-L1` đổi khi preset này nghĩa là "không có Inbound Guard": `removed_ratio`, `inbound_rule`, `llm_calls`). Đo trước: R-i không luật chuyển tiếp cho 27 delta ở Task 5 rồi C3-L1 đổi lần nữa ở Task 6 |
+
 
 Bất biến carry-over được test bằng bảng tổ hợp parametrize, không thêm dependency.
 LLM set judge dựa trên PoisonedRAG / poisoning phân tán qua nhiều chunk.
@@ -203,7 +205,7 @@ flowchart LR
 14. **Parity không được trở thành "mọi thứ đều là delta có chủ đích".** Mỗi entry trong
     `INTENDED_DELTAS` phải ghi `test` = node id của một unit test chứng minh hành vi mới độc lập với
     golden; reviewer của mỗi loop từ chối delta không có test. Số delta tối đa mỗi task (F7):
-    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 6, 9, 10, 12, 13 = 0.
+    Task 4 ≤ 10 (F10; ban đầu 3), Task 5 ≤ 11 và Task 6 ≤ 26 (F11; ban đầu 6 và 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; Task 3, 9, 10, 12, 13 = 0.
     Vượt trần = dừng và hỏi, không nâng trần.
 
 ## Task Breakdown (16 task sau review)
@@ -275,7 +277,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   0 delta; `test_settings_v3.py` 48); root 63 fail = Windows baseline, 0 new; ruff/mypy chỉ noise cũ.
   Còn mở (không chặn): dạng JSON lồng nhau (`GUARD_MODELS='{"judge":…}'`) chưa bị từ chối;
   Task 10 phải set `doc_set_judge` trong `harness.build_pipeline` và `guard_factory.guard_settings`.
-- [x] Task 4 — on `8d7f8dc` (branch `refactor/guard-v3`): `LayerName` 4 giá trị (`inbound_guard`,
+- [x] Task 4 — commit `3b58c81` (branch `refactor/guard-v3`): `LayerName` 4 giá trị (`inbound_guard`,
   `doc_scanner`, `inbound_gate`, `output_guard`); `InboundVerdict.merge` (gating v2 giữ nguyên theo
   F10, `metadata.stages.{scan,extract}`, finding gắn `stage`), `DocumentVerdict.from_chunks`,
   `ChunkVerdict.trust/cluster_id/signals`, `IsolationInfo` (thread-forged → `forged_markers`),
@@ -287,3 +289,13 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   Windows baseline, 0 new; ruff/mypy chỉ noise cũ. Bench giữ vocabulary v2 qua `bench_verdict_views`
   và `scoring._flagged_layers_v3` đến Task 12/13. Còn mở: `l2_recount.py` chỉ đọc report v2 (folder
   đã commit); Task 5 dự kiến ~26 delta R-i, vượt trần 6.
+- [x] Task 5 — on `3b58c81`: `layers/inbound_guard/guard.py` `InboundGuard` (scan + extract, rules và
+  classifier dùng chung, ≤ 2 LLM call); pipeline `inbound_guard`/`inbound_judge`/`inbound_extractor`
+  thay `l1`/`l2`/`judge`/`extractor_llm`; R-i: extractor không nâng severity (finding
+  `detector="extract"`, `rule_id="assistant_instructions"`), `merge` lấy severity từ scan, luật
+  chuyển tiếp F11 khi scan không chạy; `prompting/questions.py` `question_sentences` (pipeline luôn
+  gọi, ghi vào `inbound_guard.question_sentences` hoặc `report.metadata`). Parity 11 delta mới (bullet
+  4, test `test_inbound_guard.py::test_clean_scan_and_flagging_extractor_...`), tổng 21. Subtree 413
+  passed; root 63 fail = baseline, 0 new; ruff/mypy chỉ noise cũ. Root bench: `pipeline.inbound_guard.*`.
+  Còn mở: Task 6 xóa luật chuyển tiếp và `run_scan`/`run_extract` (26 delta C3-L1); finding
+  `llm:assistant_instructions` cũ vẫn được `l2_recount.py` đọc trên folder v1/v2.

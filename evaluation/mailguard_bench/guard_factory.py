@@ -86,9 +86,9 @@ def live_layers(pipeline: MailGuardPipeline) -> LiveLayers:
     return LiveLayers(
         preset=str(pipeline.config.name),
         active_layers=tuple(pipeline.config.active_layers),
-        l1_classifier=bool(pipeline.l1.classifier.available),
-        l1_judge=provider_label(pipeline.l1.judge),
-        l2_llm=provider_label(pipeline.l2.llm),
+        l1_classifier=bool(pipeline.inbound_guard.classifier.available),
+        l1_judge=provider_label(pipeline.inbound_guard.judge),
+        l2_llm=provider_label(pipeline.inbound_guard.extract.llm),
         l3b_llm=provider_label(pipeline.l3b.llm),
         l4_llm=provider_label(pipeline.l4.llm),
     )

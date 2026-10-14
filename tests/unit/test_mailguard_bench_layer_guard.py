@@ -83,12 +83,15 @@ def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]
     pipeline.settings.doc_scanner.llm_enabled = True  # so an absent L3b/L4 model would count
     pipeline.settings.output_guard.llm_enabled = True
     pipeline.l3b.llm = pipeline.l4.llm = guard.guard_llm
-    pipeline.l1.classifier.pipeline = guard.guard_llm  # any non-None: classifier "available"
+    # any non-None: classifier "available"
+    pipeline.inbound_guard.classifier.pipeline = guard.guard_llm
     for part in off:
         if part == "l1.classifier":
-            pipeline.l1.classifier.pipeline = None
+            pipeline.inbound_guard.classifier.pipeline = None
         elif part == "l1.judge":
-            pipeline.l1.judge = None
+            pipeline.inbound_guard.judge = None
+        elif part == "l2.llm":
+            pipeline.inbound_guard.extract.llm = None
         else:
             layer, _, _ = part.partition(".")
             getattr(pipeline, layer).llm = None

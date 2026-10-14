@@ -119,7 +119,7 @@ async def live_probe(
     must send it, or nothing is called.
     """
     pipeline = build_guard_pipeline("C3", guard_settings(model_name, l1_model_path=paths.l1_model))
-    judge = pipeline.l1.judge
+    judge = pipeline.inbound_guard.judge
     unpinned = guard_pin_problem(judge, expected_route)
     if unpinned is not None:
         raise GuardEnvError(unpinned)

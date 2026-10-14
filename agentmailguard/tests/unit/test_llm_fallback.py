@@ -127,7 +127,7 @@ async def test_l2_valid_answer_has_no_fallback_flag(settings, benign_email):
 
 async def test_l2_fallback_does_not_fail_the_email_in_the_pipeline(settings, benign_email):
     llm = FakeLLMProvider(default_response={"raw_text": "no json here"})
-    pipe = MailGuardPipeline(settings, GuardConfig.preset("C3"), extractor_llm=llm, audit=False)
+    pipe = MailGuardPipeline(settings, GuardConfig.preset("C3"), inbound_extractor=llm, audit=False)
     report = await pipe.inspect_inbound(benign_email)
     inbound = report.inbound_guard
     assert inbound is not None and inbound.error is None

@@ -128,7 +128,8 @@ def test_the_live_llm_stage_rule_of_each_scheme(tmp_path: Path) -> None:
 def _made_live(guard: GuardBuild) -> None:
     """The classifier counts as loaded (none is trained here); every model is the counted one."""
     pipeline = guard.pipeline
-    pipeline.l1.classifier.pipeline = guard.guard_llm  # any non-None: classifier "available"
+    # any non-None: classifier "available"
+    pipeline.inbound_guard.classifier.pipeline = guard.guard_llm
 
 
 @pytest.mark.parametrize("config", V2_GUARDED)
@@ -148,9 +149,11 @@ def test_the_live_stage_check_expects_exactly_the_configs_stages(
         _made_live(guard)
         pipeline = guard.pipeline
         if stage == "l1.classifier":
-            pipeline.l1.classifier.pipeline = None
+            pipeline.inbound_guard.classifier.pipeline = None
         elif stage == "l1.judge":
-            pipeline.l1.judge = None
+            pipeline.inbound_guard.judge = None
+        elif stage == "l2.llm":
+            pipeline.inbound_guard.extract.llm = None
         else:
             getattr(pipeline, stage.split(".")[0]).llm = None
         assert guard.missing_live_stages() == ([stage] if stage in expected else []), (

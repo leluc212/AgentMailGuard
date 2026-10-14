@@ -1,7 +1,8 @@
-"""Inbound guard - email injection scanner and user intent extractor."""
+"""L1 Inbound Guard - the scan and extract sub-stages behind one facade (``InboundGuard``)."""
 
 from mailguard.layers.inbound_guard.classifier import InjectionClassifier, build_pipeline
 from mailguard.layers.inbound_guard.extract import UserIntentExtractor, segment_text
+from mailguard.layers.inbound_guard.guard import InboundGuard
 from mailguard.layers.inbound_guard.llm_judge import (
     JudgeOutput,
     build_judge_messages,
@@ -17,6 +18,7 @@ from mailguard.layers.inbound_guard.scan import (
 
 __all__ = [
     "EmailInjectionScanner",
+    "InboundGuard",
     "InjectionClassifier",
     "JudgeOutput",
     "RuleEngine",

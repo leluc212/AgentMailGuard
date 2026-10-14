@@ -1,4 +1,4 @@
-"""Prompting - channel isolation."""
+"""Prompting - channel isolation and the email's question sentences."""
 
 from mailguard.prompting.channel_isolation import (
     ChannelConfig,
@@ -6,5 +6,12 @@ from mailguard.prompting.channel_isolation import (
     GuardedLLMProvider,
     SecurePrompt,
 )
+from mailguard.prompting.questions import question_sentences
 
-__all__ = ["ChannelConfig", "ChannelIsolation", "GuardedLLMProvider", "SecurePrompt"]
+__all__ = [
+    "ChannelConfig",
+    "ChannelIsolation",
+    "GuardedLLMProvider",
+    "SecurePrompt",
+    "question_sentences",
+]

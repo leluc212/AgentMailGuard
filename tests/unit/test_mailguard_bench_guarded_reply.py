@@ -155,8 +155,8 @@ def test_build_guard_wires_one_counted_registry_model_into_the_llm_stages(
     )
     assert guard.pipeline.config.name == "C3"
     assert (guard.preset, guard.config) == ("C3", "C3")
-    assert guard.pipeline.l1.judge is guard.guard_llm
-    assert guard.pipeline.l2.llm is guard.guard_llm
+    assert guard.pipeline.inbound_guard.judge is guard.guard_llm
+    assert guard.pipeline.inbound_guard.extract.llm is guard.guard_llm
     assert guard.pipeline.settings.policy.audit_log_path == str(
         (tmp_path / "audit.jsonl").resolve()
     )
@@ -181,7 +181,7 @@ def test_missing_l1_classifier_is_reported_for_guarded_presets_only(tmp_path: Pa
     guard = build_guard(
         "C3", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf
     )
-    guard.pipeline.l1.classifier.pipeline = None  # what a missing joblib leaves behind
+    guard.pipeline.inbound_guard.classifier.pipeline = None  # what a missing joblib leaves behind
     assert "l1.classifier" in guard.missing_live_stages()
     c0t = build_guard(
         "C0T", model_name="fake", audit_log_path=tmp_path / "b.jsonl", l1_model_path=clf

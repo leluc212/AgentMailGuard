@@ -216,17 +216,21 @@ class InboundVerdict(SanitizedIntent):
     ) -> InboundVerdict | None:
         """Fold the two sub-stage verdicts into one (pure; ``None`` when neither ran).
 
-        Severity and score are the stricter of the two sub-stages. That keeps the v2 gating
-        until Task 5, which makes them scan-only (ADR-0015 decision 8, R-i). Findings are the
-        union, tagged ``scan`` / ``extract``; intent, sanitized body and stripped segments come
-        from ``extract``; the error is set when either sub-stage errored; latency is the sum.
+        ADR-0015 decision 8 (R-i): severity, score, decided_by and model come from ``scan``;
+        the extractor's findings join the union (tagged ``extract``) but never raise the
+        severity while a scan ran. Intent, sanitized body and stripped segments come from
+        ``extract``; the error is set when either sub-stage errored; latency is the sum.
+
+        Transitional rule (owner decision 2026-10-14, plan_v3 F11): when the scan did not run
+        (v2 preset C3-L1, scan off and extract on), the extract sub-stage grades the email as in
+        v2. Task 6 switches both sub-stages together, which makes this rule dead; it removes it.
         """
         parts: list[tuple[str, LayerVerdict]] = [
             (name, v) for name, v in (("scan", scan), ("extract", extract)) if v is not None
         ]
         if not parts:
             return None
-        _, top = max(parts, key=lambda p: (p[1].severity.rank, p[1].score))
+        grader: LayerVerdict = scan if scan is not None else parts[0][1]
         findings: list[Finding] = []
         for name, v in parts:
             findings += _tag_stage(v.findings, name)
@@ -242,11 +246,11 @@ class InboundVerdict(SanitizedIntent):
                 "confidence": extract.confidence,
             }
         return cls(
-            severity=top.severity,
-            score=top.score,
+            severity=grader.severity,
+            score=grader.score,
             findings=findings,
-            decided_by=top.decided_by,
-            model=top.model,
+            decided_by=grader.decided_by,
+            model=grader.model,
             latency_ms=sum(v.latency_ms for _, v in parts),
             error="; ".join(errors) or None,
             metadata={"stages": {name: _stage_record(v) for name, v in parts}},

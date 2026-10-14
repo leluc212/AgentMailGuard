@@ -64,7 +64,7 @@ def test_gemma_resolves_to_the_openai_backend_without_a_call(
     assert layers.active_layers == ("l1", "l2", "l3", "l3b", "l4", "l5")
     assert (layers.l1_judge, layers.l2_llm) == (expected, expected)
     assert (layers.l3b_llm, layers.l4_llm) == (None, None)
-    assert pipeline.l1.judge._base_url == "https://example.invalid/v1"
+    assert pipeline.inbound_guard.judge._base_url == "https://example.invalid/v1"
 
 
 def test_missing_classifier_fails_require_live(gemini_env: None, tmp_path: Path) -> None:

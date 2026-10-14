@@ -21,13 +21,13 @@ from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocume
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision
 from mailguard.contracts.verdict import DocumentVerdict, InboundVerdict, LayerVerdict, Severity
 from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
-from mailguard.layers.inbound_guard.extract import UserIntentExtractor
-from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
+from mailguard.layers.inbound_guard.guard import InboundGuard
 from mailguard.layers.output_guard.scanner import OutputScanner
 from mailguard.llm.protocol import ChatMessage, LLMProvider
 from mailguard.llm.registry import ModelRegistry
 from mailguard.policy.engine import PolicyEngine
 from mailguard.prompting.channel_isolation import ChannelIsolation, SecurePrompt
+from mailguard.prompting.questions import question_sentences
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +89,11 @@ class MailGuardPipeline:
         config: GuardConfig | None = None,
         *,
         registry: ModelRegistry | None = None,
-        judge: LLMProvider | None = None,
-        extractor_llm: LLMProvider | None = None,
+        inbound_judge: LLMProvider | None = None,
+        inbound_extractor: LLMProvider | None = None,
         doc_llm: LLMProvider | None = None,
         output_llm: LLMProvider | None = None,
-        l1: EmailInjectionScanner | None = None,
-        l2: UserIntentExtractor | None = None,
+        inbound_guard: InboundGuard | None = None,
         l3: ChannelIsolation | None = None,
         l3b: RetrievedDocumentScanner | None = None,
         l4: OutputScanner | None = None,
@@ -105,22 +104,17 @@ class MailGuardPipeline:
         self.config = config or GuardConfig()
         self.registry = registry
         gm = self.settings.guard_models
-        self.l1 = l1 or EmailInjectionScanner(
+        self.inbound_guard = inbound_guard or InboundGuard(
             self.settings,
-            judge=judge or self._provider(gm.inbound_judge),
+            judge=inbound_judge or self._provider(gm.inbound_judge),
             judge_name=gm.inbound_judge,
-        )
-        self.l2 = l2 or UserIntentExtractor(
-            self.settings,
-            rules=self.l1.rules,
-            classifier=self.l1.classifier,
-            llm=extractor_llm or self._provider(gm.inbound_extractor),
+            extractor_llm=inbound_extractor or self._provider(gm.inbound_extractor),
         )
         self.l3 = l3 or ChannelIsolation(self.settings, enabled=self.config.l3)
         self.l3b = l3b or RetrievedDocumentScanner(
             self.settings,
-            rules=self.l1.rules,
-            classifier=self.l1.classifier,
+            rules=self.inbound_guard.rules,
+            classifier=self.inbound_guard.classifier,
             llm=doc_llm
             or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
         )
@@ -147,9 +141,10 @@ class MailGuardPipeline:
     async def inspect_inbound(self, email_like: Any, *, category: str | None = None) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
-        scan = await self.l1.inspect(email) if self.config.l1 else None
-        extract = await self.l2.extract(email) if self.config.l2 else None
-        report.inbound_guard = InboundVerdict.merge(scan, extract)
+        report.inbound_guard = await self.inbound_guard.inspect(
+            email, run_scan=self.config.l1, run_extract=self.config.l2
+        )
+        self._record_questions(report, email)
         report.total_latency_ms = _latency(report)
         if self.config.l5:
             report.inbound_decision = self.l5.decide(
@@ -157,6 +152,30 @@ class MailGuardPipeline:
             )
             report.decision = report.inbound_decision
         return report
+
+    @staticmethod
+    def _record_questions(report: GuardReport, email: GuardedEmail) -> None:
+        """Always extract the email's questions (pure function, not part of L1; decision 8).
+
+        On the sanitized body when the extract sub-stage produced one, else on the raw body.
+        Stored on the Inbound Guard verdict when L1 ran, else in ``report.metadata``, so the
+        Doc Scanner (Task 7) gets the same input with L1 on and off.
+        """
+        inbound = report.inbound_guard
+        extracted = inbound is not None and inbound.stage("extract") is not None
+        body = inbound.sanitized_body if (inbound is not None and extracted) else email.text
+        questions = question_sentences(body)
+        if inbound is not None:
+            inbound.question_sentences = questions
+        else:
+            report.metadata["question_sentences"] = questions
+
+    @staticmethod
+    def question_sentences_of(report: GuardReport) -> list[str]:
+        """The questions ``inspect_inbound`` recorded, wherever they were stored."""
+        if report.inbound_guard is not None:
+            return list(report.inbound_guard.question_sentences)
+        return list(report.metadata.get("question_sentences") or [])
 
     @staticmethod
     def blocked(decision: PolicyDecision | None) -> bool:

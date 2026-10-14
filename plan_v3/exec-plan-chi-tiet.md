@@ -109,7 +109,7 @@ Cross-cutting rules for every task 3–13:
   regression → fix code, or stop and ask (divergence protocol §7). **[review, design decision 14]**
   Each entry also carries `test: "<pytest node id>"` of a unit test that proves the new behaviour
   without the golden; `test_guard_parity.py` asserts that node id exists (collect-only). Maximum deltas
-  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
+  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 26 (F11; were 6 and 0), Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
   and ask, not raise the cap.
 
 ### Task 0 — Docker re-baseline on main (no commit)
@@ -254,6 +254,10 @@ Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 
 Commit: `refactor(guard): L1 Inbound Guard facade returns InboundVerdict [task v3.5]`.
 
 ### Task 6 — GuardConfig + presets v3
+- **[F11]** Remove the transitional rule in `InboundVerdict.merge` (extract grades when no scan ran)
+  and `InboundGuard.inspect(run_scan=, run_extract=)`; the Inbound Guard is one switch. Expected
+  parity: the 26 `C3-L1` cases change (cap 26), each delta citing a test that `C3-L1` runs no
+  Inbound Guard sub-stage.
 - `GuardConfig(name, inbound_guard, doc_scanner, inbound_gate, output_guard, channel_isolation)`;
   presets `C0` (all off), `C1` = inbound_guard+inbound_gate, `C2` = C1+doc_scanner+channel_isolation,
   `C3` = all, ablations `C3-L1` (no inbound_guard), `C3-L2` (no doc_scanner), `C3-L3` (no inbound_gate),

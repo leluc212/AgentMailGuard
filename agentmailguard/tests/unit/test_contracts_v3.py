@@ -98,12 +98,16 @@ def test_merge_takes_intent_from_extract_and_tags_every_finding():
     assert merged.question_sentences == []
 
 
-def test_merge_keeps_v2_gating_until_task_5():
-    """Severity is the stricter sub-stage for now; Task 5 makes it scan-only (R-i)."""
+def test_merge_grades_by_the_scan_only():
+    """ADR-0015 decision 8 (R-i, Task 5): the extractor never raises the severity."""
     merged = InboundVerdict.merge(_scan(0.0), _extract(0.7))
-    assert merged is not None and merged.severity is Severity.MEDIUM and merged.score == 0.7
+    assert merged is not None and merged.severity is Severity.NONE and merged.score == 0.0
     assert merged.stage("scan")["severity"] == "none"
     assert merged.stage("extract")["severity"] == "medium"
+    assert any(f.metadata["stage"] == "extract" for f in merged.findings)
+    no_scan = InboundVerdict.merge(None, _extract(0.9))
+    # transitional (F11, removed in Task 6): without a scan the extract sub-stage grades
+    assert no_scan is not None and no_scan.severity is Severity.HIGH and no_scan.score == 0.9
 
 
 @pytest.mark.parametrize(("scan_err", "extract_err"), [("boom", None), (None, "bad"), ("a", "b")])

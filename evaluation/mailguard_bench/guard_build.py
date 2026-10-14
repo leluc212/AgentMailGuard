@@ -87,10 +87,10 @@ class GuardBuild:
         pipeline = self.pipeline
         settings = pipeline.settings
         return {
-            "l1.classifier": bool(pipeline.l1.classifier.available),
-            "l1.judge": pipeline.l1.judge is not None
+            "l1.classifier": bool(pipeline.inbound_guard.classifier.available),
+            "l1.judge": pipeline.inbound_guard.judge is not None
             and bool(settings.inbound_guard.scan_llm_enabled),
-            "l2.llm": pipeline.l2.llm is not None
+            "l2.llm": pipeline.inbound_guard.extract.llm is not None
             and bool(settings.inbound_guard.extract_llm_enabled),
             "l3b.llm": pipeline.l3b.llm is not None,
             "l4.llm": pipeline.l4.llm is not None,
@@ -250,8 +250,8 @@ def build_guard(
         settings,
         config,
         registry=registry,
-        judge=guard_llm,
-        extractor_llm=guard_llm,
+        inbound_judge=guard_llm,
+        inbound_extractor=guard_llm,
         doc_llm=guard_llm if settings.doc_scanner.llm_enabled else None,
         output_llm=guard_llm if settings.output_guard.llm_enabled else None,
         audit=True,

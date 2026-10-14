@@ -67,10 +67,14 @@ async def test_llm_refinement_merges_and_flags(settings, attack_email):
     )
     ext = UserIntentExtractor(settings, llm=llm)
     intent = await ext.extract(attack_email)
+    heuristic = ext.extract_sync(attack_email)
     assert intent.decided_by == "llm"
     assert intent.user_intent.startswith("The customer asks")
     assert intent.entities["products"] == ["X200"]
-    assert any(f.detector == "llm" for f in intent.findings)
+    flagged = [f for f in intent.findings if f.rule_id == "assistant_instructions"]
+    assert [f.detector for f in flagged] == ["extract"]
+    # R-i: the model's flag is a finding, never a severity bump of the sub-stage
+    assert (intent.severity, intent.score) == (heuristic.severity, heuristic.score)
     assert intent.metadata["instructions_to_assistant"]
     # the model only ever saw the sanitized body
     sent = llm.calls[0]["messages"][-1].content

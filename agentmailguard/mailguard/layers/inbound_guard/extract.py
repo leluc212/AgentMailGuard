@@ -348,18 +348,18 @@ class UserIntentExtractor:
             mark_llm_fallback(base.metadata, exc)
             return base
         findings = list(base.findings)
-        score = base.score
         if out.contains_assistant_instructions:
+            # R-i (ADR-0015 decision 8): the extractor reports, it never grades. The finding
+            # carries the model's confidence; the sub-stage severity stays the strip result.
             llm_score = max(0.6, out.confidence)
-            score = max(score, llm_score)
             findings.append(
                 Finding(
                     layer=LAYER,
                     threat_type=ThreatType.PROMPT_INJECTION,
                     severity=Severity.from_score(llm_score),
                     score=round(llm_score, 4),
-                    detector="llm",
-                    rule_id="llm:assistant_instructions",
+                    detector="extract",
+                    rule_id="assistant_instructions",
                     technique="ai_addressing",
                     excerpt=(
                         out.instructions_to_assistant[0][:300]
@@ -390,8 +390,8 @@ class UserIntentExtractor:
             }
         )
         return SanitizedIntent(
-            severity=Severity.from_score(score),
-            score=round(score, 4),
+            severity=base.severity,
+            score=base.score,
             findings=findings,
             decided_by="llm",
             model=result.model,

@@ -106,7 +106,7 @@ It prints `draft_only Your X200 has a 24-month warranty [kb-warranty-1]. ['kb-wa
 
 Notes:
 - `GuardConfig.preset(name)` takes `C0` (no layers), `C1` (L1+L5), `C2` (L1+L2+L3+L5), `C3` (all six), and `C3-L1` to `C3-L5` or `C3-L3B` (all minus one). Other names raise `ValueError`. For a custom layer set, build `GuardConfig` directly with the booleans `l1`, `l2`, `l3`, `l3b`, `l4`, `l5`. These are the guard's own presets; the benchmark's C0-C7 below are a different set that reuses the names.
-- `report.inbound_decision` is the gate before generation. `report.decision` is the final gate after L4. A custom provider can be passed as `judge=`, `extractor_llm=`, `doc_llm=` or `output_llm=`.
+- `report.inbound_decision` is the gate before generation. `report.decision` is the final gate after L4. A custom provider can be passed as `inbound_judge=`, `inbound_extractor=`, `doc_llm=` or `output_llm=`.
 - This cheap-only setup does not stop soft attacks: without the classifier or a judge, an attack that matches no rule falls to the default `draft_only`. To enable the LLM stages, name a registered model for each stage; [Configure the models](#configure-the-models) has every setting and three worked examples. The benchmark ignores these settings (it takes `MODEL=<profile>`).
 - A failed LLM stage (timeout, non-JSON output, schema mismatch) keeps the cheap result and sets `metadata.llm_fallback=true`.
 - Step-wise API: `inspect_inbound`, `build_prompt`, `inspect_outbound`. Adapters for a host: `GuardedReplyAgent`, `decision_to_job_result`, `dispatch_allowed` in `mailguard.integration.adapters`.

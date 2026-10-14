@@ -434,13 +434,13 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
     pipeline = MailGuardPipeline(
         settings,
         GuardConfig.preset(case.config),
-        judge=fake,
-        extractor_llm=fake,
+        inbound_judge=fake,
+        inbound_extractor=fake,
         doc_llm=fake,
         output_llm=fake,
         audit=False,
     )
-    if pipeline.l1.classifier.available:
+    if pipeline.inbound_guard.classifier.available:
         raise RuntimeError("parity must run without the L1 classifier; a model file was loaded")
 
     generated: list[str] = []
@@ -541,6 +541,80 @@ _DOC_TEST = (
     "test_document_forged_markers_are_scrubbed_without_a_verdict"
 )
 
+# Task 5 (R-i): the extractor LLM's "assistant instructions" flag is a finding, not a severity.
+# b-004 ("please ignore my previous email ...") and the borderline questions s-001 / s-003 are
+# harmless; the scripted extractor flags them on keywords. Owner decision 2026-10-14 (F11).
+_EXTRACTOR_WHY = (
+    "ADR-0015 intended change 4 (R-i, decision 8): the scan of this harmless email is clean and "
+    "only the extractor LLM flagged assistant-style instructions; the flag is now a finding, it "
+    "no longer raises the severity to medium, so P08 no longer matches. [task v3.5]"
+)
+_EXTRACTOR_TEST = (
+    "tests/unit/test_inbound_guard.py::"
+    "test_clean_scan_and_flagging_extractor_keep_severity_and_add_a_finding"
+)
+_NONE = {"score": 0.0, "severity": "none"}
+_DOCS_HIGH = {"score": 0.95, "severity": "high"}
+_SANITIZED = {
+    "final_rule": "P09-heavy-sanitization-draft-only",
+    "inbound_rule": "P09-heavy-sanitization-draft-only",
+    "risk_tier": "t1_low",
+}
+_TASK5_FIELDS: dict[str, dict[str, Any]] = {
+    "b-004|C2|llm=1|docs=x-forged": {
+        "final_rule": "P99-default",
+        "inbound_rule": "P99-default",
+        "layer_severities": {"l1_injection_scanner": _NONE, "l2_intent_extractor": _NONE},
+        "risk_tier": "t0_clean",
+    },
+    "b-004|C3|llm=1|docs=x-forged": {
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            "l1_injection_scanner": _NONE,
+            "l2_intent_extractor": _NONE,
+            "l3b_document_scanner": _DOCS_HIGH,
+            "l4_output_scanner": _NONE,
+        },
+    },
+    "b-004|C3-L1|llm=1|docs=x-forged": {
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            "l2_intent_extractor": _NONE,
+            "l3b_document_scanner": _DOCS_HIGH,
+            "l4_output_scanner": _NONE,
+        },
+    },
+    "b-004|C3-L3B|llm=1|docs=x-forged": {
+        "final_rule": "P99-default",
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            "l1_injection_scanner": _NONE,
+            "l2_intent_extractor": _NONE,
+            "l4_output_scanner": _NONE,
+        },
+        "risk_tier": "t0_clean",
+    },
+    # C3-L5 has no gate: only the extractor's recorded severity moves
+    "b-004|C3-L5|llm=1|docs=x-forged": {
+        "layer_severities": {
+            "l1_injection_scanner": _NONE,
+            "l2_intent_extractor": _NONE,
+            "l3b_document_scanner": _DOCS_HIGH,
+            "l4_output_scanner": _NONE,
+        },
+    },
+    "s-001|C2|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-001|C3|llm=1|docs=borderline": {"inbound_rule": _SANITIZED["inbound_rule"]},
+    "s-001|C3-L3B|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-003|C2|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-003|C3|llm=1|docs=borderline": {"inbound_rule": _SANITIZED["inbound_rule"]},
+    "s-003|C3-L3B|llm=1|docs=borderline": dict(_SANITIZED),
+}
+_TASK5_DELTAS: dict[str, dict[str, Any]] = {
+    case_id: {"fields": fields, "why": _EXTRACTOR_WHY, "test": _EXTRACTOR_TEST}
+    for case_id, fields in _TASK5_FIELDS.items()
+}
+
 INTENDED_DELTAS: dict[str, dict[str, Any]] = {
     **{
         f"b-005|{config}|llm={llm}|docs=thread-forged": {
@@ -559,6 +633,7 @@ INTENDED_DELTAS: dict[str, dict[str, Any]] = {
         }
         for config in ("C2", "C3-L3B")
     },
+    **_TASK5_DELTAS,
 }
 
 
