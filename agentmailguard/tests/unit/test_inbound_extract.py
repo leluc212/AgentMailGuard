@@ -85,6 +85,7 @@ async def test_llm_refinement_merges_and_flags(settings, attack_email):
 async def test_llm_failure_keeps_heuristic(settings, benign_email):
     from mailguard.llm.protocol import LLMTimeoutError
 
+    settings.mailguard.fail_closed_on_judge_error = False  # the v2 fallback (Task 11 flag off)
     ext = UserIntentExtractor(settings, llm=FakeLLMProvider(error_to_raise=LLMTimeoutError("slow")))
     intent = await ext.extract(benign_email)
     assert intent.error is None

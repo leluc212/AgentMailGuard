@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from mailguard.config.settings import MailGuardSettings
 from mailguard.contracts.email import SourceDocument
@@ -26,8 +26,9 @@ from mailguard.contracts.verdict import (
     ThreatType,
 )
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ def deterministic_set_verdict(chunk_verdicts: Sequence[ChunkVerdict]) -> Documen
 
 
 class SetJudgeOutput(BaseModel):
-    poisoned_chunk_ids: list[str] = Field(default_factory=list)
+    # Required (Task 11): an answer without the list (prose, {}) is invalid, never "none poisoned".
+    poisoned_chunk_ids: list[str]
     reason: str = ""
 
 
@@ -55,6 +57,7 @@ class LLMSetJudge:
     """Optional LLM judge over the whole retrieved set; monotonic (adds quarantines only)."""
 
     def __init__(self, settings: MailGuardSettings, llm: LLMProvider | None) -> None:
+        self.settings = settings
         self.cfg = settings.doc_scanner
         self.llm = llm
 
@@ -72,8 +75,10 @@ class LLMSetJudge:
         chunk_verdicts: Sequence[ChunkVerdict],
         questions: Sequence[str],
     ) -> DocumentVerdict:
-        """One LLM call over the set; on an LLM failure ``verdict`` comes back unchanged."""
+        """One LLM call over the set. On an LLM failure no chunk moves; with the judge failing
+        closed the verdict's error becomes ``judge_invalid:doc_set`` (human review, P00)."""
         assert self.llm is not None
+        record_guard_call("doc_set")
         try:
             out, result = await call_structured(
                 self.llm,
@@ -84,7 +89,14 @@ class LLMSetJudge:
             )
         except LLMError as exc:
             logger.warning("L2 doc set judge unavailable (%s)", exc)
-            mark_llm_fallback(verdict.metadata, exc)
+            error = judge_failure(
+                verdict.metadata,
+                exc,
+                stage="doc_set",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
+            if error is not None:
+                verdict.error = "; ".join(e for e in (verdict.error, f"set: {error}") if e)
             return verdict
         kept = set(verdict.kept_chunk_ids)
         flagged = {i for i in out.poisoned_chunk_ids if i in kept}

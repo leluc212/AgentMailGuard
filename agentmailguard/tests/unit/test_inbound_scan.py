@@ -97,6 +97,7 @@ async def test_llm_judge_runs_only_in_uncertain_band(settings):
 
 
 async def test_llm_judge_failure_degrades_to_cheap_verdict(settings):
+    settings.mailguard.fail_closed_on_judge_error = False  # the v2 fallback (Task 11 flag off)
     judge = FakeLLMProvider(error_to_raise=LLMResponseError("boom"))
     scanner = EmailInjectionScanner(settings, judge=judge)
     v = await scanner.inspect(

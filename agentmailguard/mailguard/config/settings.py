@@ -188,6 +188,13 @@ class MailGuardCoreSettings(BaseModel):
     fail_closed: bool = Field(
         default=True, description="Internal error is treated as HIGH severity (never fail open)"
     )
+    fail_closed_on_judge_error: bool = Field(
+        default=True,
+        description="A failed or invalid judge answer sets the verdict's error "
+        "(judge_invalid:<stage>), so the fail-closed policy rule asks for human review; false "
+        "keeps the cheap verdict with the visible llm_fallback mark (v2). A judge that is not "
+        "configured is not an error (ADR-0015 decision 5)",
+    )
 
 
 def _dotenv_keys(env_file: Any, encoding: str | None) -> list[tuple[str, list[str]]]:

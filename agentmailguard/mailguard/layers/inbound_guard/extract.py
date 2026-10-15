@@ -42,8 +42,9 @@ from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.classifier import InjectionClassifier
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
 from mailguard.layers.inbound_guard.rules import RuleEngine
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -335,6 +336,7 @@ class UserIntentExtractor:
                 + "\n\nReturn the JSON object now.",
             ),
         ]
+        record_guard_call("inbound_extract")
         try:
             out, result = await call_structured(
                 self.llm, messages, ExtractorOutput, tier=ModelTier.FAST, max_tokens=500
@@ -345,7 +347,12 @@ class UserIntentExtractor:
                 exc,
                 exc_info=not isinstance(exc, LLMError),  # full trace for non-LLM errors
             )
-            mark_llm_fallback(base.metadata, exc)
+            base.error = judge_failure(
+                base.metadata,
+                exc,
+                stage="inbound_extract",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return base
         findings = list(base.findings)
         if out.contains_assistant_instructions:

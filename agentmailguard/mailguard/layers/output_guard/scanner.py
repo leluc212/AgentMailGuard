@@ -39,8 +39,9 @@ from mailguard.contracts.verdict import (
 )
 from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -480,13 +481,19 @@ class OutputScanner:
                 ),
             ),
         ]
+        record_guard_call("output")
         try:
             out, result = await call_structured(
                 self.llm, messages, OutputJudgeOutput, tier=ModelTier.FAST, max_tokens=400
             )
         except LLMError as exc:
             logger.warning("L4 LLM judge unavailable (%s)", exc)
-            mark_llm_fallback(cheap.metadata, exc)
+            cheap.error = judge_failure(
+                cheap.metadata,
+                exc,
+                stage="output",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return cheap
         findings = list(cheap.findings)
         complied = cheap.complied_with_injected_goal

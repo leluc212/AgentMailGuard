@@ -111,6 +111,10 @@ def guard_settings(
     settings.inbound_guard.ml_model_path = str(l1_model_path.resolve())
     settings.doc_scanner.llm_enabled = l3b_llm
     settings.output_guard.llm_enabled = l4_llm
+    # The bench scores a judge fallback as a scored row (guarded_reply.classify_ai_step_failures)
+    # and a verdict error as a crash; guard v3 Task 11 fails judges closed by default, so the
+    # bench keeps the v2 visible fallback until scheme v3 sets the flag per config (Task 12).
+    settings.mailguard.fail_closed_on_judge_error = False
     return settings
 
 

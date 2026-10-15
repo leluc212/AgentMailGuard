@@ -54,6 +54,8 @@ def test_guard_settings_point_every_stage_at_one_model(tmp_path: Path) -> None:
     assert settings.inbound_guard.ml_model_path == str((tmp_path / "clf.joblib").resolve())
     assert settings.doc_scanner.llm_enabled is False
     assert settings.doc_scanner.set_judge_llm_enabled is False
+    # v2 visible fallback until scheme v3 (guard v3 Task 11 defaults to fail-closed judges)
+    assert settings.mailguard.fail_closed_on_judge_error is False
     assert settings.output_guard.llm_enabled is False
 
 

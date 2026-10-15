@@ -408,6 +408,8 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
             "violations": ["injected_goal_compliance"] if unsafe else [],
             "rationale": "scripted parity output judge",
         }
+    if name == "doc_set_judge.v1":  # v3 only; the golden never enables the set judge
+        return {"poisoned_chunk_ids": [], "reason": "scripted parity set judge"}
     return {}
 
 

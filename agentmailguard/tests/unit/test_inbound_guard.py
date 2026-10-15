@@ -148,6 +148,7 @@ async def test_a_sub_stage_error_is_the_verdicts_error(
 
 
 async def test_extractor_llm_failure_is_a_fallback_not_an_error(settings, benign_email):
+    settings.mailguard.fail_closed_on_judge_error = False  # the v2 fallback (Task 11 flag off)
     llm = FakeLLMProvider(error_to_raise=LLMResponseError("down"))
     verdict = await InboundGuard(settings, extractor_llm=llm).inspect(benign_email)
     assert verdict is not None and verdict.error is None

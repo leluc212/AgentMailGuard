@@ -6,6 +6,10 @@ stage: ``llm_fallback: True``, ``llm_fallback_reason`` (timeout | non_json | sch
 invalid_fields | error) and the ``llm_error`` text. The verdict's ``error`` stays empty, so the
 email is processed normally, and defaults of a rejected answer are never reported as the
 model's answer.
+
+Since guard v3 Task 11 this is the behaviour with ``MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=false``
+(the default is fail-closed: ``tests/unit/test_judge_fail_closed.py``), so every test here runs
+with the flag off.
 """
 
 from __future__ import annotations
@@ -27,6 +31,13 @@ from mailguard.llm.protocol import (
 )
 from mailguard.llm.structured import call_structured
 from mailguard.pipeline import GuardConfig, MailGuardPipeline
+
+
+@pytest.fixture(autouse=True)
+def _visible_fallback(settings):
+    settings.mailguard.fail_closed_on_judge_error = False
+    return settings
+
 
 VALID_L2 = {
     "user_intent": "The customer asks for the warranty period of the X200.",

@@ -11,6 +11,7 @@ and ``GuardConfig`` uses the v3 switches.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
@@ -24,6 +25,11 @@ from mailguard.layers.inbound_gate.gate import InboundGate
 from mailguard.layers.inbound_guard.guard import InboundGuard
 from mailguard.layers.output_guard.guard import OutputGuard
 from mailguard.layers.output_guard.scanner import OutputScanner
+from mailguard.llm.judge_calls import (
+    MAX_GUARD_CALLS_PER_JOB,
+    counting_guard_calls,
+    merge_guard_calls,
+)
 from mailguard.llm.protocol import ChatMessage, LLMProvider
 from mailguard.llm.registry import ModelRegistry
 from mailguard.policy.engine import PolicyEngine
@@ -202,8 +208,22 @@ class MailGuardPipeline:
         Otherwise the Doc Scanner scans ``chunks`` (echo reference: the email's question
         sentences, else ``query`` or subject + sanitized body) and pass 2 decides on every
         fact. ``report.inbound_decision`` is the final pass; ``metadata["gate_passes"]`` says
-        which. Only the final pass is audited.
+        which. Only the final pass is audited. ``report.metadata["guard_calls"]`` counts the
+        judge calls per stage (decision 12).
         """
+        with counting_guard_calls() as calls:
+            report = await self._inspect_inbound(email_like, chunks, category=category, query=query)
+        _record_guard_calls(report, calls)
+        return report
+
+    async def _inspect_inbound(
+        self,
+        email_like: Any,
+        chunks: Sequence[Any],
+        *,
+        category: str | None,
+        query: str | None,
+    ) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
         category = category or email.category
@@ -362,15 +382,17 @@ class MailGuardPipeline:
         email = GuardedEmail.from_any(email_like)
         draft = DraftCandidate.from_any(draft_like)
         if self.config.output_guard:
-            report.output_guard, report.decision = await self.output_guard.inspect(
-                report,
-                draft,
-                email=email,
-                intent=self._intent(report),
-                kept_chunks=kept_chunks,
-                protected_texts=protected_texts,
-                category=category or draft.category or email.category,
-            )
+            with counting_guard_calls() as calls:
+                report.output_guard, report.decision = await self.output_guard.inspect(
+                    report,
+                    draft,
+                    email=email,
+                    intent=self._intent(report),
+                    kept_chunks=kept_chunks,
+                    protected_texts=protected_texts,
+                    category=category or draft.category or email.category,
+                )
+            _record_guard_calls(report, calls)
         report.total_latency_ms = _latency(report)
         return report
 
@@ -461,6 +483,19 @@ class MailGuardPipeline:
 def _latency(report: GuardReport) -> int:
     isolation = report.isolation.latency_ms if report.isolation is not None else 0
     return sum(v.latency_ms for v in report.verdicts()) + isolation
+
+
+def _record_guard_calls(report: GuardReport, calls: Counter[str]) -> None:
+    """Add one step's judge calls to ``report.metadata["guard_calls"]`` ({stage: count})."""
+    report.metadata["guard_calls"] = merge_guard_calls(report.metadata.get("guard_calls"), calls)
+    total = sum(report.metadata["guard_calls"].values())
+    if total > MAX_GUARD_CALLS_PER_JOB:
+        logger.warning(
+            "guard used %d model calls on %s, above the budget of %d",
+            total,
+            report.message_id or "a job",
+            MAX_GUARD_CALLS_PER_JOB,
+        )
 
 
 def severity_of(report: GuardReport) -> Severity:

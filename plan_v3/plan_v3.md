@@ -333,7 +333,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   "decided_by")`) và `guard_schema_version` (`report.schema_version`) vào khối `mailguard` (ADR-0015 mục 7).
   Core không đọc khóa `mailguard` (grep `packages/`, `services/`, `evaluation/mailguard_bench/live`: 0 reader).
   `test_job_result_contract.py` (4 test). Parity 0 delta (outcome không chứa job result).
-- [x] Task 10 — on `6d8d861`: `layers/doc_scanner/set_judge.py::LLMSetJudge` (prompt `doc_set_judge.v1`,
+- [x] Task 10 — commit `002378c` (bổ sung `be898b1`): `layers/doc_scanner/set_judge.py::LLMSetJudge` (prompt `doc_set_judge.v1`,
   question sentences `wrap_untrusted(EMAIL)` làm tham chiếu, mỗi chunk `[chunk id=…]` + `wrap_untrusted(
   KNOWLEDGE)`, output `{"poisoned_chunk_ids", "reason"}`); đơn điệu: chỉ chuyển id đang kept → quarantined,
   id lạ/đã quarantine bị bỏ qua, severity/score không giảm; metadata `set_judge="llm"`, `set_judge_added`,
@@ -348,3 +348,26 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `test_mailguard_bench_guard.py::test_guard_settings_point_every_stage_at_one_model`. Subtree 576
   passed; root bench guard tests 62 passed + 2 xfail có sẵn. Còn mở: bench chưa có công tắc bật set
   judge (Task 12).
+- [x] Task 11 — on `be898b1`: `MailGuardCoreSettings.fail_closed_on_judge_error` (mặc định true,
+  `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`); `mailguard/llm/judge_calls.py` (`judge_failure`,
+  `JUDGE_STAGES`, `MAX_GUARD_CALLS_PER_JOB = 5`, bộ đếm theo `contextvars`). 5 judge (`inbound_scan`,
+  `inbound_extract`, `doc_chunk`, `doc_set`, `output`): lỗi/answer sai schema + cờ bật → `verdict.error =
+  "judge_invalid:<stage>"` (set judge: `"set: judge_invalid:doc_set"`), giữ kết quả rẻ (severity/score
+  không đổi), `metadata.judge_invalid` + `llm_fallback` → P00 human_approval; cờ tắt → fallback v2;
+  không có provider → degrade, không lỗi. `SetJudgeOutput.poisoned_chunk_ids` thành bắt buộc (prose/`{}`
+  không còn nghĩa là "không chunk nào độc"). Pipeline ghi `report.metadata["guard_calls"]` `{stage: n}`
+  cho `inspect_inbound` + `inspect_outbound`, warning khi > 5. `tests/parity.py` thêm câu trả lời
+  `doc_set_judge.v1` (golden không bật set judge). Test: `test_judge_fail_closed.py` (28: 5 judge × 2 kiểu
+  lỗi × cờ, pipeline P00 ở inbound/outbound, judge không cấu hình), `test_guard_no_tools.py` (9: toàn bộ
+  ma trận parity với mọi judge bật — không field tool, host `generate` ≤ 1, `guard_calls` ≤ 5 và khớp
+  đúng log của provider; job tệ nhất = đúng 5 call; backend OpenAI/Ollama qua `httpx.MockTransport`
+  không gửi `tools`/`tool_choice`/`functions` và bỏ qua `tool_calls`; không module nào nhắc field tool).
+  Test v2-fallback (`test_llm_fallback.py` và 4 test khác) chạy với cờ tắt. Parity 0 delta. Subtree 613
+  passed; root 63 fail = đúng tập baseline, 0 new; ruff sạch; mypy chỉ noise `datasets/`. Root bench:
+  `guard_factory.guard_settings` đặt cờ = false (bench chấm fallback là row có điểm, verdict error là
+  crash) tới khi scheme v3 chọn theo config (Task 12). ADR-0015 decision 14 sửa trần Task 8 = 26 (F14).
+  Còn mở: (1) chunk judge chạy một lần **cho mỗi** chunk trong dải nghi ngờ, không có trần per-job, nên
+  ≤ 5 call chỉ đúng khi tối đa một chunk vào dải (ma trận parity, job tệ nhất có 1 chunk); quyết định 13
+  ghi "1 doc chunk judge" — cần chủ dự án chọn: trần 1 chunk-judge call/job, hay nâng ngân sách;
+  (2) README gốc và `docs/overview/layers/*` vẫn ghi "failed LLM stage keeps the cheap result" (Task 14);
+  (3) `tests/integration/test_mailguard_bench_guarded_run.py` cần Docker, chưa chạy.

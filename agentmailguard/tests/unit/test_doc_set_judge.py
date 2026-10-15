@@ -169,6 +169,7 @@ async def test_flag_on_with_a_chunk_in_the_band_makes_exactly_one_call(settings)
     ids=["invalid-answer", "provider-error"],
 )
 async def test_failed_judge_falls_back_to_the_deterministic_verdict(settings, llm):
+    settings.mailguard.fail_closed_on_judge_error = False  # the v2 fallback (Task 11 flag off)
     verdicts = [_cv("a", 0.9, quarantined=True), _cv("b", 0.5)]
     before = deterministic_set_verdict(verdicts)
     snapshot = before.model_dump(exclude={"metadata"})

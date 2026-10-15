@@ -439,6 +439,7 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
+| `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR` | `bool` | `true` | a judge that fails or answers outside its schema (timeout, transport error, non-JSON, missing or invalid fields) sets the verdict's `error` to `judge_invalid:<stage>` (`inbound_scan`, `inbound_extract`, `doc_chunk`, `doc_set`, `output`); the cheap result stays and policy rule P00 asks for human review. `false` keeps the v2 visible fallback (cheap result, `metadata.llm_fallback=true`, no error). A judge with no model configured is not an error. The benchmark sets `false` until its scheme v3 |
 | `GUARD_MODELS__INBOUND_JUDGE` | `str` | `fake` | model (from `configs/models.yaml`) of the L1 Inbound Guard scan judge |
 | `GUARD_MODELS__INBOUND_EXTRACTOR` | `str` | `fake` | model of the L1 Inbound Guard intent extractor |
 | `GUARD_MODELS__DOC_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner per-chunk judge |
