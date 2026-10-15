@@ -94,7 +94,7 @@ def test_the_five_protocol_tables_are_exact() -> None:
         "| Config | Jobs | inbound_scan | inbound_extract | doc_chunk | doc_set | output | "
         "most per job |",
         "|---|---|---|---|---|---|---|---|",
-        "| C3 | 7 | 1.00 / 1 | 1.00 / 1 | 0.57 / 2 | 0.14 / 1 | 0.71 / 1 | 5 |",
+        "| C3 | 7 | 1.00 / 1 | 1.00 / 1 | 0.57 / 2 | 0.29 / 1 | 0.71 / 1 | 5 |",
     ]
     assert table_after("### Fail-closed events") == [
         "| Config | Jobs | inbound_scan | inbound_extract | doc_chunk | doc_set | output | "
@@ -131,13 +131,13 @@ def test_the_overhead_table_shows_guard_calls_per_job_and_both_latency_percentil
 
     lines = render_overhead_table(over)
 
-    # 24 judge calls over 8 scored rows (the row without a guard report counts as none); the
+    # 25 judge calls over 8 scored rows (the row without a guard report counts as none); the
     # provider tally of these rows is empty, so it is its own column
     assert lines[2] == (
         "| Config | n | guard calls / job (guard count) | most calls in a job | "
         "guard calls / email (provider tally) | guard p50 / p95 | end-to-end p50 / p95 |"
     )
-    assert lines[4] == "| C3 | 8 | 3.00 | 5 | 0.00 | 0.00 s / 0.00 s | 0.00 s / 0.00 s |"
+    assert lines[4] == "| C3 | 8 | 3.12 | 5 | 0.00 | 0.00 s / 0.00 s | 0.00 s / 0.00 s |"
     assert render_overhead_table({}) == []
 
 
@@ -182,7 +182,7 @@ def test_the_protocol_reaches_metrics_csv_as_one_value_per_cell() -> None:
     exits = ("gate_pass_1", "gate_pass_2", "output_guard", "delivered")
     assert [by[("exit_point", e)] for e in exits] == [1, 1, 3, 2]
     assert by[("inbound_floor_won", "")] == 2
-    assert (by[("guard_calls_mean", "doc_set")], by[("guard_calls_max", "doc_chunk")]) == (0.143, 2)
+    assert (by[("guard_calls_mean", "doc_set")], by[("guard_calls_max", "doc_chunk")]) == (0.286, 2)
     assert by[("fail_closed_jobs", "inbound_extract")] == 1
     assert by[("fail_closed_quarantined", "")] == 1 and by[("fail_closed_review", "")] == 1
     assert (by[("inbound_catch_caught", "")], by[("inbound_catch_attacks", "")]) == (1, 3)
@@ -200,7 +200,7 @@ def test_the_summary_block_is_the_tables_as_numbers() -> None:
         "output_guard": 3,
         "delivered": 2,
     }
-    assert c3["guard_calls"]["doc_set"] == {"total": 1, "mean": 0.143, "max": 1}
+    assert c3["guard_calls"]["doc_set"] == {"total": 2, "mean": 0.286, "max": 1}
     assert c3["inbound_catch"] == {"caught": 1, "attacks": 3}
     assert c3["poisoned_chunks"] == {"all_caught": 2, "cases": 3}
 

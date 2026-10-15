@@ -7,8 +7,9 @@ injection scanner .. L5 policy engine) and with nothing converted to schema 3.
 
     committed folder                          legacy reader
     summary.json  ─ tables, paired ─────────▶ render_tables(): the "Security and usefulness" and
-    metrics.csv   ─ one number per cell ────▶   "ASR by vector" tables, row for row what the
-    manifest.json, case_manifest.json,          committed ``report.md`` printed
+    metrics.csv   ─ one number per cell ────▶   "ASR by vector" tables, and an ablation folder's
+    manifest.json, case_manifest.json,          layer-ablation tables, row for row what the
+                                                committed ``report.md`` printed
     analysis/first_layer.csv ─ (when present)
 
 The raw inputs of those runs (``raw/*.jsonl``, ``cases.jsonl``: attack text and drafts) are
@@ -31,6 +32,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -40,6 +42,7 @@ from typing import Any
 from evaluation.mailguard_bench.artifacts import (
     ConfigSummary,
     RateCI,
+    _cell,
     _grouped,
     _side_by_side,
 )
@@ -206,6 +209,93 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
 # --- the tables -----------------------------------------------------------------------------
 
 
+LAYER_PAIR_PREFIX = "Layer ablation "
+_LAYER_PAIR = re.compile(r"^Layer ablation (?P<config>\S+) vs C3 \((?P<vector>.+)\)$")
+_LAYER_VECTORS = (("llmail", "LLMail-Inject"), ("rag", "RAG vector"))
+_LAYER_REMOVED = {"C0": "all", "C3": "none"}
+
+
+def _counts(counts: Mapping[str, int]) -> str:
+    return "; ".join(f"{label}: {n}" for label, n in counts.items()) or "none"
+
+
+def _layer_ablation_lines(run: LegacyRun) -> list[str]:
+    """The "Layer ablation: remove one layer" tables of an old (v1/v2) ablation folder.
+
+    Built from ``summary.json`` (``layer_ablation_llmail``, ``layer_ablation_rag``, the
+    ``layer_ablation`` block and the paired tests) with the old config names (``C3-L1`` ..
+    ``C3-L5``, v2 meanings) kept verbatim. The row layout is the one the committed report used;
+    the prose around the tables is not reproduced.
+    """
+    llmail_rows = run.tables.get("layer_ablation_llmail")
+    rag_rows = run.tables.get("layer_ablation_rag")
+    if not llmail_rows or not rag_rows:
+        return []
+    block = run.summary.get("layer_ablation") or {}
+    drafts = {k: _rate(v) for k, v in (block.get("benign_real_drafts") or {}).items()}
+    llmail = {c: s for c, s in run.tables.get("llmail", {}).items() if c in ("C0", "C3")}
+    rag = {c: s for c, s in run.tables.get("rag", {}).items() if c in ("C0", "C3")}
+    llmail.update(llmail_rows)
+    rag.update(rag_rows)
+    lines = [
+        "## Layer ablation: remove one layer",
+        "",
+        "Each `C3-L<n>` config is the old guard's preset with that layer removed (names and "
+        "meanings of the run, kept verbatim), on the same cases as C3.",
+        "",
+        "| Config | Layer removed | LLMail ASR | RAG ASR | Benign FPR | "
+        "Benign drafts (not blocked, ≥ 40 characters) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for config, summary in llmail.items():
+        label = {"C0": "C0 (no guard)", "C3": "C3 (full guard)"}.get(config, config)
+        removed = _LAYER_REMOVED.get(config, config.removeprefix("C3-"))
+        rag_asr = rag[config].asr.fmt() if config in rag else "n/a"
+        real = drafts.get(config)
+        lines.append(
+            f"| {label} | {removed} | {summary.asr.fmt()} | {rag_asr} | {_cell(summary.fpr)} | "
+            f"{_cell(real)} |"
+        )
+    lines.append("")
+    pairs = {n: c for n, c in run.paired.items() if n.startswith(LAYER_PAIR_PREFIX)}
+    if pairs:
+        raises = block.get("raises_asr_p05") or {}
+        lines += [
+            "### Paired test against the same-run C3 (McNemar exact, same case ids)",
+            "",
+            "| Config | Vector | pairs | ASR config | ASR C3 | only config succeeded | "
+            "only C3 succeeded | p | raises ASR, p < 0.05 |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        for name, cmp in pairs.items():
+            match = _LAYER_PAIR.match(name)
+            if match is None:
+                raise LegacyRunError(f"unreadable layer-ablation pair name {name!r}")
+            lines.append(
+                f"| {match['config']} | {match['vector']} | {cmp['n']} | "
+                f"{100 * cmp['a_rate']:.1f} % | {100 * cmp['b_rate']:.1f} % | "
+                f"{cmp['discordant_a_only']} | {cmp['discordant_b_only']} | "
+                f"{cmp['p_value']:.3g} | {'yes' if raises.get(name) else 'no'} |"
+            )
+        lines.append("")
+    attribution = block.get("attribution") or {}
+    if attribution:
+        lines += [
+            "### Which layer stopped each attack",
+            "",
+            "| Config | Vector | attacks | succeeded | first catching layer | flagged by |",
+            "|---|---|---|---|---|---|",
+        ]
+        for config, by_vector in attribution.items():
+            for vector, att in by_vector.items():
+                lines.append(
+                    f"| {config} | {vector} | {att['attacks']} | {att['succeeded']} | "
+                    f"{_counts(att['first_catching'])} | {_counts(att['flagged'])} |"
+                )
+        lines.append("")
+    return lines
+
+
 def _paired_rows(paired: Mapping[str, Mapping[str, Any]]) -> list[str]:
     rows = [
         "### Paired test (McNemar exact, same cases)",
@@ -214,6 +304,8 @@ def _paired_rows(paired: Mapping[str, Mapping[str, Any]]) -> list[str]:
         "|---|---|---|---|---|---|---|",
     ]
     for name, cmp in paired.items():
+        if name.startswith(LAYER_PAIR_PREFIX):
+            continue  # the layer-ablation pairs have their own table
         rows.append(
             f"| {name} | {cmp['n']} | {100 * cmp['a_rate']:.1f} % | "
             f"{100 * cmp['b_rate']:.1f} % | {cmp['discordant_a_only']} | "
@@ -258,6 +350,7 @@ def render_tables(run: LegacyRun) -> str:
     if tables.get("ablation"):
         lines += ["## Reduced ablation (fixed 100-attack subset + the same benign emails)", ""]
         lines += _side_by_side("Layers add up", tables["ablation"])
+    lines += _layer_ablation_lines(run)
     return "\n".join(lines).rstrip() + "\n"
 
 

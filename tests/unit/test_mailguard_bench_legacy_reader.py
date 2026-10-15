@@ -344,6 +344,116 @@ def test_the_review_1_tables_carry_exactly_the_numbers_of_the_committed_metrics_
             assert abs(hi - float(found["ci95_hi"])) <= 0.06, (run, config, label)
 
 
+def _metric_row(
+    metrics: list[dict[str, str]], table: str, config: str, metric: str, group: str
+) -> dict[str, str]:
+    (found,) = (
+        r
+        for r in metrics
+        if (r["table"], r["config"], r["metric"], r["group"]) == (table, config, metric, group)
+    )
+    return found
+
+
+def _assert_cell_matches(cell: str, found: dict[str, str], where: object) -> None:
+    assert cell.endswith(f"({found['successes']}/{found['total']})"), where
+    assert cell.startswith(f"{float(found['pct']):.1f} % ["), where
+    # metrics.csv rounds the interval to two decimals, the report to one
+    lo, hi = (float(x) for x in cell.split("[")[1].split("]")[0].split(", "))
+    assert abs(lo - float(found["ci95_lo"])) <= 0.06, where
+    assert abs(hi - float(found["ci95_hi"])) <= 0.06, where
+
+
+@pytest.mark.parametrize("run", REVIEW_1)
+def test_the_asr_by_vector_table_carries_exactly_the_numbers_of_the_committed_metrics_csv(
+    run: str,
+) -> None:
+    rendered = render_tables(load_legacy_run(RESULTS / run))
+    heading = "### ASR by vector (email vs rag)"
+    header = next(line for line in rendered.split(heading)[1].splitlines() if line)
+    configs = [c.strip() for c in header.split("|")[2:-1]]
+    rows = _table_rows(rendered, heading)
+    metrics = _committed_metrics(run)
+
+    assert {row[0] for row in rows} == {"email", "rag"}
+    for row in rows:
+        for config, cell in zip(configs, row[1:], strict=True):
+            found = _metric_row(metrics, "all", config, "ASR", f"vector={row[0]}")
+            _assert_cell_matches(cell, found, (run, config, row[0]))
+
+
+ABLATION = "2026-09-30-gpt4omini-ablation"
+
+
+def test_the_layer_ablation_tables_carry_exactly_the_numbers_of_the_committed_metrics_csv() -> None:
+    run = load_legacy_run(RESULTS / ABLATION)
+    rendered = render_tables(run)
+    metrics = _committed_metrics(ABLATION)
+    rows = _table_rows(rendered, "## Layer ablation: remove one layer")
+
+    assert [r[0] for r in rows] == [
+        "C0 (no guard)",
+        "C3 (full guard)",
+        "C3-L1",
+        "C3-L2",
+        "C3-L3",
+        "C3-L3B",
+        "C3-L4",
+        "C3-L5",
+    ]
+    for row in rows:
+        config = row[0].split(" ")[0]
+        llmail_table = "llmail" if config in ("C0", "C3") else "layer_ablation_llmail"
+        rag_table = "rag" if config in ("C0", "C3") else "layer_ablation_rag"
+        _assert_cell_matches(row[2], _metric_row(metrics, llmail_table, config, "ASR", "all"), row)
+        _assert_cell_matches(row[3], _metric_row(metrics, rag_table, config, "ASR", "all"), row)
+        _assert_cell_matches(row[4], _metric_row(metrics, llmail_table, config, "FPR", "all"), row)
+        drafts = _metric_row(metrics, "layer_ablation", config, "benign_drafts_ge_40_chars", "all")
+        _assert_cell_matches(row[5], drafts, row)
+    # only the removed layer differs from C3 in the "removed" column; the old names are data
+    assert {r[0]: r[1] for r in rows}["C3-L3B"] == "L3B"
+
+    pairs = _table_rows(rendered, "### Paired test against the same-run C3")
+    assert len(pairs) == 12
+    for config, vector, n, a, b, only_a, only_b, _p, raises in pairs:
+        name = f"Layer ablation {config} vs C3 ({vector})"
+        assert _metric_row(metrics, "paired", name, "discordant_a_only", "")["value"] == only_a
+        assert _metric_row(metrics, "paired", name, "discordant_b_only", "")["value"] == only_b
+        assert n == str(run.paired[name]["n"])
+        expected = run.summary["layer_ablation"]["raises_asr_p05"][name]
+        assert raises == ("yes" if expected else "no")
+        assert float(a.split(" ")[0]) == round(100 * run.paired[name]["a_rate"], 1)
+        assert float(b.split(" ")[0]) == round(100 * run.paired[name]["b_rate"], 1)
+
+    attribution = _table_rows(rendered, "### Which layer stopped each attack")
+    assert len(attribution) == 14  # C3 and six ablation configs, two vectors each
+    for config, vector, attacks, succeeded, *_ in attribution:
+        table = "layer_ablation_llmail" if vector == "LLMail-Inject" else "layer_ablation_rag"
+        if config == "C3":
+            table = "llmail" if vector == "LLMail-Inject" else "rag"
+        found = _metric_row(metrics, table, config, "ASR", "all")
+        assert (int(succeeded), int(attacks)) == (
+            int(found["successes"]),
+            int(found["total"]),
+        ), (config, vector)
+
+
+def test_the_layer_ablation_rows_appear_verbatim_in_the_committed_report() -> None:
+    committed = (RESULTS / ABLATION / "report.md").read_text(encoding="utf-8")
+    rendered = render_tables(load_legacy_run(RESULTS / ABLATION))
+
+    rows = [line for line in rendered.splitlines() if line.startswith("|")]
+
+    assert "## Layer ablation: remove one layer" in rendered
+    assert len(rows) > 50
+    assert [line for line in rows if line not in committed] == []
+    # the layer-ablation pairs are in their own table, not in the generic paired one
+    assert (
+        "Layer ablation C3-L1 vs C3"
+        not in rendered.split("### Paired test (McNemar")[1].split("## Layer ablation")[0]
+    )
+
+
 @pytest.mark.parametrize("run", REVIEW_1)
 def test_every_rendered_table_row_appears_verbatim_in_the_committed_report(run: str) -> None:
     committed = (RESULTS / run / "report.md").read_text(encoding="utf-8")

@@ -19,8 +19,13 @@ already write (ADR-0015), so one function serves the writer (``guarded_reply``) 
 ``carried_from_inbound`` is the Output Guard's own flag (the inbound floor won the merge); it is
 reported next to the exit point and never changes it. A fact the guard did not write (a gate stop,
 or the Output Guard switched off, leaves no ``decided_by``) reads as ``False``/``None``, never an
-error. A job that failed closed on a judge (``judge_invalid:<stage>``) is a fail-closed event, not
-a detection: ``detected_doc_chunk_ids`` leaves out a chunk that was only quarantined that way.
+error. Fail-closed is a failure mark (``judge_invalid:<stage>``, or a chunk quarantined with
+``decided_by == "error"`` after a chunk scanner exception under fail_closed) and no detector
+evidence (no finding other than ``internal_error``, and not in ``set_judge_added``). Such a job is
+a fail-closed event, not a detection: ``detected_doc_chunk_ids`` leaves out a chunk that was only
+quarantined that way. ``judge_invalid_events`` counts only ``judge_invalid`` stages, so a
+scanner-exception quarantine shows in the fail-closed column without a per-stage judge_invalid
+event.
 
 Pure: it reads dicts and imports nothing from the guard, so CI covers it.
 

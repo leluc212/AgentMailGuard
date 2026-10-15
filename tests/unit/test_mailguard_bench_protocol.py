@@ -274,7 +274,7 @@ def synthetic_records() -> list[RawRecord]:
     chunk_invalid = report(  # built like a real guard report, both chunks are poisoned
         inbound=decision("draft_only", "P99", gate_passes=2),
         final=decision("draft_only", "P99", decided_by="output_guard", carried_from_inbound=False),
-        guard_calls_=calls(inbound_scan=1, inbound_extract=1, doc_chunk=1, output=1),
+        guard_calls_=calls(inbound_scan=1, inbound_extract=1, doc_chunk=1, doc_set=1, output=1),
         doc_scanner={
             "quarantined_chunk_ids": ["p4", "p5"],
             "metadata": {"set_judge": "llm", "set_judge_added": ["p4"]},
@@ -334,7 +334,7 @@ def test_the_per_config_protocol_table_is_exact() -> None:
         "inbound_scan": (7, 1.0, 1),
         "inbound_extract": (7, 1.0, 1),
         "doc_chunk": (4, 0.5714, 2),
-        "doc_set": (1, 0.1429, 1),  # its own column: the set judge ran once, in one job
+        "doc_set": (2, 0.2857, 1),  # its own column: the set judge ran once in each of two jobs
         "output": (5, 0.7143, 1),
     }
     assert table.max_calls_per_job == 5  # gate_pass_2: 1 + 1 + 2 + 1
