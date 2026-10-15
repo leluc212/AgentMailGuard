@@ -24,7 +24,7 @@ mailguard.datasets.download --manifest` prints the provenance table and
 * `datasets/processed/l1_injection/{train,val,test}.jsonl` (~20k rows): id, text, label, source, technique, split.
 * `datasets/processed/email_bench/cases.jsonl`: `BenchCase` records (email, chunks, goal, expected keywords,
   attacker identity, technique, vector, source); `stats.json` has counts per source/kind/vector.
-* `datasets/processed/rag_poison/chunks.jsonl`: chunk-level poison labels for L3b evaluation.
+* `datasets/processed/rag_poison/chunks.jsonl`: chunk-level poison labels for L2 Doc Scanner evaluation (the v2 name of the layer was L3b).
 
 ## Leakage and licensing notes
 
@@ -35,6 +35,11 @@ mailguard.datasets.download --manifest` prints the provenance table and
   Raw data is git-ignored; only the download manifest and build scripts are versioned.
 * LLMail-Inject phase-1 files (> 1 GB) are skipped; phase-2 (263 MB raw + 68 MB labels) is used.
 * PoisonedRAG passages are used in the black-box form of the paper, `S = question + adversarial
-  text`; the retrieval bait (question prefix) is what the L3b query-echo heuristic keys on, so
-  L3b recall on this source (~85 %) should be read as "detects the bait", not the misinformation
-  itself. Chunk-level numbers: `evaluation/results/detectors/l3b.json`.
+  text`; the retrieval bait (question prefix) is what the L2 Doc Scanner's `echo_vs_question` and
+  `ordered_prefix` signals key on (against the email's question sentences), so its recall on this
+  source should be read as "detects the bait", not the misinformation itself. The ~85 % recall and the
+  chunk-level numbers in `evaluation/results/detectors/l3b.json` are **v2 results** of the old L3b
+  scanner (whole-body query echo, scheme v2); they are not recomputed here and are not v3 numbers. The
+  v3 thresholds were chosen on `datasets/splits/rag_poison_dev.json` (schema v3, seed 20261014: 90
+  PoisonedRAG items outside the benchmark pool and 600 clean Bitext chunks), never on the benchmark's
+  pinned cases.

@@ -1,6 +1,7 @@
 # ADR-0010: AgentMailGuard is integrated as the separate prompt-injection subsystem; rag-email adds no defence logic
 
 - **Status:** Accepted
+- **Amended by ADR-0015** (2026-10-15): the guard's layer list is now four layers (`inbound_guard`, `doc_scanner`, `inbound_gate`, `output_guard`) with `channel_isolation` not a layer; the C0/C0T/C3 story is unchanged.
 - **Date:** 2026-09-28
 - **Decided by:** project owner
 - **Relates to:** `CLAUDE.md` §6, `specs/requirements.md` §0.5, `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`

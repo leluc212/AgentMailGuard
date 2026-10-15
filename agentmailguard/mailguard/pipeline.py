@@ -6,6 +6,13 @@
 
 The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``)
 and ``GuardConfig`` uses the v3 switches.
+
+Provider arguments: ``doc_set_judge`` has an effect only when
+``settings.doc_scanner.set_judge_llm_enabled`` is true (the set judge needs the flag and a
+provider). A provider argument is ignored for a layer passed ready-made: ``inbound_guard=``
+replaces ``inbound_judge`` and ``inbound_extractor``, ``doc_scanner=`` replaces ``doc_judge`` and
+``doc_set_judge``, ``output_guard=`` replaces ``output_judge``. A ready-made ``DocScanner`` given
+both ``set_judge`` and ``set_judge_llm`` uses ``set_judge`` (see ``DocScanner``).
 """
 
 from __future__ import annotations

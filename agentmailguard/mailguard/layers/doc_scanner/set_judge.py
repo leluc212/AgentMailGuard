@@ -54,7 +54,12 @@ class SetJudgeOutput(BaseModel):
 
 
 class LLMSetJudge:
-    """Optional LLM judge over the whole retrieved set; monotonic (adds quarantines only)."""
+    """Optional LLM judge over the whole retrieved set; monotonic (adds quarantines only).
+
+    Untrusted output: ``set_judge_reason`` (verdict metadata, cut to 300 characters) and the
+    ``rationale`` of the quarantine finding it adds are model output. Never put them in a prompt,
+    a policy fact or a UI without escaping.
+    """
 
     def __init__(self, settings: MailGuardSettings, llm: LLMProvider | None) -> None:
         self.settings = settings
@@ -76,8 +81,12 @@ class LLMSetJudge:
         questions: Sequence[str],
     ) -> DocumentVerdict:
         """One LLM call over the set. On an LLM failure no chunk moves; with the judge failing
-        closed the verdict's error becomes ``judge_invalid:doc_set`` (human review, P00)."""
-        assert self.llm is not None
+        closed the verdict's error becomes ``judge_invalid:doc_set`` (human review, P00).
+
+        Without a provider there is nothing to ask: the verdict is returned unchanged and no
+        guard call is counted (the judge is monotonic, so no judge means no change)."""
+        if self.llm is None:
+            return verdict
         record_guard_call("doc_set")
         try:
             out, result = await call_structured(

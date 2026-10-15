@@ -1,5 +1,7 @@
 # AgentMailGuard layer ablation — pre-registered design (task 7.22)
 
+> **Historic pre-registration (scheme v1), kept as written.** Its ablation over the six v1 layers (`C3-L1` to `C3-L5`, including `C3-L3B`) is superseded by ADR-0015: scheme v3 has four layers and a channel-isolation switch, and its ablations are `C3-L1` to `C3-L4` and `C3-ISO` (`C3-L3` now removes the Inbound Gate, not channel isolation, so rows of the two schemes are never comparable). The committed v1 ablation run is read with `make mailguard-report RUN=<id> LEGACY=1`.
+
 - **Status:** pre-registered 2026-09-30, before any ablation code or run.
 - **Decided by:** project owner (2026-09-30 evening, after the thesis review).
 - **Relates to:** `2026-09-29-mailguard-benchmark-design.md` (v1 benchmark), ADR-0010, requirement R22.12.

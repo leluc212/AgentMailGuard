@@ -218,13 +218,14 @@ def test_every_v1_command_of_the_runbook_says_scheme_v1() -> None:
     assert [line for line in commands if "SCHEME=v1" not in line] == []
 
 
-def test_the_v2_run_loop_of_the_runbook_runs_every_v2_config_twice() -> None:
-    v2 = _runbook_part("### 9.9 ", "## Appendix A")
+def test_the_run_loop_of_the_runbook_runs_every_v3_config_twice() -> None:
+    v3 = _runbook_part("### 9.9 ", "## Appendix A")
     # The first pass and the retry pass; each loop ends at a route STOP (exit 3, task 7.29).
-    loop = "for c in C0 C0T C1 C2 C3 C4 C5 C6 C7; do run_config $c; [ $? -eq 3 ] && break; done"
-    assert v2.count(loop) == 2
-    assert "--scheme v1" in v2 or "SCHEME=v1" in v2  # how a v1 name is run live is said
-    assert "make mailguard-report RUN=$RUN" in v2  # v2 has no no-API analyses
+    loop = f"for c in {' '.join(V3_CONFIGS)}; do run_config $c; [ $? -eq 3 ] && break; done"
+    assert v3.count(loop) == 2
+    assert "--scheme v1" in v3 or "SCHEME=v1" in v3  # how a retired scheme is refused is said
+    assert "make mailguard-report RUN=$RUN" in v3
+    assert "LEGACY=1" in v3  # how a committed v1/v2 folder is read
     assert "81df5d07" in RUNBOOK and "SCHEME=v1" in RUNBOOK  # how v1 is reproduced
 
 

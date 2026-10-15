@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (owner decision 2026-10-01); this branch (`wp-cloud`) carries it out and awaits
   the owner's review before it reaches `main`
+- **Amended by ADR-0015** (2026-10-15): decision 3 (the guard pin moves to the v3 guard commit, plan_v3 Task 15b; until then the Makefile still names the v2 pin).
 - **Date:** 2026-10-01
 - **Decided by:** project owner (team meeting of 2026-10-01; instructions of 2026-10-01 ~09:20 and ~09:24)
 - **Requirements:** R22.12, R14.7, R5.10, R21.4, R21.6, R24.5

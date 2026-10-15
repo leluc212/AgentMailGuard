@@ -323,7 +323,7 @@ def test_the_guides_trial_command_covers_an_attack_a_benign_and_a_rag_case(guide
         assert command["run"].startswith("trial")
         assert command["configs"], "a trial names its configs"
         for config in command["configs"]:
-            assert set(command["ids"]) <= set(config_case_ids(loaded.manifest, config, "v2"))
+            assert set(command["ids"]) <= set(config_case_ids(loaded.manifest, config, "v3"))
         cases = [EvalCase.from_dict(loaded.cases[i]) for i in command["ids"]]
         kinds = sorted((case.kind, bool(case.kb_docs)) for case in cases)
         assert kinds == [("attack", False), ("attack", True), ("benign", False)]

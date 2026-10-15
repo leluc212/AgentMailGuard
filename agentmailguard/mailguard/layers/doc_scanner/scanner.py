@@ -43,7 +43,12 @@ SIGNAL_SCORE = 0.85
 
 
 class DocScanner:
-    """L2 Doc Scanner over the retrieved set."""
+    """L2 Doc Scanner over the retrieved set.
+
+    ``set_judge`` and ``set_judge_llm`` are alternatives: a prebuilt ``LLMSetJudge`` passed as
+    ``set_judge`` takes precedence and ``set_judge_llm`` is then ignored (its provider is not
+    used); with neither, no LLM set judge runs and the deterministic set verdict stands.
+    """
 
     name = LAYER
 

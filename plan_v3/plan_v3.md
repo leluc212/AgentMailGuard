@@ -404,7 +404,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   vẫn đọc vocabulary v1/v2 và chưa chấm folder v3 (Task 13); (2) docs (`README.md`, `docs/BENCHMARK.md`,
   runbook §9) còn mô tả scheme v2/C0–C7 và `--scheme v2|v1` (Task 14); (3) pin Makefile `MAILGUARD_COMMIT`
   vẫn là v2 (Task 15b), nên một run live thật ở HEAD chưa qua được kiểm tra worktree tới 15b.
-- [x] Task 13 — on `4e86f04`: bench scheme v3, chấm điểm và report (chỉ root, không chạm `agentmailguard/`;
+- [x] Task 13 — on `cbfafc8`: bench scheme v3, chấm điểm và report (chỉ root, không chạm `agentmailguard/`;
   quyết định điều phối ghi ở F15). `scoring.py`: vocabulary layer v3 (`inbound_guard`, `doc_scanner`,
   `inbound_gate`, `output_guard`), `flagged_layers` chỉ đọc schema 3 và ném `LegacyReportError` (nêu
   legacy reader) với report `schema_version != 3`, `RawRecord.from_dict` từ chối report cũ; chunk chỉ bị
@@ -429,3 +429,31 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   lint` xanh. Còn mở: (1) docs (`README.md`, `docs/BENCHMARK.md`, runbook §9) còn mô tả scheme v2 (Task 14);
   (2) ratchet 15a cần allowlist `legacy_reader.py` cho tên layer v1/v2 (`l2_intent_extractor`, `l1`…`l5`);
   (3) `meta.live_layers` trong `analyses.run_facts` giờ đọc khóa v3 (`inbound_judge`…`output_judge`).
+- [x] Task 14 — on `cbfafc8`: docs, paper, specs, ADR-0015 → Accepted. ADR-0015: Status "Accepted pending Task 16
+  (live acceptance)" ngày 2026-10-15; danh sách "Intended behaviour changes" viết lại thành 9 mục khớp 1–1 với
+  các `why` của `INTENDED_DELTAS` trong `tests/parity.py` (kèm đường dẫn `tests/deltas/task6_guard_config.json`,
+  `task7_doc_scanner_before_gate.json`, `task8_output_guard.json` và các nhóm inline Task 4/5; mục 3 và 5 ghi rõ
+  "không có parity delta, chỉ có unit test"; số decision sai trong hai chuỗi `why` của parity.py được sửa trong ADR,
+  không sửa parity.py); dòng "Amended by ADR-0015" thêm vào ADR-0010, 0012, 0014. Subtree: `agentmailguard/README.md`
+  (bảng 4 lớp), `docs/architecture.md` (contract, fail-closed judge thay "visible fallback", ablation 9 config),
+  `experiments.md`, `manual_steps.md`, `datasets.md`, `paper/outline.md` (bảng ánh xạ v3), `sections_draft.md` và
+  `paper/tables/*` gắn nhãn "v2 results" (không đổi số, không thêm số v3). Root: `docs/overview/layers/` thành 5 card
+  v3 (`git mv` rồi viết lại: `L1-inbound-guard`, `L2-doc-scanner`, `L3-inbound-gate`, `L4-output-guard`,
+  `channel-isolation`; card extractor gộp vào L1 rồi `git rm`), `docs/overview/01/03/04`, `README.md`,
+  `docs/BENCHMARK.md`, `docs/benchmark-windows-native.md`, `docs/demo-runbook.md` §9 (§9.9 sang scheme v3, §9.1–9.8
+  và v2 ghi là lịch sử, số mục không đổi), `docs/configuration.md` (thêm 3 hàng `MAILGUARD__ENABLED`,
+  `OLLAMA__BASE_URL`, `OLLAMA__TIMEOUT_S`; sửa câu "benchmark sets false until scheme v3"), banner "historic" ở
+  `docs/superpowers/specs/*` và plan v1, `specs/design.md` (đoạn benchmark, thêm hàng ADR 0011–0015), `specs/tasks.md`
+  (task mới 7.30, 7.31, 7.32 placeholder ADR-0016; ghi chú "superseded vocabulary" ở 7.19, 7.20, 7.22, 7.23).
+  `specs/requirements.md` không đổi (không tiêu chí nào nêu thực tế chỉ-của-v2). Code (không đổi parity): `set_judge.py`
+  bỏ `assert self.llm is not None`, trả verdict nguyên vẹn khi không có provider (trước khi đếm guard call) và ghi
+  `set_judge_reason`/rationale là output model không tin cậy; docstring `DocScanner`/`pipeline.py` nói rõ `set_judge`
+  thắng `set_judge_llm` và `doc_set_judge` chỉ có tác dụng khi bật cờ; docstring `extract.py` và `channel_isolation.py`
+  sửa theo v3. Test chỉ sửa chỗ đọc text của runbook: `test_mailguard_make_targets.py` (vòng lặp v3),
+  `test_mailguard_pin.py` (`guarded.v3`), `test_mailguard_kit_cloud_decisions.py` (scheme v3). Test: `agentmailguard/tests`
+  613 passed; root `tests/unit` 3994 passed, 74 skipped, 1 xfailed (không guard overlay; 4259 passed, 7 skipped, 1 xfailed
+  với `make mailguard-unit`); `make fmt-check lint` xanh. Còn mở cho Task 15: ratchet 15a (còn các docstring/log
+  cũ như `L1 LLM judge unavailable`, `L3b chunk scan failed`, và `assert` thuần ở `chunk_scanner.py`/`scan.py`), pin
+  15b (các câu về pin 915cb1e trong `docs/BENCHMARK.md`, runbook, `benchmark-windows-native.md` vẫn đúng với Makefile
+  hôm nay và phải đổi cùng 15b), `docs/architecture/*.html` (hình Archify vẫn vẽ lớp v2). Task 16 điền số v3 (bảng
+  paper, ước lượng request/chi phí/thời gian đang ghi là "v2 estimate").

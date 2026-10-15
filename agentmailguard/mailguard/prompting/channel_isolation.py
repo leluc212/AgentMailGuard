@@ -3,7 +3,7 @@
 The model receives every piece of text inside an explicitly labelled channel:
 
     trusted        system, category, business        -> instructions & facts
-    semi-trusted   intent (L2 neutral paraphrase)    -> facts about the request
+    semi-trusted   intent (L1 neutral paraphrase)    -> facts about the request
     untrusted      email, thread, knowledge          -> DATA, marked, never obeyed
 
 Untrusted content is (1) scrubbed of forged markers and chat-template tokens,
@@ -12,8 +12,8 @@ from Hines et al. (2024): ``delimit`` (nonce-tagged delimiters), ``datamark``
 (whitespace replaced by a marker character) or ``encode`` (base64). The nonce is
 random per request so an attacker cannot close the data section early.
 
-``ChannelIsolation(enabled=False)`` yields the *no-defense* prompt used by the
-C0/C1 baselines: plain concatenation without markers or preamble.
+``ChannelIsolation(enabled=False)`` (presets C0, C1 and C3-ISO) yields the *no-defense* prompt:
+no markers, no preamble; the scrub and the token budget still apply.
 
 Channel isolation is not a guard layer (ADR-0015, R-d): ``build`` returns the prompt and an
 ``IsolationInfo`` record, never a verdict. Forged markers scrubbed from thread history are
@@ -377,7 +377,7 @@ class ChannelIsolation:
             template_tokens_removed=tokens_removed,
             channels=channels,
         )
-        # Markers forged inside thread history are recorded, not graded (ADR-0015 decision 10):
+        # Markers forged inside thread history are recorded, not graded (ADR-0015 decision 8):
         # markers in the email or the documents are the Inbound Guard's and the Doc Scanner's.
         forged_markers = [
             Finding(

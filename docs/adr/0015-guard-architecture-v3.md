@@ -1,6 +1,6 @@
 # ADR-0015: AgentMailGuard architecture v3 (four guard layers, no outbound gate)
 
-- **Status:** Proposed (owner decisions of 2026-10-12, amended by the review of 2026-10-13); branch `refactor/guard-v3`
+- **Status:** Accepted pending Task 16 (live acceptance), 2026-10-15; owner decisions of 2026-10-12, amended by the review of 2026-10-13; branch `refactor/guard-v3`. Decision 13 stays open until the v3 benchmark run meets its criteria.
 - **Date:** 2026-10-12
 - **Decided by:** project owner (plan review of 2026-10-12, `plan_v3/plan_v3.md`)
 - **Target architecture:** `plan_v3/architect_v3.jpg`
@@ -129,18 +129,51 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
 
 ## Intended behaviour changes (recorded in `agentmailguard/tests/parity.py`)
 
-- Poisoned or critical knowledge is decided at the inbound gate: a quarantine stops the job before
-  generation; a human-approval escalation is carried into L4 as the floor.
-- Forged markers inside thread history (not email, not documents) are still removed by isolation
-  but no longer graded; they are recorded in `IsolationInfo.forged_markers`.
-- With the fail-closed flag on, an invalid judge answer is human review instead of the cheap verdict.
-- An email whose scan is clean but whose extractor flags assistant-style instructions is no longer
-  escalated by severity (decision 9); it keeps a finding only.
-- Poisoned chunks that echo the question sentences, or form a bait cluster, are quarantined by the
-  cheap stage where v2 kept them (decision 4).
-- The outbound policy decision belongs to the L4 Output Guard (R-e); there is no outbound gate.
-  With the inbound gate off, a job still gets a final decision after generation (v2's single L5
-  switch made both decisions, so turning it off left none). Owner decision 2026-10-14 (plan_v3 F14).
+Each bullet is one `INTENDED_DELTAS` reason in `agentmailguard/tests/parity.py` (the numbers are the
+"intended change N" of those reasons) with the test that proves it independently of the golden. The
+golden is never regenerated. The decision numbers below are the ones of this ADR; two `why` strings
+in `parity.py` cite them off by name (`_THREAD_FORGED_WHY` says decision 10, `_EXTRACTOR_WHY` says
+decision 8), which this list corrects without touching the parity file. 99 distinct golden cases
+move in total; the per-group counts below overlap where a case is changed by two tasks.
+
+1. Poisoned or critical knowledge is decided at the inbound gate: a quarantine stops the job before
+   generation; a human-approval escalation is carried into L4 as the floor (decision 2). 21 cases
+   (14 `C3-L1`, 7 `C3`; mostly P05 human approval, three P08, two P02 blocks with no generation) in
+   `agentmailguard/tests/deltas/task7_doc_scanner_before_gate.json`. Proof:
+   `test_inbound_gate.py::test_pass_2_sees_the_documents_and_is_the_one_audited`.
+2. Forged markers inside thread history (not email, not documents) are still removed by isolation
+   but no longer graded; they are recorded in `IsolationInfo.forged_markers` (decision 8). 8 cases
+   (`b-005`, inline in `parity.py`). Proof:
+   `test_channel_isolation.py::test_thread_forged_markers_are_recorded_not_graded`.
+3. With the fail-closed flag on, an invalid judge answer is human review instead of the cheap
+   verdict (decision 5). No parity delta: the matrix runs the cheap and scripted-judge path. Proven
+   by unit tests only (`judge_invalid:<stage>` per stage, P00).
+4. An email whose scan is clean but whose extractor flags assistant-style instructions is no longer
+   escalated by severity (decision 9); it keeps a finding only, so P08 no longer matches, and the
+   scripted `s-001`/`s-003` with `llm=1` move to P09 (draft only) because heavy sanitization is the
+   only rule left. 11 cases, inline in `parity.py` (`_TASK5_FIELDS`). Proof:
+   `test_inbound_guard.py::test_clean_scan_and_flagging_extractor_keep_severity_and_add_a_finding`.
+5. Poisoned chunks that echo the question sentences, or form a bait cluster, are quarantined by the
+   cheap stage where v2 kept them (decision 4). No parity delta: no golden case contains such a
+   chunk. Proven by the Doc Scanner unit tests; the live measure is Task 16 criterion (b).
+6. The outbound policy decision belongs to the L4 Output Guard; there is no outbound gate (decision 1).
+   With the inbound gate off, a job still gets a final decision after generation (v2's single L5
+   switch made both decisions, so turning it off left none). Owner decision 2026-10-14 (plan_v3
+   F14). 26 cases (all v2 `C3-L5`) in `agentmailguard/tests/deltas/task8_output_guard.json`. Proof:
+   `test_output_guard_floor.py::test_the_output_guard_decides_without_the_inbound_gate`.
+7. A marker forged in a kept document is scrubbed from the prompt but graded by nobody when the Doc
+   Scanner is off (decision 8: forged markers are graded where they arrive, and the document is
+   graded by L2 only). 2 cases (`b-004`, inline in `parity.py`; with L2 on the chunk is still
+   quarantined). Proof: `test_channel_isolation.py::test_document_forged_markers_are_scrubbed_without_a_verdict`.
+8. `C1` is Inbound Guard plus Inbound Gate: v2 `C1` ran the scan sub-stage only, v3 `C1` also runs
+   the extract sub-stage (decision 1: one Inbound Guard switch; `removed_ratio` recorded, one
+   extractor call with `llm=1`). Actions are unchanged apart from the P99 to P09 move of
+   `s-001`/`s-003` with `llm=1`. 26 cases in `agentmailguard/tests/deltas/task6_guard_config.json`
+   (the `C1` half). Proof: `test_inbound_guard.py::test_c1_runs_both_inbound_guard_sub_stages`.
+9. `C3-L1` is C3 without the Inbound Guard: v2 `C3-L1` still ran the extract sub-stage, v3 runs
+   neither sub-stage (no inbound severity, no `removed_ratio`, no extractor call; decision 1). 26
+   cases in `agentmailguard/tests/deltas/task6_guard_config.json` (the `C3-L1` half). Proof:
+   `test_inbound_guard.py::test_c3_l1_runs_no_inbound_guard_sub_stage`.
 
 ## Consequences
 

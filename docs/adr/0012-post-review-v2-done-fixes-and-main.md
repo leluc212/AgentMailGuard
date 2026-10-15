@@ -2,6 +2,7 @@
 
 - **Status:** Accepted; decisions 3 (the v2 guard pin) and 9 (the route of Qwen2.5-7B and
   Llama-3.1-8B) amended by ADR-0014 (2026-10-01): full cloud, the pin moved to `915cb1e`
+- **Amended by ADR-0015** (2026-10-15): decisions 2(b) (the visible fallback is now behind `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`, fail-closed by default) and 11 (config names; a third scheme, v3).
 - **Date:** 2026-09-30
 - **Decided by:** project owner (decision round, 2026-09-30 22:25; decision 11 at 23:10; decisions 12 to 16
   on 2026-10-01 at 00:42, after the first live v2 smoke runs; decision 17 at 06:02)

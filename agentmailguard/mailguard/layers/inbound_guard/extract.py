@@ -1,6 +1,6 @@
-"""Layer 2 - User Intent Extractor.
+"""L1 Inbound Guard, extract sub-stage: the User Intent Extractor.
 
-Turns the raw (already L1-scored) email into a *structured, non-executable* intent:
+Turns the raw (already scanned) email into a *structured, non-executable* intent:
 
     1. Segment the body (paragraphs -> sentences) and score every segment with the
        Stage-1 rules and the Stage-2 classifier. Segments at or above
@@ -10,11 +10,13 @@ Turns the raw (already L1-scored) email into a *structured, non-executable* inte
     3. Optionally ask the extractor LLM for a neutral third-person paraphrase. The
        sanitized body is wrapped in nonce-tagged data markers and the model is told
        to describe, never to follow. On any LLM failure (timeout, transport error, non-JSON,
-       missing or invalid fields) the heuristic result stands unchanged and the verdict
-       metadata says so: ``llm_fallback``, ``llm_fallback_reason``, ``llm_error``. The
-       verdict's ``error`` stays empty, so the email is processed normally.
+       missing or invalid fields) the heuristic result is kept and the verdict metadata says
+       so: ``llm_fallback``, ``llm_fallback_reason``, ``llm_error``. With
+       ``MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`` on (the default) the verdict's ``error`` is
+       also set to ``judge_invalid:inbound_extract``, which the fail-closed policy rule (P00)
+       turns into human review; with it off the error stays empty (the v2 visible fallback).
 
-The output ``SanitizedIntent`` is what Layer 3 places in the semi-trusted INTENT
+The output ``SanitizedIntent`` is what channel isolation places in the semi-trusted INTENT
 channel; the raw email only ever reaches the model inside the untrusted EMAIL
 channel (and only its sanitized form).
 """

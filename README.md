@@ -6,42 +6,43 @@ Python 3.12+, MIT license. The guard lives in [`agentmailguard/`](agentmailguard
 
 ## How the guard works
 
-One email goes through six layers (L1, L2, L3, L3b, L4, L5) around the single reply-writing model call. Only an inbound `block` or `quarantine` stops the run; every other decision is returned as a label for the dispatcher to act on.
+One email goes through four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a prompt-building switch (channel isolation, not a layer) around the single reply-writing model call. Only an inbound `block` or `quarantine` stops the run before the call; every other decision is returned as a label for the dispatcher to act on. The policy engine is shared infrastructure (stage `inbound` for L3, stage `outbound` for L4), not a layer.
 
 ```
                         BEFORE the reply call
- email ──▶ L1 injection scan ──▶ L2 intent extract ──▶ L5 inbound gate ──┐
-                                                          │ block /      │ other
-                                                          │ quarantine   │ decisions
-                                                          ▼              ▼
-                                               return (report, None,   retrieved chunks
-                                               None): no reply call         │
-                                                                            ▼
-                                                                  L3b scan chunks
-                                                                  (drop poisoned)
-                                                                            │
-                                                                            ▼
-                                                                  L3 build prompt
-                                                                  (isolated channels)
-                                                                            │
-                                                                            ▼
+ email ──▶ L1 Inbound Guard ──▶ L3 Inbound Gate, pass 1 ──┐
+           (scan + extract)      (L1's facts only)         │ other
+                                      │ block /            │ decisions
+                                      │ quarantine         ▼
+                                      ▼             retrieved chunks
+                           return (report, None,          │
+                           None): no reply call,          ▼
+                           no Doc Scanner run      L2 Doc Scanner ──▶ L3 Inbound Gate, pass 2
+                                                   (trust per chunk)   (every fact; final, audited)
+                                                                              │ block / quarantine: stop
+                                                                              ▼ other decisions
+                                                                  channel isolation (build prompt)
+                                                                              │
+                                                                              ▼
                                                           ┌──────── REPLY MODEL ────────┐
                                                           │   generate(bundle.messages) │
                                                           └──────────────┬──────────────┘
                                                                          ▼
-                        AFTER the reply call              L4 output scan (redact, check)
+                        AFTER the reply call              L4 Output Guard (scan + redact, outbound
+                                                          policy, inbound decision as a floor)
                                                                          ▼
-                                                           L5 outbound gate ──▶ decision
+                                                                  final decision
 ```
 
 | Layer | Input | Decision | Output |
 |---|---|---|---|
-| L1 Email Injection Scanner | One email | Cascade by cost: regex rules (15 families, 54 patterns) and obfuscation checks; then a TF-IDF + logistic-regression classifier, fused with the rules; then an optional LLM judge for uncertain scores only. An error is a HIGH fail-closed verdict. | `LayerVerdict`: severity, score 0-1, findings, indicators |
-| L2 User Intent Extractor | The body, without L1's verdict | Scores each segment alone with L1's rules and classifier, strips the injected ones, extracts the user's intent by regex (optional LLM paraphrase). | `SanitizedIntent` |
-| L3 Channel Isolation | Trusted instructions and data, the intent, untrusted text | No model. A nonce, scrubbed channel markers, spotlighting (`delimit`, `datamark` default, `encode`) and nonce-tagged channels. | `SecurePrompt` (`.messages`) |
-| L3b Retrieved Document Scanner | Retrieved chunks and the query | Each chunk alone: L1's rules and classifier plus PoisonedRAG heuristics, then an optional LLM check of uncertain chunks; poisoned chunks are dropped. | Kept chunks, one `ChunkVerdict` each |
-| L4 Output Scanner | The draft and what L1, L2 and L3b flagged | Deterministic checks: secret redaction, system-prompt leak, citation integrity, injected-goal compliance, unsafe recipients and links; then an optional LLM judge of doubtful drafts. | `OutputVerdict` with `redacted_text` |
-| L5 Policy Engine | L1-L4 verdicts as summary facts, never the text; stage `inbound` or `outbound` | No model. Every matching rule in `configs/policy.yaml` is collected and the strictest action wins: quarantine > block > human_approval > draft_only > auto_send. A layer error forces at least `human_approval`. Default is `draft_only`; `auto_send` needs category `acknowledgement` or `scheduling`, a reply action, the outbound gate and severity low or below. | `PolicyDecision` and a JSONL audit line |
+| L1 Inbound Guard (`inbound_guard`) | One email | Two sub-stages, one verdict. **scan:** cascade by cost: regex rules (15 families, 54 patterns) and obfuscation checks; then a TF-IDF + logistic-regression classifier, fused with the rules; then an optional LLM judge for uncertain scores only. **extract:** scores each segment alone, strips the injected ones, extracts the user's intent by regex (optional LLM paraphrase). Severity and score come from the scan only. A judge that fails or answers invalidly is human review (`judge_invalid:<stage>`); an error is a HIGH fail-closed verdict. | `InboundVerdict`: severity, score 0-1, findings, indicators, sanitized body, intent |
+| L2 Doc Scanner (`doc_scanner`) | Retrieved chunks and the email's question sentences | Each chunk: the L1 rules and classifier plus PoisonedRAG heuristics, then signals against the question sentences (`echo_vs_question`, `ordered_prefix`) and bait clusters; an optional LLM check of uncertain chunks and an optional LLM set judge (adds quarantines only). Skipped when gate pass 1 stops the job. | `DocumentVerdict`: one `ChunkVerdict` each, with `trust` (trusted, untrusted, quarantined) |
+| L3 Inbound Gate (`inbound_gate`) | L1 and L2 verdicts as summary facts, never the text | No model. The shared policy engine at stage `inbound`, run twice: pass 1 on L1's facts, pass 2 on every fact. Every matching rule in `configs/policy.yaml` is collected and the strictest action wins: quarantine > block > human_approval > draft_only > auto_send. A layer error forces at least `human_approval`. | `PolicyDecision` (the final pass is audited, JSONL) |
+| Channel isolation (a switch, not a layer) | Trusted instructions and data, the intent, untrusted text, the kept chunks with their trust | No model, no verdict. A nonce, scrubbed channel markers, spotlighting (`delimit`, `datamark` default, `encode`) and nonce-tagged channels. | `SecurePrompt` (`.messages`) and `IsolationInfo` |
+| L4 Output Guard (`output_guard`) | The draft and what L1 and L2 flagged | Deterministic checks: secret redaction, system-prompt leak, citation integrity, injected-goal compliance, unsafe recipients and links; an optional LLM judge of doubtful drafts; then the policy engine at stage `outbound`; then the inbound decision is carried in as a floor (only a specific rule stricter than `auto_send`). Default is `draft_only`; `auto_send` needs category `acknowledgement` or `scheduling`, a reply action, severity low or below, and no floor. | `OutputVerdict` with `redacted_text`, and the final `PolicyDecision` |
+
+All five judges (L1 scan, L1 extract, L2 chunk, L2 set, L4 output) share one call budget of five per job (the production default enables two) and fail closed by default (`MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`). Reports carry `schema_version: 3`. The v2 names (L3b, L5, `C3-L3B`, `C3-L5`, `L1__*` to `L5__*` keys) are gone; the migration table is in [docs/configuration.md](docs/configuration.md) section 2.23, and the decisions are in [ADR-0015](docs/adr/0015-guard-architecture-v3.md).
 
 Thresholds, caps and rules per layer: [docs/overview/layers/](docs/overview/layers/) and [docs/overview/04-agentmailguard-layers.md](docs/overview/04-agentmailguard-layers.md).
 
@@ -67,7 +68,7 @@ The L1 classifier `l1_injection_clf_v1.joblib` is not in git; the owner sends it
 
 Without the owner's file, `make mailguard-prep` downloads the datasets and trains a classifier (network, no API key) into `../AgentMailGuard-bench-artifacts`. Use it for direct use through `INBOUND_GUARD__ML_MODEL_PATH`; its hash differs from the pin, so the pinned benchmark rejects it.
 
-See it work, from `agentmailguard/` (an injected email; with the rules alone L1 and L2 report critical and L5 quarantines it before any reply call):
+See it work, from `agentmailguard/` (an injected email; with the rules alone L1 reports critical and the Inbound Gate quarantines it before any reply call):
 
 ```bash
 cd agentmailguard
@@ -105,10 +106,10 @@ asyncio.run(main())
 It prints `draft_only Your X200 has a 24-month warranty [kb-warranty-1]. ['kb-warranty-1']`.
 
 Notes:
-- `GuardConfig.preset(name)` takes the guard v3 presets: `C0` (nothing), `C1` (Inbound Guard + Inbound Gate), `C2` (C1 + Doc Scanner + channel isolation), `C3` (everything), `C3-L1` to `C3-L4` (C3 minus one of the four layers) and `C3-ISO` (C3 without channel isolation). Other names, including the v2 `C3-L3B` and `C3-L5`, raise `ValueError`. For a custom set, build `GuardConfig` directly with the booleans `inbound_guard`, `doc_scanner`, `inbound_gate`, `output_guard` and `channel_isolation`. These are the guard's own presets; the benchmark's C0-C7 below are a different set that reuses the names (the benchmark still names its layers l1 to l5 until its scheme v3).
-- `report.inbound_decision` is the gate before generation. `report.decision` is the final gate after L4. A custom provider can be passed as `inbound_judge=`, `inbound_extractor=`, `doc_judge=` or `output_judge=`.
+- `GuardConfig.preset(name)` takes the guard v3 presets: `C0` (nothing), `C1` (Inbound Guard + Inbound Gate), `C2` (C1 + Doc Scanner + channel isolation), `C3` (everything), `C3-L1` to `C3-L4` (C3 minus one of the four layers) and `C3-ISO` (C3 without channel isolation). Other names, including the v2 `C3-L3B` and `C3-L5`, raise `ValueError`. For a custom set, build `GuardConfig` directly with the booleans `inbound_guard`, `doc_scanner`, `inbound_gate`, `output_guard` and `channel_isolation`. The benchmark uses these same names (plus `C0T`, the guard's template with no layer, which is `GuardConfig.preset("C0")`).
+- `report.inbound_decision` is the Inbound Gate's decision before generation. `report.decision` is the final decision (L4's, which carries the inbound decision as a floor; the inbound decision when L4 is off). A custom provider can be passed as `inbound_judge=`, `inbound_extractor=`, `doc_judge=`, `doc_set_judge=` or `output_judge=` (`doc_set_judge` only has an effect with `DOC_SCANNER__SET_JUDGE_LLM_ENABLED=true`, and a provider is ignored for a layer object passed ready-made).
 - This cheap-only setup does not stop soft attacks: without the classifier or a judge, an attack that matches no rule falls to the default `draft_only`. To enable the LLM stages, name a registered model for each stage; [Configure the models](#configure-the-models) has every setting and three worked examples. The benchmark ignores these settings (it takes `MODEL=<profile>`).
-- A failed LLM stage (timeout, non-JSON output, schema mismatch) keeps the cheap result and sets `metadata.llm_fallback=true`.
+- A configured LLM stage that fails (timeout, non-JSON output, schema mismatch) keeps the cheap result, sets `metadata.llm_fallback=true` and, by default (`MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=true`), sets the verdict's `error` to `judge_invalid:<stage>`, which the policy turns into human review. A stage that is not configured degrades silently. `false` restores the v2 visible fallback (the benchmark's `--judge-fallback` / `JUDGE_FALLBACK=1`).
 - Step-wise API: `inspect_inbound`, `build_prompt`, `inspect_outbound`. Adapters for a host: `GuardedReplyAgent`, `decision_to_job_result`, `dispatch_allowed` in `mailguard.integration.adapters`.
 - Unit tests of the guard: `python -m pytest tests/unit -q` from `agentmailguard/`.
 
@@ -116,7 +117,7 @@ Notes:
 
 The benchmark runs 550 pinned cases through the real rag-email pipeline, once per config. The cases are 300 LLMail-Inject attack emails, 150 benign emails and 100 RAG-poisoning cases, drawn with seed 20260930 (each draw on its own derived seed) from public datasets. Sources and licenses: [pinned/NOTICE.md](evaluation/mailguard_bench/pinned/NOTICE.md); case ids per set: `evaluation/datasets/mailguard/manifest.json`. The case file `evaluation/datasets/mailguard/cases.jsonl` has sha256 `c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19`. After `make mailguard-prep`, `make mailguard-cases` rebuilds the set and fails unless it reproduces the manifest's ids and hash.
 
-Needs Docker Engine with Compose v2, make, and the classifier in `pinned/`. Linux is the tested route; on Windows 11 Home use WSL2 with Ubuntu and Docker Engine inside it ([docs/BENCHMARK.md](docs/BENCHMARK.md)). The v2 benchmark is full cloud (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Keys, set in `.env` (names only; never print or commit them):
+Needs Docker Engine with Compose v2, make, and the classifier in `pinned/`. Linux is the tested route; on Windows 11 Home use WSL2 with Ubuntu and Docker Engine inside it ([docs/BENCHMARK.md](docs/BENCHMARK.md)). The benchmark is full cloud (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Keys, set in `.env` (names only; never print or commit them):
 
 | Key | Needed for |
 |---|---|
@@ -137,29 +138,32 @@ make bench-report RUN=<id>                              # rebuild report.md, sum
 make bench-package RUN=<id>                             # bench-results-<id>.zip and how to commit it to branch bench/<id>
 ```
 
-A small trial first, over one LLMail attack, one benign email and one RAG case (so it also embeds knowledge documents): `make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1`. It passes only if every `ok <config>:` line says `0 error` ([docs/BENCHMARK.md](docs/BENCHMARK.md) D4); a trial folder (`RUN=trial-...`) is never a result. Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CASE_IDS=id,id,...`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gpt-4o-mini`, `qwen2.5-7b-openrouter` and `llama-3.1-8b-openrouter` (the Friday run), `qwen2.5-7b` and `llama-3.1-8b-local` (local), `gemma-4-26b` (test). Before the stack is touched, `bench-run` makes one embedding call with the `EMBEDDING__*` settings and refuses to start unless it returns a 1536-wide vector. A guard model call that fails on the route or the service (HTTP 402 (no credit), 404, 408, 409 or 5xx, a timeout, a connection error, a router error in an HTTP 200 body, an HTTP 200 body that is not JSON) makes its case an error row (`guard_route_failure`) that the retry pass reruns; a per-minute 429 is retried, and a used-up quota stops the run (`quota_exhausted`). A used-up quota, balance, spend limit or daily cap of any provider (or OpenRouter credit), and an OpenRouter route that stops serving, print `STOP` and the kit stops cleanly; run the same command again later (the next day for a daily cap): it resumes, and other models may run in between, unless they use the limit that stopped it (the embedding's quota, or the OpenAI account of an OpenAI embedding: their embedding check then stops with the same message). Do not run `make up`, `docker compose` or edit `.env` while a run is going.
+A small trial first, over one LLMail attack, one benign email and one RAG case (so it also embeds knowledge documents): `make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1`. It passes only if every `ok <config>:` line says `0 error` ([docs/BENCHMARK.md](docs/BENCHMARK.md) D4); a trial folder (`RUN=trial-...`) is never a result. Options of `bench-run`: `CONFIGS=`, `LIMIT=n`, `CASE_IDS=id,id,...`, `CONCURRENCY=1|2`, `DRY_RUN=1`. Model profiles: `gpt-4o-mini`, `qwen2.5-7b-openrouter` and `llama-3.1-8b-openrouter` (the Friday run), `qwen2.5-7b` and `llama-3.1-8b-local` (local), `gemma-4-26b` (test). Before the stack is touched, `bench-run` makes one embedding call with the `EMBEDDING__*` settings and refuses to start unless it returns a 1536-wide vector. A guard model call that fails on the route or the service (HTTP 402 (no credit), 404, 408, 409 or 5xx, a timeout, a connection error, a router error in an HTTP 200 body, an HTTP 200 body that is not JSON) makes its case an error row (`guard_route_failure`) that the retry pass reruns; a per-minute 429 is retried, and a used-up quota stops the run (`quota_exhausted`). A used-up quota, balance, spend limit or daily cap of any provider (or OpenRouter credit), and an OpenRouter route that stops serving, print `STOP` and the kit stops cleanly; run the same command again later (the next day for a daily cap): it resumes, and other models may run in between, unless they use the limit that stopped it (the embedding's quota, or the OpenAI account of an OpenAI embedding: their embedding check then stops with the same message). Do not run `make up`, `docker compose` or edit `.env` while a run is going.
 
-What one model run needs (estimates; ADR-0014, owner decision 2026-10-01; check that your accounts cover it): about 8,000 to 11,000 model requests (`gpt-4o-mini` on OpenAI, or the OpenRouter model), about 4 to 8 million input and 1 to 1.5 million output tokens, and about $1.5 to $2 for `gpt-4o-mini`, $1 for Qwen2.5-7B, $2 for Llama-3.1-8B; about 6,000 to 10,000 embedding requests (about 1 to 1.5 million tokens) per model run; up to about 3,600 reads of the meaning reader per model.
+What one model run needs (v2 estimates from ADR-0014, owner decision 2026-10-01, computed for the v2 stage list and not re-measured for v3, which runs up to five guard judges per job; Task 16 re-measures; check that your accounts cover it): about 8,000 to 11,000 model requests (`gpt-4o-mini` on OpenAI, or the OpenRouter model), about 4 to 8 million input and 1 to 1.5 million output tokens, and about $1.5 to $2 for `gpt-4o-mini`, $1 for Qwen2.5-7B, $2 for Llama-3.1-8B; about 6,000 to 10,000 embedding requests (about 1 to 1.5 million tokens) per model run; up to about 3,600 reads of the meaning reader per model.
 
-Benchmark configs (scheme v2, the default). These names are not the Python `GuardConfig.preset` names above; scheme v1 used the preset meanings (`SCHEME=v1` with `make mailguard-bench` reproduces the published runs on the earlier guard pin), and a run folder never mixes schemes.
+Benchmark configs (scheme v3, the only scheme a run at HEAD takes). They are the guard's own preset names above, plus `C0` (no guard code) and `C0T`; the runner refuses `--scheme v1` and `--scheme v2` (`make mailguard-bench SCHEME=v1` passes them through) and names the guard commit to check out for them, and a run folder never mixes schemes. The default campaign is every config except `C0T`, which runs only when asked for (`CONFIGS=C0T`). Every judge of every layer a config runs is live.
 
 | Config | Active layers | Live AI stages |
 |---|---|---|
 | C0 | none; rag-email's own path, no guard code | none |
 | C0T | guard prompt template, no layer | none |
-| C1 | L1 + L5 | l1.judge |
-| C2 | L2 + L5 | l2.llm |
-| C3 | L3 + L5 | none |
-| C4 | L3b + L5 | l3b.llm |
-| C5 | L4 + L5 | l4.llm |
-| C6 | L5 alone (control) | none |
-| C7 | L1, L2, L3, L3b, L4, L5 (all) | all four |
+| C1 | L1 Inbound Guard + L3 Inbound Gate | inbound_judge, inbound_extractor |
+| C2 | C1 + L2 Doc Scanner + channel isolation | the above + doc_judge, doc_set_judge |
+| C3 | all four layers + channel isolation (the target) | all five judges |
+| C3-L1 | C3 without L1 | doc_judge, doc_set_judge, output_judge |
+| C3-L2 | C3 without L2 | inbound_judge, inbound_extractor, output_judge |
+| C3-L3 | C3 without L3 | all five judges |
+| C3-L4 | C3 without L4 | the four inbound and document judges |
+| C3-ISO | C3 without channel isolation | all five judges |
+
+A judge that fails fails closed (human review) unless the run passes `--judge-fallback` (`JUDGE_FALLBACK=1`), which restores the v2 visible fallback. The report adds per-config exit points (`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`), the inbound floor, guard calls per stage and fail-closed events. Committed v1/v2 run folders are read, never re-run, with `make mailguard-report RUN=<id> LEGACY=1`. The Makefile's `MAILGUARD_COMMIT` pin still names the v2 guard until plan_v3 Task 15b moves it, so a live run at HEAD cannot pass the worktree check until then.
 
 Results go to `evaluation/results/mailguard_bench/<RUN>/`; `raw/` is git-ignored. Each report's "Run setup" section names the model, the pinned provider and the providers that served the calls, and the embedding. Guides: [docs/BENCHMARK.md](docs/BENCHMARK.md) (Windows/WSL2, cloud models), owner runbook [docs/demo-runbook.md](docs/demo-runbook.md) sections 9.9 and 9.10.
 
 ## AI and ML components
 
-A full live run uses four fixed ML models, one LLM under test that fills up to seven roles, and a separate reader LLM after the run. The model under test is the only thing that changes between runs (ADR-0011, decision 1). The drawing is C7, with every layer on; the other configs switch layers off as in the table above.
+A full live run uses four fixed ML models, one LLM under test that fills up to eight roles, and a separate reader LLM after the run. The model under test is the only thing that changes between runs (ADR-0011, decision 1). The drawing is C3, with every layer on; the other configs switch layers off as in the table above.
 
 ```
 [ ] fixed model, the same in every run          ( ) LLM role, filled by the run's one model
@@ -167,14 +171,14 @@ A full live run uses four fixed ML models, one LLM under test that fills up to s
 triage-worker     rules ─▶ [triage classifier] ─▶ (triage LLM) ─▶ gate ─▶ AI path
 ai-worker or      (summarizer) ─▶ hybrid search with [embedding model] ─▶ [reranker]
 guard-worker
-  guard, before   L1   rules ─▶ [L1 classifier] ─▶ (L1 judge)
-                  L2   rules + [L1 classifier] per segment ─▶ (L2 extractor)
-                  L5   inbound gate, no model
-                  L3b  rules + [L1 classifier] per chunk ─▶ (L3b scanner)
-                  L3   prompt build, no model
+  guard, before   L1   scan: rules ─▶ [L1 classifier] ─▶ (scan judge)
+                       extract: rules + [L1 classifier] per segment ─▶ (extractor)
+                  L3   inbound gate pass 1, no model
+                  L2   rules + [L1 classifier] per chunk ─▶ (chunk judge) ─▶ (set judge)
+                  L3   inbound gate pass 2, no model
+                       channel isolation: prompt build, no model
   the call        (reply writer)
-  guard, after    L4   deterministic checks ─▶ (L4 judge)
-                  L5   outbound gate, no model
+  guard, after    L4   deterministic checks ─▶ (output judge) ─▶ outbound policy + floor, no model
 after the run     (meaning reader): another model reads each attack draft
 ```
 
@@ -183,7 +187,7 @@ Fixed models:
 | Model | Role | Source |
 |---|---|---|
 | Triage classifier: TF-IDF + logistic regression | Triage stage 2, after the rules | `artifacts/models/triage_ml_v1.joblib`, in git |
-| L1 injection classifier: TF-IDF + logistic regression, sigmoid-calibrated | L1 stage 2; L2 reuses it per segment, L3b per chunk | `l1_injection_clf_v1.joblib`, private, sha256-checked in `pinned/` |
+| L1 injection classifier: TF-IDF + logistic regression, sigmoid-calibrated | L1 scan stage 2; the extract sub-stage reuses it per segment, the Doc Scanner per chunk | `l1_injection_clf_v1.joblib`, private, sha256-checked in `pinned/` |
 | The runner's embedding model, 1536 dimensions (for example OpenAI `text-embedding-3-small` or Gemini `gemini-embedding-001`) | Embeddings for hybrid search, hosted | the runner's choice (ADR-0014), the same for every model of a comparison, recorded with each run; `EMBEDDING__*` in `.env` |
 | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranks the retrieved chunks, on CPU | baked into the image (`Dockerfile`, `RERANK_MODEL`); the kit copies it to `.cache/reranker` for the guard-worker |
 
@@ -193,18 +197,19 @@ LLM roles, all on the model under test:
 |---|---|---|
 | Triage stage 3 | the rules and the classifier are not confident enough | all |
 | Thread summarizer | the thread has more than 4 messages or more than an estimated 1,500 tokens | all |
-| Reply writer | the gate sends the email down the AI path: one call, at most one repair | all, unless L5's inbound gate stops the email |
-| L1 judge | L1's cheap fused score is in [0.20, 0.85) | C1, C7 |
-| L2 extractor | every email: a neutral paraphrase of the request | C2, C7 |
-| L3b scanner | a retrieved chunk scores in [0.30, 0.70) | C4, C7 |
-| L4 judge | the draft is below high severity, and an injected goal was flagged or its score is at least 0.2 | C5, C7 |
+| Reply writer | the gate sends the email down the AI path: one call, at most one repair | all, unless the Inbound Gate stops the email |
+| L1 scan judge (`inbound_judge`) | L1's cheap fused score is in [0.20, 0.85) | C1, C2, C3 and the ablations that keep L1 |
+| L1 extractor (`inbound_extractor`) | every email: a neutral paraphrase of the request | the same |
+| L2 chunk judge (`doc_judge`) | a retrieved chunk scores in [0.30, 0.70) | configs with L2 |
+| L2 set judge (`doc_set_judge`) | a kept chunk is in the suspicious band; one call, adds quarantines only | configs with L2 |
+| L4 output judge (`output_judge`) | the draft is below high severity, and an injected goal was flagged or its score is at least 0.2 | configs with L4 |
 
 How the models were chosen:
-- The guard's four model roles (`judge`, `extractor`, `doc_scanner`, `output_judge`) default to `fake`; a host names a registered model for each. The benchmark names the run's model for all four ([guard_factory.py](evaluation/mailguard_bench/guard_factory.py)) and points rag-email's fast, strong and fallback tiers and its summarizer at the same model ([model_profiles.py](evaluation/mailguard_bench/model_profiles.py), [stack_env.py](evaluation/mailguard_bench/live/stack_env.py)).
-- The three models under test are the ones AgentMailGuard's own plan compares, each as reply agent and guard LLM stages ([agentmailguard/docs/experiments.md](agentmailguard/docs/experiments.md)): one hosted model, `gpt-4o-mini` (OpenAI API), and two open-weight 7-8B models, Qwen2.5-7B-Instruct and Llama-3.1-8B-Instruct. The v1 runs served the two open models locally in 4-bit builds on Ollama (owner decision 2026-09-29). The v2 benchmark serves them through OpenRouter, each pinned to one provider with fallbacks off: `qwen/qwen-2.5-7b-instruct` on Phala (precision not stated by the provider) and `meta-llama/llama-3.1-8b-instruct` on CoreWeave at `bf16` (owner decision 2026-10-01, ADR-0014; [model_profiles.py](evaluation/mailguard_bench/model_profiles.py), [guard_models.yaml](evaluation/mailguard_bench/guard_models.yaml)). Every call's served provider is checked and recorded, and the v2 numbers for these two are not comparable with v1's on serving. The profile `gemma-4-26b` (Gemini API) served the first test run and is not one of the three.
+- The guard's five model roles (`inbound_judge`, `inbound_extractor`, `doc_judge`, `doc_set_judge`, `output_judge`) default to `fake`; a host names a registered model for each. The benchmark names the run's model for all five ([guard_factory.py](evaluation/mailguard_bench/guard_factory.py)) and points rag-email's fast, strong and fallback tiers and its summarizer at the same model ([model_profiles.py](evaluation/mailguard_bench/model_profiles.py), [stack_env.py](evaluation/mailguard_bench/live/stack_env.py)).
+- The three models under test are the ones AgentMailGuard's own plan compares, each as reply agent and guard LLM stages ([agentmailguard/docs/experiments.md](agentmailguard/docs/experiments.md)): one hosted model, `gpt-4o-mini` (OpenAI API), and two open-weight 7-8B models, Qwen2.5-7B-Instruct and Llama-3.1-8B-Instruct. The v1 runs served the two open models locally in 4-bit builds on Ollama (owner decision 2026-09-29). The benchmark serves them through OpenRouter, each pinned to one provider with fallbacks off: `qwen/qwen-2.5-7b-instruct` on Phala (precision not stated by the provider) and `meta-llama/llama-3.1-8b-instruct` on CoreWeave at `bf16` (owner decision 2026-10-01, ADR-0014; [model_profiles.py](evaluation/mailguard_bench/model_profiles.py), [guard_models.yaml](evaluation/mailguard_bench/guard_models.yaml)). Every call's served provider is checked and recorded, and the numbers for these two since v2 are not comparable with v1's on serving. The profile `gemma-4-26b` (Gemini API) served the first test run and is not one of the three.
 - The meaning reader must be independent of the models under test: [meaning.py](evaluation/mailguard_bench/meaning.py) refuses a benchmarked model, any variant of one (another tag, date, quantization or provider prefix) and the run's own generation model. Choose it and write it down before the first run (ADR-0012, decision 7).
 
-What a full live benchmark needs (3 models × 9 configs × 550 cases, one model at a time):
+What a full live benchmark needs (3 models × 9 configs × 550 cases, one model at a time; the 9 are the default campaign above, without C0T):
 
 1. The keys in `.env`: `BENCH_OPENAI_API_KEY` for `gpt-4o-mini`, `BENCH_OPENROUTER_API_KEY` (with credit and a per-key limit) for the two OpenRouter models, and the embedding of your choice (the key table above).
 2. The settings the host processes share with the containers, in `.env`: the `EMBEDDING__*` lines, `LLM__TIMEOUT_S=60`, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000` and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` (the block in [docs/BENCHMARK.md](docs/BENCHMARK.md) part C). The kit writes the containers' copy to `.env.stack`, with the tiers, the summarizer, the provider pin and the reranker, and refuses to start while `.env` or the shell disagrees.
@@ -255,13 +260,14 @@ With `LLM__PROVIDER=openai`, a Gemini or Gemma model name on the default OpenAI 
 
 ### AgentMailGuard
 
-The guard reads its settings from the environment and from the `.env` of its working directory (`mailguard/config/settings.py`; run from `agentmailguard/` to use `agentmailguard/.env`). Each LLM stage is named by a registry entry. `fake` (the default) is the offline canned double, not an off switch: a stage left at `fake` has no LLM only while no stage built before it (judge, extractor, document scanner, output judge, in that order) names a real model and the host passes no `registry=`. Once one does, the guard builds its registry and every later `fake` stage answers with canned replies. To turn an LLM stage off, set its switch below to `false`, or name a real model for every stage you run. In direct use an unknown name logs a warning and turns the stage off.
+The guard reads its settings from the environment and from the `.env` of its working directory (`mailguard/config/settings.py`; run from `agentmailguard/` to use `agentmailguard/.env`). Each LLM stage is named by a registry entry. `fake` (the default) is the offline canned double, not an off switch: a stage left at `fake` has no LLM only while no stage built before it (inbound judge, inbound extractor, document judge, document set judge, output judge, in that order) names a real model and the host passes no `registry=`. Once one does, the guard builds its registry and every later `fake` stage answers with canned replies. To turn an LLM stage off, set its switch below to `false`, or name a real model for every stage you run. In direct use an unknown name logs a warning and turns the stage off.
 
 | Stage | Model setting | Stage switch |
 |---|---|---|
-| L1 judge (uncertain L1 scores only) | `GUARD_MODELS__INBOUND_JUDGE` | `INBOUND_GUARD__SCAN_LLM_ENABLED`, default `true` |
-| L2 extractor | `GUARD_MODELS__INBOUND_EXTRACTOR` | `INBOUND_GUARD__EXTRACT_LLM_ENABLED`, default `true` |
-| L3b document scanner (uncertain chunks only) | `GUARD_MODELS__DOC_JUDGE` | `DOC_SCANNER__LLM_ENABLED`, default **`false`**: set `true` |
+| L1 scan judge (uncertain L1 scores only) | `GUARD_MODELS__INBOUND_JUDGE` | `INBOUND_GUARD__SCAN_LLM_ENABLED`, default `true` |
+| L1 extractor | `GUARD_MODELS__INBOUND_EXTRACTOR` | `INBOUND_GUARD__EXTRACT_LLM_ENABLED`, default `true` |
+| L2 chunk judge (uncertain chunks only) | `GUARD_MODELS__DOC_JUDGE` | `DOC_SCANNER__LLM_ENABLED`, default **`false`**: set `true` |
+| L2 set judge (adds quarantines only; one call, when a kept chunk is in the suspicious band) | `GUARD_MODELS__DOC_SET_JUDGE` | `DOC_SCANNER__SET_JUDGE_LLM_ENABLED`, default **`false`**: set `true` |
 | L4 output judge (doubtful drafts only) | `GUARD_MODELS__OUTPUT_JUDGE` | `OUTPUT_GUARD__LLM_ENABLED`, default **`false`**: set `true` |
 
 The registry is `configs/models.yaml` (`GUARD_MODELS__MODELS_PATH`, relative to `agentmailguard/`). It ships `gpt-4o-mini`, `qwen2.5-7b-instruct` and `llama-3.1-8b-instruct` (Ollama, 4-bit tags), `qwen/qwen-2.5-7b-instruct` and `meta-llama/llama-3.1-8b-instruct` (OpenRouter, pinned), and `fake`. Entry formats:
@@ -297,7 +303,7 @@ models:
 
 ### The benchmark
 
-`MODEL=<profile>` (`--model-profile`) puts one model in every LLM role of both systems: rag-email's three tiers, the summarizer and `LLM__PRICE_TABLE`, its endpoint and key, the OpenRouter pin when there is one; and the guard's four roles from the benchmark's own registry, [evaluation/mailguard_bench/guard_models.yaml](evaluation/mailguard_bench/guard_models.yaml) (not `agentmailguard/configs/models.yaml`), with `OPENAI_BASE_URL` and `OPENAI_API_KEY` set from the profile. The configs turn the guard's stages on and off (`C7` runs all four). The `.env` lines `LLM__*` and `GUARD_MODELS__*` do not pick the benchmarked model.
+`MODEL=<profile>` (`--model-profile`) puts one model in every LLM role of both systems: rag-email's three tiers, the summarizer and `LLM__PRICE_TABLE`, its endpoint and key, the OpenRouter pin when there is one; and the guard's five roles from the benchmark's own registry, [evaluation/mailguard_bench/guard_models.yaml](evaluation/mailguard_bench/guard_models.yaml) (not `agentmailguard/configs/models.yaml`), with `OPENAI_BASE_URL` and `OPENAI_API_KEY` set from the profile. The configs turn the guard's layers, and with them their judges, on and off (`C3` runs all five). The `.env` lines `LLM__*` and `GUARD_MODELS__*` do not pick the benchmarked model.
 
 | Profile | Model | Endpoint | Key |
 |---|---|---|---|
@@ -413,7 +419,7 @@ provider ──▶ mail-connector ──▶ email.normalize ──▶ email-work
                                        dispatch-worker ──▶ provider draft ──▶ COMPLETED
 ```
 
-Where the guard attaches today: in the benchmark, `guard-worker` is the ai-worker process with `GuardedDraftingService` in place of `DraftingService`. Summary, retrieval, rerank and routing stay unchanged; the guard wraps the drafting step only, so emails that triage stops or answers by template never reach it (ADR-0010, ADR-0011). It is evaluation-only: `python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1..C7 --run RUN --model-profile M [--scheme v2|v1]`, and only one guard-worker or the ai-worker container may consume the lane queues at a time. In the full design L1/L2/L5 run before the call, L3b/L3 on the retrieved chunks, L4/L5 on the draft; wiring the outbound decision into the dispatch-worker is not done.
+Where the guard attaches today: in the benchmark, `guard-worker` is the ai-worker process with `GuardedDraftingService` in place of `DraftingService`. Summary, retrieval, rerank and routing stay unchanged; the guard wraps the drafting step only, so emails that triage stops or answers by template never reach it (ADR-0010, ADR-0011). It is evaluation-only: `python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO --run RUN --model-profile M [--scheme v3] [--judge-fallback]`, and only one guard-worker or the ai-worker container may consume the lane queues at a time. In the full design L1 and the Inbound Gate run before the call, the Doc Scanner and channel isolation on the retrieved chunks, the Output Guard on the draft; wiring the final decision into the dispatch-worker is not done.
 
 Run the stack (needs Docker; defaults are `LLM__PROVIDER=fake` and `EMBEDDING__MOCK=true`, so no key):
 
@@ -461,7 +467,7 @@ make mailguard-unit   # the whole unit suite with the guard on the import path
 - [docs/benchmark-windows-native.md](docs/benchmark-windows-native.md): native Windows route with Docker Desktop.
 - [docs/demo-runbook.md](docs/demo-runbook.md): owner runbook; section 9 is the benchmark.
 - [docs/overview/](docs/overview/): project overview, rag-email, AgentMailGuard and its layers.
-- [docs/adr/](docs/adr/): architecture decisions (0008 to 0014).
+- [docs/adr/](docs/adr/): architecture decisions (0008 to 0015).
 - [docs/configuration.md](docs/configuration.md), [docs/observability.md](docs/observability.md).
 - [specs/](specs/): `requirements.md`, `design.md`, `tasks.md`.
 - [agentmailguard/README.md](agentmailguard/README.md): the guard's own README and its own evaluation harness.

@@ -214,5 +214,6 @@ def test_the_runbook_states_both_pins_where_the_operator_reads_them() -> None:
     section99 = section9[section9.index("### 9.9 ") :]
 
     assert V1 in section9 and V2 in section9
-    assert V2 in section99  # the v2 procedure names the pin it runs on
-    assert "guarded.v2" in section99
+    assert V2 in section99  # the pin the Makefile has today (the v2 guard, until Task 15b)
+    assert "guarded.v3" in section99  # the prompt version of a run at HEAD
+    assert "guarded.v2" in section99  # and the history it replaced

@@ -885,6 +885,7 @@
   - Scorecard: ASR (headline; target C3 ≤ 5 % on LLMail-Inject, stated as "met / not met" with the Wilson interval), DER, TMR N/A, ASR by scenario and by vector, McNemar exact p, FPR, benign utility, latency p50/p95/p99 split guard vs generation, tokens, model calls and cost per email; no-API analyses: TF-IDF leakage check, first catching layer, worked examples, threat model and limitations.
   - Resilience: each case is written as it finishes; reruns skip recorded cases; HTTP 429 gets back-off; failed cases are reported as errors, never as defended.
   - Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`. Code is unit-tested on the fake provider; live runs are owner-run (`make mailguard-bench`, runbook §9) and never in `make ci`.
+  - Superseded vocabulary: since ADR-0015 (task 7.30) the benchmark at HEAD runs config scheme v3 only (configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4`, `C3-ISO`); this task's scheme v1/v2 names (`C4` to `C7`, `C3-L5`, `L3b`) are read only through `make mailguard-report RUN=<id> LEGACY=1`. The text above is left as the history it is.
   - _Requirements: R22.12, R21.5, R21.6, R24.5, SC4, SC5, SC9_
 
 - [~] **7.20 AgentMailGuard live pipeline benchmark, v2 (every service live)**
@@ -898,6 +899,7 @@
   - Live runs are owner-run (runbook §9.9), one model and one config at a time (the containers hold one model's settings, the lane queues one drafting consumer), and never in `make ci`; unit tests use fakes (R24.5).
   - **Config scheme (work package R5; ADR-0012 decision 11; pre-registered as Amendment 2 of the v2 design, written before any v2 run).** The names C0 to C7 have two meanings, recorded as `scheme` (`"v1"` or `"v2"`) in every run's meta and settings fingerprint: new runs are v2, a run folder never mixes the two (runners, guard-worker and report refuse), and a meta without the key is v1 and keeps its presets, case selection (C1 and C2 on the reduced subset), C3-L1..C3-L5 ablation and report byte for byte. Scheme v2: C0 no guard, C0T the guard's template with no layer, C1 L1+L5, C2 L2+L5, C3 L3+L5, C4 L3b+L5, C5 L4+L5, C6 L5 alone (a control), C7 every layer; every config on all 550 pinned cases per model, built from explicit layer flags (no guard preset) by the in-process runner, the live runner and the guard-worker, with the live AI stages C1 the L1 judge, C2 L2's AI step, C4 L3b's, C5 L4's, C7 all four, none for C0, C0T, C3 and C6. The report judges the target on C7's guard ASR (at most 5 %) and adds paired exact McNemar tests of C1..C6 against C0T and C7 against C0, and a control check of C6 against C0T. The sentences of A–F above that say "C3", "C0T/C1/C2/C3" or "the C3 target" describe scheme v1, the vocabulary they were built in; in scheme v2 they read C7 and the configs of Amendment 2.
   - Status: A–F and R1–R3 are merged on the integration branch (R1 reporting: AI-step fallbacks, the two benign-utility rules, the fail-closed sensitivity line, template-path successes, the L2 recount; R2: the guarded prompt carries rag-email's reply-format rules, guard pin `1a3ef62`, the prompt version in every meta; R3: the lexical branch ORs the query terms, the default lane consumers come from the category taxonomy, and 7.21's router relevance check). R5, the config scheme, the v2 configs, their report, the Make target and runbook §9.9, and the pre-registration, is built in this change. Left: (1) the owner-run v2 runs and their reports for the three models, the teammate's main run on Friday 2026-10-02 with the kit of ADR-0012 decision 9, after live smoke runs through all nine configs on the desktop (runbook §9.9 step 5; ADR-0012 decision 1); (2) the v2-config cases of `tests/integration/test_mailguard_bench_guarded_run.py` are written but need Postgres and were not run when they were written; (3) the model route for Qwen and Llama: decided 2026-10-01, full cloud through OpenRouter with pinned providers and the guard pin moved to `915cb1e` (ADR-0014, task 7.29); (4) task 7.23, the no-API analyses for scheme v2; (5) decision 6, one repository on `main`, once decision 1 holds and a final audit finds nothing open.
+  - Superseded vocabulary: since ADR-0015 (task 7.30) the benchmark at HEAD runs config scheme v3 only (configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4`, `C3-ISO`); this task's scheme v1/v2 names (`C4` to `C7`, `C3-L5`, `L3b`) are read only through `make mailguard-report RUN=<id> LEGACY=1`. The text above is left as the history it is.
   - _Requirements: R22.12, R4.1, R5.10, R6.1, R6.3, R8.3, R9.6, R10.9, R11.1–R11.5, R20.6, R21.3, R21.4, R21.6, R24.5, SC4, SC5, SC9_
 
 - [x] **7.21 Router relevance check when the rerank falls back**
@@ -911,11 +913,13 @@
   - Scorecard: ASR per vector with Wilson 95 % intervals, FPR, benign drafts of at least 40 characters that were not blocked, exact McNemar of each config against the same-run C3 with the pre-registered necessity test ("removing the layer raises the ASR, p < 0.05"), and per config which layer first stopped and which layers flagged each attack.
   - Done: runner, guard build, report and tests (unit-tested on fakes, runbook §9.6a). The `C3-L1` ... `C3-L5` configs are scheme v1 only (ADR-0012 decision 11): run them with `SCHEME=v1`.
   - Left: the live runs (owner-run, gpt-4o-mini) and the write-up of the results, including null results.
+  - Superseded vocabulary: since ADR-0015 (task 7.30) the benchmark at HEAD runs config scheme v3 only (configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4`, `C3-ISO`); this task's scheme v1/v2 names (`C4` to `C7`, `C3-L5`, `L3b`) are read only through `make mailguard-report RUN=<id> LEGACY=1`. The text above is left as the history it is. The v3 ablations are measured live in task 7.31.
   - _Requirements: R22.12_
 
 - [ ] **7.23 No-API analyses for scheme v2 (C7 as the full guard)**
   - Found in 7.20 R5: `analyses.py` (leakage restatement, first catching layer, worked examples, threat model) and the headline lines it feeds read `C3` as the full guard. In scheme v2 (ADR-0012 decision 11) the full guard is `C7` and `C3` is channel isolation, so `make mailguard-analyses` refuses a v2 folder (`analyses.run_analyses`) and the v2 report has no `analyses.md`; reading C3 instead would be a wrong number, so it is refused, not adapted on the side.
   - Build: take the full-guard config from `scheme.target_config(scheme)` in `analyses.py`, `examples.py`, `first_layer.py` and the report's restated lines; decide with the owner which v2 analyses make sense per layer (first catching layer of C7, near-duplicate-free C7 guard ASR, worked examples of C7 against C0); tests first, on fake rows; v1 folders keep byte-identical output (the goldens).
+  - Superseded vocabulary: since ADR-0015 (task 7.30) the benchmark at HEAD runs config scheme v3 only (configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4`, `C3-ISO`); this task's scheme v1/v2 names (`C4` to `C7`, `C3-L5`, `L3b`) are read only through `make mailguard-report RUN=<id> LEGACY=1`. The text above is left as the history it is. Its goal is obsolete: the v3 target config is `C3` (`scheme.target_config`) and `make mailguard-analyses` runs the analyses for a v3 folder.
   - _Requirements: R22.12_
 
 - [~] **7.24 Single-repository layout (AgentMailGuard under `agentmailguard/`)**
@@ -976,6 +980,23 @@
   - Left: the canary and the runs themselves (teammate-run, live, with credit on the keys). Not run here: `make up` and any live call (the embedding check included: tests use a fake transport).
   - Numbering: the branch `wp-r4-openrouter` names this task `7.23` in its commits; the number collided with 7.23 (v2 analyses) and was changed to 7.29 when the branch was merged onto main.
   - _Requirements: R22.12, R14.7, R5.10, R21.4, R21.6, R24.5_
+
+- [~] **7.30 AgentMailGuard v3: four named layers, no outbound gate, fail-closed judges (the guard refactor)**
+  - Decision: ADR-0015 (owner, 2026-10-12, reviewed 2026-10-13/14; accepted pending Task 16 on 2026-10-15). Plan and execution log: `plan_v3/plan_v3.md`, `plan_v3/exec-plan-chi-tiet.md`. Branch `refactor/guard-v3`, pushed after every task, never merged by the agent.
+  - Built (plan_v3 Tasks 1 to 14): L1 Inbound Guard (scan + extract), L2 Doc Scanner (question-sentence signals, bait clusters, set judge), L3 Inbound Gate (two passes), L4 Output Guard (outbound policy + inbound floor), channel isolation as a switch, `schema_version` 3, fail-closed judges, a call budget of five, `guarded.v3`, bench scheme v3 with the read-only legacy reader for committed v1/v2 folders, and the documents (this task's docs commit: layer cards, README, runbook, BENCHMARK, paper outline, ADR-0015 accepted).
+  - Left: plan_v3 Task 15 (the identifier ratchet, the guard pin move to the v3 commit, full acceptance with `make ci` on a Linux checkout) and Task 16 (task 7.31). The Makefile pin still names the v2 guard until Task 15b.
+  - _Requirements: R22.12, R21.5, R21.6, R24.5_
+
+- [ ] **7.31 AgentMailGuard v3 benchmark run and report (acceptance of the refactor)**
+  - Decision: ADR-0015 decision 13; plan_v3 Task 16. Scheme v3, configs `C0, C1, C2, C3, C3-L1, C3-L2, C3-L3, C3-L4, C3-ISO` (`C0T` when asked), `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=true`, LLMail-Inject as in v1, the 100 pinned poisoned-document cases and a benign set built once by a seeded script (`benign_v3`); owner-run on the Windows machine with the OpenRouter/GPT-4o-mini profile of 7.19; no commit anywhere in the checkout while a RUN is in progress.
+  - Acceptance, each with its measured value written into the run's `README.md` and the paper's results section: C3 ASR ≤ 5 % on LLMail-Inject; "every poisoned chunk caught" on at least 80 of the 100 poisoned-document cases; at most 5 % of benign question emails and 2 % of clean documents quarantined or escalated; guard calls per job at most 5 for every config with p95 end-to-end reported (SC5 stays a target); and each single-layer ablation worse than C3 on its own route metric (C3-L1 inbound catch rate, C3-L2 "every poisoned chunk caught"). A failed criterion reopens plan_v3 Task 5 or 7 and is recorded in ADR-0015; thresholds are never tuned on the pinned cases.
+  - Not started: blocked on plan_v3 Task 15 (the pin). The paper's v3 tables are filled from this run; the existing ones stay labelled "v2 results".
+  - _Requirements: R22.12, R14.7, R21.5, R21.6, R24.5, SC4, SC5, SC9_
+
+- [ ] **7.32 Placeholder: ADR-0016 host hooks that consume the Doc Scanner's `trust` (blocked on 7.31; needs the owner)**
+  - ADR-0015 decision 11: the host-side changes (review-UI badge, `knowledge_document.trust_level`, `exclude_document_ids`, re-retrieval, ingestion scan) are a separate ADR-0016 that starts after 7.31. They would change rag-email production code (ingestion, retrieval, the review UI), so they need the owner's approval first, and CLAUDE.md §6 (no improvised security design) applies: nothing is designed or built here.
+  - Requirements it would touch, to be fixed by ADR-0016: R9.1 (ingestion), R10.4 (retrieval filters) and R23.4 (review UI).
+  - _Requirements: R9.1, R10.4, R23.4_
 
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
@@ -1046,22 +1067,22 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R6 Triage | 2.2–2.8, 2.9, 7.20, 7.26, 7.28 |
 | R7 Routing | 2.1, 2.10, 2.15, 4.13a, 8.2 |
 | R8 Thread state | 4.1, 4.2, 4.3, 4.13b, 7.20 |
-| R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |
-| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 7.26, 8.6 |
+| R9 Knowledge ingestion | 3.1–3.6, 3.16, 7.18, 7.20 |, 7.32
+| R10 Hybrid retrieval | 3.7, 3.8, 3.9, 3.10, 3.13, 3.16, 7.18, 7.20, 7.26, 8.6 |, 7.32
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21, 7.25 |
 | R12 Query construction | 3.13, 7.18, 7.28 |
 | R13 Business data | 5.1–5.6, 8.4 |
-| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27, 7.29 |
+| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27, 7.29 |, 7.31
 | R15 Model cascade | 4.8, 4.13a, 4.13b, 7.21 |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4, 7.27 |
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
 | R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29 |
-| R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29 |, 7.30, 7.31
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29 |, 7.30, 7.31
+| R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8 |, 7.32
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29 |, 7.30, 7.31
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
-| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20 |
+| SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20 |, 7.31
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

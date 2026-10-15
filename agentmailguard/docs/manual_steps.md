@@ -3,6 +3,8 @@
 Mọi thứ tự động được đã chạy trong repo. Những việc dưới đây cần tài khoản, máy có GPU hoặc cài đặt phần mềm,
 nên phải làm tay. Làm xong bước nào thì Claude (hoặc bạn) chạy lệnh tương ứng ở cột "Sau đó chạy".
 
+> **Ghi chú guard v3 (ADR-0015).** Guard giờ có 4 lớp (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) và channel isolation là một công tắc, không phải lớp. Các biến môi trường `GUARD_MODELS__*` là `INBOUND_JUDGE`, `INBOUND_EXTRACTOR`, `DOC_JUDGE`, `DOC_SET_JUDGE`, `OUTPUT_JUDGE`; khóa v2 (`L1__`…`L5__`, `GUARD_MODELS__JUDGE|EXTRACTOR|DOC_SCANNER`) bị từ chối khi khởi động. Judge lỗi mặc định **fail-closed** (`MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=true`, email chuyển sang người duyệt). Lưới của harness này gồm 9 config (`C0 C1 C2 C3 C3-L1 C3-L2 C3-L3 C3-L4 C3-ISO`), thay cho lưới 10 config của v2, nên ước lượng "toàn bộ lưới" bên dưới (tính cho lưới v2) cần tính lại. Các bảng đang có trong `paper/tables` là **kết quả v2**; số liệu v3 lấy từ benchmark live ở repo gốc (`evaluation/mailguard_bench`, `make mailguard-*`, plan_v3 Task 16), không phải từ các bước dưới đây.
+
 ## A. Chạy GPT-4o-mini (nhanh nhất, ~6–8 USD cho toàn bộ lưới, 2–3 giờ)
 
 | Bước | Làm gì | Sau đó chạy |
@@ -48,6 +50,6 @@ Model `meta-llama/Llama-Prompt-Guard-2-86M` bị gated: bấm "Agree" trên Hugg
 ## E. Sau khi có kết quả
 
 1. `python -m evaluation.report <các thư mục results> --out paper/tables` → copy `table_v_security_utility.tex`,
-   `table_vi_ablation.tex` vào `paper/KLTN` (Table V, VI).
+   `table_vi_ablation.tex` vào `paper/KLTN` (Table V, VI). Các file hiện có là kết quả v2; chỉ thay bằng bảng v3 sau khi có run live.
 2. Điền số F1 judge (`evaluation/results/llm_judge/*.json`) và baseline (`evaluation/results/baselines/*.json`) vào mục VII.
 3. Commit các file `summary.json`, `paper/tables/*` (đã cho phép trong `.gitignore`); KHÔNG commit `.env`, model, dữ liệu raw.

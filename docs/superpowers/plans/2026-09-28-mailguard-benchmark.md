@@ -1,5 +1,7 @@
 # AgentMailGuard in rag-email — Prompt-Injection Benchmark Implementation Plan
 
+> **Historic implementation plan (scheme v1).** Superseded for runs at HEAD by ADR-0015 and config scheme v3 (`docs/demo-runbook.md` §9.9); kept as written.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Measure how often LLMail-Inject and poisoned-knowledge prompt-injection attacks succeed against rag-email's real reply path, without AgentMailGuard (preset `C0`) and with every guard layer on (`C3`), on the same pinned cases and the same Gemma model, and report "C3 ASR ≤ 5 %: met / not met" with FPR, the C0 ASR, overhead and the no-API analyses.
