@@ -2,7 +2,9 @@
 
 Scans the guard's own tree for the v2 layer names, the ``L1__``..``L5__`` env prefixes, the old
 ``GUARD_MODELS__`` keys and attribute access on a report (``report.l3b``, ``.l1`` ... ``.l5``).
-Every allowlist entry is narrow (a file, or a file plus a regex) and carries its reason.
+Every allowlist entry is narrow (a file, or a file plus a regex) and carries its reason. The two
+source-file entries that name v2 keys on purpose (settings.py, parity.py) are further limited to
+line regions located at test time, so a new v2 read elsewhere in those files is still caught.
 """
 
 from __future__ import annotations
@@ -14,7 +16,21 @@ import pytest
 
 GUARD_ROOT = Path(__file__).resolve().parents[2]
 SCAN_DIRS = ("mailguard", "services", "evaluation", "training", "configs", "tests")
-SUFFIXES = {".py", ".yaml", ".yml", ".json", ".toml", ".txt", ".cfg", ".ini", ".sh"}
+SUFFIXES = {
+    ".py",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".toml",
+    ".txt",
+    ".cfg",
+    ".ini",
+    ".sh",
+    ".ipynb",
+    ".md",
+}
+# Recorded benchmark output (v2 numbers), excluded by exact path.
+EXCLUDED_DIRS = ("evaluation/results",)
 
 FORBIDDEN = re.compile(
     r"l1_injection_scanner|l2_intent_extractor|l3_channel_isolation|l3b_document_scanner"
@@ -75,12 +91,60 @@ ALLOWLIST: tuple[tuple[str, str | None, str], ...] = (
 )
 
 
-def _exempt(rel: str, text: str) -> bool:
+def _block(lines: list[str], start: int, closer: str) -> range:
+    """1-based line numbers from ``start`` (0-based index) to the first line equal to ``closer``."""
+    for end in range(start, len(lines)):
+        if lines[end] == closer:
+            return range(start + 1, end + 2)
+    raise AssertionError(f"no {closer!r} after line {start + 1}")
+
+
+def _comment_run_start(lines: list[str], index: int) -> int:
+    while index > 0 and lines[index - 1].startswith("#"):
+        index -= 1
+    return index
+
+
+def _settings_region(lines: list[str]) -> set[int]:
+    """The comment block over LEGACY_ENV_KEYS and the dict literal itself."""
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("LEGACY_ENV_KEYS"))
+    first = _comment_run_start(lines, start)
+    return set(range(first + 1, start + 1)) | set(_block(lines, start, "}"))
+
+
+def _parity_region(lines: list[str]) -> set[int]:
+    """Module docstring, the GOLDEN_PROMPT_KEY map and the V2_*_KEY constants (with comments)."""
+    region: set[int] = set(_block(lines, 0, '"""'))
+    for i, ln in enumerate(lines):
+        if ln.startswith("GOLDEN_PROMPT_KEY"):
+            region |= set(range(_comment_run_start(lines, i) + 1, i + 1)) | set(
+                _block(lines, i, "}")
+            )
+        elif re.match(r"V2_[A-Z]+_KEY = ", ln):
+            region.add(i + 1)
+            if i > 0 and lines[i - 1].startswith("#"):
+                region |= set(range(_comment_run_start(lines, i) + 1, i + 1))
+    return region
+
+
+# Allowlist entries limited to a line region: path -> function locating the region in the file.
+REGIONS = {
+    "mailguard/config/settings.py": _settings_region,
+    "tests/parity.py": _parity_region,
+}
+
+
+def _exempt(
+    rel: str, text: str, line_no: int | None = None, lines: list[str] | None = None
+) -> bool:
     for path, pattern, _reason in ALLOWLIST:
         if rel != path and not (path.endswith("/") and rel.startswith(path)):
             continue
-        if pattern is None or re.fullmatch(pattern, text):
-            return True
+        if pattern is not None and not re.fullmatch(pattern, text):
+            continue
+        if path in REGIONS and (lines is None or line_no not in REGIONS[path](lines)):
+            continue
+        return True
     return False
 
 
@@ -95,7 +159,7 @@ def _files() -> list[Path]:
                 path.is_file()
                 and path.suffix in SUFFIXES
                 and "__pycache__" not in path.parts
-                and "results" not in path.relative_to(GUARD_ROOT).parts
+                and not path.relative_to(GUARD_ROOT).as_posix().startswith(EXCLUDED_DIRS)
             ):
                 found.append(path)
     return found
@@ -105,9 +169,10 @@ def _violations() -> list[str]:
     bad: list[str] = []
     for path in _files():
         rel = path.relative_to(GUARD_ROOT).as_posix()
-        for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for no, line in enumerate(lines, 1):
             for match in FORBIDDEN.finditer(line):
-                if not _exempt(rel, match.group(0)):
+                if not _exempt(rel, match.group(0), no, lines):
                     bad.append(f"{rel}:{no}: {match.group(0)!r}")
     return bad
 
@@ -152,10 +217,14 @@ def test_every_allowlist_entry_still_matches_something() -> None:
         if path == "tests/unit/test_no_legacy_identifiers.py":
             continue
         files = [f for f in target.rglob("*") if f.is_file()] if target.is_dir() else [target]
-        hits = [
-            m.group(0)
-            for f in files
-            for m in FORBIDDEN.finditer(f.read_text(encoding="utf-8", errors="ignore"))
-            if pattern is None or re.search(pattern, m.group(0))
-        ]
+        hits = []
+        for f in files:
+            lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
+            for no, line in enumerate(lines, 1):
+                for m in FORBIDDEN.finditer(line):
+                    if pattern is not None and not re.fullmatch(pattern, m.group(0)):
+                        continue
+                    if path in REGIONS and no not in REGIONS[path](lines):
+                        continue
+                    hits.append(m.group(0))
         assert hits, f"allowlist entry has no hit left: {path}"

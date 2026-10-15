@@ -133,12 +133,14 @@ print(f"Loaded {len(queries)} retrieval benchmark queries")
 
 ## AgentMailGuard benchmark cases (task 7.19, ADR-0010)
 
-AgentMailGuard runs from a pinned, detached git worktree outside this repo, overlaid per command
-with `uv run --with-editable` (see the `mailguard-*` Make targets). Nothing is installed in `.venv`
+AgentMailGuard runs from `agentmailguard/` in this repository (the v3 pin is a commit of this
+repository, so only the subtree layout applies; a v1 or v2 pin needs a detached worktree of the
+guard's own repository outside it), overlaid per command with `uv run --with-editable` (see the
+`mailguard-*` Make targets). Nothing is installed in `.venv`
 and nothing runs in `make ci`.
 
 ```bash
-make mailguard-worktree   # creates or checks ../AgentMailGuard-bench at MAILGUARD_COMMIT (v3: 1835a6e; v2: 915cb1e; v1: 81df5d07, see docs/demo-runbook.md section 9)
+make mailguard-worktree   # v3 (default, 1835a6e): verifies agentmailguard/ is at the pin; v2 (915cb1e) and v1 (81df5d07): a worktree at MAILGUARD_COMMIT, see docs/demo-runbook.md section 9
 make mailguard-prep       # one-time: guard datasets + L1 classifier (network, no API key)
 make mailguard-smoke      # offline wiring check
 make mailguard-cases      # build, or verify against manifest.json, the pinned case set

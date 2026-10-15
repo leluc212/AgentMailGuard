@@ -277,7 +277,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `output_judge`), test file đổi tên v3; move-only, parity 0 delta (golden giữ khóa `llm_calls` v2 qua
   `GOLDEN_PROMPT_KEY`). Root `make test-unit`: 1 failed (`..._is_the_v2_pin`, đọc tree HEAD nên đổi theo mọi
   commit chạm guard) + 3945 passed; `make lint` sạch.
-  Pin test `test_the_committed_guard_folder_is_the_v2_pin` is strict-xfail until Task 15b (Linux equivalent of the Windows transient-failure list).
+  Pin test `test_the_committed_guard_folder_is_the_v2_pin` is strict-xfail until Task 15b (Linux equivalent of the Windows transient-failure list). (15b: now `test_the_committed_guard_folder_is_the_v3_pin`, passes.)
 - [x] Task 3 — commit `8d7f8dc`: `InboundGuardSettings` (`scan_llm_enabled`/`extract_llm_enabled`),
   `DocScannerSettings`, `ChannelIsolationSettings`, `OutputGuardSettings`, `PolicySettings`;
   `GuardModelSettings.inbound_judge/inbound_extractor/doc_judge/doc_set_judge/output_judge`;
@@ -471,7 +471,8 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `L2 extraction failed`, `L2 extractor LLM failed` đổi sang tên lớp v3 (L2 chunk, L1 extract); docstring
   `output_guard/scanner.py` "L1/L3b" thành "L1/L2". Hành vi không đổi, parity 0 delta mới, không tạo lại golden.
   Test: `agentmailguard/tests` 627 passed; root `tests/unit` 4000 passed, 74 skipped, 1 xfailed (pin v2, chờ 15b; 15b đã chuyển thành test đạt);
-  `make fmt-check lint` xanh. Còn mở: 15b (pin), 15c (push, `make ci` do chủ dự án, GitHub CI).
+  `make fmt-check lint` xanh. Còn mở: 15b (pin), 15c (push, `make ci` do chủ dự án, GitHub CI), và `docs/architecture/*.html`
+  vẫn vẽ lớp v2 (để chủ dự án / thời Task 16, chưa ai sửa).
 - **Task 15b** (2026-10-16, root only, không chạm `agentmailguard/`): pin dời sang `1835a6e` (commit 15a, commit cuối
   chạm `agentmailguard/`), tree `e3ecca18d0814334c1c94ba0d3696e11bf1c1b43` (`git rev-parse 1835a6e:agentmailguard`).
   `guard_env.py` thêm `V3_MAILGUARD_COMMIT`/`V3_MAILGUARD_TREE`, `DEFAULT_MAILGUARD_COMMIT` = v3, v3 vào map
@@ -480,4 +481,10 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `test_the_committed_guard_folder_is_the_v3_pin` (đạt); `test_mailguard_pin.py` và test bố cục cập nhật. Guides
   (`demo-runbook`, `benchmark-windows-native`, `BENCHMARK`, `evaluation/README`) nêu pin v3 và bỏ cảnh báo "chờ 15b".
   Không có `known-transient-failures.txt` trên nhánh này (không tạo). Còn mở: 15c (push, `make ci` do chủ dự án trên
-  Linux, GitHub CI).
+  Linux, GitHub CI), và `docs/architecture/*.html` vẫn vẽ lớp v2 (để chủ dự án / thời Task 16, chưa ai sửa).
+- **Task 15 nits** (2026-10-16, review của 15a/15b; `agentmailguard/` bị chạm nên pin dời một lần nữa): ratchet gốc
+  giới hạn exemption của `settings.py` (`LEGACY_ENV_KEYS`) và `parity.py` (docstring, `GOLDEN_PROMPT_KEY`, `V2_*_KEY`) theo
+  vùng dòng tìm lúc chạy test, thêm `.ipynb`/`.md`, loại `evaluation/results` theo đường dẫn, `fullmatch` ở cả hai chỗ;
+  ratchet root quét thêm yaml/json/md; sơ đồ docstring v2 trong `guarded_reply.py`, `guarded_drafting.py`,
+  `guard_smoke.py`, `PolicyDecision` viết lại theo v3; bốn `assert` thuần thành early return (như `set_judge.py`);
+  `_commit_tree` thử `<commit>:agentmailguard` trước `<commit>^{tree}`; chữ pin trong Makefile/runbook/README.

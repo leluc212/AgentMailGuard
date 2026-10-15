@@ -71,7 +71,7 @@ _ACTION_RANK: dict[PolicyAction, int] = {
 
 
 class PolicyDecision(BaseModel):
-    """Deterministic, idempotent, auditable gating decision (L5)."""
+    """Deterministic, idempotent, auditable gating decision (inbound gate; output guard)."""
 
     audit_id: str = Field(default_factory=lambda: uuid4().hex)
     action: PolicyAction

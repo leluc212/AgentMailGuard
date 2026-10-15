@@ -181,8 +181,13 @@ def guard_layout(path: Path) -> Layout:
     return "worktree" if Path(top).resolve() == path.resolve() else "subtree"
 
 
-def _commit_tree(path: Path, commit: str) -> str | None:
-    """Tree id of a pinned commit: the recorded constant, else git's answer, else None."""
+def _commit_tree(path: Path, commit: str, run: Callable[..., str | None] = _git_ok) -> str | None:
+    """Tree id of a pinned commit: the recorded constant, else git's answer, else None.
+
+    git's answer is ``<commit>:agentmailguard`` first (a v3 commit belongs to this repository, so
+    its root tree is not the guard's), then ``<commit>^{tree}`` (v1/v2 are guard-repository
+    commits). The same order as the Makefile's mailguard-worktree recipe. ``run`` is the git
+    runner (``_git_ok``'s signature), replaceable in tests."""
     recorded = {
         V1_MAILGUARD_COMMIT: V1_MAILGUARD_TREE,
         V2_MAILGUARD_COMMIT: V2_MAILGUARD_TREE,
@@ -190,7 +195,11 @@ def _commit_tree(path: Path, commit: str) -> str | None:
     }
     if commit in recorded:
         return recorded[commit]
-    return _git_ok(path, "rev-parse", "--verify", "-q", f"{commit}^{{tree}}")
+    for spec in (f"{commit}:agentmailguard", f"{commit}^{{tree}}"):
+        tree = run(path, "rev-parse", "--verify", "-q", spec)
+        if tree:
+            return tree
+    return None
 
 
 def _subtree_info(path: Path, expected_commit: str | None) -> WorktreeInfo:

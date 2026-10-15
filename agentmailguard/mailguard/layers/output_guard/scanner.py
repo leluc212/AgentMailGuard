@@ -465,7 +465,8 @@ class OutputScanner:
         intent: SanitizedIntent | None,
         injected_instructions: Sequence[str],
     ) -> OutputVerdict:
-        assert self.llm is not None
+        if self.llm is None:
+            return cheap  # no provider: nothing to ask, the cheap verdict stands
         goals = "\n".join(f"- {g}" for g in injected_instructions[:5]) or "- (none detected)"
         summary = intent.user_intent if intent is not None else "(not available)"
         messages = [

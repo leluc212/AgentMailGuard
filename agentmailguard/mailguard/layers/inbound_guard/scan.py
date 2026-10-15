@@ -177,7 +177,8 @@ class EmailInjectionScanner:
     async def _stage_llm(
         self, email: GuardedEmail, cheap: LayerVerdict, fused_cheap: float
     ) -> LayerVerdict:
-        assert self.judge is not None
+        if self.judge is None:
+            return cheap  # no judge: nothing to ask, the cheap verdict stands
         record_guard_call("inbound_scan")
         try:
             output, result = await judge_email(self.judge, email, max_chars=self.cfg.max_chars)

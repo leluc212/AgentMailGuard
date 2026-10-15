@@ -1,7 +1,8 @@
 """Ratchet, root twin: the benchmark code and its tests carry no v2 guard identifiers (Task 15a).
 
 Same forbidden patterns as ``agentmailguard/tests/unit/test_no_legacy_identifiers.py``, over
-``evaluation/mailguard_bench`` and ``tests/unit/test_mailguard_*`` (never ``evaluation/results/``).
+``evaluation/mailguard_bench`` and ``tests/unit/test_mailguard_*`` (never ``evaluation/results/``);
+the benchmark folder is scanned for .py, .yaml, .yml, .json and .md files.
 Only the legacy reader and its test, which read v1/v2 run folders, may name the old layers.
 """
 
@@ -23,6 +24,9 @@ FORBIDDEN = re.compile(
     r"|\.l(?:[1-5]|3b)\b"
 )
 
+# Code plus the config and docs that sit beside it in the benchmark package.
+BENCH_SUFFIXES = {".py", ".yaml", ".yml", ".json", ".md"}
+
 ALLOWLIST: dict[str, str] = {
     "evaluation/mailguard_bench/legacy_reader.py": "reads v1/v2 run folders (old names)",
     "tests/unit/test_mailguard_bench_legacy_reader.py": "legacy test data for that reader",
@@ -31,7 +35,8 @@ ALLOWLIST: dict[str, str] = {
 
 
 def _files() -> list[Path]:
-    files = sorted((REPO / "evaluation" / "mailguard_bench").rglob("*.py"))
+    bench = REPO / "evaluation" / "mailguard_bench"
+    files = sorted(f for f in bench.rglob("*") if f.is_file() and f.suffix in BENCH_SUFFIXES)
     files += sorted((REPO / "tests" / "unit").glob("test_mailguard_*.py"))
     return [f for f in files if "__pycache__" not in f.parts]
 

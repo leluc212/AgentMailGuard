@@ -4,13 +4,14 @@
                           │
                           ▼
                  MailGuardPipeline.run(preset)
-                   L1 → L2 → L5 inbound ─ block/quarantine ⇒ stop, no model call
-                   L3b → L3 prompt (system + user)
+                   inbound_guard → inbound_gate (pass 1) → doc_scanner → inbound_gate (pass 2)
+                     block/quarantine ⇒ stop, no model call
+                   channel_isolation → prompt (system + user)
                           │ DraftFactory(messages)
                           ▼
                  SinglePassGenerator.generate_from_messages ── ONE reply.v1 call
                           ▼
-                   L4 → L5 outbound ─▶ report, final draft
+                   output_guard ─▶ report, final draft
 
 AgentMailGuard's GuardedReplyAgent is not used: its _generate calls the model with the
 guard's own ReplySchema instead of rag-email's SinglePassGenerator and reply.v1.

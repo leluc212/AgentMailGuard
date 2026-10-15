@@ -22,7 +22,7 @@ help:
 	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
 	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
 	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
-	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v3: 1835a6e) in ../AgentMailGuard-bench; with the guard committed under agentmailguard/ only verify its pin (tasks 7.19, 7.24)"
+	@echo "  mailguard-worktree - Verify that agentmailguard/ is at the pinned v3 commit (1835a6e; a commit of this repository, so only the subtree layout applies); for a v1 or v2 pin (guard-repository commits) create or check a worktree at MAILGUARD_COMMIT in ../AgentMailGuard-bench (tasks 7.19, 7.24)"
 	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
 	@echo "  mailguard-probe [MODEL=<profile>] - ONE live guard-judge call on the profile's endpoint (default: the Gemma test model on the Gemini API); on an OpenRouter profile it also checks the pinned provider. Owner-run (not CI)"

@@ -344,7 +344,8 @@ class RetrievedDocumentScanner:
         )
 
     async def _stage_llm(self, chunk: SourceDocument, cheap: ChunkVerdict) -> ChunkVerdict:
-        assert self.llm is not None
+        if self.llm is None:
+            return cheap  # no provider: nothing to ask, the cheap verdict stands
         messages = [
             ChatMessage(role="system", content=load_prompt(PROMPT_NAME)),
             ChatMessage(

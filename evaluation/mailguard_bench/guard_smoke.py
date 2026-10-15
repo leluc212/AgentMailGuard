@@ -76,7 +76,7 @@ PROBE_SCHEMA: dict[str, Any] = {
 
 
 async def offline_checks(paths: GuardPaths) -> None:
-    """Check 4: C0 runs no layer; C3 on the fake guard model reaches an L5 decision."""
+    """Check 4: C0 runs no layer; C3 on the fake guard model reaches an inbound gate decision."""
     c0 = build_guard_pipeline("C0", guard_settings("fake", l1_model_path=paths.l1_model))
     r0 = await c0.inspect_inbound(SMOKE_EMAIL, category="support")
     if r0.inbound_guard is not None or r0.inbound_decision is not None:

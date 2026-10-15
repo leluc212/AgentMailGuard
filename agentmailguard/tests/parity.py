@@ -601,43 +601,43 @@ _TASK5_FIELDS: dict[str, dict[str, Any]] = {
     "b-004|C2|llm=1|docs=x-forged": {
         "final_rule": "P99-default",
         "inbound_rule": "P99-default",
-        "layer_severities": {"l1_injection_scanner": _NONE, "l2_intent_extractor": _NONE},
+        "layer_severities": {V2_SCAN_KEY: _NONE, V2_EXTRACT_KEY: _NONE},
         "risk_tier": "t0_clean",
     },
     "b-004|C3|llm=1|docs=x-forged": {
         "inbound_rule": "P99-default",
         "layer_severities": {
-            "l1_injection_scanner": _NONE,
-            "l2_intent_extractor": _NONE,
-            "l3b_document_scanner": _DOCS_HIGH,
-            "l4_output_scanner": _NONE,
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
         },
     },
     "b-004|C3-L1|llm=1|docs=x-forged": {
         "inbound_rule": "P99-default",
         "layer_severities": {
-            "l2_intent_extractor": _NONE,
-            "l3b_document_scanner": _DOCS_HIGH,
-            "l4_output_scanner": _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
         },
     },
     "b-004|C3-L3B|llm=1|docs=x-forged": {
         "final_rule": "P99-default",
         "inbound_rule": "P99-default",
         "layer_severities": {
-            "l1_injection_scanner": _NONE,
-            "l2_intent_extractor": _NONE,
-            "l4_output_scanner": _NONE,
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_OUTPUT_KEY: _NONE,
         },
         "risk_tier": "t0_clean",
     },
     # C3-L5 has no gate: only the extractor's recorded severity moves
     "b-004|C3-L5|llm=1|docs=x-forged": {
         "layer_severities": {
-            "l1_injection_scanner": _NONE,
-            "l2_intent_extractor": _NONE,
-            "l3b_document_scanner": _DOCS_HIGH,
-            "l4_output_scanner": _NONE,
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
         },
     },
     "s-001|C2|llm=1|docs=borderline": dict(_SANITIZED),

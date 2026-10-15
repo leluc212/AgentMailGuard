@@ -896,3 +896,28 @@ def test_no_git_binary_is_a_guard_env_error_not_a_traceback(
     monkeypatch.setenv("PATH", "/nonexistent")
     with pytest.raises(GuardEnvError, match="git"):
         worktree_info(guard)
+
+
+def test_commit_tree_asks_for_the_guard_subtree_before_the_root_tree() -> None:
+    asked: list[str] = []
+    answers = {"abc:agentmailguard": "subtree-id", "abc^{tree}": "root-id"}
+
+    def fake(_path: Path, *args: str) -> str | None:
+        asked.append(args[-1])
+        return answers.get(args[-1])
+
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) == "subtree-id"
+    assert asked == ["abc:agentmailguard"]
+    del answers["abc:agentmailguard"]
+    asked.clear()
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) == "root-id"
+    assert asked == ["abc:agentmailguard", "abc^{tree}"]
+    answers.clear()
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) is None
+
+
+def test_commit_tree_uses_the_recorded_constant_without_asking_git() -> None:
+    def never(_path: Path, *_args: str) -> str | None:
+        raise AssertionError("git must not be asked for a recorded pin")
+
+    assert guard_env._commit_tree(Path("."), V3_MAILGUARD_COMMIT, run=never) == V3_MAILGUARD_TREE

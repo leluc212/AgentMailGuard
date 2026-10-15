@@ -327,7 +327,8 @@ class UserIntentExtractor:
         return intent
 
     async def _refine_with_llm(self, email: GuardedEmail, base: SanitizedIntent) -> SanitizedIntent:
-        assert self.llm is not None
+        if self.llm is None:
+            return base  # no provider: nothing to ask, the heuristic intent stands
         payload = f"Subject: {email.subject}\n\n{base.sanitized_body}"[: self.cfg.max_body_chars]
         messages = [
             ChatMessage(role="system", content=load_prompt(PROMPT_NAME)),

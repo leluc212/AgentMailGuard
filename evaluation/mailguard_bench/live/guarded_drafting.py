@@ -4,19 +4,21 @@ generation call (task 7.20; ADR-0011; R22.12, R18.1, R16.4).
     AIWorkerConsumer ─ ContextPackage ─▶ GuardedDraftingService.draft(job, context, category=…)
        CONTEXT_READY ─▶ GENERATING                      (state machine, as DraftingService)
        GuardedCaseExecutor.execute                      (guarded_reply.py, unchanged)
-          L1 → L2 → L5 inbound ── block/quarantine ⇒ no model call
-          L3b → L3 prompt ── ONE reply.v1 call ── L4 → L5 outbound
+          inbound_guard → inbound_gate (pass 1) → doc_scanner → inbound_gate (pass 2)
+             block/quarantine ⇒ no model call
+          channel_isolation → prompt ── ONE reply.v1 call ── output_guard
        ├─ blocked         ⇒ escalate draft (body "", model agentmailguard, 0 tokens)
        ├─ human_approval  ⇒ the generated draft, reason agentmailguard:human_approval:<rule>
-       └─ otherwise       ⇒ the generated draft, its body as L4 left it
+       └─ otherwise       ⇒ the generated draft, its body as the output guard left it
        audit line ─▶ <run_dir>/raw/audit__<config>.jsonl      (before the commit below)
        persist_drafted ─▶ GENERATING ─▶ DRAFTED              (one transaction, as DraftingService)
 
 The class has DraftingService's public interface, so ``build_consumers(...,
 drafting_factory=...)`` swaps it in and everything before it (summary, retrieval, rerank, routing)
 stays the ai-worker's. What the guard decides is AgentMailGuard's (ADR-0010); this module only
-turns its outcome into the draft rag-email persists. The guard's own LLM calls (L1 judge, L2, L3b,
-L4) are not part of the job's CallBudgetTracker; the audit line counts them in ``guard_llm``.
+turns its outcome into the draft rag-email persists. The guard's own LLM calls (inbound scan judge,
+extractor, doc scanner judges, output judge) are not part of the job's CallBudgetTracker; the audit
+line counts them in ``guard_llm``.
 
 Audit line, one JSON object per job, flat: ``message_id``, ``organization_id``, ``job_id``,
 ``draft_id``, ``config``, every field of a v1 guarded row's ``result`` (guarded_reply.py:
