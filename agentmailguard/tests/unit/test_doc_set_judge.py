@@ -13,6 +13,7 @@ from mailguard.layers.doc_scanner.set_judge import (
     deterministic_set_verdict,
 )
 from mailguard.llm.fake import FakeLLMProvider
+from mailguard.llm.judge_calls import counting_guard_calls
 from mailguard.llm.protocol import LLMError
 from mailguard.pipeline import MailGuardPipeline
 from mailguard.prompts import load_prompt
@@ -157,6 +158,20 @@ async def test_flag_on_with_a_chunk_in_the_band_makes_exactly_one_call(settings)
     assert verdict.quarantined_chunk_ids == ["kb-borderline-1"]
     assert verdict.kept_chunk_ids == ["ok"]
     assert verdict.metadata["set_judge"] == "llm"
+
+
+async def test_judge_without_a_provider_returns_the_verdict_unchanged_and_counts_no_call(settings):
+    verdicts = [_cv("a", 0.5), _cv("b", 0.1)]
+    before = deterministic_set_verdict(verdicts)
+    snapshot = before.model_dump()
+    judge = LLMSetJudge(_enabled(settings), None)
+
+    with counting_guard_calls() as calls:
+        after = await judge.judge(before, _docs("a", "b"), verdicts, QUESTIONS)
+
+    assert after is before
+    assert after.model_dump() == snapshot
+    assert sum(calls.values()) == 0
 
 
 # --------------------------------------------------------------------------- fallback

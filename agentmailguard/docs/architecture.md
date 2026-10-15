@@ -128,7 +128,7 @@ quarantined; every chunk gets a `trust` (`trusted`, `untrusted` inside `DOC_SCAN
 default); optional LLM **set judge** (`DOC_SCANNER__SET_JUDGE_LLM_ENABLED`, off): one call, only when a kept chunk
 is in the suspicious band, and it can only add quarantines. The thresholds were chosen on a separate dev split
 (`datasets/splits/rag_poison_dev.json`), never on the benchmark's pinned cases. An empty document set is a
-no-op. If more than 60 % of the retrieved set is quarantined, the gate escalates to human approval (P04).
+no-op. If at least 60 % of the retrieved set is quarantined, the gate escalates to human approval (P04).
 
 ### Channel isolation (not a layer)
 Spotlighting (Hines et al., 2024) with three modes: `delimit` (nonce-tagged markers), `datamark` (whitespace ->

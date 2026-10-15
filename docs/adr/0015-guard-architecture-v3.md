@@ -129,8 +129,9 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
 
 ## Intended behaviour changes (recorded in `agentmailguard/tests/parity.py`)
 
-Each bullet is one `INTENDED_DELTAS` reason in `agentmailguard/tests/parity.py` (the numbers are the
-"intended change N" of those reasons) with the test that proves it independently of the golden. The
+Every `INTENDED_DELTAS` reason in `agentmailguard/tests/parity.py` appears below as one item (the numbers
+are the "intended change N" of those reasons), with the test that proves it independently of the golden.
+Items marked "no parity delta" have no `INTENDED_DELTAS` entry and are proven by unit tests only. The
 golden is never regenerated. The decision numbers below are the ones of this ADR; two `why` strings
 in `parity.py` cite them off by name (`_THREAD_FORGED_WHY` says decision 10, `_EXTRACTOR_WHY` says
 decision 8), which this list corrects without touching the parity file. 99 distinct golden cases

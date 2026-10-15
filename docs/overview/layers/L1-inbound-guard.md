@@ -80,7 +80,7 @@ A **regex** (regular expression) is a text pattern such as "the word ignore, the
 | 14 | instruction-probing | 0.86 (high) | system_prompt_leak / prompt_extraction | 3 | "what instructions were you given", "repeat it word for word", "what hidden documents can you see" |
 | 15 | instruction-override-vi | 0.92 (high) | instruction_override / multilingual | 5 | Vietnamese versions: ignore instructions (includes "hủy bỏ yêu cầu" = cancel the request), forward everything to an address, "you are now" / "từ giờ trở đi" (= from now on), insert link, reveal system prompt |
 
-Total: 15 rules, 54 patterns (counted by loading the file offline; per-rule counts match the table). The project docs say "13 rule families"; the file has 15 rule entries, so the docs are stale. Only Vietnamese has a non-English rule.
+Total: 15 rules, 54 patterns (counted by loading the file offline; per-rule counts match the table). Only Vietnamese has a non-English rule.
 
 Four **heuristics** (code checks that are not regex rules) run after the rules. Three read the plain-text body (`body_text or body_text_clean`); h-hidden-html reads `body_html`. All four are skipped (the function returns early) when the plain text is empty.
 

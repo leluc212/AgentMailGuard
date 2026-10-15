@@ -358,7 +358,7 @@ class UserIntentExtractor:
             return base
         findings = list(base.findings)
         if out.contains_assistant_instructions:
-            # R-i (ADR-0015 decision 8): the extractor reports, it never grades. The finding
+            # R-i (ADR-0015 decision 9): the extractor reports, it never grades. The finding
             # carries the model's confidence; the sub-stage severity stays the strip result.
             llm_score = max(0.6, out.confidence)
             findings.append(

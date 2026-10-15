@@ -1,4 +1,4 @@
-> **v2 results (scheme v2, pre ADR-0015):** naive simulator on the six-layer guard. The configs `C3-L3b` and `C3-L5` no longer exist and `C3-L3` meant channel isolation here (in v3 it removes the Inbound Gate); do not compare with v3. Regenerated from the live v3 run (plan_v3 Task 16).
+> **v2 results (scheme v2, pre ADR-0015):** naive simulator on the six-layer guard. The configs `C3-L3b` and `C3-L5` no longer exist and `C3-L3` meant channel isolation here (in v3 it removes the Inbound Gate); do not compare with v3. To be regenerated from the live v3 run (plan_v3 Task 16); numbers below are v2 results.
 
 **naive**
 

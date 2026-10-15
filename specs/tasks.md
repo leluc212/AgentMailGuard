@@ -982,7 +982,7 @@
   - _Requirements: R22.12, R14.7, R5.10, R21.4, R21.6, R24.5_
 
 - [~] **7.30 AgentMailGuard v3: four named layers, no outbound gate, fail-closed judges (the guard refactor)**
-  - Decision: ADR-0015 (owner, 2026-10-12, reviewed 2026-10-13/14; accepted pending Task 16 on 2026-10-15). Plan and execution log: `plan_v3/plan_v3.md`, `plan_v3/exec-plan-chi-tiet.md`. Branch `refactor/guard-v3`, pushed after every task, never merged by the agent.
+  - Decision: ADR-0015 (owner, 2026-10-12, reviewed 2026-10-13/14; accepted pending Task 16 on 2026-10-15). Plan and execution log: `plan_v3/plan_v3.md`, `plan_v3/exec-plan-chi-tiet.md`. Branch `refactor/guard-v3`: per ADR-0015 the branch is to be pushed after each task; never merged, no PR.
   - Built (plan_v3 Tasks 1 to 14): L1 Inbound Guard (scan + extract), L2 Doc Scanner (question-sentence signals, bait clusters, set judge), L3 Inbound Gate (two passes), L4 Output Guard (outbound policy + inbound floor), channel isolation as a switch, `schema_version` 3, fail-closed judges, a call budget of five, `guarded.v3`, bench scheme v3 with the read-only legacy reader for committed v1/v2 folders, and the documents (this task's docs commit: layer cards, README, runbook, BENCHMARK, paper outline, ADR-0015 accepted).
   - Left: plan_v3 Task 15 (the identifier ratchet, the guard pin move to the v3 commit, full acceptance with `make ci` on a Linux checkout) and Task 16 (task 7.31). The Makefile pin still names the v2 guard until Task 15b.
   - _Requirements: R22.12, R21.5, R21.6, R24.5_

@@ -43,7 +43,7 @@ from packages.llm.reply_format import render_reply_format_rules
 GUARDED_PROMPT_VERSION = "guarded.v3"
 """The version of the guarded prompt (C0T, C1, C2, C3), recorded in every run meta and settings
 fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a);
-guarded.v3 renders each kept chunk with its trust (guard v3 Task 7, ADR-0015 decision 12). Runs
+guarded.v3 renders each kept chunk with its trust (guard v3 Task 7, ADR-0015 decision 10). Runs
 of two versions are never mixed."""
 
 # A schema-3 report's verdicts are counted per guard judge stage, under the guard's own stage

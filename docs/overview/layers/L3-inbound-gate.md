@@ -55,7 +55,7 @@ Policy `configs/policy.yaml`, version `2026.10-v3` (the rules are unchanged from
 | 60 | P08-medium-severity-draft-only | max severity >= medium | draft_only | yes |
 | 65 | P09-heavy-sanitization-draft-only | `removed_ratio` >= 0.35 | draft_only | yes |
 | 90 | P10-clean-auto-send | stage outbound, severity <= low, category in the allowlist, draft action reply | auto_send | no |
-| 99 | P99-default | always (catch-all) | draft_only | yes |
+| 1000 | P99-default | always (catch-all) | draft_only | yes |
 
 - Because the strictest match wins, P00 (a layer error, human_approval) no longer hides a stricter P01 or P02: the decision is the quarantine or block, with P00 among the matched rule ids.
 - A pass 1 that returns block or quarantine **stops the job**: `report.doc_scanner` stays `None`, `metadata.gate_passes` = 1, and no document judge call is made. Otherwise the final decision is pass 2 (`gate_passes` = 2). A pass 1 that does not stop is provisional and is not audited; only the final pass is audited, and its `audit_id` seed includes the pass number so a replayed job gets the same id and the two paths never share one.
