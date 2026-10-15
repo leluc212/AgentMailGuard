@@ -94,12 +94,37 @@ def judge_invalid_events(report: Mapping[str, Any] | None) -> tuple[str, ...]:
     return tuple(events)
 
 
+def _has_detector_finding(chunk: Mapping[str, Any]) -> bool:
+    """True when a finding on the chunk comes from a detector, not from the internal-error stub."""
+    return any(
+        _mapping(finding).get("threat_type") != "internal_error"
+        for finding in chunk.get("findings") or []
+    )
+
+
 def _failed_closed_chunk_ids(docs: Mapping[str, Any]) -> set[str]:
-    return {
-        str(_mapping(chunk).get("chunk_id"))
-        for chunk in docs.get("chunks") or []
-        if _stages_of(_mapping(chunk))
-    }
+    """Quarantined chunks whose only cause is a fail-closed event, never a detector.
+
+    A chunk judge that fails keeps the cheap verdict (below the threshold), so a chunk that carries
+    ``judge_invalid`` and is quarantined was caught afterwards, by a detector finding or by the set
+    judge (``set_judge_added``): that is a detection. Only a quarantined chunk with a failure mark
+    (a failed judge, or the scanner's own ``decided_by="error"``) and no detector evidence is a
+    fail-closed event.
+    """
+    added = {str(i) for i in _mapping(docs.get("metadata")).get("set_judge_added") or []}
+    closed: set[str] = set()
+    for raw in docs.get("chunks") or []:
+        chunk = _mapping(raw)
+        chunk_id = str(chunk.get("chunk_id"))
+        marked = bool(_stages_of(chunk)) or chunk.get("decided_by") == "error"
+        if (
+            chunk.get("quarantined")
+            and marked
+            and chunk_id not in added
+            and not _has_detector_finding(chunk)
+        ):
+            closed.add(chunk_id)
+    return closed
 
 
 def doc_quarantined_chunk_ids(report: Mapping[str, Any] | None) -> tuple[str, ...]:
@@ -126,8 +151,10 @@ def exit_point(report: Mapping[str, Any] | None, *, generation_called: bool) -> 
     """Where the job stopped: ``EXIT_POINTS``, or ``None`` when no guard report exists.
 
     No model call and an inbound ``block``/``quarantine``: the gate pass that decided
-    (``gate_passes`` 1, else 2). A model call and a final action stricter than ``draft_only``:
-    the Output Guard. Otherwise the draft was delivered.
+    (``gate_passes`` 1, else 2). A model call and a final action stricter than ``draft_only``
+    that the Output Guard wrote (``decided_by`` ``output_guard``, or ``inbound_gate`` after a
+    carried floor): the Output Guard. With it off ``decided_by`` is absent and ``decision`` is
+    still the inbound gate's, so the draft was delivered.
     """
     if not report:
         return None
@@ -136,7 +163,8 @@ def exit_point(report: Mapping[str, Any] | None, *, generation_called: bool) -> 
     if not generation_called and _action(inbound) in BLOCKING_ACTIONS:
         passes = _mapping(inbound.get("metadata")).get("gate_passes")
         return EXIT_GATE_1 if passes == 1 else EXIT_GATE_2
-    if generation_called and _action(final) in HELD_ACTIONS:
+    decided_by = _mapping(final.get("metadata")).get("decided_by")
+    if generation_called and decided_by and _action(final) in HELD_ACTIONS:
         return EXIT_OUTPUT_GUARD
     return EXIT_DELIVERED
 

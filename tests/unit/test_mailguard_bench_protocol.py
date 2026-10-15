@@ -16,6 +16,7 @@ from evaluation.mailguard_bench.protocol import (
     case_protocol,
     detected_doc_chunk_ids,
     exit_point,
+    fail_closed_quarantined_chunk_ids,
     guard_calls,
     judge_invalid_events,
     protocol_table,
@@ -71,7 +72,10 @@ def test_a_job_that_passed_the_gate_and_kept_a_draft_is_delivered() -> None:
 
 @pytest.mark.parametrize("action", ["human_approval", "block", "quarantine"])
 def test_a_draft_held_after_generation_exits_at_the_output_guard(action: str) -> None:
-    held = report(inbound=decision("draft_only", gate_passes=2), final=decision(action))
+    held = report(
+        inbound=decision("draft_only", gate_passes=2),
+        final=decision(action, decided_by="output_guard"),
+    )
 
     assert exit_point(held, generation_called=True) == "output_guard"
 
@@ -157,18 +161,25 @@ def test_judge_invalid_events_are_read_from_every_verdict_that_can_fail_closed()
     assert judge_invalid_events(None) == ()
 
 
-def test_a_chunk_quarantined_only_by_a_failed_judge_is_not_a_detection() -> None:
+def test_a_chunk_quarantined_only_by_fail_closed_is_not_a_detection() -> None:
     docs: dict[str, Any] = {
         "doc_scanner": {
             "quarantined_chunk_ids": ["k1", "k2"],
             "chunks": [
-                {"chunk_id": "k1", "quarantined": True, "error": "judge_invalid:doc_chunk"},
-                {"chunk_id": "k2", "quarantined": True, "error": None},
+                {
+                    "chunk_id": "k1",
+                    "quarantined": True,
+                    "decided_by": "error",
+                    "error": "RuntimeError: boom",
+                    "findings": [{"threat_type": "internal_error"}],
+                },
+                {"chunk_id": "k2", "quarantined": True, "error": None, "findings": []},
             ],
         }
     }
 
     assert detected_doc_chunk_ids(report(**docs)) == ("k2",)
+    assert fail_closed_quarantined_chunk_ids(report(**docs)) == ("k1",)
     facts = case_protocol(report(**docs), generation_called=False)
     assert facts.doc_quarantined_chunk_ids == ("k1", "k2")  # the fact is kept whole
 
@@ -260,19 +271,33 @@ def synthetic_records() -> list[RawRecord]:
             },
         },
     )
-    chunk_invalid = report(  # the chunk judge failed closed and the chunk was quarantined by it
+    chunk_invalid = report(  # built like a real guard report, both chunks are poisoned
         inbound=decision("draft_only", "P99", gate_passes=2),
         final=decision("draft_only", "P99", decided_by="output_guard", carried_from_inbound=False),
         guard_calls_=calls(inbound_scan=1, inbound_extract=1, doc_chunk=1, output=1),
         doc_scanner={
-            "quarantined_chunk_ids": ["p4"],
+            "quarantined_chunk_ids": ["p4", "p5"],
+            "metadata": {"set_judge": "llm", "set_judge_added": ["p4"]},
             "chunks": [
+                # p4: the chunk judge failed (cheap verdict kept, not quarantined), then the set
+                # judge flagged it: model_copy keeps the old error and adds the detector finding
                 {
                     "chunk_id": "p4",
                     "quarantined": True,
+                    "decided_by": "llm",
                     "error": "judge_invalid:doc_chunk",
                     "metadata": {"judge_invalid": "doc_chunk"},
-                }
+                    "findings": [{"rule_id": "llm:set_poisoned", "threat_type": "rag_poisoning"}],
+                },
+                # p5: the chunk scanner raised and quarantined fail-closed: internal-error stub only
+                {
+                    "chunk_id": "p5",
+                    "quarantined": True,
+                    "decided_by": "error",
+                    "error": "RuntimeError: boom",
+                    "metadata": {},
+                    "findings": [{"threat_type": "internal_error", "detector": "heuristic"}],
+                },
             ],
         },
     )
@@ -283,7 +308,7 @@ def synthetic_records() -> list[RawRecord]:
         record("r-floor", floor, generated=True, poisoned=("p3",)),
         record("b-delivered", delivered, generated=True),
         record("a-invalid", invalid, generated=True),
-        record("r-chunk-invalid", chunk_invalid, generated=True, poisoned=("p4",)),
+        record("r-chunk-invalid", chunk_invalid, generated=True, poisoned=("p4", "p5")),
         record("a-error", None, generated=False, status="error"),  # not scored
         record("c0-native", None, generated=True),  # no guard report: no protocol row
     ]
@@ -320,12 +345,15 @@ def test_the_per_config_protocol_table_is_exact() -> None:
         "doc_set": 0,
         "output": 0,
     }
-    assert table.fail_closed_quarantined == 1  # p4: quarantined by a failed judge, no detection
+    assert (
+        table.fail_closed_quarantined == 1
+    )  # p5: quarantined by the scanner's own fail-closed error, no detection
     assert table.fail_closed_review == 1  # a-invalid: P00 held it for review
     # F8: the inbound catch rate counts LLMail attacks stopped at gate pass 1 or 2
     assert (table.attacks, table.inbound_caught) == (3, 1)
     # every poisoned chunk caught: r-gate2 (p1, p2 both detected) and r-floor (p3) yes;
-    # r-chunk-invalid only failed closed on p4, which is no catch
+    # r-chunk-invalid: the set judge caught p4 after its chunk judge failed (a detection), but p5
+    # only failed closed, so not every chunk was caught
     assert (table.poison_cases, table.poison_all_caught) == (3, 2)
 
 
@@ -341,7 +369,7 @@ def test_a_judge_invalid_job_is_in_no_detection_count() -> None:
     by_id = {r.case_id: r for r in synthetic_records()}
 
     assert flagged_layers(by_id["a-invalid"].report) == []
-    assert flagged_layers(by_id["r-chunk-invalid"].report) == []
+    assert flagged_layers(by_id["r-chunk-invalid"].report) == ["doc_scanner"]  # p4: set judge
     assert flagged_layers(by_id["r-gate2"].report) == ["doc_scanner"]
 
 
@@ -359,3 +387,32 @@ def test_the_record_carries_its_protocol_facts_as_the_writer_stores_them() -> No
     )
     assert facts.to_dict()["doc_quarantined_chunk_ids"] == ["p3"]
     assert by_id["c0-native"].protocol is None
+
+
+def test_a_chunk_with_a_failed_judge_that_the_set_judge_then_quarantined_is_a_detection() -> None:
+    # the real guard: the chunk judge fails (no quarantine), the set judge flags the chunk later
+    docs: dict[str, Any] = {
+        "doc_scanner": {
+            "quarantined_chunk_ids": ["c1"],
+            "metadata": {"set_judge_added": ["c1"]},
+            "chunks": [
+                {
+                    "chunk_id": "c1",
+                    "quarantined": True,
+                    "error": "judge_invalid:doc_chunk",
+                    "metadata": {"judge_invalid": "doc_chunk"},
+                    "findings": [{"rule_id": "llm:set_poisoned", "threat_type": "rag_poisoning"}],
+                }
+            ],
+        }
+    }
+
+    assert detected_doc_chunk_ids(report(**docs)) == ("c1",)
+    assert fail_closed_quarantined_chunk_ids(report(**docs)) == ()
+
+
+def test_a_held_action_without_decided_by_is_no_output_guard_exit() -> None:
+    # C1, C2, C3-L4: the Output Guard is off, report.decision is still the inbound gate's
+    off = report(inbound=decision("human_approval", gate_passes=2))
+
+    assert exit_point(off, generation_called=True) == "delivered"
