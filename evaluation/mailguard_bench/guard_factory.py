@@ -104,6 +104,8 @@ def guard_settings(
     settings.guard_models.inbound_judge = model_name
     settings.guard_models.inbound_extractor = model_name
     settings.guard_models.doc_judge = model_name
+    # Built only when doc_scanner.set_judge_llm_enabled is on (off by default, guard v3 Task 10).
+    settings.guard_models.doc_set_judge = model_name
     settings.guard_models.output_judge = model_name
     settings.guard_models.models_path = str(models_path.resolve())
     settings.inbound_guard.ml_model_path = str(l1_model_path.resolve())

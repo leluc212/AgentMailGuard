@@ -159,6 +159,22 @@ async def test_naive_agent_end_to_end(settings):
             assert att.blocked_inbound and "inbound_guard" in att.detected_layers
 
 
+def test_build_pipeline_puts_the_guard_model_on_the_set_judge_too():
+    from mailguard.config.settings import MailGuardSettings
+
+    s = MailGuardSettings(_env_file=None)  # type: ignore[call-arg]
+    pipeline = build_pipeline("C3", guard_model="fake", settings=s)
+    gm = s.guard_models
+    assert gm.doc_set_judge == gm.doc_judge == "fake"
+    # The flag stays off, so no set-judge provider is built (guard v3 Task 10).
+    assert s.doc_scanner.set_judge_llm_enabled is False
+    assert pipeline.doc_scanner.set_judge is None
+
+    s_on = MailGuardSettings(_env_file=None)  # type: ignore[call-arg]
+    s_on.doc_scanner.set_judge_llm_enabled = True
+    assert build_pipeline("C3", guard_model="fake", settings=s_on).doc_scanner.set_judge is not None
+
+
 def test_bench_case_helpers():
     c = _case("benign")
     e = c.guarded_email()

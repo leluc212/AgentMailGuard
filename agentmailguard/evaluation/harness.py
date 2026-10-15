@@ -448,6 +448,8 @@ def build_pipeline(
         s.guard_models.inbound_judge = guard_model
         s.guard_models.inbound_extractor = guard_model
         s.guard_models.doc_judge = guard_model
+        # Built only when doc_scanner.set_judge_llm_enabled is on (off by default).
+        s.guard_models.doc_set_judge = guard_model
         s.guard_models.output_judge = guard_model
     registry = ModelRegistry(s) if guard_model else None
     return MailGuardPipeline(s, GuardConfig.preset(config), registry=registry, audit=audit)

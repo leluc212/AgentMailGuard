@@ -342,3 +342,9 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `mark_llm_fallback`, verdict giữ nguyên (fail-closed: Task 11). Pipeline kwarg `doc_set_judge`
   (`GUARD_MODELS__DOC_SET_JUDGE`). `tests/parity.py` đếm call theo tên `doc_set_judge.v1` (`V3_PROMPT_NAMES`,
   ngoài golden). `test_doc_set_judge.py` (11 test). Parity 0 delta. Subtree 575 passed.
+  Bổ sung (việc Task 3 giao): `harness.build_pipeline` và root `guard_factory.guard_settings` đặt
+  `guard_models.doc_set_judge` = model của guard; cờ vẫn tắt nên provider không được dựng, 0 delta.
+  Test `test_evaluation.py::test_build_pipeline_puts_the_guard_model_on_the_set_judge_too`,
+  `test_mailguard_bench_guard.py::test_guard_settings_point_every_stage_at_one_model`. Subtree 576
+  passed; root bench guard tests 62 passed + 2 xfail có sẵn. Còn mở: bench chưa có công tắc bật set
+  judge (Task 12).
