@@ -146,9 +146,9 @@ blocked, as L4 finds the indicator (tested on a hand-written draft).
 
 ## Known weaknesses
 
-1. **The extractor's AI step can still fail quietly.** A non-JSON answer from it becomes defaults,
-   including "no instructions found", with no error; it carries no risk level since v3, and the
-   other layers still run. Every other judge fails closed.
+1. **The extractor's AI step fails closed like every other judge.** Its output schema has no
+   defaults, so a non-JSON or partial answer is a schema failure and sets
+   `judge_invalid:inbound_extract` (human review). The extractor carries no risk level since v3.
 2. **Plain false facts pass.** A planted "Refunds take 90 days." shows no steering signs.
 3. **Attackers adapt:** new wording, another language or a quoted old email is harder to catch.
 4. **It depends on the model:** judges' answers vary, so attacks are tested on three models.
