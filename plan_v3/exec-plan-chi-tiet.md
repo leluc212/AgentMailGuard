@@ -420,6 +420,21 @@ Commit: `refactor(guard): bench scheme v3 configs and guard wiring [task v3.12]`
   p50/p95; `scheme_report.py` prints that table next to the ASR table.
 - Root tests `test_mailguard_bench_{scoring,report,report_v2,report_v2_build,scheme_report,artifacts,
   analyses,first_layer,l2_recount,overhead}.py`. Clear `expires: Task 13` entries.
+- **[review 10-15, protocol visibility]** The v3 report must show *where each job stopped and why*, not
+  only the final action. Per-case record (`guarded_reply.py`, from the guard report, no new guard
+  field): `exit_point` ∈ {`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`} derived from
+  `decision.metadata.decided_by`, `inbound_decision.metadata.gate_passes` and `generation_called`;
+  `carried_from_inbound` (inbound floor won); `guard_calls` per stage (`inbound_scan`,
+  `inbound_extract`, `doc_chunk`, `doc_set`, `output`); `judge_invalid` stages (fail-closed events);
+  `doc_quarantined_chunk_ids` (rename of `l3b_quarantined`; the 15a ratchet rejects the old name).
+  Per-config tables in `scheme_report.py` / `summary.json`: (1) exit-point counts (4 columns + total);
+  (2) inbound-floor count; (3) guard calls per stage, mean and max per job, set-judge column separate
+  so the "≤1 doc-set call, only when a chunk is in the band" claim is visible; (4) fail-closed events
+  per stage — a quarantine caused by `judge_invalid` is reported in its own column and **not** counted
+  as a detection; (5) the F8 per-route ablation metrics: inbound catch rate (stopped at pass 1 or 2
+  ÷ attacks) and "every poisoned chunk caught". ASR and poisoned-chunk catch keep their v1 definitions
+  so tables stay comparable with Review 1. Tests: a fixed set of synthetic per-case records covers all
+  four exit points and one `judge_invalid` case; the tables are asserted exactly.
 Commit: `refactor(guard): bench scheme v3 scoring and reports; pre-v3 runs refused [task v3.13]`.
 
 ### Task 14 — Docs, paper, specs, ADR → Accepted

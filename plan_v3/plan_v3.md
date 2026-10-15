@@ -228,7 +228,11 @@ flowchart LR
 11. Fail-closed invalid judge (cờ) + test guard không gọi tool.
 12. Bench scheme v3 — cấu hình.
 13. Bench scheme v3 — scoring & report (reader v3 từ chối `schema_version < 3`; `legacy_reader.py`
-    chỉ đọc cho folder v1/v2 đã commit — Q1=b').
+    chỉ đọc cho folder v1/v2 đã commit — Q1=b'); **[review 10-15]** report phải cho thấy
+    *job dừng ở đâu và vì sao*: `exit_point` (gate lượt 1 / lượt 2 / output guard / delivered),
+    `carried_from_inbound`, `guard_calls` theo stage (cột set judge riêng), sự kiện fail-closed
+    (`judge_invalid`, không tính là detection), metric ablation theo route (F8); `l3b_quarantined`
+    đổi tên thành `doc_quarantined_chunk_ids`. Định nghĩa ASR và "bắt đủ chunk độc" giữ nguyên v1).
 14. Docs, paper, specs, ADR → Accepted.
 15. Test ratchet cấm identifier cũ, dọn dẹp, nghiệm thu toàn bộ CI (F5):
     - **15a** — ratchet + cleanup. Allowlist ghi sẵn: `evaluation/mailguard_bench/legacy_reader.py`,
