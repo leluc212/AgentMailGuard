@@ -15,11 +15,12 @@ Checks, stopping at the first failure:
   2. `services`/`evaluation` resolve to rag-email, `mailguard` to the worktree.
   3. The L1 classifier artifact exists (sha256 and scikit-learn version printed).
   4. Offline: preset C0 inspects an email with no guard verdicts; preset C3 on the built-in
-     "fake" guard model reaches an L1 verdict and an L5 inbound decision.
+     "fake" guard model reaches an Inbound Guard verdict and an Inbound Gate decision.
   5. The Gemini guard model is registered: C3 built on it has the classifier loaded and an
-     OpenAIProvider for that model on the L1 judge and the L2 extractor (no call is made).
-     With --l3b-llm / --l4-llm (the C3 of the live v2 benchmark, task 7.20) the same holds for
-     L3b's and L4's LLM stages, and without them those stages must be off.
+     OpenAIProvider for that model on the Inbound Guard's judge and extractor (no call is made).
+     With --doc-llm / --output-llm (the C3 of the live v3 benchmark, plan_v3 Task 12) the same
+     holds for the Doc Scanner's chunk and set judges and the Output Guard's judge, and without
+     them those judges must be off.
   6. --live-probe only: one judge call with a system message and a JSON schema returns the
      requested JSON (verifies system role + json_mode on the Gemini endpoint). On an OpenRouter
      profile it also checks that the pinned provider served the call and prints it.
@@ -90,23 +91,25 @@ async def offline_checks(paths: GuardPaths) -> None:
 
 
 def check_registered(
-    paths: GuardPaths, model_name: str, *, l3b_llm: bool = False, l4_llm: bool = False
+    paths: GuardPaths, model_name: str, *, doc_llm: bool = False, output_llm: bool = False
 ) -> LiveLayers:
-    """Check 5: the guard model is registered on every LLM stage the run expects live.
+    """Check 5: the guard model is registered on every judge the run expects live.
 
-    Builds C3 on ``model_name`` and fails unless the classifier is loaded, the L1 judge and the
-    L2 extractor run the model, and L3b's and L4's LLM stages are on exactly when asked for.
-    No model call is made.
+    Builds C3 on ``model_name`` and fails unless the classifier is loaded, the Inbound Guard's
+    judge and extractor run the model, and the Doc Scanner's and Output Guard's judges are on
+    exactly when asked for. No model call is made.
 
     Raises:
         GuardEnvError: If a stage is not what ``require_live`` expects.
     """
     pipeline = build_guard_pipeline(
         "C3",
-        guard_settings(model_name, l1_model_path=paths.l1_model, l3b_llm=l3b_llm, l4_llm=l4_llm),
+        guard_settings(
+            model_name, l1_model_path=paths.l1_model, doc_llm=doc_llm, output_llm=output_llm
+        ),
     )
     layers = live_layers(pipeline)
-    require_live(layers, model_name=model_name, l3b_llm=l3b_llm, l4_llm=l4_llm)
+    require_live(layers, model_name=model_name, doc_llm=doc_llm, output_llm=output_llm)
     return layers
 
 
@@ -156,9 +159,15 @@ def run(argv: Sequence[str] | None = None) -> None:
     ap.add_argument("--live-probe", action="store_true", help="make ONE real guard-judge call")
     ap.add_argument("--model-profile", choices=sorted(PROFILES), default=None)
     ap.add_argument(
-        "--l3b-llm", action="store_true", help="expect L3b's LLM check live (live v2 C3)"
+        "--doc-llm",
+        action="store_true",
+        help="expect the Doc Scanner's chunk and set judges live (live v3 C3)",
     )
-    ap.add_argument("--l4-llm", action="store_true", help="expect L4's LLM check live (live v2 C3)")
+    ap.add_argument(
+        "--output-llm",
+        action="store_true",
+        help="expect the Output Guard's judge live (live v3 C3)",
+    )
     args = ap.parse_args(argv)
     updates, args.model = resolve_profile(args.model_profile, with_dot_env(os.environ), args.model)
     os.environ.update(updates)  # before AppSettings reads the env
@@ -174,11 +183,17 @@ def run(argv: Sequence[str] | None = None) -> None:
 
     llm = AppSettings().llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
-    layers = check_registered(paths, args.model, l3b_llm=args.l3b_llm, l4_llm=args.l4_llm)
+    layers = check_registered(paths, args.model, doc_llm=args.doc_llm, output_llm=args.output_llm)
     stages = (
-        f" l3b_llm={layers.l3b_llm} l4_llm={layers.l4_llm}" if args.l3b_llm or args.l4_llm else ""
+        f" doc_judge={layers.doc_judge} doc_set_judge={layers.doc_set_judge}"
+        f" output_judge={layers.output_judge}"
+        if args.doc_llm or args.output_llm
+        else ""
     )
-    print(f"ok guard model registered: l1_judge={layers.l1_judge} l2_llm={layers.l2_llm}{stages}")
+    print(
+        f"ok guard model registered: inbound_judge={layers.inbound_judge} "
+        f"inbound_extractor={layers.inbound_extractor}{stages}"
+    )
     if args.live_probe:
         asyncio.run(live_probe(paths, args.model, expected_guard_route(llm)))
 

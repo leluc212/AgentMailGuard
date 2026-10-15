@@ -29,7 +29,7 @@ help:
 	@echo "  mailguard-test - ONE guard-side unit file (tests/unit/test_mailguard_bench_guard.py) under the AgentMailGuard overlay (fake models, no network); the whole suite is mailguard-unit"
 	@echo "  mailguard-unit - The WHOLE unit suite under the AgentMailGuard overlay (fake models, no network, no classifier): runs the ~260 tests that plain pytest skips for want of the guard; CI runs it on the committed agentmailguard/ (run it before main and before a benchmark)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
-	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|...|C7 [SCHEME=v2|v1] - Benchmark on the real rag-email path. Scheme v2 (default): C0 no guard, C0T guard template with no layer, C1 L1+L5, C2 L2+L5, C3 L3+L5, C4 L3b+L5, C5 L4+L5, C6 L5 alone, C7 every layer. SCHEME=v1 reproduces the published runs: C0, C0T, C1, C2, C3 (every layer), C3-L1..C3-L5 (C3 minus one layer). Owner-run, live model (task 7.19, 7.20; not CI)"
+	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO [JUDGE_FALLBACK=1] - Benchmark on the real rag-email path, scheme v3 (guard v3 presets, ADR-0015): C0 no guard, C0T guard template with no layer, C1 Inbound Guard + Inbound Gate, C2 C1 + Doc Scanner + isolation, C3 the full guard, C3-L1..C3-L4 C3 minus one layer, C3-ISO C3 without channel isolation; every judge of a layer the config runs is live. Schemes v1/v2 are refused (their guard commits). Owner-run, live model (not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
@@ -231,21 +231,25 @@ unexport CONCURRENCY
 # CASE_IDS (a trial over chosen cases, task 7.29) reaches the kit as --case-ids only, likewise.
 unexport CASE_IDS
 
-# The config names have two meanings (ADR-0012 decision 11): SCHEME=v2 (the default, for new runs)
-# C0..C7, SCHEME=v1 the published C0/C0T/C1/C2/C3 and the C3-L1..C3-L5 ablation. SCHEME reaches the
-# runner as --scheme only, like CONCURRENCY.
-SCHEME ?= v2
+# The config names have several meanings (ADR-0012 decision 11). Runs at HEAD are SCHEME=v3 (the
+# guard v3 presets, ADR-0015): C0, C0T, C1, C2, C3, C3-L1..C3-L4, C3-ISO. SCHEME=v1 and v2 ran on
+# other guard commits and the runner refuses them, naming the commit. JUDGE_FALLBACK=1 keeps a
+# failed guard judge answer on the v2 visible fallback instead of failing closed (to compare with
+# v2). SCHEME and JUDGE_FALLBACK reach the runner as flags only, like CONCURRENCY.
+SCHEME ?= v3
 unexport SCHEME
+unexport JUDGE_FALLBACK
 
 mailguard-bench:
-	@case "$(SCHEME)/$(CONFIG)" in v2/C0|v2/C0T|v2/C1|v2/C2|v2/C3|v2/C4|v2/C5|v2/C6|v2/C7|v1/C0|v1/C3|v1/C0T|v1/C1|v1/C2|v1/C3-L1|v1/C3-L2|v1/C3-L3|v1/C3-L3B|v1/C3-L4|v1/C3-L5) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [SCHEME=v2] [MODEL=gpt-4o-mini|qwen2.5-7b-openrouter|llama-3.1-8b-openrouter|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2]; or, to reproduce the published runs, SCHEME=v1 CONFIG=C0|C3|C0T|C1|C2|C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5"; exit 2;; esac
+	@case "$(SCHEME)/$(CONFIG)" in v3/C0|v3/C0T|v3/C1|v3/C2|v3/C3|v3/C3-L1|v3/C3-L2|v3/C3-L3|v3/C3-L4|v3/C3-ISO|v1/*|v2/*) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C3-L1|C3-L2|C3-L3|C3-L4|C3-ISO [MODEL=gpt-4o-mini|qwen2.5-7b-openrouter|llama-3.1-8b-openrouter|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2] [JUDGE_FALLBACK=1]"; exit 2;; esac
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
 		--config $(CONFIG) --scheme $(SCHEME) --run $(RUN) --retry-errors \
 		--llm-timeout-s $(MAILGUARD_LLM_TIMEOUT_S) \
 		$(if $(LIMIT),--limit $(LIMIT)) \
 		$(if $(MODEL),--model-profile $(MODEL)) \
-		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY))
+		$(if $(CONCURRENCY),--concurrency $(CONCURRENCY)) \
+		$(if $(JUDGE_FALLBACK),--judge-fallback)
 
 mailguard-bench-test:
 	$(MAILGUARD_UV) python -m pytest \
@@ -266,8 +270,8 @@ mailguard-analyses:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
 	@scheme=$$($(MAILGUARD_PY) -m evaluation.mailguard_bench.scheme --run-dir $(MAILGUARD_RUN_DIR)) || exit 1; \
-	if [ "$$scheme" = v2 ]; then \
-		echo "NOTE scheme v2: the no-API analyses read C3 as the full guard (C7 in v2), so they are v1-only until task 7.23; the report above is all a v2 run has"; \
+	if [ "$$scheme" = v2 ] || [ "$$scheme" = v3 ]; then \
+		echo "NOTE scheme $$scheme: the no-API analyses read C3 with scheme v1's meaning, so they are v1-only; the report above is all a $$scheme run has"; \
 	else \
 		$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR) && \
 		$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR); \

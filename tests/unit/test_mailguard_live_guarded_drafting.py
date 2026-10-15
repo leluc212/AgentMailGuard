@@ -179,14 +179,14 @@ async def _rig(
     message: NormalizedMessage | None = None,
     queued_payload: dict[str, Any] | None = None,
 ) -> Rig:
-    full = preset == "C3"  # the live v2 C3 runs every guard LLM stage
+    full = preset == "C3"  # the live v3 C3 runs every guard judge
     guard = build_guard(
         preset,
         model_name="fake",
         audit_log_path=tmp_path / "raw" / "guard_l5.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
-        l3b_llm=full,
-        l4_llm=full,
+        doc_llm=full,
+        output_llm=full,
     )
     guard.guard_llm.inner = guard_fake()  # the stages hold the CountingProvider, not inner
     fake = FakeLLMProvider(default_response=reply)

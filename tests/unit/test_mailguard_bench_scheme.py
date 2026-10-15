@@ -24,9 +24,52 @@ V2_FLAGS = {
 }
 
 
-def test_the_two_schemes_and_the_default() -> None:
-    assert scheme.SCHEMES == ("v1", "v2")
-    assert scheme.DEFAULT_SCHEME == "v2"  # a new run is v2 unless it asks for v1
+def test_the_schemes_and_the_default() -> None:
+    assert scheme.SCHEMES == ("v1", "v2", "v3")  # every scheme a committed meta may record
+    assert scheme.RUN_SCHEMES == ("v3",)  # the only one a run at HEAD takes
+    assert scheme.DEFAULT_SCHEME == "v3"
+
+
+@pytest.mark.parametrize("retired", ["v1", "v2"])
+def test_a_retired_scheme_is_refused_naming_its_guard_commit(retired: str) -> None:
+    with pytest.raises(ValueError, match=scheme.RETIRED_SCHEME_GUARDS[retired]):
+        scheme.require_run_scheme(retired)
+    scheme.require_run_scheme("v3")
+    with pytest.raises(ValueError, match="unknown config scheme"):
+        scheme.require_run_scheme("v4")
+
+
+def test_the_v3_configs_are_the_guard_v3_presets() -> None:
+    assert scheme.V3_CONFIGS == (
+        "C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO",
+    )  # fmt: skip
+    assert scheme.configs_for("v3") == scheme.live_configs_for("v3") == scheme.V3_CONFIGS
+    assert scheme.target_config("v3") == "C3"
+    assert scheme.V3_LAYERS["C0"] == scheme.V3_LAYERS["C0T"] == ()
+    assert scheme.V3_LAYERS["C1"] == ("inbound_guard", "inbound_gate")
+    assert scheme.V3_LAYERS["C3"] == scheme.V3_SWITCHES
+    for config, removed in scheme.V3_ABLATIONS.items():
+        assert scheme.V3_LAYERS[config] == tuple(s for s in scheme.V3_SWITCHES if s != removed)
+    assert scheme.v3_guard_preset("C0T") == "C0" and scheme.v3_guard_preset("C3-ISO") == "C3-ISO"
+    with pytest.raises(ValueError, match="native"):
+        scheme.v3_guard_preset("C0")
+    assert tuple(c for c in scheme.V3_CONFIGS if c != "C0T") == scheme.V3_DEFAULT_CAMPAIGN
+
+
+def test_every_judge_of_a_layer_a_v3_config_runs_is_live() -> None:
+    assert scheme.V3_AI_STAGES["C0T"] == ()
+    assert scheme.V3_AI_STAGES["C1"] == ("inbound_judge", "inbound_extractor")
+    assert scheme.V3_AI_STAGES["C2"] == (
+        "inbound_judge", "inbound_extractor", "doc_judge", "doc_set_judge",
+    )  # fmt: skip
+    assert scheme.V3_AI_STAGES["C3"] == scheme.V3_STAGES[1:]
+    assert scheme.V3_AI_STAGES["C3-L1"] == ("doc_judge", "doc_set_judge", "output_judge")
+    assert scheme.V3_AI_STAGES["C3-L3"] == scheme.V3_AI_STAGES["C3-ISO"] == scheme.V3_STAGES[1:]
+    assert len(scheme.V3_STAGES[1:]) == 5  # ADR-0015 decision 12: at most five guard calls
+    assert scheme.v3_llm_stages("C2") == (True, False)
+    assert scheme.v3_llm_stages("C3-L4") == (True, False)
+    assert scheme.v3_required_stages("C0T") == ()
+    assert scheme.v3_required_stages("C3-L1")[0] == "classifier"  # the Doc Scanner reads it
 
 
 def test_the_v2_configs_and_their_layer_flags_are_the_pre_registered_ones() -> None:
@@ -135,8 +178,9 @@ def test_a_meta_without_a_scheme_is_v1() -> None:
     assert scheme.scheme_of_meta(None) == "v1"
     assert scheme.scheme_of_meta({"scheme": "v1"}) == "v1"
     assert scheme.scheme_of_meta({"scheme": "v2"}) == "v2"
-    with pytest.raises(ValueError, match="v3"):
-        scheme.scheme_of_meta({"scheme": "v3"})
+    assert scheme.scheme_of_meta({"scheme": "v3"}) == "v3"
+    with pytest.raises(ValueError, match="v4"):
+        scheme.scheme_of_meta({"scheme": "v4"})
 
 
 def test_the_target_config_and_the_full_guard_follow_the_scheme() -> None:
@@ -202,8 +246,9 @@ def test_the_live_configs_leave_out_the_v1_ablation() -> None:
     assert scheme.live_configs_for("v1") == scheme.V1_CONFIGS
     assert scheme.live_configs_for("v2") == scheme.V2_CONFIGS
     assert not set(scheme.ABLATION_CONFIGS) & set(scheme.live_configs_for("v1"))
+    assert scheme.live_configs_for("v3") == scheme.V3_CONFIGS  # v3 ablations run live
     with pytest.raises(ValueError, match="unknown config scheme"):
-        scheme.live_configs_for("v3")
+        scheme.live_configs_for("v4")
 
 
 def test_require_live_config_names_the_scheme_and_its_live_configs() -> None:

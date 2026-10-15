@@ -86,7 +86,7 @@ class StubGuard(GuardBuild):
             "preset": self.preset,
             "guard_model": self.model_name,
             "missing_live_stages": list(self.missing),
-            "live_layers": {"preset": self.preset, "l3b_llm": "stub", "l4_llm": "stub"},
+            "live_layers": {"preset": self.preset, "doc_judge": "stub", "output_judge": "stub"},
             "mailguard_commit": "c" * 40,
             "l1_model_sha256": None,
         }
@@ -168,9 +168,8 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
 
 
 def _main(*argv: str) -> int:
-    """`main` with the published (scheme v1) meanings unless a test passes ``--scheme``."""
-    scheme = [] if "--scheme" in argv else ["--scheme", "v1"]
-    return guard_worker.main([*scheme, *argv])
+    """`main` as a run at HEAD starts it (scheme v3, the default)."""
+    return guard_worker.main(list(argv))
 
 
 def _start(
@@ -178,11 +177,11 @@ def _start(
     config: str = "C3",
     run: str = "r1",
     profile: str = "gpt-4o-mini",
-    scheme: str = "v1",
+    scheme: str = "v3",
 ) -> int:
     """`main` for a worker whose profile key the test provides.
 
-    Most tests here describe the published (scheme v1) meanings, where C3 is the full guard.
+    Scheme v3, where C3 is the full guard with every judge live.
     """
     os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
     return _main(
@@ -200,12 +199,12 @@ def _meta(rig: Rig, config: str = "C3", run: str = "r1") -> dict[str, Any]:
 
 
 def test_the_worker_serves_one_guarded_config() -> None:
-    profile = ["--model-profile", "gpt-4o-mini", "--scheme", "v1"]
-    for config in ("C0T", "C1", "C2", "C3"):
+    profile = ["--model-profile", "gpt-4o-mini"]
+    for config in ("C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"):
         args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
         assert args.config == config
         assert (args.model_profile, args.port) == ("gpt-4o-mini", guard_worker.DEFAULT_PORT)
-    for bad in ("C0", "C4", "c3"):  # C0 is the ai-worker container's job, not a guard's
+    for bad in ("C0", "C4", "C7", "C3-L5", "c3"):  # C0 is the ai-worker container's job
         with pytest.raises(SystemExit):
             guard_worker.parse_args(["--config", bad, "--run", "r", *profile])
     with pytest.raises(SystemExit):
@@ -226,13 +225,24 @@ def test_the_worker_cannot_start_without_a_model_profile(
     assert "--model-profile" in capsys.readouterr().err
 
 
-def test_only_c3_runs_the_l3b_and_l4_llm_stages_of_a_live_run() -> None:
+def test_a_config_runs_the_opt_in_judges_of_the_layers_it_runs() -> None:
     # The rule sits next to build_guard so that whatever describes a live run's guard (the
     # runner's fingerprint) asks the same question the worker asked when it built its own.
     assert guard_build.live_guard_llm_stages("C3") == (True, True)
     assert guard_build.live_guard_llm_stages("c3") == (True, True)  # build_guard reads any case
-    for config in ("C0T", "C1", "C2"):
+    assert guard_build.live_guard_llm_stages("C2") == (True, False)
+    for config in ("C0T", "C1"):
         assert guard_build.live_guard_llm_stages(config) == (False, False)
+
+
+def test_a_retired_scheme_never_starts_a_worker(capsys: pytest.CaptureFixture[str]) -> None:
+    for retired in ("v1", "v2"):
+        with pytest.raises(SystemExit):
+            guard_worker.parse_args(
+                ["--config", "C3", "--run", "r", "--model-profile", "gpt-4o-mini",
+                 "--scheme", retired]
+            )  # fmt: skip
+        assert "checkout of that commit" in capsys.readouterr().err
 
 
 def test_the_run_folder_files_have_the_names_the_feeder_looks_for() -> None:
@@ -379,7 +389,8 @@ def test_main_starts_the_worker_runtime_for_the_config_and_writes_its_files(rig:
     meta = observed["meta"]
     assert (meta["run_id"], meta["config"], meta["pid"]) == ("r1", "C3", os.getpid())
     assert meta["model_profile"] == "gpt-4o-mini" and meta["guard_model"] == MODEL
-    assert meta["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
+    assert meta["guard_llm_stages"] == {"doc_llm": True, "output_llm": True}
+    assert meta["judge_fail_closed"] is True
     assert meta["guard"]["mailguard_commit"] == "c" * 40
     assert meta["guarded_prompt_version"] == "guarded.v3"
     assert meta["audit_log"] == str(guard_worker.audit_log_path(rig.run_dir(), "C3"))
@@ -402,10 +413,11 @@ def test_the_meta_names_what_a_start_must_share_with_every_other_start_of_the_ru
 
     fingerprint = _meta(rig)["fingerprint"]
     assert fingerprint["model_profile"] == "gpt-4o-mini" and fingerprint["guard_model"] == MODEL
-    assert fingerprint["guard_llm_stages"] == {"l3b_llm": True, "l4_llm": True}
+    assert fingerprint["guard_llm_stages"] == {"doc_llm": True, "output_llm": True}
+    assert fingerprint["judge_fail_closed"] is True
     assert fingerprint["mailguard_commit"] == "c" * 40
     assert fingerprint["guarded_prompt_version"] == "guarded.v3"
-    assert fingerprint["live_layers"]["l3b_llm"] == "stub"
+    assert fingerprint["live_layers"]["doc_judge"] == "stub"
 
 
 def test_a_restart_under_another_model_is_refused_and_leaves_the_meta_alone(
@@ -587,24 +599,38 @@ def test_the_guard_is_built_for_the_config_on_the_runs_model(rig: Rig) -> None:
     (call,) = rig.built
     assert call["preset"] == "C3"
     assert call["model_name"] == MODEL  # one model in every role
-    assert (call["l3b_llm"], call["l4_llm"]) == (True, True)
+    assert (call["doc_llm"], call["output_llm"]) == (True, True)
+    assert call["judge_fail_closed"] is True and call["scheme"] == "v3"
     assert call["l1_model_path"] == rig.paths.l1_model
     assert call["audit_log_path"] == guard_worker.l5_log_path(rig.run_dir(), "C3")
 
 
-def test_c0t_and_the_ablation_configs_keep_l3b_and_l4_llm_off(rig: Rig) -> None:
+def test_each_config_gets_the_opt_in_judges_of_its_layers(rig: Rig) -> None:
     os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
-    for config in ("C0T", "C1", "C2"):
+    for config, stages in (
+        ("C0T", (False, False)),
+        ("C1", (False, False)),
+        ("C2", (True, False)),
+        ("C3-L2", (False, True)),
+        ("C3-L4", (True, False)),
+    ):
         rig.built.clear()
         assert _main("--config", config, "--run", "r1", "--model-profile", "gpt-4o-mini") == 0
         (call,) = rig.built
-        assert (call["l3b_llm"], call["l4_llm"]) == (False, False)
+        assert (call["doc_llm"], call["output_llm"]) == stages, config
+
+
+def test_the_judge_fallback_mode_is_asked_for_and_fingerprinted(rig: Rig) -> None:
+    assert _start("--judge-fallback") == 0
+    (call,) = rig.built
+    assert call["judge_fail_closed"] is False
+    assert _meta(rig)["fingerprint"]["judge_fail_closed"] is False
 
 
 def test_main_refuses_a_guard_that_is_not_at_full_strength(
     rig: Rig, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rig.missing.extend(["l1.classifier", "l3b.llm"])
+    rig.missing.extend(["classifier", "doc_judge"])
     os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
 
     code = _main("--config", "C3", "--run", "r1", "--model-profile", "gpt-4o-mini")
@@ -612,7 +638,7 @@ def test_main_refuses_a_guard_that_is_not_at_full_strength(
     assert code == 1
     assert FakeRuntime.instances == []  # nothing was started
     err = capsys.readouterr().err
-    assert "l1.classifier" in err and "l3b.llm" in err
+    assert "classifier" in err and "doc_judge" in err
     assert not rig.pid_file("C3").exists()
 
 

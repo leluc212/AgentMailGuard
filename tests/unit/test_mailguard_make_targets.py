@@ -121,28 +121,37 @@ def test_the_worker_count_reaches_the_runner_as_an_argument_only() -> None:
     assert "--concurrency 2" in dry_run
 
 
-ABLATION_CONFIGS = ("C3-L1", "C3-L2", "C3-L3", "C3-L3B", "C3-L4", "C3-L5")
-V1_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", *ABLATION_CONFIGS)
-V2_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C4", "C5", "C6", "C7")
+V3_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
 
 
-def test_the_bench_target_accepts_the_v1_configs_under_scheme_v1() -> None:
-    # the layer ablation exists only in scheme v1, the published one (ADR-0012 decision 11)
-    for config in V1_CONFIGS:
-        dry_run = _make(
-            "-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "SCHEME=v1", "MODEL=gpt-4o-mini"
-        )
-        assert f"--config {config} " in dry_run
-        assert "--scheme v1" in dry_run
-        assert "--model-profile gpt-4o-mini" in dry_run
-
-
-def test_the_bench_target_defaults_to_scheme_v2_and_accepts_its_configs() -> None:
-    for config in V2_CONFIGS:
+def test_the_bench_target_defaults_to_scheme_v3_and_accepts_its_configs() -> None:
+    for config in V3_CONFIGS:
         dry_run = _make("-n", "mailguard-bench", "RUN=x", f"CONFIG={config}", "MODEL=gpt-4o-mini")
         assert f"--config {config} " in dry_run
-        assert "--scheme v2" in dry_run
+        assert "--scheme v3" in dry_run
         assert "--model-profile gpt-4o-mini" in dry_run
+        assert "--judge-fallback" not in dry_run  # judges fail closed unless asked
+
+
+def test_the_judge_fallback_mode_reaches_the_runner_as_a_flag_only() -> None:
+    dry_run = _make("-n", "mailguard-bench", "RUN=x", "CONFIG=C3", "JUDGE_FALLBACK=1")
+    assert "--judge-fallback" in dry_run
+    leaked = _make(
+        "-s",
+        "--eval",
+        'print-env: ; @env | grep "^JUDGE_FALLBACK=" || true',
+        "print-env",
+        "JUDGE_FALLBACK=1",
+    )
+    assert leaked == ""
+
+
+def test_a_retired_scheme_reaches_the_runner_which_refuses_it_naming_its_guard() -> None:
+    # The recipe does not repeat the runner's refusal: it passes SCHEME on, and the runner says
+    # which guard commit a v1 or v2 run needs (scheme.require_run_scheme).
+    for retired in ("v1", "v2"):
+        dry_run = _make("-n", "mailguard-bench", "RUN=x", "CONFIG=C3", f"SCHEME={retired}")
+        assert f"--scheme {retired}" in dry_run
 
 
 def test_the_scheme_reaches_the_runner_as_an_argument_only() -> None:
@@ -153,23 +162,21 @@ def test_the_scheme_reaches_the_runner_as_an_argument_only() -> None:
     assert leaked == ""
 
 
-def _config_check_exit(config: str, scheme: str = "v2") -> int:
+def _config_check_exit(config: str, scheme: str = "v3") -> int:
     """Exit code of the recipe's first line (the CONFIG check), run alone; no run starts."""
     first = recipe("mailguard-bench").splitlines()[0].lstrip("@\t ")
     command = first.replace("$(CONFIG)", config).replace("$(SCHEME)", scheme)
     return subprocess.run(["bash", "-c", command], capture_output=True, check=False).returncode
 
 
-def test_the_config_check_lets_each_schemes_configs_through_and_only_those() -> None:
-    for config in V2_CONFIGS:
-        assert _config_check_exit(config, "v2") == 0, config
-    for config in ("C3-L1", "C3-L6", "C3-l1", "C3-", "C8", "C0t", ""):
-        assert _config_check_exit(config, "v2") == 2, config
-    for config in V1_CONFIGS:
-        assert _config_check_exit(config, "v1") == 0, config
-    for config in ("C3-L6", "C3-l1", "C3-", "C4", "C5", "C6", "C7", ""):
-        assert _config_check_exit(config, "v1") == 2, config
-    for scheme in ("v3", "", "V2"):
+def test_the_config_check_lets_the_v3_configs_through_and_only_those() -> None:
+    for config in V3_CONFIGS:
+        assert _config_check_exit(config) == 0, config
+    for config in ("C3-L5", "C3-L3B", "C3-L6", "C3-l1", "C3-", "C4", "C7", "C8", "C0t", ""):
+        assert _config_check_exit(config) == 2, config
+    for retired in ("v1", "v2"):  # the runner refuses these, naming the guard commit
+        assert _config_check_exit("C3", retired) == 0, retired
+    for scheme in ("v4", "", "V3"):
         assert _config_check_exit("C0", scheme) == 2, scheme
 
 
@@ -186,12 +193,12 @@ def _usage(*args: str) -> str:
 
 
 def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config() -> None:
-    for args in (["CONFIG=C3-L1"], ["CONFIG=C4", "SCHEME=v1"], ["CONFIG=C8"], ["SCHEME=v3"]):
+    for args in (["CONFIG=C3-L5"], ["CONFIG=C4"], ["CONFIG=C8"], ["SCHEME=v4"]):
         usage = _usage(*args)
         assert usage.startswith("usage: make mailguard-bench")
-        for config in (*V2_CONFIGS, *ABLATION_CONFIGS):
+        for config in V3_CONFIGS:
             assert config in usage, (args, config)
-        assert "SCHEME=v1" in usage and "SCHEME=v2" in usage
+        assert "JUDGE_FALLBACK=1" in usage
         assert "python -m evaluation" not in usage  # rejected before anything runs
 
 
@@ -271,11 +278,12 @@ def test_analyses_on_a_v1_run_still_scores_analyses_then_reports(tmp_path: Path)
         assert [s.rsplit(".", 1)[1] for s in steps] == ["report", "analyses", "report"]
 
 
-def test_analyses_on_a_v2_run_writes_the_report_and_ends_cleanly(tmp_path: Path) -> None:
-    # the no-API analyses read C3 as the full guard, which is C7 in v2 (task 7.23): they refuse a
-    # v2 folder, so the target must not reach them and then fail after the report is written
-    code, steps, output = _run_analyses_target(tmp_path, "v2")
+def test_analyses_on_a_v2_or_v3_run_writes_the_report_and_ends_cleanly(tmp_path: Path) -> None:
+    # the no-API analyses read C3 with scheme v1's meaning: they refuse a v2 or v3 folder, so the
+    # target must not reach them and then fail after the report is written
+    for scheme in ("v2", "v3"):
+        code, steps, output = _run_analyses_target(tmp_path / scheme, scheme)
 
-    assert code == 0
-    assert [s.rsplit(".", 1)[1] for s in steps] == ["report"]
-    assert "scheme v2" in output and "7.23" in output
+        assert code == 0
+        assert [s.rsplit(".", 1)[1] for s in steps] == ["report"]
+        assert f"scheme {scheme}" in output and "v1-only" in output

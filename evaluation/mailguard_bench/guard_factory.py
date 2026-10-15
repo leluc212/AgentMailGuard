@@ -1,11 +1,11 @@
-"""Build AgentMailGuard pipelines for the benchmark without editing the guard branch.
+"""AgentMailGuard settings and pipelines for the benchmark, independent of any .env.
 
-Follows the guard's own harness (evaluation/harness.py:438 on
-feature/mailguard-defense-stack): settings that ignore any .env, all four guard LLM stages
-on one registered model, and a ModelRegistry that reads rag-email's guard_models.yaml by
-absolute path. The L1 classifier path points at the artifact `make mailguard-prep` trained
-outside the worktree. Needs `mailguard` importable (the `make mailguard-*` targets).
-Task 7.19; ADR-0010.
+Follows the guard's own harness (agentmailguard/evaluation/harness.py ``build_pipeline``):
+settings that ignore any .env, every guard judge on one registered model, and a ModelRegistry
+that reads rag-email's guard_models.yaml by absolute path. The L1 classifier path points at the
+pinned artifact. Needs ``mailguard`` importable (the ``make mailguard-*`` targets).
+Task 7.19; ADR-0010; guard v3 (ADR-0015, plan_v3 Task 12): the configs are the guard's own v3
+presets and the stage names are its v3 judges, with no v2 layer vocabulary in between.
 """
 
 from __future__ import annotations
@@ -23,105 +23,49 @@ from evaluation.mailguard_bench.guard_env import (
     GuardEnvError,
 )
 
-# --- guard v3 GuardConfig from the bench's v2 layer vocabulary (guard v3 Task 6) ------------
-# The bench names layers l1, l2, l3, l3b, l4, l5 until scheme v3 (guard v3 Tasks 12-13). Guard
-# v3 has one Inbound Guard switch for the old l1 (scan) and l2 (extract). Under R-i only the scan
-# grades, so the Inbound Guard runs exactly when the set names l1 (with its extract sub-stage);
-# a set with l2 but no l1 runs none. ``realized_layers`` reports what really ran, and the
-# report's degradation check then flags a config that asked for one sub-stage only. The guard's
-# parity matrix (agentmailguard/tests/parity.py, V2_CONFIG_FLAGS) uses the same rule.
-V2_FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
-V1_PRESET_LAYERS: dict[str, tuple[str, ...]] = {
-    "C0": (),
-    "C1": ("l1", "l5"),
-    "C2": ("l1", "l2", "l3", "l5"),
-    "C3": V2_FULL_LAYERS,
-    **{
-        f"C3-{layer.upper()}": tuple(x for x in V2_FULL_LAYERS if x != layer)
-        for layer in V2_FULL_LAYERS
-    },
-}
-"""The v2 guard presets the v1 scheme names, as v2 layer sets (``GuardConfig.preset`` is v3)."""
-
-
-def v3_guard_config(name: str, layers: tuple[str, ...] | list[str]) -> GuardConfig:
-    """The guard v3 ``GuardConfig`` for a v2 layer set (l5 switches the inbound gate; the
-    outbound decision belongs to the Output Guard, l4, since guard v3 Task 8)."""
-    wanted = set(layers)
-    unknown = wanted - set(V2_FULL_LAYERS)
-    if unknown:
-        raise ValueError(f"unknown v2 layers {sorted(unknown)}")
-    return GuardConfig(
-        name,
-        inbound_guard="l1" in wanted,
-        doc_scanner="l3b" in wanted,
-        inbound_gate="l5" in wanted,
-        output_guard="l4" in wanted,
-        channel_isolation="l3" in wanted,
-    )
-
-
-def v3_layers(layers: tuple[str, ...] | list[str]) -> tuple[str, ...]:
-    """The v2-named layers guard v3 runs when the bench asks for ``layers`` (l1 → l1 + l2)."""
-    return realized_layers(v3_guard_config("probe", layers))
-
-
-def realized_layers(config: GuardConfig) -> tuple[str, ...]:
-    """The v2-named layers a v3 ``GuardConfig`` really runs, in v2 order."""
-    on = {
-        "l1": config.inbound_guard,
-        "l2": config.inbound_guard,
-        "l3": config.channel_isolation,
-        "l3b": config.doc_scanner,
-        "l4": config.output_guard,
-        "l5": config.inbound_gate,
-    }
-    return tuple(layer for layer in V2_FULL_LAYERS if on[layer])
-
-
-def v1_preset_config(preset: str) -> GuardConfig:
-    """``GuardConfig`` for a v1-scheme guard preset name (C0, C1, C2, C3, C3-L1 .. C3-L5)."""
-    key = preset.upper()
-    if key not in V1_PRESET_LAYERS:
-        raise ValueError(f"unknown v1 guard preset {preset!r}")
-    return v3_guard_config(key, V1_PRESET_LAYERS[key])
-
 
 def guard_settings(
     model_name: str,
     *,
     l1_model_path: Path,
     models_path: Path = GUARD_MODELS_YAML,
-    l3b_llm: bool = False,
-    l4_llm: bool = False,
+    doc_llm: bool = False,
+    output_llm: bool = False,
+    judge_fail_closed: bool = True,
 ) -> MailGuardSettings:
-    """Guard settings with every LLM stage on ``model_name``, independent of any .env.
+    """Guard settings with every judge on ``model_name``, independent of any .env.
 
-    L3b/L4 LLM sub-stages stay off by default, as in the guard's own settings and harness.
-    Absolute paths are used as given by MailGuardSettings.resolve.
+    The Doc Scanner's two judges (chunk and set, ``doc_llm``) and the Output Guard's judge
+    (``output_llm``) stay off unless asked for, as in the guard's own settings. With
+    ``judge_fail_closed`` (the guard's default) a failed or invalid judge answer is the verdict
+    error ``judge_invalid:<stage>`` and human review; off is the v2 visible fallback, which a run
+    asks for to compare with v2 (``--judge-fallback``). Absolute paths are used as given.
     """
     settings = MailGuardSettings(_env_file=None)
-    settings.guard_models.inbound_judge = model_name
-    settings.guard_models.inbound_extractor = model_name
-    settings.guard_models.doc_judge = model_name
-    # Built only when doc_scanner.set_judge_llm_enabled is on (off by default, guard v3 Task 10).
-    settings.guard_models.doc_set_judge = model_name
-    settings.guard_models.output_judge = model_name
-    settings.guard_models.models_path = str(models_path.resolve())
+    gm = settings.guard_models
+    gm.inbound_judge = gm.inbound_extractor = model_name
+    gm.doc_judge = gm.doc_set_judge = gm.output_judge = model_name
+    gm.models_path = str(models_path.resolve())
     settings.inbound_guard.ml_model_path = str(l1_model_path.resolve())
-    settings.doc_scanner.llm_enabled = l3b_llm
-    settings.output_guard.llm_enabled = l4_llm
-    # The bench scores a judge fallback as a scored row (guarded_reply.classify_ai_step_failures)
-    # and a verdict error as a crash; guard v3 Task 11 fails judges closed by default, so the
-    # bench keeps the v2 visible fallback until scheme v3 sets the flag per config (Task 12).
-    settings.mailguard.fail_closed_on_judge_error = False
+    settings.doc_scanner.llm_enabled = doc_llm
+    settings.doc_scanner.set_judge_llm_enabled = doc_llm
+    settings.output_guard.llm_enabled = output_llm
+    settings.mailguard.fail_closed_on_judge_error = judge_fail_closed
     return settings
 
 
 def build_guard_pipeline(preset: str, settings: MailGuardSettings) -> MailGuardPipeline:
-    """A pipeline for one v1 guard preset (C0, C1, C2, C3, C3-L1..C3-L5), audit log off."""
+    """A pipeline for one guard v3 preset (``GuardConfig.preset``), audit log off."""
     return MailGuardPipeline(
-        settings, v1_preset_config(preset), registry=ModelRegistry(settings), audit=False
+        settings, GuardConfig.preset(preset), registry=ModelRegistry(settings), audit=False
+    )
+
+
+def active_switches(config: GuardConfig) -> tuple[str, ...]:
+    """The switches a ``GuardConfig`` turns on: its active layers, then channel isolation."""
+    return (
+        *config.active_layers,
+        *(("channel_isolation",) if config.channel_isolation else ()),
     )
 
 
@@ -131,11 +75,12 @@ class LiveLayers:
 
     preset: str
     active_layers: tuple[str, ...]
-    l1_classifier: bool
-    l1_judge: str | None
-    l2_llm: str | None
-    l3b_llm: str | None
-    l4_llm: str | None
+    classifier: bool
+    inbound_judge: str | None
+    inbound_extractor: str | None
+    doc_judge: str | None
+    doc_set_judge: str | None
+    output_judge: str | None
 
     def as_dict(self) -> dict[str, object]:
         """JSON-ready form for manifest.json."""
@@ -152,41 +97,43 @@ def provider_label(provider: object | None) -> str | None:
 
 def live_layers(pipeline: MailGuardPipeline) -> LiveLayers:
     """Read what the pipeline actually built (the guard degrades silently otherwise)."""
+    set_judge = pipeline.doc_scanner.set_judge
     return LiveLayers(
         preset=str(pipeline.config.name),
-        active_layers=realized_layers(pipeline.config),
-        l1_classifier=bool(pipeline.inbound_guard.classifier.available),
-        l1_judge=provider_label(pipeline.inbound_guard.judge),
-        l2_llm=provider_label(pipeline.inbound_guard.extract.llm),
-        l3b_llm=provider_label(pipeline.doc_scanner.llm),
-        l4_llm=provider_label(pipeline.output_guard.llm),
+        active_layers=active_switches(pipeline.config),
+        classifier=bool(pipeline.inbound_guard.classifier.available),
+        inbound_judge=provider_label(pipeline.inbound_guard.judge),
+        inbound_extractor=provider_label(pipeline.inbound_guard.extractor_llm),
+        doc_judge=provider_label(pipeline.doc_scanner.llm),
+        doc_set_judge=provider_label(set_judge.llm if set_judge is not None else None),
+        output_judge=provider_label(pipeline.output_guard.llm),
     )
 
 
 def require_live(
-    layers: LiveLayers, *, model_name: str, l3b_llm: bool = False, l4_llm: bool = False
+    layers: LiveLayers, *, model_name: str, doc_llm: bool = False, output_llm: bool = False
 ) -> None:
-    """Fail unless the classifier is loaded and each wanted LLM stage runs ``model_name``.
+    """Fail unless the classifier is loaded and each wanted judge runs ``model_name``.
 
     MailGuardPipeline turns a stage off with only a warning when its model is unknown, and a
-    missing L1 artifact only logs a warning, so without this check a mis-set model name or
-    a skipped prep step would report a weaker C3 than the real guard.
+    missing classifier only logs a warning, so without this check a mis-set model name or a
+    skipped prep step would report a weaker C3 than the real guard.
 
     Only the layers the preset runs are checked (``layers.active_layers``): C3-L1 has no
-    L1 judge, C3-L2 no L2 LLM step, and the pipeline builds every layer's provider whether
-    or not the preset runs the layer, so a stage of a removed layer is neither wanted nor
-    "expected off". The classifier is needed wherever L1, L2 or L3b runs.
+    Inbound Guard judge, C3-L2 no Doc Scanner judge. The classifier is needed wherever the
+    Inbound Guard or the Doc Scanner runs.
     """
     expected = f"OpenAIProvider:{model_name}"
     active = set(layers.active_layers)
     problems: list[str] = []
-    if active & {"l1", "l2", "l3b"} and not layers.l1_classifier:
+    if active & {"inbound_guard", "doc_scanner"} and not layers.classifier:
         problems.append(f"L1 classifier not loaded ({PREP_HINT})")
     wanted = {
-        "l1_judge": ("l1", True),
-        "l2_llm": ("l2", True),
-        "l3b_llm": ("l3b", l3b_llm),
-        "l4_llm": ("l4", l4_llm),
+        "inbound_judge": ("inbound_guard", True),
+        "inbound_extractor": ("inbound_guard", True),
+        "doc_judge": ("doc_scanner", doc_llm),
+        "doc_set_judge": ("doc_scanner", doc_llm),
+        "output_judge": ("output_guard", output_llm),
     }
     for field_name, (layer, on) in wanted.items():
         if layer not in active:

@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 import pytest
 from aio_pika.exceptions import ChannelNotFoundEntity
 
+from evaluation.mailguard_bench import scheme
 from evaluation.mailguard_bench.live.collect import PipelineStores
 from evaluation.mailguard_bench.live.run import (
     DEFAULT_CASE_TIMEOUT_S,
@@ -223,18 +224,17 @@ def test_a_guarded_config_refuses_to_start_without_its_guard_worker() -> None:
 
 
 def test_the_missing_worker_hint_carries_the_scheme_of_the_run() -> None:
-    # A v1 run told to start a worker without --scheme would get a v2 worker (the default),
-    # which the runner then refuses as a mismatch.
-    for scheme in ("v1", "v2"):
+    # A run told to start a worker of another scheme would be refused as a mismatch.
+    for name in scheme.RUN_SCHEMES:
         (problem,) = drafting_consumer_problems(
             config="C3",
             run_id="r1",
             workers=[],
             consumers=dict.fromkeys(LANES, 1),
             lane_queues=LANES,
-            scheme=scheme,
+            scheme=name,
         )
-        assert f"--scheme {scheme}" in problem
+        assert f"--scheme {name}" in problem
 
 
 def test_a_guarded_config_refuses_another_configs_guard_worker() -> None:
@@ -921,24 +921,28 @@ def _guard_facts(
     return {
         "config": config,
         "preset": "C0" if config == "C0T" else config,
-        "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"] if config == "C3" else ["l1"],
+        "active_layers": (
+            list(scheme.V3_SWITCHES) if config == "C3" else ["inbound_guard", "inbound_gate"]
+        ),
         "guard_model": GUARD_MODEL,
         "live_stages": {
-            "l1.classifier": True,
-            "l1.judge": True,
-            "l2.llm": True,
-            "l3b.llm": on,
-            "l4.llm": on,
+            "classifier": True,
+            "inbound_judge": True,
+            "inbound_extractor": True,
+            "doc_judge": on,
+            "output_judge": on,
         },
         "missing_live_stages": list(missing),
         "live_layers": {
             "preset": config,
-            "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"] if config == "C3" else ["l1"],
-            "l1_classifier": True,
-            "l1_judge": GUARD_PROVIDER,
-            "l2_llm": GUARD_PROVIDER,
-            "l3b_llm": stage,
-            "l4_llm": stage,
+            "active_layers": (
+                list(scheme.V3_SWITCHES) if config == "C3" else ["inbound_guard", "inbound_gate"]
+            ),
+            "classifier": True,
+            "inbound_judge": GUARD_PROVIDER,
+            "inbound_extractor": GUARD_PROVIDER,
+            "doc_judge": stage,
+            "output_judge": stage,
         },
         "l1_model_path": "/artifacts/l1_injection_clf_v1.joblib",
         "l1_model_sha256": L1_MODEL_SHA256,
@@ -972,17 +976,18 @@ def _worker_meta(
         missing=missing,
         l5_log=str(raw / f"guard_l5__{config}.jsonl"),
     )
-    on = guard["live_stages"]["l3b.llm"]
+    on = guard["live_stages"]["doc_judge"]
     meta: dict[str, Any] = {
         "schema": "mailguard-guard-worker.v1",
         "run_id": "r1",
         "config": config,
-        "scheme": "v1",  # the published meanings of C0..C3, which these tests describe
+        "scheme": "v3",
         "pid": pid,
         "started_at": "2026-09-30T08:00:00+00:00",
         "model_profile": "qwen2.5-7b",
         "guard_model": GUARD_MODEL,
-        "guard_llm_stages": {"l3b_llm": on, "l4_llm": on},
+        "guard_llm_stages": {"doc_llm": on, "output_llm": on},
+        "judge_fail_closed": True,
         "mailguard_commit": guard["mailguard_commit"],
         "guarded_prompt_version": "guarded.v3",
         "l1_model_sha256": guard["l1_model_sha256"],
@@ -1005,7 +1010,7 @@ def _meta(config: str = "C3", **overrides: Any) -> dict[str, Any]:
     from packages.core.settings import AppSettings
 
     args = parse_args(
-        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v3"]
     )
     args.guard_model = "qwen2.5:7b-instruct"
     if config == "C0":
@@ -1120,8 +1125,10 @@ def test_c0_has_no_guard_stages_but_its_fingerprint_is_still_complete() -> None:
     assert meta["guard_preset"] is None
 
 
-def test_ablation_configs_record_their_smaller_case_set() -> None:
-    assert _meta("C1")["case_sets"] == ["ablation_attack", "llmail_benign"]
+def test_every_v3_config_records_the_full_case_set() -> None:
+    # Scheme v1 ran C1/C2 on the ablation subset; v3 runs every config on every pinned case.
+    for config in ("C1", "C2", "C3-L1"):
+        assert _meta(config)["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
 
 
 def test_a_missing_live_fact_stops_the_run_instead_of_being_recorded_as_none() -> None:
@@ -1194,7 +1201,7 @@ def _worker_setup(
         encoding="utf-8",
     )
     args = parse_args(
-        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v1"]
+        ["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", "--scheme", "v3"]
     )
     args.guard_model = GUARD_MODEL  # what apply_model_profile makes of the profile
     return {
@@ -1223,15 +1230,15 @@ def test_a_guarded_config_is_described_by_the_guard_worker_that_drafts(tmp_path:
     guard = describe_guard("C3", **_worker_setup(tmp_path))
 
     assert guard.live_stages == {
-        "l1.classifier": True,
-        "l1.judge": True,
-        "l2.llm": True,
-        "l3b.llm": True,
-        "l4.llm": True,
+        "classifier": True,
+        "inbound_judge": True,
+        "inbound_extractor": True,
+        "doc_judge": True,
+        "output_judge": True,
     }
     assert guard.missing == [] and guard.facts["preset"] == "C3"
     layers = guard.facts["live_layers"]
-    assert (layers["l3b_llm"], layers["l4_llm"]) == (GUARD_PROVIDER, GUARD_PROVIDER)
+    assert (layers["doc_judge"], layers["output_judge"]) == (GUARD_PROVIDER, GUARD_PROVIDER)
     # the L5 log is the worker's guard_l5__C3.jsonl: audit__C3.jsonl holds one line per job
     assert guard.facts["audit_log_path"].endswith("raw/guard_l5__C3.jsonl")
 
@@ -1245,19 +1252,17 @@ def test_what_the_worker_really_ran_is_what_is_recorded_not_what_c3_should_be(
 
     guard = describe_guard("C3", **_worker_setup(tmp_path, llm_stages=False))
 
-    assert (guard.live_stages["l3b.llm"], guard.live_stages["l4.llm"]) == (False, False)
-    assert (guard.facts["live_layers"]["l3b_llm"], guard.facts["live_layers"]["l4_llm"]) == (
-        None,
-        None,
-    )
+    assert (guard.live_stages["doc_judge"], guard.live_stages["output_judge"]) == (False, False)
+    layers = guard.facts["live_layers"]
+    assert (layers["doc_judge"], layers["output_judge"]) == (None, None)
 
 
 def test_the_stages_the_worker_says_are_missing_are_returned_as_missing(tmp_path: Path) -> None:
     from evaluation.mailguard_bench.live.run import describe_guard
 
-    guard = describe_guard("C3", **_worker_setup(tmp_path, missing=["l4.llm"]))
+    guard = describe_guard("C3", **_worker_setup(tmp_path, missing=["output_judge"]))
 
-    assert guard.missing == ["l4.llm"]
+    assert guard.missing == ["output_judge"]
 
 
 @pytest.mark.parametrize(
@@ -2015,7 +2020,7 @@ def _run_args(tmp_path: Path, config: str = "C0", *extra: str) -> Any:
     return parse_args(
         [
             *("--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b"),
-            *("--scheme", "v1"),  # these runs use the published C0/C3 meanings; extra may override
+            *("--scheme", "v3"),  # extra may override
             *("--case-dir", str(case_dir), "--case-timeout-s", "5"),
             *extra,
         ]
@@ -2550,11 +2555,11 @@ async def test_a_guarded_runs_meta_records_the_guard_the_worker_ran_llm_stages_i
     assert await run(_run_args(live_env, "C3"), deps) == 0
 
     meta = json.loads((live_env / "results" / "r1" / "raw" / "C3.meta.json").read_text("utf-8"))
-    assert meta["guard_llm_stages"]["l3b.llm"] is True
-    assert meta["guard_llm_stages"]["l4.llm"] is True
+    assert meta["guard_llm_stages"]["doc_judge"] is True
+    assert meta["guard_llm_stages"]["output_judge"] is True
     assert meta["fingerprint"]["guard_llm_stages"] == meta["guard_llm_stages"]
-    assert meta["live_layers"]["l3b_llm"] == GUARD_PROVIDER
-    assert meta["live_layers"]["l4_llm"] == GUARD_PROVIDER
+    assert meta["live_layers"]["doc_judge"] == GUARD_PROVIDER
+    assert meta["live_layers"]["output_judge"] == GUARD_PROVIDER
     assert meta["guard"]["audit_log_path"].endswith("raw/guard_l5__C3.jsonl")  # not audit__C3
     assert meta["guard"]["missing_live_stages"] == [] and meta["degraded_allowed"] is False
 
@@ -2603,10 +2608,10 @@ async def test_a_guarded_case_drafted_without_an_audit_line_is_an_error_row(
 async def test_a_guard_with_a_stage_that_is_not_live_is_refused_unless_allowed(
     live_env: Path, child: Any, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    world, pool, deps = _guarded(live_env, child, missing_stages=["l4.llm"])
+    world, pool, deps = _guarded(live_env, child, missing_stages=["output_judge"])
 
     assert await run(_run_args(live_env, "C3"), deps) == 1
-    assert "guard stages not live: l4.llm" in capsys.readouterr().err
+    assert "guard stages not live: output_judge" in capsys.readouterr().err
     assert pool.opened is False
 
     assert await run(_run_args(live_env, "C3", "--allow-degraded"), deps) == 0

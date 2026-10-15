@@ -1,8 +1,8 @@
 """Live benchmark runner: every rag-email service runs for real (task 7.20; ADR-0011; R22.12).
 
-    python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3|C4|C5|C6|C7 --run RUN \\
-        --model-profile M [--scheme v2|v1] [--limit n] [--case-ids ID,ID,..] [--concurrency 1|2] \\
-        [--case-timeout-s 300]
+    python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO \\
+        --run RUN --model-profile M [--judge-fallback] [--limit n] [--case-ids ID,ID,..] \\
+        [--concurrency 1|2] [--case-timeout-s 300]
 
     per case:  live_organization ─▶ feeder.feed ─▶ (the running services) ─▶ collector.collect
                  org + MinIO cleanup    KB via API,      triage · lane · ai-worker (C0)     row v3
@@ -17,10 +17,10 @@ result store are v1's (``runner.py``), so a live run resumes and pairs exactly a
 does. Rows are ``mailguard-bench-result.v3``, and live runs use their own RUN names and the
 fingerprint key ``transport: services-v2``, so they never mix with v1 rows.
 
-The config names have two meanings (``scheme.py``, ADR-0012 decision 11). A run records its scheme
-(``--scheme``, default v2) in its meta and fingerprint, refuses a folder that holds the other one,
-and in scheme v2 runs every config on all pinned cases; scheme v1 keeps the published meanings and
-case selection.
+The config names have several meanings (``scheme.py``, ADR-0012 decision 11). A run records its
+scheme (``--scheme``, default and only runnable value v3) in its meta and fingerprint, refuses a
+folder that holds another one, and runs every config on all pinned cases. Schemes v1 and v2 ran
+on other guard commits and are refused at HEAD.
 
 Exactly one drafting consumer must be active, and the runner refuses to start otherwise:
 C0 is drafted by the ai-worker container, every guarded config by the guard-worker host process,
@@ -132,10 +132,12 @@ from evaluation.mailguard_bench.runner import (
 )
 from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
+    JUDGE_FAIL_CLOSED_KEY,
     SCHEME_KEY,
     SCHEMES,
     require_folder_scheme,
     require_live_config,
+    require_run_scheme,
 )
 from packages.broker.publisher import MessagePublisher
 from packages.broker.routing import load_categories_from_yaml
@@ -251,8 +253,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--scheme",
         choices=SCHEMES,
         default=DEFAULT_SCHEME,
-        help="what the config names mean (ADR-0012 decision 11); new runs are v2. A run folder "
-        "never mixes the two",
+        help="what the config names mean (ADR-0012 decision 11); runs at HEAD are v3, and v1/v2 "
+        "are refused with the guard commit they need. A run folder never mixes schemes",
+    )
+    parser.add_argument(
+        "--judge-fallback",
+        action="store_true",
+        help="the guard-worker was started with --judge-fallback (the v2 visible fallback of a "
+        "failed judge answer, to compare with v2); its meta must say the same",
     )
     parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
     parser.add_argument(
@@ -295,6 +303,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.set_defaults(guard_model=DEFAULT_GUARD_MODEL)
     args = parser.parse_args(argv)
     try:
+        require_run_scheme(args.scheme)
         require_live_config(args.scheme, args.config)
     except ValueError as exc:
         parser.error(str(exc))
@@ -771,6 +780,7 @@ def guard_worker_expectations(
         "guard_model": args.guard_model,
         "mailguard_commit": paths.commit,
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,
+        JUDGE_FAIL_CLOSED_KEY: not getattr(args, "judge_fallback", False),
         "l1_model_sha256": sha256_file(l1_model) if l1_model.exists() else None,
         "embedding": embedding_facts(settings.embedding),
         "reranker": reranker_facts(settings.retrieval),
@@ -919,6 +929,7 @@ def build_live_meta(
         "rag_email_dirty": rag_email_dirty,  # a tracked file was modified: the commit is not it
         "mailguard_commit": guard.facts["mailguard_commit"],
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,  # C0 too: see runner.run
+        JUDGE_FAIL_CLOSED_KEY: not getattr(args, "judge_fallback", False),
         **generation_meta(settings.llm),
         **scoring_meta(settings.llm.price_table),  # ADR-0012 2(d), 2(e)
         "guard_models": None if args.config == NATIVE_CONFIG else args.guard_model,

@@ -1,8 +1,9 @@
-"""C3 of the live v2 benchmark turns the guard's L3b and L4 LLM stages on (task 7.20; R22.12).
+"""C3 of the live v3 benchmark turns every opt-in guard judge on (plan_v3 Task 12; R22.12).
 
-``build_guard`` takes ``l3b_llm`` / ``l4_llm`` and wires the one counted guard model into them;
-``require_live`` and the smoke check expect them live when enabled and off when not. Skipped
-when mailguard is not importable (CI). No network and no model call: the providers are only built.
+``build_guard`` takes ``doc_llm`` (the Doc Scanner's chunk and set judges) and ``output_llm``
+(the Output Guard's judge) and wires the one counted guard model into them; ``require_live`` and
+the smoke check expect them live when enabled and off when not. Skipped when mailguard is not
+importable (CI). No network and no model call: the providers are only built.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ pytest.importorskip("mailguard")
 
 from evaluation.mailguard_bench import guard_smoke  # noqa: E402
 from evaluation.mailguard_bench.guard_build import (  # noqa: E402
+    GuardBuild,
     build_guard,
     live_guard_llm_stages,
 )
@@ -34,6 +36,7 @@ from evaluation.mailguard_bench.guard_factory import (  # noqa: E402
 
 MODEL = "gpt-4o-mini"
 EXPECTED = f"OpenAIProvider:{MODEL}"
+OPT_IN = ("doc_judge", "doc_set_judge", "output_judge")
 
 
 @pytest.fixture
@@ -42,13 +45,15 @@ def openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
 
 
-def _layers(tmp_path: Path, *, l3b: bool, l4: bool) -> LiveLayers:
+def _layers(tmp_path: Path, *, doc: bool, output: bool) -> LiveLayers:
     """What the guard built for C3 with the classifier counted as loaded (none is trained here)."""
     pipeline = build_guard_pipeline(
         "C3",
-        guard_settings(MODEL, l1_model_path=tmp_path / "clf.joblib", l3b_llm=l3b, l4_llm=l4),
+        guard_settings(
+            MODEL, l1_model_path=tmp_path / "clf.joblib", doc_llm=doc, output_llm=output
+        ),
     )
-    return dataclasses.replace(live_layers(pipeline), l1_classifier=True)
+    return dataclasses.replace(live_layers(pipeline), classifier=True)
 
 
 def _train_classifier(path: Path) -> None:
@@ -65,118 +70,116 @@ def _train_classifier(path: Path) -> None:
     classifier.save(path)
 
 
-def test_build_guard_leaves_the_l3b_and_l4_llm_stages_off_by_default(tmp_path: Path) -> None:
-    # v1 (task 7.19) builds C3 without them; the live v2 runs opt in.
-    guard = build_guard(
+def _guard(tmp_path: Path, *, doc_llm: bool = False, output_llm: bool = False) -> GuardBuild:
+    return build_guard(
         "C3",
         model_name="fake",
         audit_log_path=tmp_path / "audit.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
+        doc_llm=doc_llm,
+        output_llm=output_llm,
     )
-    assert guard.pipeline.doc_scanner.llm is None and guard.pipeline.output_guard.llm is None
+
+
+def test_build_guard_leaves_the_opt_in_judges_off_by_default(tmp_path: Path) -> None:
+    guard = _guard(tmp_path)
+    pipeline = guard.pipeline
+    assert pipeline.doc_scanner.llm is None and pipeline.doc_scanner.set_judge is None
+    assert pipeline.output_guard.llm is None
     stages = guard.live_stages()
-    assert (stages["l3b.llm"], stages["l4.llm"]) == (False, False)
+    assert [stages[s] for s in OPT_IN] == [False, False, False]
 
 
-def test_build_guard_wires_the_one_counted_model_into_l3b_and_l4_when_asked(
+def test_build_guard_wires_the_one_counted_model_into_every_judge_when_asked(
     tmp_path: Path,
 ) -> None:
-    guard = build_guard(
-        "C3",
-        model_name="fake",
-        audit_log_path=tmp_path / "audit.jsonl",
-        l1_model_path=tmp_path / "clf.joblib",
-        l3b_llm=True,
-        l4_llm=True,
-    )
-    settings = guard.pipeline.settings
-    assert (settings.doc_scanner.llm_enabled, settings.output_guard.llm_enabled) == (True, True)
-    assert guard.pipeline.doc_scanner.llm is guard.guard_llm  # counted with the L1/L2 calls
-    assert guard.pipeline.output_guard.llm is guard.guard_llm
+    guard = _guard(tmp_path, doc_llm=True, output_llm=True)
+    pipeline = guard.pipeline
+    settings = pipeline.settings
+    assert settings.doc_scanner.llm_enabled and settings.doc_scanner.set_judge_llm_enabled
+    assert settings.output_guard.llm_enabled
+    # every call is counted with the Inbound Guard's
+    assert pipeline.doc_scanner.llm is guard.guard_llm
+    assert pipeline.doc_scanner.set_judge.llm is guard.guard_llm
+    assert pipeline.output_guard.llm is guard.guard_llm
     stages = guard.live_stages()
-    assert (stages["l3b.llm"], stages["l4.llm"]) == (True, True)
-    assert not {"l3b.llm", "l4.llm"} & set(guard.missing_live_stages())
+    assert all(stages[s] for s in OPT_IN)
+    assert not set(OPT_IN) & set(guard.missing_live_stages())
     described = guard.describe()["live_layers"]
-    assert described["l3b_llm"] and described["l4_llm"]
+    assert all(described[s] for s in OPT_IN)
 
 
-def test_build_guard_can_turn_the_two_stages_on_one_at_a_time(tmp_path: Path) -> None:
-    guard = build_guard(
-        "C3",
-        model_name="fake",
-        audit_log_path=tmp_path / "audit.jsonl",
-        l1_model_path=tmp_path / "clf.joblib",
-        l4_llm=True,
-    )
-    assert guard.pipeline.doc_scanner.llm is None
+def test_build_guard_can_turn_the_output_judge_on_alone(tmp_path: Path) -> None:
+    guard = _guard(tmp_path, output_llm=True)
+    assert guard.pipeline.doc_scanner.llm is None and guard.pipeline.doc_scanner.set_judge is None
     assert guard.pipeline.output_guard.llm is guard.guard_llm
 
 
 @pytest.mark.parametrize(
-    ("config", "on"), [("C3", True), ("C2", False), ("C1", False), ("C0T", False)]
+    ("config", "doc", "output"),
+    [("C3", True, True), ("C2", True, False), ("C1", False, False), ("C0T", False, False)],
 )
-def test_a_guard_built_with_the_live_rule_reports_the_stages_the_worker_runs(
-    tmp_path: Path, config: str, on: bool
+def test_a_guard_built_with_the_live_rule_reports_the_judges_the_worker_runs(
+    tmp_path: Path, config: str, doc: bool, output: bool
 ) -> None:
     # What the guard-worker builds and what the runner builds to describe the run must agree:
     # both ask the rule, and both facts the fingerprint keeps (the live stages and the live
-    # layers) then name the stages the worker really ran.
-    l3b_llm, l4_llm = live_guard_llm_stages(config)
+    # layers) then name the judges the worker really ran.
+    doc_llm, output_llm = live_guard_llm_stages(config)
+    assert (doc_llm, output_llm) == (doc, output)
 
     guard = build_guard(
         config,
         model_name="fake",
         audit_log_path=tmp_path / "audit.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
-        l3b_llm=l3b_llm,
-        l4_llm=l4_llm,
+        doc_llm=doc_llm,
+        output_llm=output_llm,
     )
 
     stages = guard.live_stages()
-    assert (stages["l3b.llm"], stages["l4.llm"]) == (on, on)
-    layers = guard.describe()["live_layers"]
-    assert (layers["l3b_llm"] is not None, layers["l4_llm"] is not None) == (on, on)
-
-
-def test_an_enabled_stage_that_did_not_come_up_is_a_missing_live_stage(tmp_path: Path) -> None:
-    guard = build_guard(
-        "C3",
-        model_name="fake",
-        audit_log_path=tmp_path / "audit.jsonl",
-        l1_model_path=tmp_path / "clf.joblib",
-        l3b_llm=True,
-        l4_llm=True,
+    assert (stages["doc_judge"], stages["doc_set_judge"], stages["output_judge"]) == (
+        doc,
+        doc,
+        output,
     )
+    layers = guard.describe()["live_layers"]
+    assert (layers["doc_judge"] is not None, layers["output_judge"] is not None) == (doc, output)
+
+
+def test_an_enabled_judge_that_did_not_come_up_is_a_missing_live_stage(tmp_path: Path) -> None:
+    guard = _guard(tmp_path, doc_llm=True, output_llm=True)
     guard.pipeline.doc_scanner.llm = None  # what MailGuardPipeline leaves when a model is unknown
+    guard.pipeline.doc_scanner.set_judge = None
     guard.pipeline.output_guard.llm = None
-    assert {"l3b.llm", "l4.llm"} <= set(guard.missing_live_stages())
+    assert set(OPT_IN) <= set(guard.missing_live_stages())
 
 
-def test_require_live_accepts_l3b_and_l4_llm_when_enabled_and_live(
+def test_require_live_accepts_every_judge_when_enabled_and_live(
     openai_env: None, tmp_path: Path
 ) -> None:
-    layers = _layers(tmp_path, l3b=True, l4=True)
-    assert (layers.l3b_llm, layers.l4_llm) == (EXPECTED, EXPECTED)
-    require_live(layers, model_name=MODEL, l3b_llm=True, l4_llm=True)
+    layers = _layers(tmp_path, doc=True, output=True)
+    assert (layers.doc_judge, layers.doc_set_judge, layers.output_judge) == (EXPECTED,) * 3
+    require_live(layers, model_name=MODEL, doc_llm=True, output_llm=True)
 
 
-def test_require_live_rejects_an_enabled_stage_that_is_off(
+def test_require_live_rejects_an_enabled_judge_that_is_off(
     openai_env: None, tmp_path: Path
 ) -> None:
-    layers = _layers(tmp_path, l3b=False, l4=True)
-    with pytest.raises(GuardEnvError, match=f"l3b_llm is None, expected {EXPECTED}"):
-        require_live(layers, model_name=MODEL, l3b_llm=True, l4_llm=True)
+    layers = _layers(tmp_path, doc=False, output=True)
+    with pytest.raises(GuardEnvError, match=f"doc_judge is None, expected {EXPECTED}"):
+        require_live(layers, model_name=MODEL, doc_llm=True, output_llm=True)
 
 
-def test_require_live_rejects_a_stage_that_is_on_when_it_should_be_off(
+def test_require_live_rejects_a_judge_that_is_on_when_it_should_be_off(
     openai_env: None, tmp_path: Path
 ) -> None:
-    layers = _layers(tmp_path, l3b=False, l4=True)
-    with pytest.raises(GuardEnvError, match=f"l4_llm is {EXPECTED}, expected off"):
+    layers = _layers(tmp_path, doc=False, output=True)
+    with pytest.raises(GuardEnvError, match=f"output_judge is {EXPECTED}, expected off"):
         require_live(layers, model_name=MODEL)
 
 
-def test_the_smoke_check_expects_l3b_and_l4_llm_live_only_when_asked(
+def test_the_smoke_check_expects_the_opt_in_judges_live_only_when_asked(
     openai_env: None, tmp_path: Path
 ) -> None:
     artifacts = tmp_path / "artifacts"
@@ -184,11 +187,11 @@ def test_the_smoke_check_expects_l3b_and_l4_llm_live_only_when_asked(
     _train_classifier(artifacts / L1_MODEL_NAME)
     paths = GuardPaths(root=tmp_path / "guard", commit="c" * 40, artifacts=artifacts)
 
-    v1 = guard_smoke.check_registered(paths, MODEL)
-    assert (v1.l3b_llm, v1.l4_llm) == (None, None)
+    plain = guard_smoke.check_registered(paths, MODEL)
+    assert (plain.doc_judge, plain.doc_set_judge, plain.output_judge) == (None, None, None)
 
-    live = guard_smoke.check_registered(paths, MODEL, l3b_llm=True, l4_llm=True)
-    assert (live.l3b_llm, live.l4_llm) == (EXPECTED, EXPECTED)
+    live = guard_smoke.check_registered(paths, MODEL, doc_llm=True, output_llm=True)
+    assert (live.doc_judge, live.doc_set_judge, live.output_judge) == (EXPECTED,) * 3
 
 
 def test_the_smoke_check_fails_when_the_classifier_is_missing(
@@ -196,10 +199,10 @@ def test_the_smoke_check_fails_when_the_classifier_is_missing(
 ) -> None:
     paths = GuardPaths(root=tmp_path / "guard", commit="c" * 40, artifacts=tmp_path)
     with pytest.raises(GuardEnvError, match="L1 classifier not loaded"):
-        guard_smoke.check_registered(paths, MODEL, l3b_llm=True, l4_llm=True)
+        guard_smoke.check_registered(paths, MODEL, doc_llm=True, output_llm=True)
 
 
-def test_the_smoke_command_passes_its_stage_flags_to_the_check(
+def test_the_smoke_command_passes_its_judge_flags_to_the_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from evaluation.mailguard_bench.guard_env import WorktreeInfo
@@ -225,14 +228,14 @@ def test_the_smoke_command_passes_its_stage_flags_to_the_check(
     seen: list[tuple[str, bool, bool]] = []
 
     def _check(
-        _paths: GuardPaths, model_name: str, *, l3b_llm: bool = False, l4_llm: bool = False
+        _paths: GuardPaths, model_name: str, *, doc_llm: bool = False, output_llm: bool = False
     ) -> LiveLayers:
-        seen.append((model_name, l3b_llm, l4_llm))
-        return LiveLayers("C3", (), True, None, None, None, None)
+        seen.append((model_name, doc_llm, output_llm))
+        return LiveLayers("C3", (), True, None, None, None, None, None)
 
     monkeypatch.setattr(guard_smoke, "check_registered", _check)
 
     guard_smoke.run(["--model", MODEL])
-    guard_smoke.run(["--model", MODEL, "--l3b-llm", "--l4-llm"])
+    guard_smoke.run(["--model", MODEL, "--doc-llm", "--output-llm"])
 
     assert seen == [(MODEL, False, False), (MODEL, True, True)]

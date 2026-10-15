@@ -11,16 +11,17 @@ and `evaluation` win over the guard's packages of the same name:
 
     MAILGUARD_DIR=... MAILGUARD_COMMIT=... MAILGUARD_ARTIFACTS=... \\
       uv run --with-editable $MAILGUARD_DIR \\
-      python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|...|C7 --run RUN \\
-        --model-profile M [--scheme v2|v1]
+      python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|...|C3-ISO --run RUN \\
+        --model-profile M [--judge-fallback]
 
 It applies the model profile (keys from the environment or ``.env``, as the runner does), builds
 the guard for the config on the profile's model, and runs ``build_consumers(...,
-drafting_factory=...)`` until SIGTERM (WorkerRuntime drains the consumers first). The optional
-LLM stages follow the scheme (``guard_build.live_guard_llm_stages``): in v1 C3 turns L3b's and L4's
-on and C0T, C1 and C2 keep them off; in v2 a config turns on the AI stage of each layer it lists
-(C4 L3b's, C5 L4's, C7 both). The scheme (``--scheme``, default v2) is recorded in the meta and the
-fingerprint, and a folder that holds the other scheme is refused. Only one of these workers, or
+drafting_factory=...)`` until SIGTERM (WorkerRuntime drains the consumers first). The judges
+follow the scheme (``guard_build.live_guard_llm_stages``): a v3 config runs every judge of each
+layer it runs, and a failed judge answer fails closed unless ``--judge-fallback`` asks for the v2
+fallback. The scheme (``--scheme``, v3 at HEAD; v1 and v2 are refused) and the judge choice are
+recorded in the meta and the fingerprint, and a folder that holds another scheme is refused.
+Only one of these workers, or
 the ai-worker container, may consume the lane queues at a time, so it refuses to start while
 another guard-worker is alive (pid files under every run folder). Files, all in
 ``<run_dir>/raw``:
@@ -86,10 +87,12 @@ from evaluation.mailguard_bench.route import expected_guard_route
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, check_resume
 from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
+    JUDGE_FAIL_CLOSED_KEY,
     SCHEME_KEY,
     SCHEMES,
     require_folder_scheme,
     require_live_config,
+    require_run_scheme,
 )
 from packages.broker.worker_runtime import StartFn, WorkerResources, WorkerRuntime
 from packages.core.settings import AIWorkerSettings, EmbeddingSettings, RetrievalSettings
@@ -113,6 +116,7 @@ FINGERPRINT_KEYS = (
     "guard_llm_stages",
     "mailguard_commit",
     "guarded_prompt_version",
+    JUDGE_FAIL_CLOSED_KEY,
     "l1_model_sha256",
     "live_layers",
     "embedding",
@@ -284,9 +288,10 @@ def worker_meta(
         "started_at": datetime.now(UTC).isoformat(),
         "model_profile": args.model_profile,
         "guard_model": guard_model,
-        "guard_llm_stages": {"l3b_llm": stages[0], "l4_llm": stages[1]},
+        "guard_llm_stages": {"doc_llm": stages[0], "output_llm": stages[1]},
         "mailguard_commit": facts["mailguard_commit"],
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,
+        JUDGE_FAIL_CLOSED_KEY: not getattr(args, "judge_fallback", False),
         "l1_model_sha256": facts["l1_model_sha256"],
         "live_layers": facts["live_layers"],
         "embedding": embedding_facts(settings.embedding),
@@ -375,8 +380,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--scheme",
         choices=SCHEMES,
         default=DEFAULT_SCHEME,
-        help="what the config names mean (ADR-0012 decision 11); new runs are v2. A run folder "
-        "never mixes the two",
+        help="what the config names mean (ADR-0012 decision 11); runs at HEAD are v3, and v1/v2 "
+        "are refused with the guard commit they need. A run folder never mixes schemes",
+    )
+    parser.add_argument(
+        "--judge-fallback",
+        action="store_true",
+        help="a failed or invalid guard judge answer keeps the cheap verdict (the v2 visible "
+        "fallback, to compare with v2) instead of failing closed to human review",
     )
     parser.add_argument(
         "--run", required=True, help="files go to results/mailguard_bench/<run>/raw"
@@ -392,6 +403,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     try:
+        require_run_scheme(args.scheme)
         require_live_config(args.scheme, args.config)
     except ValueError as exc:
         parser.error(str(exc))
@@ -417,14 +429,15 @@ async def run(args: argparse.Namespace) -> int:
     llm = settings.llm
     os.environ.update(guard_provider_env(llm.openai_base_url, llm.openai_api_key))
 
-    l3b_llm, l4_llm = live_guard_llm_stages(args.config, args.scheme)
+    doc_llm, output_llm = live_guard_llm_stages(args.config, args.scheme)
     guard = build_guard(
         args.config,
         model_name=guard_model,
         audit_log_path=l5_log_path(run_dir, args.config),
         l1_model_path=paths.l1_model,
-        l3b_llm=l3b_llm,
-        l4_llm=l4_llm,
+        doc_llm=doc_llm,
+        output_llm=output_llm,
+        judge_fail_closed=not getattr(args, "judge_fallback", False),
         scheme=args.scheme,
         expected_route=expected_guard_route(llm),
     )
@@ -442,7 +455,7 @@ async def run(args: argparse.Namespace) -> int:
         args,
         guard=guard,
         guard_model=guard_model,
-        stages=(l3b_llm, l4_llm),
+        stages=(doc_llm, output_llm),
         settings=settings,
         run_dir=run_dir,
     )

@@ -1,13 +1,12 @@
 """AgentMailGuard benchmark runner hosted by rag-email (task 7.19; spec §4, §4b, §5; ADR-0010).
 
-    make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C4|C5|C6|C7 [LIMIT=n]      (scheme v2)
-    make mailguard-bench RUN=<id> CONFIG=C0|C3|C0T|C1|C2 SCHEME=v1 [LIMIT=n]
-    make mailguard-bench RUN=<id> CONFIG=C3-L1|C3-L2|C3-L3|C3-L3B|C3-L4|C3-L5 SCHEME=v1 [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C3-L1|C3-L2|C3-L3|C3-L4|C3-ISO [LIMIT=n]
 
 A run has a config scheme (``scheme.py``, ADR-0012 decision 11), recorded in every meta and its
-settings fingerprint. New runs are v2 (C0 native, C0T the guard template with no layer, C1 to C6
-one layer each with L5, C7 every layer); the descriptions below are scheme v1, the published one,
-which stays reproducible with ``--scheme v1`` and keeps its case selection and reports exactly.
+settings fingerprint. Runs at HEAD are scheme v3 (guard v3, ADR-0015): C0 native, C0T the guard
+template with no layer, and the guard's own presets C1, C2, C3 and the ablations C3-L1 .. C3-L4,
+C3-ISO, every judge of a layer the config runs live. Schemes v1 and v2 ran on other guard commits
+and are refused; the descriptions below are scheme v1's, kept for the committed v1 folders.
 
 Owner-run live evaluation (real Gemini calls). It is never part of ``make ci`` (R24.5).
 For each case it opens a throwaway organization, ingests the case KB and builds the real
@@ -99,12 +98,13 @@ from evaluation.mailguard_bench.route import (
 from evaluation.mailguard_bench.runmeta import keep_recorded_scoring_meta, scoring_meta
 from evaluation.mailguard_bench.scheme import (
     DEFAULT_SCHEME,
+    JUDGE_FAIL_CLOSED_KEY,
     SCHEME_KEY,
     SCHEME_V1,
-    SCHEME_V2,
     SCHEMES,
     require_config,
     require_folder_scheme,
+    require_run_scheme,
 )
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.db.connection import create_pool_from_settings
@@ -507,6 +507,7 @@ FINGERPRINT_KEYS = (
     "rag_email_commit",
     "mailguard_commit",
     "guarded_prompt_version",
+    JUDGE_FAIL_CLOSED_KEY,
     "generation_model",
     "generation",
     "guard_models",
@@ -646,8 +647,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--scheme",
         choices=SCHEMES,
         default=DEFAULT_SCHEME,
-        help="what the config names mean (ADR-0012 decision 11); new runs are v2, the published "
-        "runs v1. A run folder never mixes the two",
+        help="what the config names mean (ADR-0012 decision 11); runs at HEAD are v3, and v1/v2 "
+        "are refused with the guard commit they need. A run folder never mixes schemes",
+    )
+    parser.add_argument(
+        "--judge-fallback",
+        action="store_true",
+        help="a failed or invalid guard judge answer keeps the cheap verdict (the v2 visible "
+        "fallback, to compare with v2) instead of failing closed to human review",
     )
     parser.add_argument("--run", required=True, help="results go to results/mailguard_bench/<run>")
     parser.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIR)
@@ -670,6 +677,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     try:
+        require_run_scheme(args.scheme)
         require_config(args.scheme, args.config)
     except ValueError as exc:
         parser.error(str(exc))
@@ -708,6 +716,8 @@ def build_run_meta(
         # every config of a run records it, C0 too (it runs no guard prompt): the configs of one
         # run share the harness that built them, and a guarded.v1 row never meets a v2 one
         "guarded_prompt_version": GUARDED_PROMPT_VERSION,
+        # whether a failed judge answer failed closed; C0 records the run's choice too
+        JUDGE_FAIL_CLOSED_KEY: not getattr(args, "judge_fallback", False),
         **generation_meta(llm),
         **scoring_meta(llm.price_table),  # ADR-0012 2(d), 2(e): the report reads them back
         "guard_models": None if args.config == NATIVE_CONFIG else args.guard_model,
@@ -754,20 +764,16 @@ async def run(args: argparse.Namespace) -> int:
     if args.config == NATIVE_CONFIG:
         guard_facts = native_guard_facts(paths)
     else:
-        # v1 keeps L3b's and L4's LLM stages off in-process (task 7.19); a v2 config runs the AI
-        # stage of each layer it lists, in this runner as in the live one.
-        l3b_llm, l4_llm = (
-            live_guard_llm_stages(args.config, SCHEME_V2)
-            if args.scheme == SCHEME_V2
-            else (False, False)
-        )
+        # Every judge of each layer the config runs (scheme.V3_AI_STAGES), here as in the live run.
+        doc_llm, output_llm = live_guard_llm_stages(args.config, args.scheme)
         guard = build_guard(
             args.config,
             model_name=args.guard_model,
             audit_log_path=run_dir / "raw" / f"audit__{args.config}.jsonl",
             l1_model_path=paths.l1_model,
-            l3b_llm=l3b_llm,
-            l4_llm=l4_llm,
+            doc_llm=doc_llm,
+            output_llm=output_llm,
+            judge_fail_closed=not args.judge_fallback,
             scheme=args.scheme,
             expected_route=expected_guard_route(llm),
         )

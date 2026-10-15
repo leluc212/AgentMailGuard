@@ -69,13 +69,15 @@ def test_ablation_configs_are_the_six_guard_presets_and_the_old_configs_are_unch
 
     assert tuple(LAYER_OF) == ABLATION_CONFIGS
     assert BENCH_CONFIGS == ("C0", "C0T", "C1", "C2", "C3")
-    # the ablation configs are scheme v1 only (ADR-0012 decision 11), and v2 is the default
+    # the v1 ablation is read from its committed folders only: scheme v1 runs are refused, and
+    # v1's C3-L3B / C3-L5 do not exist in v3 (whose C3-L1..C3-L4 and C3-ISO are the v3 presets)
     for config in (*BENCH_CONFIGS, *LAYER_OF):
-        assert parse_args(["--config", config, "--run", "r", "--scheme", "v1"]).config == config
-    with pytest.raises(SystemExit):
-        parse_args(["--config", "C3-L6", "--run", "r", "--scheme", "v1"])
-    with pytest.raises(SystemExit):
-        parse_args(["--config", "C3-L1", "--run", "r"])
+        with pytest.raises(SystemExit):
+            parse_args(["--config", config, "--run", "r", "--scheme", "v1"])
+    for config in ("C3-L3B", "C3-L5", "C3-L6"):
+        with pytest.raises(SystemExit):
+            parse_args(["--config", config, "--run", "r"])
+    assert parse_args(["--config", "C3-L1", "--run", "r"]).scheme == "v3"
 
 
 @pytest.mark.parametrize("config", sorted(LAYER_OF))
@@ -94,6 +96,7 @@ def test_only_the_per_config_keys_may_differ_between_configs_of_one_run() -> Non
 
     per_config = set(FINGERPRINT_KEYS) - set(SHARED_SETTINGS)
     assert per_config == {"preset", "live_layers", "guard_models", "degraded_allowed"}
+    assert "judge_fail_closed" in SHARED_SETTINGS  # one judge mode per run (plan_v3 Task 12)
 
     c3 = {**C3_META, "live_layers": {"preset": "C3", "l1_judge": "OpenAIProvider:m"}}
     l1 = _ablation_meta("C3-L1", live_layers={"preset": "C3-L1", "l1_judge": "OpenAIProvider:m"})

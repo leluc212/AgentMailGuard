@@ -348,7 +348,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `test_mailguard_bench_guard.py::test_guard_settings_point_every_stage_at_one_model`. Subtree 576
   passed; root bench guard tests 62 passed + 2 xfail có sẵn. Còn mở: bench chưa có công tắc bật set
   judge (Task 12).
-- [x] Task 11 — on `be898b1`: `MailGuardCoreSettings.fail_closed_on_judge_error` (mặc định true,
+- [x] Task 11 — commit `4778a8e`: `MailGuardCoreSettings.fail_closed_on_judge_error` (mặc định true,
   `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`); `mailguard/llm/judge_calls.py` (`judge_failure`,
   `JUDGE_STAGES`, `MAX_GUARD_CALLS_PER_JOB = 5`, bộ đếm theo `contextvars`). 5 judge (`inbound_scan`,
   `inbound_extract`, `doc_chunk`, `doc_set`, `output`): lỗi/answer sai schema + cờ bật → `verdict.error =
@@ -371,3 +371,31 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   ghi "1 doc chunk judge" — cần chủ dự án chọn: trần 1 chunk-judge call/job, hay nâng ngân sách;
   (2) README gốc và `docs/overview/layers/*` vẫn ghi "failed LLM stage keeps the cheap result" (Task 14);
   (3) `tests/integration/test_mailguard_bench_guarded_run.py` cần Docker, chưa chạy.
+- [x] Task 12 — on `4778a8e`: root bench scheme **v3** (`scheme.py`): `C0`, `C0T` (= preset `C0`), `C1`,
+  `C2`, `C3`, `C3-L1…C3-L4`, `C3-ISO` = đúng `GuardConfig.preset` (`V3_LAYERS`, test so với bảng preset của
+  guard); `V3_AI_STAGES` = mọi judge của layer mà config chạy (Inbound Guard: `inbound_judge` +
+  `inbound_extractor`; Doc Scanner: `doc_judge` + `doc_set_judge`; Output Guard: `output_judge`; ≤ 5);
+  `DEFAULT_SCHEME = v3`, `RUN_SCHEMES = (v3,)`; `require_run_scheme` từ chối v1/v2 và nêu commit guard
+  (`81df5d07…`, `915cb1e2…`), metas v1/v2 vẫn đọc được (report, Task 13). Shim v2→v3 trong `guard_factory`
+  đã xóa (`v3_guard_config`, `v3_layers`, `realized_layers`, `v1_preset_config`); `LiveLayers` theo nhãn v3
+  (`classifier`, `inbound_judge`, `inbound_extractor`, `doc_judge`, `doc_set_judge`, `output_judge`);
+  `guard_settings`/`build_guard`/`require_live`/`guard_smoke` dùng `doc_llm`/`output_llm` (`doc_llm` bật cả
+  chunk judge lẫn set judge — đóng mục còn mở của Task 10) và `judge_fail_closed`. Fail-closed mặc định
+  bật; chế độ so sánh v2 `--judge-fallback` (runner, `live.run`, `guard_worker`; Make `JUDGE_FALLBACK=1`),
+  ghi `judge_fail_closed` vào meta + fingerprint (runner, live, guard-worker; `report.SHARED_SETTINGS`).
+  `guarded_reply`: verdict lỗi chỉ gồm `judge_invalid:<stage>` là fallback được chấm điểm (row
+  `guard_judge_invalid`), không phải crash; set judge có view riêng trên document verdict. Campaign mặc
+  định = `V3_DEFAULT_CAMPAIGN` (Task 16, không C0T). Test root viết lại cho v3 (`scheme`, `scheme_guard`,
+  `scheme_runners`, `layer_guard`, `live_guard_stages`, `live_guard_worker`, `live_run`, `guard`,
+  `guarded_reply`, `layer_ablation`, `kit_campaign`, `make_targets`, integration `guarded_run`): **0
+  `V3_CANNOT`/`V3_OUTPUT_GUARD_DECIDES`**, không file transient. Kiểm tra: subtree 613 passed (không chạm
+  `agentmailguard/`, parity 0 delta); root 64 fail = baseline 63 trừ 1 test chập chờn
+  (`..._makefile_refusal_carries_the_same_hint` lần này pass) cộng 3 test make đổi tên/mới cùng lý do
+  Windows (`env`/`case` của cmd) như anh em baseline của chúng — `case` của recipe đã chạy đúng bằng Git
+  Bash cho 21 tổ hợp scheme/config, `make -n` cho `--judge-fallback`/`--scheme`; ruff sạch; mypy chỉ 3 lỗi
+  `SIGUSR1` có sẵn. Integration (Docker, `DATABASE__PORT=5433`): 9 config guarded v3 + 6 test host pass;
+  `C0` fail giống hệt ở HEAD (`TemplateNotFound prompts\support.v3.j2`, đường dẫn Windows).
+  Còn mở: (1) `report.py`, `scoring.py`, `scheme_report.py`, `analyses.py`, `meaning.py`, `l2_recount.py`
+  vẫn đọc vocabulary v1/v2 và chưa chấm folder v3 (Task 13); (2) docs (`README.md`, `docs/BENCHMARK.md`,
+  runbook §9) còn mô tả scheme v2/C0–C7 và `--scheme v2|v1` (Task 14); (3) pin Makefile `MAILGUARD_COMMIT`
+  vẫn là v2 (Task 15b), nên một run live thật ở HEAD chưa qua được kiểm tra worktree tới 15b.

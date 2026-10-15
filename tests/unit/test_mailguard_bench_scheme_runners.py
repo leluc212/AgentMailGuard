@@ -1,10 +1,11 @@
-"""The config scheme in the three benchmark processes: the v1 runner, the live runner and the
-guard-worker (task 7.20; ADR-0012 decision 11).
+"""The config scheme in the three benchmark processes: the in-process runner, the live runner and
+the guard-worker (task 7.20; ADR-0012 decision 11; plan_v3 Task 12).
 
-Every run records its scheme in its meta and its settings fingerprint, new runs default to v2,
-a run folder never mixes the schemes, and a folder from before the schemes (a meta without the key)
-keeps its v1 meaning. No network, no model, no docker; the live-runner and guard-worker cases reuse
-those modules' own test rigs.
+Every run records its scheme and its judge mode (fail-closed or the v2 fallback) in its meta and
+its settings fingerprint. Runs at HEAD are scheme v3; v1 and v2 ran on other guard commits and are
+refused, naming the commit. A run folder never mixes the schemes, and a folder from before the
+schemes (a meta without the key) keeps its v1 meaning. No network, no model, no docker; the
+live-runner and guard-worker cases reuse those modules' own test rigs.
 """
 
 from __future__ import annotations
@@ -58,69 +59,63 @@ from tests.unit.test_mailguard_live_guard_worker import (
     _meta as worker_meta_of,
 )
 
-V2_FLAGS = scheme.V2_LAYERS
+RETIRED = tuple(scheme.RETIRED_SCHEME_GUARDS)
+GUARDED = tuple(c for c in scheme.V3_CONFIGS if c != "C0")
 
-# --- the v1 (in-process) runner ------------------------------------------------------------
-
-
-def test_a_new_run_of_the_in_process_runner_defaults_to_v2() -> None:
-    args = runner.parse_args(["--config", "C7", "--run", "r"])
-    assert args.scheme == "v2" and args.config == "C7"
+# --- the in-process runner -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("config", scheme.V2_CONFIGS)
-def test_the_in_process_runner_takes_every_v2_config(config: str) -> None:
+def test_a_new_run_of_the_in_process_runner_defaults_to_v3() -> None:
+    args = runner.parse_args(["--config", "C3-ISO", "--run", "r"])
+    assert args.scheme == "v3" and args.config == "C3-ISO" and args.judge_fallback is False
+
+
+@pytest.mark.parametrize("config", scheme.V3_CONFIGS)
+def test_the_in_process_runner_takes_every_v3_config(config: str) -> None:
     assert runner.parse_args(["--config", config, "--run", "r"]).config == config
 
 
-@pytest.mark.parametrize("config", scheme.configs_for("v1"))
-def test_the_in_process_runner_takes_every_v1_config_under_scheme_v1(config: str) -> None:
-    args = runner.parse_args(["--config", config, "--run", "r", "--scheme", "v1"])
-    assert (args.config, args.scheme) == (config, "v1")
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["--config", "C3-L1", "--run", "r"],  # the ablation is v1 only, and v2 is the default
-        ["--config", "C3-L5", "--run", "r", "--scheme", "v2"],
-        ["--config", "C4", "--run", "r", "--scheme", "v1"],  # C4..C7 do not exist in v1
-        ["--config", "C7", "--run", "r", "--scheme", "v1"],
-        ["--config", "C8", "--run", "r"],
-        ["--config", "C3", "--run", "r", "--scheme", "v3"],
-    ],
-)
-def test_the_in_process_runner_refuses_a_config_the_scheme_does_not_have(argv: list[str]) -> None:
+@pytest.mark.parametrize("retired", RETIRED)
+def test_the_in_process_runner_refuses_a_retired_scheme_naming_its_guard(
+    retired: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     with pytest.raises(SystemExit):
-        runner.parse_args(argv)
+        runner.parse_args(["--config", "C3", "--run", "r", "--scheme", retired])
+    err = capsys.readouterr().err
+    assert scheme.RETIRED_SCHEME_GUARDS[retired] in err and "scheme v3" in err
 
 
-def test_the_scheme_reaches_the_resume_fingerprint() -> None:
-    assert "scheme" in FINGERPRINT_KEYS
-    assert settings_fingerprint({"scheme": "v2"})["scheme"] == "v2"
+@pytest.mark.parametrize("config", ["C4", "C7", "C3-L3B", "C3-L5", "C8"])
+def test_the_in_process_runner_refuses_a_config_v3_does_not_have(config: str) -> None:
+    with pytest.raises(SystemExit):
+        runner.parse_args(["--config", config, "--run", "r"])
 
 
-def test_v2_runs_every_config_on_the_full_case_set_and_v1_keeps_its_case_selection() -> None:
+def test_the_scheme_and_the_judge_mode_reach_the_resume_fingerprint() -> None:
+    assert {"scheme", scheme.JUDGE_FAIL_CLOSED_KEY} <= set(FINGERPRINT_KEYS)
+    assert settings_fingerprint({"scheme": "v3"})["scheme"] == "v3"
+
+
+def test_v3_runs_every_config_on_the_full_case_set_and_v1_keeps_its_case_selection() -> None:
     manifest = _case_set("s" * 64).manifest
     full = ["a1", "a2", "b1", "r1"]
-    for config in scheme.V2_CONFIGS:
-        assert config_case_ids(manifest, config, "v2") == full, config
-    # v1 (and a caller that names no scheme) selects exactly as before: C1 and C2 the subset
+    for config in scheme.V3_CONFIGS:
+        assert config_case_ids(manifest, config, "v3") == full, config
+    # the readers of the committed v1 folders keep v1's selection: C1 and C2 the subset
     assert config_case_ids(manifest, "C1", "v1") == ["a2", "b1"]
-    assert config_case_ids(manifest, "C2") == ["a2", "b1"]
     assert config_case_ids(manifest, "C3", "v1") == full
 
 
-def _runner_meta(*argv: str, config: str = "C4") -> dict[str, Any]:
+def _runner_meta(*argv: str, config: str = "C3-L2") -> dict[str, Any]:
     args = runner.parse_args(["--config", config, "--run", "r1", *argv])
     guard_facts = {
         "config": config,
         "scheme": args.scheme,
-        "preset": scheme.v2_guard_name(config) if args.scheme == "v2" else config,
-        "active_layers": list(V2_FLAGS.get(config, ())),
+        "preset": scheme.v3_guard_preset(config),
+        "active_layers": list(scheme.V3_LAYERS[config]),
         "mailguard_commit": "c" * 40,
         "l1_model_sha256": "d" * 64,
-        "live_layers": {"preset": "x"},
+        "live_layers": {"preset": config},
     }
     settings = AppSettings()
     return runner.build_run_meta(
@@ -134,19 +129,20 @@ def _runner_meta(*argv: str, config: str = "C4") -> dict[str, Any]:
     )
 
 
-def test_a_v2_meta_records_its_scheme_the_guard_config_and_the_full_case_sets() -> None:
+def test_a_v3_meta_records_its_scheme_the_guard_preset_and_the_full_case_sets() -> None:
     meta = _runner_meta()
-    assert meta["scheme"] == "v2"
-    assert meta["fingerprint"]["scheme"] == "v2"
-    assert meta["preset"] == "C4" and meta["guard_preset"] == "v2-C4"
+    assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
+    assert meta["preset"] == "C3-L2" and meta["guard_preset"] == "C3-L2"
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+    assert _runner_meta(config="C0T")["guard_preset"] == "C0"
 
 
-def test_a_v1_meta_records_v1_and_keeps_the_ablation_subset_of_c1() -> None:
-    meta = _runner_meta("--scheme", "v1", config="C1")
-    assert meta["scheme"] == "v1" and meta["fingerprint"]["scheme"] == "v1"
-    assert meta["guard_preset"] == "C1"
-    assert meta["case_sets"] == ["ablation_attack", "llmail_benign"]
+def test_a_v3_meta_records_whether_the_judges_fail_closed() -> None:
+    closed = _runner_meta()
+    assert closed["judge_fail_closed"] is True and closed["fingerprint"]["judge_fail_closed"]
+    fallback = _runner_meta("--judge-fallback")
+    assert fallback["judge_fail_closed"] is False
+    assert fallback["fingerprint"]["judge_fail_closed"] is False
 
 
 def _stored(tmp_path: Path, fingerprint: dict[str, Any]) -> Path:
@@ -155,22 +151,27 @@ def _stored(tmp_path: Path, fingerprint: dict[str, Any]) -> Path:
     return path
 
 
-def test_a_resume_of_a_meta_written_before_the_schemes_existed_is_v1(tmp_path: Path) -> None:
+def test_a_meta_written_before_the_schemes_existed_is_v1_and_never_resumed_as_v3(
+    tmp_path: Path,
+) -> None:
     old = {"preset": "C3", "generation_model": "gpt-4o-mini"}  # no scheme key: v1
     path = _stored(tmp_path, old)
     assert check_resume(path, {**old, "scheme": "v1"}) == [{"n": 1}]
     with pytest.raises(RunSettingsMismatchError, match="scheme"):
-        check_resume(path, {**old, "scheme": "v2"})
+        check_resume(path, {**old, "scheme": "v3"})
 
 
-def test_a_resume_under_the_other_scheme_is_refused(tmp_path: Path) -> None:
-    path = _stored(tmp_path, {"preset": "C3", "scheme": "v2"})
+def test_a_resume_under_another_scheme_or_judge_mode_is_refused(tmp_path: Path) -> None:
+    stored = {"preset": "C3", "scheme": "v3", "judge_fail_closed": True}
+    path = _stored(tmp_path, stored)
     with pytest.raises(RunSettingsMismatchError, match="scheme"):
-        check_resume(path, {"preset": "C3", "scheme": "v1"})
-    assert check_resume(path, {"preset": "C3", "scheme": "v2"}) == [{"n": 1}]
+        check_resume(path, {**stored, "scheme": "v2"})
+    with pytest.raises(RunSettingsMismatchError, match="judge_fail_closed"):
+        check_resume(path, {**stored, "judge_fail_closed": False})
+    assert check_resume(path, stored) == [{"n": 1}]
 
 
-def test_the_in_process_runner_refuses_a_folder_of_the_other_scheme_before_anything_else(
+def test_the_in_process_runner_refuses_a_folder_of_another_scheme_before_anything_else(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(runner, "RESULTS_ROOT", tmp_path)
@@ -178,14 +179,12 @@ def test_the_in_process_runner_refuses_a_folder_of_the_other_scheme_before_anyth
     raw.mkdir(parents=True)
     (raw / "C0.meta.json").write_text(json.dumps({"preset": "C0"}), "utf-8")  # a v1 folder
 
-    with pytest.raises(scheme.SchemeMixError, match="never mixes"):
-        asyncio.run(runner.run(runner.parse_args(["--config", "C7", "--run", "r1"])))
+    with pytest.raises(scheme.SchemeMixError, match=scheme.RETIRED_SCHEME_GUARDS["v1"]):
+        asyncio.run(runner.run(runner.parse_args(["--config", "C3", "--run", "r1"])))
 
     (raw / "C0.meta.json").write_text(json.dumps({"scheme": "v2"}), "utf-8")
-    with pytest.raises(scheme.SchemeMixError):
-        asyncio.run(
-            runner.run(runner.parse_args(["--config", "C3", "--run", "r1", "--scheme", "v1"]))
-        )
+    with pytest.raises(scheme.SchemeMixError, match="never mixes"):
+        asyncio.run(runner.run(runner.parse_args(["--config", "C3", "--run", "r1"])))
 
 
 class _GuardBuiltError(Exception):
@@ -222,73 +221,56 @@ def _run_runner_to_build_guard(
     return call
 
 
-def test_the_in_process_runner_builds_a_v2_guard_with_its_configs_ai_stages(
+def test_the_in_process_runner_builds_a_v3_guard_with_its_configs_judges(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    expected = {
-        "C1": (False, False),
-        "C2": (False, False),
-        "C3": (False, False),
-        "C4": (True, False),
-        "C5": (False, True),
-        "C6": (False, False),
-        "C7": (True, True),
-    }
-    for config, stages in expected.items():
+    for config in GUARDED:
         call = _run_runner_to_build_guard(monkeypatch, tmp_path, "--config", config)
-        assert call["scheme"] == "v2" and call["preset"] == config
-        assert (call["l3b_llm"], call["l4_llm"]) == stages, config
+        assert call["scheme"] == "v3" and call["preset"] == config
+        assert (call["doc_llm"], call["output_llm"]) == scheme.v3_llm_stages(config), config
+        assert call["judge_fail_closed"] is True
 
 
-def test_the_in_process_runner_keeps_the_v1_llm_stages_off(
+def test_the_in_process_runner_passes_the_judge_fallback_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    for config in ("C0T", "C1", "C2", "C3", "C3-L1"):
-        call = _run_runner_to_build_guard(
-            monkeypatch, tmp_path, "--config", config, "--scheme", "v1"
-        )
-        assert call["scheme"] == "v1"
-        assert (call["l3b_llm"], call["l4_llm"]) == (False, False), config
+    call = _run_runner_to_build_guard(monkeypatch, tmp_path, "--config", "C3", "--judge-fallback")
+    assert call["judge_fail_closed"] is False
 
 
 # --- the live runner -----------------------------------------------------------------------
 
 
-def test_a_new_live_run_defaults_to_v2_and_takes_every_v2_config() -> None:
-    for config in scheme.V2_CONFIGS:
+def test_a_new_live_run_defaults_to_v3_and_takes_every_v3_config() -> None:
+    for config in scheme.V3_CONFIGS:
         args = parse_args(["--config", config, "--run", "r", "--model-profile", "qwen2.5-7b"])
-        assert (args.config, args.scheme) == (config, "v2")
+        assert (args.config, args.scheme) == (config, "v3")
 
 
-def test_the_live_runner_refuses_a_config_the_scheme_does_not_have() -> None:
+def test_the_live_runner_refuses_a_retired_scheme_and_a_config_v3_does_not_have() -> None:
     profile = ["--model-profile", "qwen2.5-7b"]
     for argv in (
-        ["--config", "C4", "--run", "r", "--scheme", "v1", *profile],
-        ["--config", "C3-L1", "--run", "r", *profile],
+        *(["--config", "C3", "--run", "r", "--scheme", s, *profile] for s in RETIRED),
+        ["--config", "C4", "--run", "r", *profile],
+        ["--config", "C3-L5", "--run", "r", *profile],
         ["--config", "C8", "--run", "r", *profile],
     ):
         with pytest.raises(SystemExit):
             parse_args(argv)
-    assert parse_args(["--config", "C2", "--run", "r", "--scheme", "v1", *profile]).scheme == "v1"
 
 
-def test_the_live_runner_refuses_a_v1_ablation_config() -> None:
-    # The live v1 configs are C0, C0T, C1, C2 and C3. C3-L1 .. C3-L5 are in-process ablations: a
-    # live C3-L1 would drop L1 and also L3b's and L4's AI stages, a guard nobody designed.
+def test_the_v3_ablations_run_live() -> None:
+    # Unlike v1's in-process-only ablation, a v3 ablation keeps every judge of the layers it runs.
     profile = ["--model-profile", "qwen2.5-7b"]
-    for config in scheme.ABLATION_CONFIGS:
-        with pytest.raises(SystemExit):
-            parse_args(["--config", config, "--run", "r", "--scheme", "v1", *profile])
-    for config in scheme.V1_CONFIGS:
-        argv = ["--config", config, "--run", "r", "--scheme", "v1", *profile]
-        assert parse_args(argv).config == config
+    for config in scheme.V3_ABLATIONS:
+        assert parse_args(["--config", config, "--run", "r", *profile]).config == config
 
 
 def _live_meta(config: str, *argv: str) -> dict[str, Any]:
     args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", *argv])
     args.guard_model = "qwen2.5:7b-instruct"
-    facts = _guard_facts(config, llm_stages=config in ("C4", "C7"))
-    facts["preset"] = scheme.v2_guard_name(config) if args.scheme == "v2" else config
+    facts = _guard_facts(config, llm_stages=config in ("C2", "C3"))
+    facts["preset"] = scheme.v3_guard_preset(config)
     guard = GuardDescription(facts, dict(facts["live_stages"]), [])
     return build_live_meta(
         args=args,
@@ -304,43 +286,40 @@ def _live_meta(config: str, *argv: str) -> dict[str, Any]:
     )
 
 
-def test_a_live_v2_meta_records_the_scheme_in_the_meta_and_the_fingerprint() -> None:
-    meta = _live_meta("C4")
-    assert meta["scheme"] == "v2" and meta["fingerprint"]["scheme"] == "v2"
+def test_a_live_v3_meta_records_the_scheme_and_the_judge_mode_in_the_fingerprint() -> None:
+    meta = _live_meta("C3-L1")
+    assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
+    assert meta["judge_fail_closed"] is True and meta["fingerprint"]["judge_fail_closed"] is True
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+    assert _live_meta("C3", "--judge-fallback")["fingerprint"]["judge_fail_closed"] is False
 
 
-def test_a_live_v1_meta_keeps_the_v1_case_selection() -> None:
-    meta = _live_meta("C1", "--scheme", "v1")
-    assert meta["scheme"] == "v1" and meta["fingerprint"]["scheme"] == "v1"
-    assert meta["case_sets"] == ["ablation_attack", "llmail_benign"]
-    assert _live_meta("C1")["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
-
-
-def test_the_runner_expects_the_guard_worker_to_run_its_scheme(tmp_path: Path) -> None:
+def test_the_runner_expects_the_guard_worker_to_run_its_scheme_and_judge_mode(
+    tmp_path: Path,
+) -> None:
     from evaluation.mailguard_bench.guard_env import GuardPaths
 
     paths = GuardPaths(root=tmp_path, commit="c" * 40, artifacts=tmp_path)
-    args = parse_args(["--config", "C4", "--run", "r1", "--model-profile", "qwen2.5-7b"])
+    args = parse_args(["--config", "C3", "--run", "r1", "--model-profile", "qwen2.5-7b"])
     args.guard_model = "qwen2.5:7b-instruct"
     expected = guard_worker_expectations(args, AppSettings(), paths)
-    assert expected["scheme"] == "v2"
+    assert expected["scheme"] == "v3" and expected["judge_fail_closed"] is True
 
-    worker = GuardWorker(run="r1", config="C4", pid=4242, path=tmp_path / "w.pid")
-    meta = _worker_meta("C4", pid=4242, run_dir=tmp_path)
+    worker = GuardWorker(run="r1", config="C3", pid=4242, path=tmp_path / "w.pid")
+    meta = _worker_meta("C3", pid=4242, run_dir=tmp_path)
 
-    def scheme_problems(recorded: str) -> list[str]:
-        problems = guard_worker_mismatches(
-            {**meta, "scheme": recorded}, expected=expected, worker=worker
-        )
-        return [p for p in problems if p.startswith("scheme")]
+    def problems_with(**recorded: Any) -> list[str]:
+        problems = guard_worker_mismatches({**meta, **recorded}, expected=expected, worker=worker)
+        return [p for p in problems if p.split(":")[0] in recorded]
 
-    assert scheme_problems("v2") == []
-    (problem,) = scheme_problems("v1")
-    assert "'v1'" in problem and "'v2'" in problem
+    assert problems_with(scheme="v3", judge_fail_closed=True) == []
+    (problem,) = problems_with(scheme="v2")
+    assert "'v2'" in problem and "'v3'" in problem
+    (problem,) = problems_with(judge_fail_closed=False)  # a worker started with --judge-fallback
+    assert problem.startswith("judge_fail_closed")
 
 
-async def test_the_live_runner_refuses_a_folder_of_the_other_scheme_before_any_case(
+async def test_the_live_runner_refuses_a_folder_of_another_scheme_before_any_case(
     live_env: Path,  # noqa: F811
 ) -> None:
     raw = live_env / "results" / "r1" / "raw"
@@ -350,7 +329,7 @@ async def test_the_live_runner_refuses_a_folder_of_the_other_scheme_before_any_c
     deps = _live_deps(live_env, world, pool)
 
     with pytest.raises(scheme.SchemeMixError, match="never mixes"):
-        await run(_run_args(live_env, "C0", "--scheme", "v2"), deps)
+        await run(_run_args(live_env, "C0"), deps)
 
     assert not pool.opened and not (raw / "C0.jsonl").exists()  # nothing was fed or written
 
@@ -358,86 +337,58 @@ async def test_the_live_runner_refuses_a_folder_of_the_other_scheme_before_any_c
 async def test_a_live_c0_run_writes_its_scheme_into_the_meta(live_env: Path) -> None:  # noqa: F811
     world, pool = SimWorld(), RunPool()
     world.scenarios = {"attack-a1": "ai", "attack-a2": "early_exit", "benign-b1": "template"}
-    args = _run_args(live_env, "C0", "--limit", "1", "--scheme", "v2")
+    args = _run_args(live_env, "C0", "--limit", "1")
     assert await run(args, _live_deps(live_env, world, pool)) == 0
     meta = json.loads((live_env / "results" / "r1" / "raw" / "C0.meta.json").read_text("utf-8"))
-    assert meta["scheme"] == "v2" and meta["fingerprint"]["scheme"] == "v2"
-
-    # a second config of the same run under the other scheme is refused
-    with pytest.raises(scheme.SchemeMixError):
-        await run(
-            _run_args(live_env, "C0", "--scheme", "v1"),
-            _live_deps(live_env, world, RunPool()),
-        )
+    assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
 
 
 # --- the guard-worker ----------------------------------------------------------------------
 
 
-def test_the_worker_serves_the_guarded_configs_of_its_scheme() -> None:
+def test_the_worker_serves_the_guarded_configs_of_v3() -> None:
     profile = ["--model-profile", "gpt-4o-mini"]
-    for config in ("C0T", "C1", "C2", "C3", "C4", "C5", "C6", "C7"):
+    for config in GUARDED:
         args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
-        assert (args.config, args.scheme) == (config, "v2")
-    for bad in ("C0", "C3-L1", "C8"):
+        assert (args.config, args.scheme) == (config, "v3")
+    for bad in ("C0", "C4", "C7", "C3-L3B", "C3-L5", "C8"):
         with pytest.raises(SystemExit):
             guard_worker.parse_args(["--config", bad, "--run", "r", *profile])
-    for bad in ("C4", "C7", "C0"):  # not v1 configs
+    for retired in RETIRED:
         with pytest.raises(SystemExit):
-            guard_worker.parse_args(["--config", bad, "--run", "r", "--scheme", "v1", *profile])
-    assert (
-        guard_worker.parse_args(["--config", "C2", "--run", "r", "--scheme", "v1", *profile]).scheme
-        == "v1"
-    )
+            guard_worker.parse_args(["--config", "C2", "--run", "r", "--scheme", retired, *profile])
 
 
-def test_the_worker_refuses_a_v1_ablation_config() -> None:
-    profile = ["--model-profile", "gpt-4o-mini"]
-    for config in scheme.ABLATION_CONFIGS:
-        with pytest.raises(SystemExit):
-            guard_worker.parse_args(["--config", config, "--run", "r", "--scheme", "v1", *profile])
-    for config in ("C0T", "C1", "C2", "C3"):
-        argv = ["--config", config, "--run", "r", "--scheme", "v1", *profile]
-        assert guard_worker.parse_args(argv).config == config
+def test_the_workers_fingerprint_carries_the_scheme_and_the_judge_mode() -> None:
+    assert {"scheme", scheme.JUDGE_FAIL_CLOSED_KEY} <= set(guard_worker.FINGERPRINT_KEYS)
 
 
-def test_the_workers_fingerprint_carries_the_scheme() -> None:
-    assert "scheme" in guard_worker.FINGERPRINT_KEYS
-
-
-def test_a_v2_worker_builds_its_guard_with_the_scheme_and_the_configs_ai_stages(
+def test_a_v3_worker_builds_its_guard_with_the_scheme_and_the_configs_judges(
     rig: Rig,  # noqa: F811
 ) -> None:
-    for config, stages in (("C4", (True, False)), ("C5", (False, True)), ("C7", (True, True))):
+    for config in ("C1", "C2", "C3-L2", "C3-ISO"):
         rig.built.clear()
-        assert _start(config=config, run=f"run-{config}", scheme="v2") == 0
+        assert _start(config=config, run=f"run-{config}") == 0
         (call,) = rig.built
-        assert call["scheme"] == "v2"
-        assert (call["l3b_llm"], call["l4_llm"]) == stages, config
+        stages = scheme.v3_llm_stages(config)
+        assert call["scheme"] == "v3"
+        assert (call["doc_llm"], call["output_llm"]) == stages, config
         meta = worker_meta_of(rig, config, f"run-{config}")
-        assert meta["scheme"] == "v2" and meta["fingerprint"]["scheme"] == "v2"
-        assert meta["guard_llm_stages"] == {"l3b_llm": stages[0], "l4_llm": stages[1]}
+        assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
+        assert meta["guard_llm_stages"] == {"doc_llm": stages[0], "output_llm": stages[1]}
 
 
-def test_a_v1_worker_keeps_its_llm_stage_rule_and_records_v1(rig: Rig) -> None:  # noqa: F811
-    assert _start(config="C3") == 0
-    (call,) = rig.built
-    assert call["scheme"] == "v1"
-    assert (call["l3b_llm"], call["l4_llm"]) == (True, True)
-    assert worker_meta_of(rig, "C3")["scheme"] == "v1"
-
-
-def test_the_worker_refuses_a_folder_of_the_other_scheme_before_it_writes_or_consumes(
+def test_the_worker_refuses_a_folder_of_another_scheme_before_it_writes_or_consumes(
     rig: Rig,  # noqa: F811
 ) -> None:
     raw = rig.run_dir() / "raw"
     raw.mkdir(parents=True)
-    (raw / "C0.meta.json").write_text(json.dumps({"preset": "C0"}), "utf-8")  # a v1 folder
+    (raw / "C0.meta.json").write_text(json.dumps({"scheme": "v2"}), "utf-8")  # a v2 folder
 
-    assert _start(config="C7", scheme="v2") == 1  # main prints FAIL and exits 1
+    assert _start(config="C3") == 1  # main prints FAIL and exits 1
 
-    assert not rig.pid_file("C7").exists()
-    assert not guard_worker.meta_path(rig.run_dir(), "C7").exists()
+    assert not rig.pid_file("C3").exists()
+    assert not guard_worker.meta_path(rig.run_dir(), "C3").exists()
     assert rig.built == []
 
 

@@ -160,12 +160,18 @@ def test_build_guard_wires_one_counted_registry_model_into_the_llm_stages(
     assert guard.pipeline.settings.policy.audit_log_path == str(
         (tmp_path / "audit.jsonl").resolve()
     )
-    assert guard.describe()["active_layers"] == ["l1", "l2", "l3", "l3b", "l4", "l5"]
+    assert guard.describe()["active_layers"] == [
+        "inbound_guard",
+        "doc_scanner",
+        "inbound_gate",
+        "output_guard",
+        "channel_isolation",
+    ]
 
 
 def test_unknown_preset_and_unknown_guard_model_fail_loudly(tmp_path: Path) -> None:
     clf = tmp_path / "clf.joblib"
-    with pytest.raises(ValueError, match="preset"):
+    with pytest.raises(ValueError, match="does not exist in scheme v3"):
         build_guard("C9", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf)
     # C0 is rag-email's native path: it has no guard to build (owner decision 2026-09-29).
     with pytest.raises(ValueError, match="native"):
@@ -182,7 +188,7 @@ def test_missing_l1_classifier_is_reported_for_guarded_presets_only(tmp_path: Pa
         "C3", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf
     )
     guard.pipeline.inbound_guard.classifier.pipeline = None  # what a missing joblib leaves behind
-    assert "l1.classifier" in guard.missing_live_stages()
+    assert "classifier" in guard.missing_live_stages()
     c0t = build_guard(
         "C0T", model_name="fake", audit_log_path=tmp_path / "b.jsonl", l1_model_path=clf
     )
@@ -581,3 +587,91 @@ async def test_a_per_minute_429_of_a_judge_call_is_still_backed_off(tmp_path: Pa
 
     with pytest.raises(RateLimitedError):
         await executor.execute(_prepared(BENIGN))
+
+
+# --- guard v3 Task 11/12: a judge that fails closed is the guard deciding, not a crash
+
+
+def _executor_with(
+    preset: str, tmp_path: Path, **build: Any
+) -> tuple[GuardedCaseExecutor, FakeLLMProvider, Any]:
+    guard = build_guard(
+        preset,
+        model_name="fake",
+        audit_log_path=tmp_path / "audit.jsonl",
+        l1_model_path=tmp_path / "clf.joblib",
+        **build,
+    )
+    guard.guard_llm.inner = GuardFakeLLM(default_response=GUARD_INVALID, model_name="fake:fake")
+    fake = FakeLLMProvider(default_response=REPLY)
+    generator = SinglePassGenerator(
+        llm_provider=fake,
+        profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
+    )
+    executor = GuardedCaseExecutor(
+        pipeline=guard.pipeline, generator=generator, guard_llm=guard.guard_llm
+    )
+    return executor, fake, guard
+
+
+@MARKING_GUARD_ONLY
+async def test_an_invalid_judge_answer_fails_closed_and_the_case_is_scored(tmp_path: Path) -> None:
+    executor, fake, _ = _executor_with("C3", tmp_path)  # judges fail closed: the v3 default
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()  # scored, never an error row
+    assert "inbound_extract" in execution.record["guard_judge_invalid"]
+    assert execution.record["guard_fallbacks"]  # still counted per layer and reason
+    report = execution.record["report"]
+    assert report["inbound_decision"]["matched_rule_id"] == "P00-internal-error-fail-closed"
+    assert execution.record["final_action"] == "human_approval"
+    assert execution.record["blocked"] is False and len(fake.recorded_calls) == 1
+
+
+@MARKING_GUARD_ONLY
+async def test_the_judge_fallback_mode_scores_the_v2_way(tmp_path: Path) -> None:
+    executor, _, _ = _executor_with("C3", tmp_path, judge_fail_closed=False)
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()
+    assert execution.record["guard_judge_invalid"] == []
+    assert execution.record["guard_fallbacks"]
+    assert execution.record["final_action"] != "human_approval"
+
+
+def test_judge_invalid_stages_reads_only_fail_closed_errors() -> None:
+    from evaluation.mailguard_bench.guarded_reply import judge_invalid_stages
+
+    assert judge_invalid_stages("judge_invalid:inbound_scan") == ("inbound_scan",)
+    assert judge_invalid_stages("extract: judge_invalid:inbound_extract") == ("inbound_extract",)
+    assert judge_invalid_stages("set: judge_invalid:doc_set") == ("doc_set",)
+    assert judge_invalid_stages("judge_invalid:doc_chunk; set: judge_invalid:doc_set") == (
+        "doc_chunk",
+        "doc_set",
+    )
+    for crash in (None, "", "ValueError: boom", "judge_invalid:doc_chunk; ValueError: boom"):
+        assert judge_invalid_stages(crash) is None, crash
+
+
+def test_a_set_judge_that_failed_closed_is_scored_and_a_chunk_crash_is_not() -> None:
+    from mailguard.contracts.policy import GuardReport
+    from mailguard.contracts.verdict import ChunkVerdict, DocumentVerdict
+
+    from evaluation.mailguard_bench.guarded_reply import (
+        bench_verdict_views,
+        classify_ai_step_failures,
+    )
+
+    crashed = ChunkVerdict(chunk_id="kb-1", error="ValueError: boom")
+    docs = DocumentVerdict.from_chunks([crashed, ChunkVerdict(chunk_id="kb-2")])
+    docs.error = f"{docs.error}; set: judge_invalid:doc_set"
+    docs.metadata.update(
+        {"llm_fallback": True, "llm_fallback_reason": "non_json", "llm_error": "prose"}
+    )
+    failures = classify_ai_step_failures(bench_verdict_views(GuardReport(doc_scanner=docs)))
+
+    assert failures.judge_invalid == ("doc_set",)
+    assert failures.crashes == ("l3b_document_scanner: ValueError: boom",)  # the chunk's, once
+    assert [f.reason for f in failures.fallbacks] == ["non_json"]

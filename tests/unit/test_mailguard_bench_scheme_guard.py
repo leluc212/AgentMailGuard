@@ -1,4 +1,4 @@
-"""Guard wiring of the v2 config scheme, on fake providers (task 7.20; ADR-0012 decision 11).
+"""Guard wiring of the v3 config scheme, on fake providers (plan_v3 Task 12; ADR-0015).
 
 Needs the AgentMailGuard worktree installed (`uv run --with-editable`); skipped in CI.
 No network and no model call: the guard's model is the registry's built-in "fake" backend.
@@ -13,209 +13,213 @@ import pytest
 
 pytest.importorskip("mailguard")
 
+from mailguard.pipeline import GuardConfig  # noqa: E402
+
 from evaluation.mailguard_bench import scheme  # noqa: E402
 from evaluation.mailguard_bench.guard_build import (  # noqa: E402
     GuardBuild,
     build_guard,
     live_guard_llm_stages,
 )
-from evaluation.mailguard_bench.guard_env import GuardEnvError  # noqa: E402
-from evaluation.mailguard_bench.guard_factory import (  # noqa: E402  # noqa: E402
+from evaluation.mailguard_bench.guard_env import (  # noqa: E402
+    V1_MAILGUARD_COMMIT,
+    V2_MAILGUARD_COMMIT,
+    GuardEnvError,
+)
+from evaluation.mailguard_bench.guard_factory import (  # noqa: E402
+    active_switches,
+    build_guard_pipeline,
+    guard_settings,
     live_layers,
-    realized_layers,
     require_live,
-    v3_guard_config,
-    v3_layers,
 )
 
-V2_GUARDED = tuple(c for c in scheme.V2_CONFIGS if c != "C0")
-# guard v3 Task 6: the pipeline parts behind the bench's v2 stage names
-PIPELINE_PART = {"l3b": "doc_scanner", "l4": "output_guard"}
-
-# guard v3 Task 6 (plan_v3 F12): v3 has one Inbound Guard switch, so a v2 layer set naming only
-# one of l1 (scan) and l2 (extract) is not expressible. Strict xfail; scheme v3 replaces these
-# assertions in Task 12, which must remove every V3_CANNOT mark.
-V3_CANNOT = pytest.mark.xfail(
-    strict=True, reason="guard v3 Task 6: one Inbound Guard switch; expires Task 12"
-)
-
+V3_GUARDED = tuple(c for c in scheme.V3_CONFIGS if c != "C0")
 MODEL = "gpt-4o-mini"
+STAGE_FIELD = {
+    "inbound_judge": "inbound_judge",
+    "inbound_extractor": "inbound_extractor",
+    "doc_judge": "doc_judge",
+    "doc_set_judge": "doc_set_judge",
+    "output_judge": "output_judge",
+}
 
 
-def _build(config: str, tmp_path: Path, *, scheme_name: str = "v2", llm: bool = True) -> GuardBuild:
-    l3b, l4 = scheme.v2_llm_stages(config) if llm else (False, False)
+def _build(config: str, tmp_path: Path, *, llm: bool = True, **kwargs: object) -> GuardBuild:
+    doc, output = scheme.v3_llm_stages(config) if llm else (False, False)
     return build_guard(
         config,
         model_name="fake",
         audit_log_path=tmp_path / f"{config}.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
-        l3b_llm=l3b,
-        l4_llm=l4,
-        scheme=scheme_name,
+        doc_llm=doc,
+        output_llm=output,
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
-@pytest.mark.parametrize("config", V2_GUARDED)
-def test_a_v2_config_is_built_from_explicit_layer_flags(config: str, tmp_path: Path) -> None:
+def _off(guard: GuardBuild, stage: str) -> None:
+    """Switch one v3 stage of ``guard`` off, as a missing model or artifact would."""
+    pipeline = guard.pipeline
+    if stage == "classifier":
+        pipeline.inbound_guard.classifier.pipeline = None
+    elif stage == "inbound_judge":
+        pipeline.inbound_guard.judge = None
+    elif stage == "inbound_extractor":
+        pipeline.inbound_guard.extractor_llm = None
+    elif stage == "doc_judge":
+        pipeline.doc_scanner.llm = None
+    elif stage == "doc_set_judge":
+        pipeline.doc_scanner.set_judge = None
+    elif stage == "output_judge":
+        pipeline.output_guard.llm = None
+    else:
+        raise AssertionError(stage)
+
+
+def _made_live(guard: GuardBuild) -> None:
+    """The classifier counts as loaded (none is trained here)."""
+    guard.pipeline.inbound_guard.classifier.pipeline = guard.guard_llm  # any non-None
+
+
+@pytest.mark.parametrize("config", V3_GUARDED)
+def test_a_v3_config_is_the_guards_own_preset(config: str, tmp_path: Path) -> None:
     guard = _build(config, tmp_path)
     flags = guard.pipeline.config
-    assert flags == v3_guard_config(scheme.v2_guard_name(config), scheme.V2_LAYERS[config])
-    assert realized_layers(flags) == v3_layers(scheme.V2_LAYERS[config])
-    assert flags.name == scheme.v2_guard_name(config)
+    preset = scheme.v3_guard_preset(config)
+    assert dataclasses.replace(flags, name=preset) == GuardConfig.preset(preset)
+    assert flags.name == config and guard.preset == preset
+    assert active_switches(flags) == scheme.V3_LAYERS[config]
     described = guard.describe()
-    assert described["scheme"] == "v2"
-    assert described["preset"] == scheme.v2_guard_name(config)
-    assert described["config"] == config
-    assert described["active_layers"] == list(v3_layers(scheme.V2_LAYERS[config]))
-    assert described["guard_v3_layers"] == flags.active_layers
+    assert described["scheme"] == "v3"
+    assert (described["config"], described["preset"]) == (config, preset)
+    assert described["active_layers"] == list(scheme.V3_LAYERS[config])
+    assert described["judge_fail_closed"] is True
+    assert described["live_layers"]["preset"] == config
 
 
-def test_no_v2_config_uses_a_preset_of_the_guard(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from mailguard.pipeline import GuardConfig
-
-    def _forbidden(name: str) -> GuardConfig:
-        raise AssertionError(f"v2 asked the guard for preset {name}")
-
-    monkeypatch.setattr(GuardConfig, "preset", staticmethod(_forbidden))
-    for config in V2_GUARDED:
-        _build(config, tmp_path)
+def test_the_scheme_table_is_the_guards_preset_table() -> None:
+    for config in V3_GUARDED:
+        preset = GuardConfig.preset(scheme.v3_guard_preset(config))
+        assert active_switches(preset) == scheme.V3_LAYERS[config], config
+    assert dict(GuardConfig.ABLATIONS) == scheme.V3_ABLATIONS
+    assert tuple(GuardConfig.LAYERS) + ("channel_isolation",) == scheme.V3_SWITCHES
 
 
-@V3_CANNOT
-def test_a_v1_build_is_the_guards_own_preset_as_before(tmp_path: Path) -> None:
-    for config, layers in (
-        ("C0T", ()),
-        ("C1", ("l1", "l5")),
-        ("C2", ("l1", "l2", "l3", "l5")),
-        ("C3", scheme.FULL_LAYERS),
-        ("C3-L4", ("l1", "l2", "l3", "l3b", "l5")),
-    ):
-        guard = build_guard(
-            config,
-            model_name="fake",
-            audit_log_path=tmp_path / "a.jsonl",
-            l1_model_path=tmp_path / "clf.joblib",
-        )
-        assert realized_layers(guard.pipeline.config) == layers, config
-        assert guard.describe()["scheme"] == "v1"
-    with pytest.raises(ValueError, match="C4"):
+def test_retired_guard_commits_are_the_pinned_ones() -> None:
+    assert scheme.RETIRED_SCHEME_GUARDS == {"v1": V1_MAILGUARD_COMMIT, "v2": V2_MAILGUARD_COMMIT}
+
+
+@pytest.mark.parametrize("retired", ["v1", "v2"])
+def test_a_retired_scheme_is_never_built(retired: str, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=scheme.RETIRED_SCHEME_GUARDS[retired]):
         build_guard(
-            "C4",
+            "C3",
             model_name="fake",
             audit_log_path=tmp_path / "a.jsonl",
             l1_model_path=tmp_path / "clf.joblib",
+            scheme=retired,
         )
+    with pytest.raises(ValueError, match="checkout of that commit"):
+        live_guard_llm_stages("C3", retired)
 
 
-def test_the_ablation_configs_exist_in_v1_only(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="scheme v2"):
-        build_guard(
-            "C3-L1",
-            model_name="fake",
-            audit_log_path=tmp_path / "a.jsonl",
-            l1_model_path=tmp_path / "clf.joblib",
-            scheme="v2",
-        )
+def test_v2_and_v1_names_do_not_exist_in_v3(tmp_path: Path) -> None:
+    for name in ("C4", "C7", "C3-L3B", "C3-L5"):
+        with pytest.raises(ValueError, match="scheme v3"):
+            build_guard(
+                name,
+                model_name="fake",
+                audit_log_path=tmp_path / "a.jsonl",
+                l1_model_path=tmp_path / "clf.joblib",
+            )
     with pytest.raises(ValueError, match="native"):
         build_guard(
             "C0",
             model_name="fake",
             audit_log_path=tmp_path / "a.jsonl",
             l1_model_path=tmp_path / "clf.joblib",
-            scheme="v2",
         )
 
 
-def test_the_live_llm_stage_rule_of_each_scheme(tmp_path: Path) -> None:
-    # v1 (unchanged): only the full guard C3 turns L3b's and L4's LLM stages on.
-    assert live_guard_llm_stages("C3") == (True, True)
-    assert live_guard_llm_stages("C3", "v1") == (True, True)
-    assert live_guard_llm_stages("C2", "v1") == (False, False)
-    # v2: a config runs exactly the AI stages the owner listed.
-    assert {c: live_guard_llm_stages(c, "v2") for c in V2_GUARDED} == {
-        c: scheme.v2_llm_stages(c) for c in V2_GUARDED
+def test_the_live_judge_rule_of_v3() -> None:
+    assert {c: live_guard_llm_stages(c) for c in V3_GUARDED} == {
+        c: scheme.v3_llm_stages(c) for c in V3_GUARDED
     }
-    assert live_guard_llm_stages("C3", "v2") == (False, False)  # C3 is channel isolation in v2
-    assert live_guard_llm_stages("C4", "v2") == (True, False)
-    assert live_guard_llm_stages("C7", "v2") == (True, True)
+    assert live_guard_llm_stages("C0T") == (False, False)
+    assert live_guard_llm_stages("C1") == (False, False)  # the Inbound Guard's judges are built
+    assert live_guard_llm_stages("C2") == (True, False)
+    assert live_guard_llm_stages("C3") == (True, True)
+    assert live_guard_llm_stages("C3-L2") == (False, True)
+    assert live_guard_llm_stages("C3-L4") == (True, False)
 
 
-def _made_live(guard: GuardBuild) -> None:
-    """The classifier counts as loaded (none is trained here); every model is the counted one."""
-    pipeline = guard.pipeline
-    # any non-None: classifier "available"
-    pipeline.inbound_guard.classifier.pipeline = guard.guard_llm
-
-
-@pytest.mark.parametrize("config", V2_GUARDED)
-def test_a_fully_live_v2_config_has_no_missing_stage(config: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("config", V3_GUARDED)
+def test_every_judge_of_a_layer_the_config_runs_is_wired(config: str, tmp_path: Path) -> None:
     guard = _build(config, tmp_path)
     _made_live(guard)
+    live = guard.live_stages()
+    for judge in scheme.V3_AI_STAGES[config]:
+        assert live[judge], (config, judge)
+    pipeline = guard.pipeline
+    doc, output = scheme.v3_llm_stages(config)
+    assert (pipeline.doc_scanner.llm is guard.guard_llm) is doc
+    assert (pipeline.doc_scanner.set_judge is not None) is doc
+    assert (pipeline.output_guard.llm is guard.guard_llm) is output
     assert guard.missing_live_stages() == []
 
 
-@pytest.mark.parametrize("config", V2_GUARDED)
+@pytest.mark.parametrize("config", V3_GUARDED)
 def test_the_live_stage_check_expects_exactly_the_configs_stages(
     config: str, tmp_path: Path
 ) -> None:
-    expected = scheme.v2_required_stages(config)
-    for stage in ("l1.classifier", "l1.judge", "l2.llm", "l3b.llm", "l4.llm"):
+    expected = scheme.v3_required_stages(config)
+    for stage in scheme.V3_STAGES:
         guard = _build(config, tmp_path)
         _made_live(guard)
-        pipeline = guard.pipeline
-        if stage == "l1.classifier":
-            pipeline.inbound_guard.classifier.pipeline = None
-        elif stage == "l1.judge":
-            pipeline.inbound_guard.judge = None
-        elif stage == "l2.llm":
-            pipeline.inbound_guard.extract.llm = None
-        else:
-            getattr(pipeline, PIPELINE_PART[stage.split(".")[0]]).llm = None
+        _off(guard, stage)
         assert guard.missing_live_stages() == ([stage] if stage in expected else []), (
             config,
             stage,
         )
 
 
-@pytest.mark.parametrize("config", V2_GUARDED)
-def test_a_v2_stage_that_is_not_on_is_missing_even_if_the_layer_is_active(
-    config: str, tmp_path: Path
-) -> None:
-    # A guard built without the L3b/L4 LLM stage that the config lists must not pass as live.
+@pytest.mark.parametrize("config", V3_GUARDED)
+def test_a_v3_judge_that_is_not_on_is_missing(config: str, tmp_path: Path) -> None:
+    # A guard built without the opt-in judges the config lists must not pass as live.
     guard = _build(config, tmp_path, llm=False)
     _made_live(guard)
-    want = [s for s in scheme.v2_required_stages(config) if s in {"l3b.llm", "l4.llm"}]
-    assert guard.missing_live_stages() == want
+    opt_in = {"doc_judge", "doc_set_judge", "output_judge"}
+    assert guard.missing_live_stages() == [
+        s for s in scheme.v3_required_stages(config) if s in opt_in
+    ]
 
 
-@pytest.mark.parametrize(
-    "config",
-    [pytest.param(c, marks=V3_CANNOT) if c == "C2" else c for c in V2_GUARDED],
-)
-def test_require_live_accepts_a_v2_guard_with_the_configs_flags(
+def test_the_judge_fallback_mode_is_the_v2_fallback(tmp_path: Path) -> None:
+    closed = _build("C3", tmp_path)
+    fallback = _build("C3", tmp_path, judge_fail_closed=False)
+    assert closed.pipeline.settings.mailguard.fail_closed_on_judge_error is True
+    assert fallback.pipeline.settings.mailguard.fail_closed_on_judge_error is False
+    assert (closed.describe()["judge_fail_closed"], fallback.describe()["judge_fail_closed"]) == (
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize("config", V3_GUARDED)
+def test_require_live_accepts_a_v3_guard_with_the_configs_judges(
     config: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
-
-    from evaluation.mailguard_bench.guard_factory import build_guard_pipeline, guard_settings
-
-    l3b, l4 = scheme.v2_llm_stages(config)
-    settings = guard_settings(MODEL, l1_model_path=tmp_path / "clf.joblib", l3b_llm=l3b, l4_llm=l4)
-    pipeline = build_guard_pipeline("C0", settings)
-    pipeline.config = v3_guard_config(scheme.v2_guard_name(config), scheme.V2_LAYERS[config])
-    layers = dataclasses.replace(live_layers(pipeline), l1_classifier=True)
-    require_live(layers, model_name=MODEL, l3b_llm=l3b, l4_llm=l4)
-    if scheme.V2_AI_STAGES[config]:
-        stage = scheme.V2_AI_STAGES[config][0]
-        field = {
-            "l1.judge": "l1_judge",
-            "l2.llm": "l2_llm",
-            "l3b.llm": "l3b_llm",
-            "l4.llm": "l4_llm",
-        }[stage]
-        broken = dataclasses.replace(layers, **{field: None})  # type: ignore[arg-type]
-        with pytest.raises(GuardEnvError, match=f"{field} is None"):
-            require_live(broken, model_name=MODEL, l3b_llm=l3b, l4_llm=l4)
+    doc, output = scheme.v3_llm_stages(config)
+    settings = guard_settings(
+        MODEL, l1_model_path=tmp_path / "clf.joblib", doc_llm=doc, output_llm=output
+    )
+    pipeline = build_guard_pipeline(scheme.v3_guard_preset(config), settings)
+    layers = dataclasses.replace(live_layers(pipeline), classifier=True)
+    require_live(layers, model_name=MODEL, doc_llm=doc, output_llm=output)
+    for judge in scheme.V3_AI_STAGES[config]:
+        broken = dataclasses.replace(layers, **{STAGE_FIELD[judge]: None})  # type: ignore[arg-type]
+        with pytest.raises(GuardEnvError, match=f"{STAGE_FIELD[judge]} is None"):
+            require_live(broken, model_name=MODEL, doc_llm=doc, output_llm=output)

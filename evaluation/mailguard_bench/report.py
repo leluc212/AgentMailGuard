@@ -129,8 +129,10 @@ FULL_LAYERS = ("l1", "l2", "l3", "l3b", "l4", "l5")
 # are equal (None) across the configs of a v1 run. guarded_prompt_version is the prompt of the
 # guarded configs; every config of a run records it, so a v1 (none) and a v2 run never mix. scheme
 # is the config scheme (scheme.py): a meta without it is v1, so old and new v1 metas agree.
+# judge_fail_closed (plan_v3 Task 12) is the run's judge mode; metas before v3 have none (equal).
 SHARED_SETTINGS = (
     "scheme",
+    "judge_fail_closed",
     "cases_sha256",
     "rag_email_commit",
     "mailguard_commit",

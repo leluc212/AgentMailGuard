@@ -25,7 +25,7 @@ import pytest
 from evaluation.mailguard_bench.guard_env import REPO_ROOT
 from evaluation.mailguard_bench.kit import campaign
 from evaluation.mailguard_bench.kit.campaign import (
-    DEFAULT_V2_CONFIGS,
+    DEFAULT_CONFIGS,
     KitContext,
     RunOptions,
     run_campaign,
@@ -55,15 +55,25 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
 # --- the default list, the commands, the order ------------------------------------------------
 
 
-def test_the_default_config_list_is_one_constant_with_friday_s_nine_configs() -> None:
-    assert DEFAULT_V2_CONFIGS == ("C0", "C0T", "C1", "C2", "C3", "C4", "C5", "C6", "C7")
+def test_the_default_config_list_is_the_v3_benchmark() -> None:
+    assert DEFAULT_CONFIGS == (
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+        "C3-L1",
+        "C3-L2",
+        "C3-L3",
+        "C3-L4",
+        "C3-ISO",
+    )
 
 
-def test_the_default_config_list_is_the_scheme_s_own_v2_list() -> None:
-    """One source for Friday's configs: the kit reuses scheme.configs_for("v2"), never a copy."""
-    from evaluation.mailguard_bench.scheme import SCHEME_V2, configs_for
+def test_the_default_config_list_is_the_scheme_s_own_v3_list() -> None:
+    """One source for the v3 benchmark's configs (plan_v3 Task 16): the scheme's, never a copy."""
+    from evaluation.mailguard_bench.scheme import V3_DEFAULT_CAMPAIGN
 
-    assert DEFAULT_V2_CONFIGS is configs_for(SCHEME_V2)
+    assert DEFAULT_CONFIGS is V3_DEFAULT_CAMPAIGN
 
 
 def test_the_exact_command_sequence_per_config(bench: Bench) -> None:
@@ -928,9 +938,9 @@ def test_dry_run_lists_finished_configs_as_skipped(bench: Bench) -> None:
 # --- the command line -------------------------------------------------------------------------
 
 
-def test_the_command_line_defaults_to_the_v2_configs_and_one_worker() -> None:
+def test_the_command_line_defaults_to_the_v3_configs_and_one_worker() -> None:
     args = campaign.parse_args(["run", "--model-profile", "gpt-4o-mini", "--run", "x"])
-    assert tuple(args.configs) == DEFAULT_V2_CONFIGS
+    assert tuple(args.configs) == DEFAULT_CONFIGS
     assert (args.concurrency, args.gw_wait_s, args.limit, args.dry_run) == (
         1,
         300.0,

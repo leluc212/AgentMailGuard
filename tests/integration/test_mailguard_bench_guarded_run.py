@@ -19,7 +19,7 @@ from evaluation.mailguard_bench.case_adapter import (  # noqa: E402
     EvalCase,
     EvalHost,
 )
-from evaluation.mailguard_bench.guard_build import build_guard  # noqa: E402
+from evaluation.mailguard_bench.guard_build import build_guard, live_guard_llm_stages  # noqa: E402
 from evaluation.mailguard_bench.results import ResultStore  # noqa: E402
 from evaluation.mailguard_bench.runner import (  # noqa: E402
     HostCaseExecutor,
@@ -44,21 +44,12 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool[Any], None]:
 
 
 @pytest.mark.parametrize(
-    ("config", "scheme"),
-    [
-        ("C0", "v1"),
-        ("C0T", "v1"),
-        ("C3", "v1"),
-        # scheme v2 (ADR-0012 decision 11): the guard is built from explicit layer flags
-        ("C0T", "v2"),
-        ("C3", "v2"),  # channel isolation + L5
-        ("C4", "v2"),  # L3b + L5
-        ("C6", "v2"),  # L5 alone
-        ("C7", "v2"),
-    ],
+    "config",
+    # scheme v3 (plan_v3 Task 12): the guard's own presets, every judge of a run layer live
+    ["C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"],
 )
 async def test_rag_case_runs_end_to_end_and_leaves_no_tenant_behind(
-    db_pool: asyncpg.Pool[Any], tmp_path: Path, config: str, scheme: str
+    db_pool: asyncpg.Pool[Any], tmp_path: Path, config: str
 ) -> None:
     registry = AgentProfileRegistry.from_yaml("config/agent_profiles.yaml")
     host = EvalHost.create(
@@ -66,12 +57,14 @@ async def test_rag_case_runs_end_to_end_and_leaves_no_tenant_behind(
     )
     guard = None
     if config != "C0":  # C0 is rag-email's native path: no AgentMailGuard code runs
+        doc_llm, output_llm = live_guard_llm_stages(config)
         guard = build_guard(
             config,
             model_name="fake",
             audit_log_path=tmp_path / "audit.jsonl",
             l1_model_path=tmp_path / "clf.joblib",
-            scheme=scheme,
+            doc_llm=doc_llm,
+            output_llm=output_llm,
         )
         guard.guard_llm.inner = guard_fake()  # schema-valid guard answers (guarded_reply tests)
     fake = FakeLLMProvider(default_response=REPLY)

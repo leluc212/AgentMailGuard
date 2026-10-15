@@ -54,8 +54,12 @@ def test_guard_settings_point_every_stage_at_one_model(tmp_path: Path) -> None:
     assert settings.inbound_guard.ml_model_path == str((tmp_path / "clf.joblib").resolve())
     assert settings.doc_scanner.llm_enabled is False
     assert settings.doc_scanner.set_judge_llm_enabled is False
-    # v2 visible fallback until scheme v3 (guard v3 Task 11 defaults to fail-closed judges)
-    assert settings.mailguard.fail_closed_on_judge_error is False
+    # scheme v3: a failed judge answer fails closed unless the run asks for the v2 fallback
+    assert settings.mailguard.fail_closed_on_judge_error is True
+    fallback = guard_settings(
+        DEFAULT_GUARD_MODEL, l1_model_path=tmp_path / "clf.joblib", judge_fail_closed=False
+    )
+    assert fallback.mailguard.fail_closed_on_judge_error is False
     assert settings.output_guard.llm_enabled is False
 
 
@@ -68,9 +72,15 @@ def test_gemma_resolves_to_the_openai_backend_without_a_call(
     layers = live_layers(pipeline)
     expected = f"OpenAIProvider:{DEFAULT_GUARD_MODEL}"
     assert layers.preset == "C3"
-    assert layers.active_layers == ("l1", "l2", "l3", "l3b", "l4", "l5")
-    assert (layers.l1_judge, layers.l2_llm) == (expected, expected)
-    assert (layers.l3b_llm, layers.l4_llm) == (None, None)
+    assert layers.active_layers == (
+        "inbound_guard",
+        "doc_scanner",
+        "inbound_gate",
+        "output_guard",
+        "channel_isolation",
+    )
+    assert (layers.inbound_judge, layers.inbound_extractor) == (expected, expected)
+    assert (layers.doc_judge, layers.doc_set_judge, layers.output_judge) == (None, None, None)
     assert pipeline.inbound_guard.judge._base_url == "https://example.invalid/v1"
 
 
@@ -79,7 +89,7 @@ def test_missing_classifier_fails_require_live(gemini_env: None, tmp_path: Path)
         "C3", guard_settings(DEFAULT_GUARD_MODEL, l1_model_path=tmp_path / "absent.joblib")
     )
     layers = live_layers(pipeline)
-    assert layers.l1_classifier is False
+    assert layers.classifier is False
     with pytest.raises(GuardEnvError, match="L1 classifier not loaded"):
         require_live(layers, model_name=DEFAULT_GUARD_MODEL)
 
@@ -89,8 +99,8 @@ def test_unknown_model_name_is_caught_not_silently_degraded(tmp_path: Path) -> N
         "C3", guard_settings("gemma-typo", l1_model_path=tmp_path / "clf.joblib")
     )
     layers = live_layers(pipeline)
-    assert layers.l1_judge is None
-    with pytest.raises(GuardEnvError, match="l1_judge is None"):
+    assert layers.inbound_judge is None
+    with pytest.raises(GuardEnvError, match="inbound_judge is None"):
         require_live(layers, model_name="gemma-typo")
 
 

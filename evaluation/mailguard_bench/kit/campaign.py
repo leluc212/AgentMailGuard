@@ -64,7 +64,7 @@ and a config the kit log says is finished is not started again). One JSON line p
 ``<run>/kit-log.jsonl``.
 
 Config names are not checked here: ``live.run`` and ``guard_worker`` validate them, so the
-scheme of the configs (``scheme.configs_for("v2")``, which the integrator wires in) stays in one
+scheme of the configs (``scheme.V3_DEFAULT_CAMPAIGN``) stays in one
 place. Model profiles are whatever ``model_profiles.PROFILES`` holds: the kit has no model list
 and no route of its own.
 """
@@ -107,16 +107,17 @@ from evaluation.mailguard_bench.meaning import reader_model_problems
 from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT
 from evaluation.mailguard_bench.runner import RESULTS_ROOT, meta_path
 from evaluation.mailguard_bench.scheme import (
+    DEFAULT_SCHEME,
     SCHEME_V1,
-    SCHEME_V2,
+    V3_DEFAULT_CAMPAIGN,
     SchemeMixError,
-    configs_for,
     folder_scheme,
 )
 
-# The configs of Friday's v2 run: the scheme's own list (ADR-0012 decision 11), never a copy. The
-# kit accepts any list (--configs); live.run and guard_worker validate the names.
-DEFAULT_V2_CONFIGS = configs_for(SCHEME_V2)
+# The configs of the v3 live benchmark (plan_v3 Task 16): the scheme's own list (ADR-0012
+# decision 11), never a copy. The kit accepts any list (--configs); live.run and guard_worker
+# validate the names, and both run the default scheme (v3), the only one HEAD runs.
+DEFAULT_CONFIGS = V3_DEFAULT_CAMPAIGN
 TRIAL_PREFIX = "trial"
 """What the RUN of a trial over chosen cases (``--case-ids``) must start with: never a result."""
 
@@ -275,9 +276,9 @@ def report_commands(ctx: KitContext, run_dir: Path, reader: str | None) -> list[
     The meaning step retries the reads an earlier ``report --reader`` left as error rows, so the
     same command, run again, completes a column a failed read left short.
 
-    A scheme v2 folder (every kit run, and one with no meta yet) gets the report alone: the no-API
-    analyses read C3 as the full guard, which is C7 in v2, and refuse a v2 folder until task 7.23,
-    as `make mailguard-analyses` does. A scheme v1 folder keeps report, analyses, report. A folder
+    A folder of a scheme after v1 (every kit run, and one with no meta yet) gets the report alone:
+    the no-API analyses read C3 with v1's meaning and refuse other folders, as
+    `make mailguard-analyses` does. A scheme v1 folder keeps report, analyses, report. A folder
     that mixes schemes gets the report, which refuses it and says why.
     """
     guard_dir = ctx.environ.get("MAILGUARD_DIR")
@@ -286,9 +287,9 @@ def report_commands(ctx: KitContext, run_dir: Path, reader: str | None) -> list[
         ctx, "evaluation.mailguard_bench.report", "--run-dir", str(run_dir), *guard
     )
     try:
-        scheme = folder_scheme(run_dir) or SCHEME_V2
+        scheme = folder_scheme(run_dir) or DEFAULT_SCHEME
     except SchemeMixError:
-        scheme = SCHEME_V2
+        scheme = DEFAULT_SCHEME
     scored = [report]
     if scheme == SCHEME_V1:
         analyses = module_command(
@@ -1316,8 +1317,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run.add_argument(
         "--configs",
         type=_config_list,
-        default=DEFAULT_V2_CONFIGS,
-        help="comma-separated, run in this order (default: " + ",".join(DEFAULT_V2_CONFIGS) + ")",
+        default=DEFAULT_CONFIGS,
+        help="comma-separated, run in this order (default: " + ",".join(DEFAULT_CONFIGS) + ")",
     )
     run.add_argument("--limit", type=int, default=None, help="first N cases of each config (smoke)")
     run.add_argument(

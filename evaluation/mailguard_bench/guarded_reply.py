@@ -24,6 +24,7 @@ The blocked/detected-layer convention mirrors the guard's own harness
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -93,6 +94,19 @@ def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
             )
             for chunk in report.doc_scanner.chunks
         ]
+        # The set judge (guard v3 Task 10) answers for the whole set: its failure is on the
+        # document verdict, never on a chunk (the set's own error also joins the chunks' errors).
+        docs = report.doc_scanner
+        set_error = _set_judge_error(docs.error)
+        if set_error is not None or docs.metadata.get("llm_fallback"):
+            views.append(
+                BenchVerdictView(
+                    layer=L3B_LAYER,
+                    severity="none",  # the set's severity is its strictest chunk's, counted above
+                    error=set_error,
+                    metadata={k: v for k, v in docs.metadata.items() if k in _FALLBACK_KEYS},
+                )
+            )
     out = report.output_guard
     if out is not None:
         views.append(
@@ -124,6 +138,32 @@ def _value(obj: Any) -> str:
     return str(getattr(obj, "value", obj))
 
 
+# guard v3 Task 11: a judge that failed closed sets its verdict's error to judge_invalid:<stage>
+# (prefixed with the part that failed, "extract: ..." or "set: ..."), and the policy asks for
+# human review. That is the guard deciding, not a crash: the case is scored.
+_JUDGE_INVALID = re.compile(r"^(?:[\w-]+: )?judge_invalid:(\w+)$")
+_SET_PART = "set: "
+_FALLBACK_KEYS = frozenset({"llm_fallback", "llm_fallback_reason", "llm_error", "judge_invalid"})
+
+
+def judge_invalid_stages(error: str | None) -> tuple[str, ...] | None:
+    """The judge stages of an error made only of fail-closed judge answers, else None."""
+    if not error:
+        return None
+    parts = [part.strip() for part in error.split(";") if part.strip()]
+    found = [_JUDGE_INVALID.match(part) for part in parts]
+    if not parts or not all(found):
+        return None
+    return tuple(match.group(1) for match in found if match is not None)
+
+
+def _set_judge_error(error: str | None) -> str | None:
+    """The set judge's part of a document verdict's error (the chunks' parts are theirs)."""
+    parts = [part.strip() for part in (error or "").split(";")]
+    own = [part for part in parts if part.startswith(_SET_PART)]
+    return "; ".join(own) or None
+
+
 @dataclass(frozen=True)
 class AiStepFailures:
     """The failed AI steps of one case, split by whether the case may still be scored.
@@ -137,6 +177,7 @@ class AiStepFailures:
     fallbacks: tuple[AiStepFallback, ...]
     crashes: tuple[str, ...]  # layer crashes: the verdict's ``error``
     degraded: tuple[str, ...]  # an ``llm_error`` the guard did not mark as a fallback
+    judge_invalid: tuple[str, ...] = ()  # judge stages that failed closed (scored, human review)
 
     @property
     def errors(self) -> tuple[str, ...]:
@@ -155,19 +196,25 @@ def classify_ai_step_failures(verdicts: Iterable[Any]) -> AiStepFailures:
     AgentMailGuard's "Visible fallback of the AI stages" (docs/architecture.md): a failed AI step
     keeps the cheap result, leaves ``error`` empty and sets ``metadata["llm_fallback"]``,
     ``llm_fallback_reason`` and ``llm_error``. A verdict whose ``error`` is set is a layer crash
-    and stays an error whatever else its metadata says. An ``llm_error`` without the mark comes
+    and stays an error whatever else its metadata says, except a judge that failed closed (guard
+    v3 Task 11, ``judge_invalid:<stage>``): the guard decided (human review), so the step is a
+    fallback and its stage is listed in ``judge_invalid``. An ``llm_error`` without the mark comes
     from a guard that does not mark its failures, and keeps the classification of the v1 runs.
     """
     fallbacks: list[AiStepFallback] = []
     crashes: list[str] = []
     degraded: list[str] = []
+    judge_invalid: list[str] = []
     for verdict in verdicts:
         layer = _value(verdict.layer)
         metadata = verdict.metadata or {}
         marked = metadata.get("llm_fallback") is True
-        if verdict.error:
+        closed = judge_invalid_stages(verdict.error) if marked else None
+        if closed is not None:
+            judge_invalid.extend(closed)
+        elif verdict.error:
             crashes.append(f"{layer}: {verdict.error}")
-        if marked and not verdict.error:
+        if marked and (closed is not None or not verdict.error):
             fallbacks.append(
                 AiStepFallback(
                     layer=layer,
@@ -178,7 +225,10 @@ def classify_ai_step_failures(verdicts: Iterable[Any]) -> AiStepFailures:
         elif metadata.get("llm_error") and not marked:
             degraded.append(f"{layer}: llm_error: {metadata['llm_error']}")
     return AiStepFailures(
-        fallbacks=tuple(fallbacks), crashes=tuple(crashes), degraded=tuple(degraded)
+        fallbacks=tuple(fallbacks),
+        crashes=tuple(crashes),
+        degraded=tuple(degraded),
+        judge_invalid=tuple(judge_invalid),
     )
 
 
@@ -428,6 +478,8 @@ class GuardedCaseExecutor:
             # an empty list means "no AI step fell back".
             record["guard_fallbacks"] = [f.to_dict() for f in failures.fallbacks]
             record["l2_llm_schema_fallback"] = failures.l2_schema_fallback
+            # The judges that failed closed (guard v3 Task 11): scored rows, decided by P00.
+            record["guard_judge_invalid"] = list(failures.judge_invalid)
         if route_failures:
             # The guard fell back past a call the route or the service failed: the case is an
             # error row the retry pass reruns, never a scored fallback (owner decision 2026-10-01).
