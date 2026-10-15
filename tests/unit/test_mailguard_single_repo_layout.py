@@ -26,6 +26,8 @@ from evaluation.mailguard_bench.guard_env import (
     V1_MAILGUARD_TREE,
     V2_MAILGUARD_COMMIT,
     V2_MAILGUARD_TREE,
+    V3_MAILGUARD_COMMIT,
+    V3_MAILGUARD_TREE,
     GuardEnvError,
     guard_layout,
     require_pinned_worktree,
@@ -103,20 +105,27 @@ def _commit_tree_anywhere(commit: str) -> str | None:
     for repo in candidates:
         if not repo.is_dir():
             continue
-        done = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "--verify", "-q", f"{commit}^{{tree}}"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if done.returncode == 0:
-            return done.stdout.strip()
+        # A commit of this repository (v3) pins the guard directory inside it; a commit of the
+        # guard's own repository (v1, v2) pins its root tree.
+        for spec in (f"{commit}:{PREFIX}", f"{commit}^{{tree}}"):
+            done = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", "-q", spec],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if done.returncode == 0:
+                return done.stdout.strip()
     return None
 
 
 @pytest.mark.parametrize(
     ("commit", "tree"),
-    [(V1_MAILGUARD_COMMIT, V1_MAILGUARD_TREE), (V2_MAILGUARD_COMMIT, V2_MAILGUARD_TREE)],
+    [
+        (V1_MAILGUARD_COMMIT, V1_MAILGUARD_TREE),
+        (V2_MAILGUARD_COMMIT, V2_MAILGUARD_TREE),
+        (V3_MAILGUARD_COMMIT, V3_MAILGUARD_TREE),
+    ],
 )
 def test_each_recorded_tree_is_the_tree_of_its_commit(commit: str, tree: str) -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", tree)
@@ -126,19 +135,12 @@ def test_each_recorded_tree_is_the_tree_of_its_commit(commit: str, tree: str) ->
     assert tree == actual
 
 
-def test_the_two_generations_have_different_trees() -> None:
-    assert V1_MAILGUARD_TREE != V2_MAILGUARD_TREE
+def test_the_three_generations_have_different_trees() -> None:
+    assert len({V1_MAILGUARD_TREE, V2_MAILGUARD_TREE, V3_MAILGUARD_TREE}) == 3
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ADR-0015: the committed guard tree diverges from the v2 pin "
-        "until the v3 pin moves in task v3.15b"
-    ),
-)
-def test_the_committed_guard_folder_is_the_v2_pin() -> None:
-    """HEAD's ``agentmailguard/`` is the tree the v2 benchmark pins (ADR-0014 decision 4).
+def test_the_committed_guard_folder_is_the_v3_pin() -> None:
+    """HEAD's ``agentmailguard/`` is the tree the v3 benchmark pins (ADR-0015, task v3.15b).
 
     The tests above compare the recorded constants with commit objects and the Makefile; this one
     compares them with the guard this repository actually carries, so a guard change committed
@@ -156,9 +158,9 @@ def test_the_committed_guard_folder_is_the_v2_pin() -> None:
     if done.returncode != 0:
         pytest.skip(f"this checkout has no committed {PREFIX}/ subtree")
     have = done.stdout.strip()
-    assert have == V2_MAILGUARD_TREE, (
-        f"HEAD:{PREFIX} is tree {have}, but the v2 pin (guard_env.V2_MAILGUARD_COMMIT "
-        f"{V2_MAILGUARD_COMMIT[:12]}) is tree {V2_MAILGUARD_TREE}: move the pin (guard_env, the "
+    assert have == V3_MAILGUARD_TREE, (
+        f"HEAD:{PREFIX} is tree {have}, but the v3 pin (guard_env.V3_MAILGUARD_COMMIT "
+        f"{V3_MAILGUARD_COMMIT[:12]}) is tree {V3_MAILGUARD_TREE}: move the pin (guard_env, the "
         "Makefile, the guides) in the same change as the guard"
     )
 
@@ -508,6 +510,8 @@ def test_the_makefile_knows_the_same_trees_as_guard_env() -> None:
     assert _makefile_constant("MAILGUARD_V1_TREE") == V1_MAILGUARD_TREE
     assert _makefile_constant("MAILGUARD_V2_COMMIT") == V2_MAILGUARD_COMMIT
     assert _makefile_constant("MAILGUARD_V2_TREE") == V2_MAILGUARD_TREE
+    assert _makefile_constant("MAILGUARD_V3_COMMIT") == V3_MAILGUARD_COMMIT
+    assert _makefile_constant("MAILGUARD_V3_TREE") == V3_MAILGUARD_TREE
 
 
 def _subtree_work(tmp_path: Path, sha_index: int = 1) -> tuple[Path, list[str], Path]:

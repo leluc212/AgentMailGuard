@@ -1,4 +1,4 @@
-"""The AgentMailGuard pin: v2 pins 915cb1e, v1 stays reproducible at 81df5d07 (tasks 7.20, 7.29).
+"""The AgentMailGuard pin: v3 pins 1835a6e; v2 (915cb1e) and v1 (81df5d07) stay reproducible.
 
 ADR-0012 decision 3: guard fixes (b) and (c) were committed on feature/mailguard-defense-stack and
 that commit (1a3ef62) was pinned for v2; ADR-0014 moved the pin to 915cb1e, which adds OpenRouter
@@ -23,6 +23,7 @@ from evaluation.mailguard_bench.guard_env import (
     REPO_ROOT,
     V1_MAILGUARD_COMMIT,
     V2_MAILGUARD_COMMIT,
+    V3_MAILGUARD_COMMIT,
     GuardEnvError,
     guard_paths_from_env,
     require_pinned_worktree,
@@ -31,6 +32,7 @@ from evaluation.mailguard_bench.guard_env import (
 MAKEFILE = REPO_ROOT / "Makefile"
 V1 = "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
 V2 = "915cb1e2b86395e4389673deb9914308cc39627b"
+V3 = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
 needs_git_and_make = pytest.mark.skipif(
     shutil.which("git") is None or shutil.which("make") is None, reason="needs git and make"
 )
@@ -51,9 +53,13 @@ def _makefile_default() -> str:
     return match.group(1)
 
 
-def test_v2_pins_the_guard_commit_with_the_visible_fallback_fixes() -> None:
+def test_v2_keeps_the_guard_commit_with_the_visible_fallback_fixes() -> None:
     assert V2_MAILGUARD_COMMIT == V2
-    assert DEFAULT_MAILGUARD_COMMIT == V2_MAILGUARD_COMMIT
+
+
+def test_v3_pins_the_guard_commit_after_the_identifier_ratchet() -> None:
+    assert V3_MAILGUARD_COMMIT == V3
+    assert DEFAULT_MAILGUARD_COMMIT == V3_MAILGUARD_COMMIT
 
 
 def test_v1_keeps_the_commit_its_published_results_were_produced_with() -> None:
@@ -68,8 +74,8 @@ def test_v1_keeps_the_commit_its_published_results_were_produced_with() -> None:
         )
 
 
-def test_the_makefile_default_is_the_v2_pin() -> None:
-    assert _makefile_default() == DEFAULT_MAILGUARD_COMMIT
+def test_the_makefile_default_is_the_v3_pin() -> None:
+    assert _makefile_default() == DEFAULT_MAILGUARD_COMMIT == V3
 
 
 def test_the_env_names_the_pin_and_nothing_else_supplies_it() -> None:
@@ -190,7 +196,7 @@ def test_make_mailguard_worktree_checks_an_existing_worktree_and_refuses_another
 
 
 @needs_git_and_make
-@pytest.mark.parametrize(("override", "pin"), [(None, V2), (V1, V1)])
+@pytest.mark.parametrize(("override", "pin"), [(None, V3), (V1, V1)])
 def test_the_v1_runner_runs_under_whichever_pin_the_environment_names(
     override: str | None, pin: str
 ) -> None:
@@ -214,6 +220,6 @@ def test_the_runbook_states_both_pins_where_the_operator_reads_them() -> None:
     section99 = section9[section9.index("### 9.9 ") :]
 
     assert V1 in section9 and V2 in section9
-    assert V2 in section99  # the pin the Makefile has today (the v2 guard, until Task 15b)
+    assert V3 in section99  # the pin the Makefile has today (the v3 guard)
     assert "guarded.v3" in section99  # the prompt version of a run at HEAD
     assert "guarded.v2" in section99  # and the history it replaced

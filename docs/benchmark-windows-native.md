@@ -118,7 +118,7 @@ Every `make bench-*` target runs a `python -m` command under one overlay: AgentM
 ```powershell
 $repo = (Get-Location).Path
 $env:MAILGUARD_DIR = Join-Path $repo "agentmailguard"
-$env:MAILGUARD_COMMIT = "915cb1e2b86395e4389673deb9914308cc39627b"
+$env:MAILGUARD_COMMIT = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
 $env:MAILGUARD_ARTIFACTS = Join-Path $repo "evaluation\mailguard_bench\pinned"
 $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python", "-m")
 ```
@@ -126,7 +126,7 @@ $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python"
 Check that the guard folder is exactly the pinned commit and unmodified (once; this is what `make mailguard-worktree` checks; the doctor and `setup` check it again):
 
 ```powershell
-git rev-parse HEAD:agentmailguard              # must print f659748a611340e093d41189dc1f445a2f842134, the pinned commit's tree
+git rev-parse HEAD:agentmailguard              # must print e3ecca18d0814334c1c94ba0d3696e11bf1c1b43, the pinned commit's tree
 git status --porcelain -- agentmailguard       # must print nothing
 ```
 

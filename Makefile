@@ -22,7 +22,7 @@ help:
 	@echo "  phase5-gate - Live Phase 5 gate on a real model, owner-run (task 5.6)"
 	@echo "  connect-gmail ADDRESS=... - Register the Gmail test account as a watched mailbox, owner-run (task 6.10)"
 	@echo "  phase6-gate - Live Phase 6 gate: real email -> draft -> approve -> threaded Gmail reply, owner-run (task 6.10)"
-	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v2: 915cb1e) in ../AgentMailGuard-bench; with the guard committed under agentmailguard/ only verify its pin (tasks 7.19, 7.24)"
+	@echo "  mailguard-worktree - Create or check the AgentMailGuard worktree at the pinned commit (v3: 1835a6e) in ../AgentMailGuard-bench; with the guard committed under agentmailguard/ only verify its pin (tasks 7.19, 7.24)"
 	@echo "  mailguard-prep - One-time: download the guard's datasets and train its L1 classifier (network, no API key; not CI)"
 	@echo "  mailguard-smoke - Offline check of the AgentMailGuard install and wiring (not CI)"
 	@echo "  mailguard-probe [MODEL=<profile>] - ONE live guard-judge call on the profile's endpoint (default: the Gemma test model on the Gemini API); on an OpenRouter profile it also checks the pinned provider. Owner-run (not CI)"
@@ -158,19 +158,22 @@ endif
 MAILGUARD_PINNED_DIR = $(CURDIR)/evaluation/mailguard_bench/pinned
 MAILGUARD_PREP_OUT ?= $(if $(filter $(abspath $(MAILGUARD_ARTIFACTS)),$(MAILGUARD_PINNED_DIR)),$(abspath $(CURDIR)/../AgentMailGuard-bench-artifacts),$(MAILGUARD_ARTIFACTS))
 MAILGUARD_REMOTE_BRANCH ?= feature/mailguard-defense-stack
-# The guard commit the v2 benchmark pins (ADR-0012 decision 3, moved by ADR-0014 to the commit with
-# OpenRouter provider routing, transport only); guard_env.DEFAULT_MAILGUARD_COMMIT is the same value
-# (a test keeps them equal). v1 stays reproducible at its own pin, in a worktree of its own:
+# The guard commit the v3 benchmark pins (ADR-0015, plan_v3 Task 15b): the v3 guard after the
+# identifier ratchet; guard_env.DEFAULT_MAILGUARD_COMMIT is the same value (a test keeps them equal).
+# v1 and v2 stay reproducible at their own pins, in a worktree of their own:
 # make <target> MAILGUARD_COMMIT=81df5d07b15b5bb3d1ecf3aae556df01e304cbe0 MAILGUARD_DIR=<worktree at it>.
-MAILGUARD_COMMIT ?= 915cb1e2b86395e4389673deb9914308cc39627b
-# The subtree layout compares trees. A shallow clone has no commit object to ask for its tree, so
-# the two pins' trees are recorded here too (guard_env.V1_MAILGUARD_TREE / V2_MAILGUARD_TREE; a test
+MAILGUARD_COMMIT ?= 1835a6ea3c120aae8f5074abe92d6c404d7ce3d4
+# The subtree layout compares trees: the pin's tree is its guard-repository commit's root tree (v1, v2) or, for a
+# commit of this repository (v3), the tree of the guard directory inside it. A shallow clone has no commit object to ask for its tree, so
+# the three pins' trees are recorded here too (guard_env.V1_/V2_/V3_MAILGUARD_TREE; a test
 # keeps them equal).
 MAILGUARD_V1_COMMIT = 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0
 MAILGUARD_V1_TREE = 1a955c156a23cb6ad6dbde041c93080dfb69ceca
 MAILGUARD_V2_COMMIT = 915cb1e2b86395e4389673deb9914308cc39627b
 MAILGUARD_V2_TREE = f659748a611340e093d41189dc1f445a2f842134
-MAILGUARD_TREE ?= $(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V1_COMMIT)),$(MAILGUARD_V1_TREE),$(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V2_COMMIT)),$(MAILGUARD_V2_TREE)))
+MAILGUARD_V3_COMMIT = 1835a6ea3c120aae8f5074abe92d6c404d7ce3d4
+MAILGUARD_V3_TREE = e3ecca18d0814334c1c94ba0d3696e11bf1c1b43
+MAILGUARD_TREE ?= $(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V1_COMMIT)),$(MAILGUARD_V1_TREE),$(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V2_COMMIT)),$(MAILGUARD_V2_TREE),$(if $(filter $(MAILGUARD_COMMIT),$(MAILGUARD_V3_COMMIT)),$(MAILGUARD_V3_TREE))))
 # Non-empty (the directory's path inside its repository) iff MAILGUARD_DIR is a subdirectory of one.
 MAILGUARD_PREFIX := $(shell git -C "$(MAILGUARD_DIR)" rev-parse --show-prefix 2>/dev/null)
 MAILGUARD_UV = MAILGUARD_DIR=$(MAILGUARD_DIR) MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) MAILGUARD_ARTIFACTS=$(MAILGUARD_ARTIFACTS) $(UV) run --project $(CURDIR) --with-editable $(MAILGUARD_DIR)
@@ -187,7 +190,7 @@ mailguard-worktree:
 else
 # Subtree layout: no worktree to add, no fetch (the guard came with this repository). Verify the pin.
 mailguard-worktree:
-	@want="$$(git -C "$(MAILGUARD_DIR)" rev-parse --verify -q "$(MAILGUARD_COMMIT)^{tree}" || echo "$(MAILGUARD_TREE)")"; \
+	@want="$$(git -C "$(MAILGUARD_DIR)" rev-parse --verify -q "$(MAILGUARD_COMMIT):$(MAILGUARD_PREFIX)" || git -C "$(MAILGUARD_DIR)" rev-parse --verify -q "$(MAILGUARD_COMMIT)^{tree}" || echo "$(MAILGUARD_TREE)")"; \
 	have="$$(git -C "$(MAILGUARD_DIR)" rev-parse "HEAD:$(MAILGUARD_PREFIX)" 2>/dev/null)"; \
 	if [ -z "$$want" ] || [ "$$have" != "$$want" ]; then \
 	  echo "FAIL $(MAILGUARD_DIR) is not at MAILGUARD_COMMIT=$(MAILGUARD_COMMIT) (its tree is '$$have', the pin's is '$$want'); use another directory (make ... MAILGUARD_DIR=<path>) or set MAILGUARD_COMMIT to that checkout's commit for a v1 run" >&2; exit 1; fi; \

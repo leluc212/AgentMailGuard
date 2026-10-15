@@ -41,7 +41,13 @@ plus OpenRouter provider routing and per-call provenance in its OpenAI provider 
 ``915cb1e``), transport only: no layer, prompt or rule changed."""
 V2_MAILGUARD_TREE = "f659748a611340e093d41189dc1f445a2f842134"
 """``git rev-parse V2_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
-DEFAULT_MAILGUARD_COMMIT = V2_MAILGUARD_COMMIT
+V3_MAILGUARD_COMMIT = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
+"""The guard commit the v3 benchmark pins (ADR-0015, plan_v3 Task 15b): the v3 guard (four layers,
+channel isolation, fail-closed judge) after the identifier ratchet and cleanup of Task 15a, the
+last commit that touched ``agentmailguard/``. Moving it needs a guard change, which is a new pin."""
+V3_MAILGUARD_TREE = "e3ecca18d0814334c1c94ba0d3696e11bf1c1b43"
+"""``git rev-parse V3_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
+DEFAULT_MAILGUARD_COMMIT = V3_MAILGUARD_COMMIT
 """What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""
 L1_MODEL_NAME = "l1_injection_clf_v1.joblib"
 RAW_MANIFEST = Path("datasets/raw/MANIFEST.json")
@@ -180,6 +186,7 @@ def _commit_tree(path: Path, commit: str) -> str | None:
     recorded = {
         V1_MAILGUARD_COMMIT: V1_MAILGUARD_TREE,
         V2_MAILGUARD_COMMIT: V2_MAILGUARD_TREE,
+        V3_MAILGUARD_COMMIT: V3_MAILGUARD_TREE,
     }
     if commit in recorded:
         return recorded[commit]
@@ -196,7 +203,11 @@ def _subtree_info(path: Path, expected_commit: str | None) -> WorktreeInfo:
             "(`git subtree add`)"
         )
     status = _git(path, "status", "--porcelain", "--untracked-files=normal", "--", ".")
-    candidates = [c for c in (expected_commit, V2_MAILGUARD_COMMIT, V1_MAILGUARD_COMMIT) if c]
+    candidates = [
+        c
+        for c in (expected_commit, V3_MAILGUARD_COMMIT, V2_MAILGUARD_COMMIT, V1_MAILGUARD_COMMIT)
+        if c
+    ]
     commit = next((c for c in candidates if _commit_tree(path, c) == tree), "")
     return WorktreeInfo(
         path=path.resolve(), commit=commit, clean=status == "", layout="subtree", tree=tree
@@ -207,7 +218,7 @@ def worktree_info(path: Path, expected_commit: str | None = None) -> WorktreeInf
     """Read where the guard is, its commit and its cleanliness. Git-ignored files do not count.
 
     Worktree layout: HEAD of the worktree. Subtree layout: the pinned commit (``expected_commit``,
-    else the v2 or v1 pin) whose tree the subdirectory holds, ``""`` if none. Only tracked and
+    else the v3, v2 or v1 pin) whose tree the subdirectory holds, ``""`` if none. Only tracked and
     untracked files under the subdirectory make a subtree dirty.
     """
     if not path.is_dir():
@@ -234,7 +245,7 @@ def checkout_commit(path: Path, expected_commit: str | None = None) -> str | Non
     (never the enclosing repository's HEAD), None when it holds the tree of none. None outside git.
     The commit asked about is ``expected_commit``, else ``MAILGUARD_COMMIT`` (every
     ``make mailguard-*`` target exports it, so a run's metas and the pin check that admitted the
-    run name the same commit whichever commit that is), else the v2 and the v1 pin.
+    run name the same commit whichever commit that is), else the v3, v2 and v1 pins.
     """
     if guard_layout(path) == "subtree":
         try:
@@ -247,7 +258,7 @@ def checkout_commit(path: Path, expected_commit: str | None = None) -> str | Non
 
 def _generation_hint(found: str, expected: str) -> str:
     """When a worktree and the pin are the v1 and the v2 guard, say so and how to fix it."""
-    names = {V1_MAILGUARD_COMMIT: "v1", V2_MAILGUARD_COMMIT: "v2"}
+    names = {V1_MAILGUARD_COMMIT: "v1", V2_MAILGUARD_COMMIT: "v2", V3_MAILGUARD_COMMIT: "v3"}
     if found not in names or expected not in names or found == expected:
         return ""
     return (
