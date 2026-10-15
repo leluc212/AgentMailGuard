@@ -505,12 +505,4 @@ def _record_guard_calls(report: GuardReport, calls: Counter[str]) -> None:
         )
 
 
-def severity_of(report: GuardReport) -> Severity:
-    return report.max_severity
-
-
-def verdict_or_none(v: LayerVerdict | None) -> LayerVerdict | None:
-    return v
-
-
 __all__ = ["DraftFactory", "GuardConfig", "MailGuardPipeline", "PromptBundle"]

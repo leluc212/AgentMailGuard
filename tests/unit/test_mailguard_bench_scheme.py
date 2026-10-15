@@ -143,17 +143,6 @@ def test_a_v2_guard_config_has_a_name_of_its_own_and_none_for_the_native_path() 
         scheme.v2_guard_name("C3-L1")
 
 
-def test_the_ai_layer_names_a_v2_config_reports_fallbacks_for() -> None:
-    assert scheme.v2_ai_layer_names("C1") == ("l1_injection_scanner",)
-    assert scheme.v2_ai_layer_names("C3") == ()
-    assert scheme.v2_ai_layer_names("C7") == (
-        "l1_injection_scanner",
-        "l2_intent_extractor",
-        "l3b_document_scanner",
-        "l4_output_scanner",
-    )
-
-
 @pytest.mark.parametrize(
     ("scheme_name", "config"),
     [("v1", "C3-L1"), ("v1", "C3"), ("v2", "C7"), ("v2", "C0")],

@@ -106,12 +106,6 @@ V2_AI_STAGES: dict[str, tuple[str, ...]] = {
     "C7": ("l1.judge", "l2.llm", "l3b.llm", "l4.llm"),
 }
 """The guard AI stage that is live in each v2 config (the owner's list, 2026-09-30)."""
-STAGE_LAYER_NAMES = {
-    "l1.judge": "l1_injection_scanner",
-    "l2.llm": "l2_intent_extractor",
-    "l3b.llm": "l3b_document_scanner",
-    "l4.llm": "l4_output_scanner",
-}
 CLASSIFIER_LAYERS = frozenset({"l1", "l2", "l3b"})
 """The layers that read the trained L1 classifier (the pipeline hands L2 and L3b L1's)."""
 
@@ -322,12 +316,6 @@ def v2_required_stages(config: str) -> tuple[str, ...]:
     require_config(SCHEME_V2, config)
     needs_classifier = bool(CLASSIFIER_LAYERS & set(V2_LAYERS[config]))
     return (*(("l1.classifier",) if needs_classifier else ()), *V2_AI_STAGES[config])
-
-
-def v2_ai_layer_names(config: str) -> tuple[str, ...]:
-    """The guard layers (by ``LayerName`` value) whose AI step a v2 config runs."""
-    require_config(SCHEME_V2, config)
-    return tuple(STAGE_LAYER_NAMES[stage] for stage in V2_AI_STAGES[config])
 
 
 def scheme_of_meta(meta: Mapping[str, Any] | None) -> str:

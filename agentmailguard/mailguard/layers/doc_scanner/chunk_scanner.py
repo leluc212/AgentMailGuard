@@ -233,7 +233,7 @@ class RetrievedDocumentScanner:
             try:
                 verdict = self._scan_cheap(chunk, query)
             except Exception as exc:
-                logger.exception("L3b chunk scan failed")
+                logger.exception("L2 chunk scan failed")
                 base = error_verdict(LAYER, exc, fail_closed=self.fail_closed)
                 verdict = ChunkVerdict(
                     chunk_id=chunk.chunk_id,
@@ -360,7 +360,7 @@ class RetrievedDocumentScanner:
                 self.llm, messages, DocJudgeOutput, tier=ModelTier.FAST, max_tokens=400
             )
         except LLMError as exc:
-            logger.warning("L3b LLM judge unavailable (%s)", exc)
+            logger.warning("L2 chunk LLM judge unavailable (%s)", exc)
             cheap.error = judge_failure(
                 cheap.metadata,
                 exc,

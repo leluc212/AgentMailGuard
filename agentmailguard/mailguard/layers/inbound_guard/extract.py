@@ -274,7 +274,7 @@ class UserIntentExtractor:
             try:
                 intent = self._extract_heuristic(email)
             except Exception as exc:
-                logger.exception("L2 heuristic extraction failed")
+                logger.exception("L1 heuristic extraction failed")
                 intent = self._error_intent(email, exc)
         intent.latency_ms = sw.elapsed_ms
         return intent
@@ -286,7 +286,7 @@ class UserIntentExtractor:
                 if self.cfg.extract_llm_enabled and self.llm is not None:
                     intent = await self._refine_with_llm(email, intent)
             except Exception as exc:
-                logger.exception("L2 extraction failed")
+                logger.exception("L1 extraction failed")
                 intent = self._error_intent(email, exc)
         intent.latency_ms = sw.elapsed_ms
         return intent
@@ -345,7 +345,7 @@ class UserIntentExtractor:
             )
         except Exception as exc:  # any failure of the AI step keeps the heuristic result
             logger.warning(
-                "L2 extractor LLM failed (%s); heuristic result kept",
+                "L1 extractor LLM failed (%s); heuristic result kept",
                 exc,
                 exc_info=not isinstance(exc, LLMError),  # full trace for non-LLM errors
             )

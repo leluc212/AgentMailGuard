@@ -5,7 +5,7 @@ Checks, cheapest first:
     1. sensitive-data patterns  (configs/pii_patterns.yaml; Luhn for cards)  -> redaction
     2. system-prompt / context leak  (n-gram overlap with protected texts)
     3. citation integrity            (draft cites only chunks that were retrieved & kept)
-    4. injected-goal compliance      (attacker emails/URLs/phrases from L1/L3b reach the draft)
+    4. injected-goal compliance      (attacker emails/URLs/phrases from L1/L2 reach the draft)
     5. unsafe action                 (forward / recipients outside the conversation)
     6. external link insertion       (URLs not present in trusted knowledge)
     7. optional LLM judge            (uncertain band only)

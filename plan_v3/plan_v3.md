@@ -429,7 +429,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   lint` xanh. Còn mở: (1) docs (`README.md`, `docs/BENCHMARK.md`, runbook §9) còn mô tả scheme v2 (Task 14);
   (2) ratchet 15a cần allowlist `legacy_reader.py` cho tên layer v1/v2 (`l2_intent_extractor`, `l1`…`l5`);
   (3) `meta.live_layers` trong `analyses.run_facts` giờ đọc khóa v3 (`inbound_judge`…`output_judge`).
-- [x] Task 14 — on `cbfafc8`: docs, paper, specs, ADR-0015 → Accepted. ADR-0015: Status "Accepted pending Task 16
+- [x] Task 14 — on `2e43435`: docs, paper, specs, ADR-0015 → Accepted. ADR-0015: Status "Accepted pending Task 16
   (live acceptance)" ngày 2026-10-15; danh sách "Intended behaviour changes" viết lại thành 9 mục khớp 1–1 với
   các `why` của `INTENDED_DELTAS` trong `tests/parity.py` (kèm đường dẫn `tests/deltas/task6_guard_config.json`,
   `task7_doc_scanner_before_gate.json`, `task8_output_guard.json` và các nhóm inline Task 4/5; mục 3 và 5 ghi rõ
@@ -457,3 +457,18 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   15b (các câu về pin 915cb1e trong `docs/BENCHMARK.md`, runbook, `benchmark-windows-native.md` vẫn đúng với Makefile
   hôm nay và phải đổi cùng 15b), `docs/architecture/*.html` (hình Archify vẫn vẽ lớp v2). Task 16 điền số v3 (bảng
   paper, ước lượng request/chi phí/thời gian đang ghi là "v2 estimate").
+- [x] Task 15a — ratchet + cleanup (một commit): `agentmailguard/tests/unit/test_no_legacy_identifiers.py` quét
+  `mailguard/ services/ evaluation/ training/ configs/ tests/` tìm tên layer v2, tiền tố `L1__`..`L5B__`, khóa
+  `GUARD_MODELS__(JUDGE|EXTRACTOR|DOC_SCANNER)`, `report.l3b` và truy cập thuộc tính `.l1`..`.l5`/`.l3b`; allowlist hẹp
+  (file hoặc file + regex, mỗi mục có lý do): chính ratchet, `tests/golden/`, `tests/deltas/task6_*.json` và
+  `task7_*.json`, `tests/parity.py` (chỉ tên layer v2), `config/settings.py` (`LEGACY_ENV_KEYS`),
+  `tests/unit/test_settings_v3.py`, tên logger `training.l1`/`mailguard.datasets.l1`; một test khác khóa rằng mỗi mục
+  allowlist vẫn còn khớp ít nhất một chỗ. Root twin `tests/unit/test_mailguard_v3_identifiers.py` (quét
+  `evaluation/mailguard_bench` và `tests/unit/test_mailguard_*`, trừ `legacy_reader.py` và
+  `test_mailguard_bench_legacy_reader.py`). Dọn dẹp thật: xóa `STAGE_LAYER_NAMES`/`v2_ai_layer_names` trong
+  `scheme.py` (legacy reader không dùng) cùng test của chúng; xóa `pipeline.severity_of`/`verdict_or_none` (không có
+  caller); log cũ `L3b chunk scan failed`, `L3b LLM judge unavailable`, `L2 heuristic extraction failed`,
+  `L2 extraction failed`, `L2 extractor LLM failed` đổi sang tên lớp v3 (L2 chunk, L1 extract); docstring
+  `output_guard/scanner.py` "L1/L3b" thành "L1/L2". Hành vi không đổi, parity 0 delta mới, không tạo lại golden.
+  Test: `agentmailguard/tests` 627 passed; root `tests/unit` 4000 passed, 74 skipped, 1 xfailed (pin v2, chờ 15b);
+  `make fmt-check lint` xanh. Còn mở: 15b (pin), 15c (push, `make ci` do chủ dự án, GitHub CI).
