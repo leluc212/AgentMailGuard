@@ -449,14 +449,14 @@ def _draft_blocks(
             "action": "none",
             "body_original": "",
             "body_after_guard": "",
-            "redacted_by_l4": False,
+            "redacted_by_output_guard": False,
         }, None
     body_original = draft.body if original is None else original
     block = {
         "action": draft.action,
         "body_original": body_original,
         "body_after_guard": draft.body,
-        "redacted_by_l4": body_original != draft.body,
+        "redacted_by_output_guard": body_original != draft.body,
     }
     return block, {"action": draft.action, "body": draft.body}
 
@@ -473,7 +473,11 @@ def _unguarded_record(system_instructions: str) -> dict[str, Any]:
         "layers_flagged": [],
         "threat_types": [],
         "detected_layers": [],
-        "l3b_quarantined": [],
+        "exit_point": None,
+        "carried_from_inbound": False,
+        "guard_calls": {},
+        "judge_invalid": [],
+        "doc_quarantined_chunk_ids": [],
         "max_severity": None,
         "prompt_mode": None,
         "guard_llm": {"model": "", "calls": 0, "input_tokens": 0, "output_tokens": 0},

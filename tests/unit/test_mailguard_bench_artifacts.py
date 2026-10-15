@@ -111,7 +111,6 @@ def test_report_puts_target_line_first_and_names_benign_utility() -> None:
         llmail={"C0": summary("C0", R16), "C3": summary("C3", R7, n_errors=1)},
         rag={},
         all_cases={"C0": summary("C0", R16), "C3": summary("C3", R7)},
-        ablation={},
         paired={
             "LLMail-Inject C0 vs C3": {
                 "n": 300,
@@ -144,7 +143,6 @@ def rag_inputs(rag_retrieved: dict[str, ConfigSummary]) -> ReportInputs:
         llmail={"C3": summary("C3", R7)},
         rag={"C0": summary("C0", R16), "C3": summary("C3", R7)},
         all_cases={},
-        ablation={},
         paired={},
         overhead={},
         errors={"C3": []},
@@ -182,7 +180,6 @@ def baseline_inputs(llmail: dict[str, ConfigSummary]) -> ReportInputs:
         llmail=llmail,
         rag={},
         all_cases={},
-        ablation={},
         paired={},
         overhead={},
         errors={c: [] for c in llmail},
@@ -258,7 +255,6 @@ def live_inputs(**overrides: Any) -> ReportInputs:
         "llmail": llmail,
         "rag": {},
         "all_cases": {},
-        "ablation": {},
         "paired": {},
         "overhead": {},
         "errors": {"C0": [], "C3": []},

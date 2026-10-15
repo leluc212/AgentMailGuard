@@ -401,7 +401,7 @@ async def test_the_l4_redacted_body_is_what_gets_persisted(tmp_path: Path) -> No
     assert outcome.draft.action == "reply"
     (line,) = rig.audit_lines()
     assert line["final_body"] == outcome.draft.body
-    assert line["draft"]["redacted_by_l4"] is True
+    assert line["draft"]["redacted_by_output_guard"] is True
     assert line["generation"]["reply_v1"]["draft"] == LEAKS_AN_ADDRESS["draft"]  # kept as said
 
 
@@ -769,10 +769,10 @@ async def test_failed_guard_ai_steps_are_audited_per_layer_and_the_job_is_drafte
         "HTTP 500" in f for f in line["guard_route_failures"]
     )
     # L1's judge, L3b's and L4's run only when their cheap stages escalate; L2's always runs.
-    assert [f["layer"] for f in line["guard_fallbacks"]] == ["l2_intent_extractor"]
+    assert [f["layer"] for f in line["guard_fallbacks"]] == ["inbound_extract"]
     assert {f["reason"] for f in line["guard_fallbacks"]} == {"error"}
     assert all("HTTP 500" in f["error"] for f in line["guard_fallbacks"])
-    assert line["l2_llm_schema_fallback"] is False  # a transport error, not an answer
+    assert line["extract_llm_schema_fallback"] is False  # a transport error, not an answer
 
 
 @pytest.mark.skipif(
@@ -799,7 +799,7 @@ async def test_the_draft_persisted_log_counts_the_guard_fallbacks_next_to_the_er
 @pytest.mark.skipif(
     not guard_marks_fallbacks(), reason="the installed guard does not mark failed AI steps"
 )
-async def test_an_l2_answer_without_the_schema_sets_l2_llm_schema_fallback_in_the_audit(
+async def test_an_l2_answer_without_the_schema_sets_extract_llm_schema_fallback_in_the_audit(
     tmp_path: Path,
 ) -> None:
     from mailguard.llm.fake import FakeLLMProvider as GuardFakeLLM
@@ -813,8 +813,8 @@ async def test_an_l2_answer_without_the_schema_sets_l2_llm_schema_fallback_in_th
 
     (line,) = rig.audit_lines()
     by_layer = {f["layer"]: f["reason"] for f in line["guard_fallbacks"]}
-    assert by_layer["l2_intent_extractor"] == "non_json"
-    assert line["l2_llm_schema_fallback"] is True
+    assert by_layer["inbound_extract"] == "non_json"
+    assert line["extract_llm_schema_fallback"] is True
     assert line["guard_errors"] == []
 
 
@@ -827,7 +827,7 @@ async def test_a_healthy_guarded_job_audits_an_empty_fallback_list(tmp_path: Pat
     await rig.service.draft(rig.job, rig.context(), category="support")
 
     (line,) = rig.audit_lines()
-    assert line["guard_fallbacks"] == [] and line["l2_llm_schema_fallback"] is False
+    assert line["guard_fallbacks"] == [] and line["extract_llm_schema_fallback"] is False
 
 
 async def test_a_persisted_generated_draft_counts_once_and_a_guard_escalation_not_at_all(

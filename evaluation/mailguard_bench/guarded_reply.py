@@ -32,48 +32,46 @@ from typing import Any
 
 from evaluation.mailguard_bench.case_adapter import PreparedCase
 from evaluation.mailguard_bench.counting import CountingProvider
+from evaluation.mailguard_bench.protocol import case_protocol
 from evaluation.mailguard_bench.resilience import RateLimitedError, text_is_rate_limited
-from evaluation.mailguard_bench.scoring import AiStepFallback
+from evaluation.mailguard_bench.scoring import AiStepFallback, flagged_layers
 from packages.core.provider_limits import is_quota_text, quota_in_text, quota_note
 from packages.llm.generator import GenerationResult, SinglePassGenerator
 from packages.llm.protocol import ChatMessage, LLMQuotaExhaustedError
 from packages.llm.reply_format import render_reply_format_rules
 
-L3B_LAYER = "l3b_document_scanner"
 GUARDED_PROMPT_VERSION = "guarded.v3"
 """The version of the guarded prompt (C0T, C1, C2, C3), recorded in every run meta and settings
 fingerprint and on every guarded row. guarded.v1 had no reply-format rules (ADR-0012 2a);
 guarded.v3 renders each kept chunk with its trust (guard v3 Task 7, ADR-0015 decision 12). Runs
 of two versions are never mixed."""
 
-# The bench scores in the v2 layer vocabulary until scheme v3 (guard v3 Tasks 12-13). A schema-3
-# report is read through this view: the Inbound Guard's scan and extract sub-stages are the v2
-# scanner and extractor, the Doc Scanner's chunks the v2 document scanner, the Output Guard the v2
-# output scanner. Channel isolation has no verdict in schema 3 (ADR-0015 R-d).
-V2_SCAN_LAYER = "l1_injection_scanner"
-V2_EXTRACT_LAYER = "l2_intent_extractor"
-V2_OUTPUT_LAYER = "l4_output_scanner"
+# A schema-3 report's verdicts are counted per guard judge stage, under the guard's own stage
+# names (``JudgeStage``, ``scheme.GUARD_STAGES``): the Inbound Guard's scan and extract sub-stages,
+# each Doc Scanner chunk (``doc_chunk``) and the set judge (``doc_set``), the Output Guard.
+# Channel isolation has no verdict in schema 3 (ADR-0015 R-d).
+SCAN_STAGE = "inbound_scan"
+EXTRACT_STAGE = "inbound_extract"
+CHUNK_STAGE = "doc_chunk"
+SET_STAGE = "doc_set"
+OUTPUT_STAGE = "output"
 
 
 @dataclass(frozen=True)
 class BenchVerdictView:
-    """One v2-named verdict of a schema-3 report: what fallback and detection counting read."""
+    """One verdict of a schema-3 report under its judge stage: what fallback counting reads."""
 
-    layer: str
+    layer: str  # a guard judge stage (``scheme.GUARD_STAGES``)
     severity: str
     error: str | None
     metadata: dict[str, Any]
 
-    @property
-    def flagged(self) -> bool:
-        return self.severity in ("medium", "high", "critical")
-
 
 def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
-    """The schema-3 report's verdicts under their v2 bench layer names, in pipeline order."""
+    """The schema-3 report's verdicts under their judge stage names, in pipeline order."""
     views: list[BenchVerdictView] = []
     inbound = report.inbound_guard
-    for stage, layer in (("scan", V2_SCAN_LAYER), ("extract", V2_EXTRACT_LAYER)):
+    for stage, layer in (("scan", SCAN_STAGE), ("extract", EXTRACT_STAGE)):
         record = inbound.stage(stage) if inbound is not None else None
         if record is not None:
             views.append(
@@ -87,7 +85,7 @@ def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
     if report.doc_scanner is not None:
         views += [
             BenchVerdictView(
-                layer=L3B_LAYER,
+                layer=CHUNK_STAGE,
                 severity=_value(chunk.severity),
                 error=chunk.error,
                 metadata=dict(chunk.metadata),
@@ -101,7 +99,7 @@ def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
         if set_error is not None or docs.metadata.get("llm_fallback"):
             views.append(
                 BenchVerdictView(
-                    layer=L3B_LAYER,
+                    layer=SET_STAGE,
                     severity="none",  # the set's severity is its strictest chunk's, counted above
                     error=set_error,
                     metadata={k: v for k, v in docs.metadata.items() if k in _FALLBACK_KEYS},
@@ -111,7 +109,7 @@ def bench_verdict_views(report: Any) -> list[BenchVerdictView]:
     if out is not None:
         views.append(
             BenchVerdictView(
-                layer=V2_OUTPUT_LAYER,
+                layer=OUTPUT_STAGE,
                 severity=_value(out.severity),
                 error=out.error,
                 metadata=dict(out.metadata),
@@ -185,9 +183,9 @@ class AiStepFailures:
         return self.crashes + self.degraded
 
     @property
-    def l2_schema_fallback(self) -> bool:
-        """True when L2's model answer did not carry the schema (Amendment 1, C.1)."""
-        return any(f.is_l2_schema_fallback for f in self.fallbacks)
+    def extract_schema_fallback(self) -> bool:
+        """True when the extractor's model answer did not carry the schema (Amendment 1, C.1)."""
+        return any(f.is_extract_schema_fallback for f in self.fallbacks)
 
 
 def classify_ai_step_failures(verdicts: Iterable[Any]) -> AiStepFailures:
@@ -292,11 +290,8 @@ def summarize_guard_outcome(
     blocked_inbound = bool(blocked(inbound))
     blocked_outbound = bool(final is not None and final is not inbound and blocked(final))
     is_blocked = blocked_inbound or blocked_outbound
-    views = bench_verdict_views(report)
-    detected = {v.layer for v in views if v.flagged and v.layer != L3B_LAYER}
-    quarantined = [str(chunk_id) for chunk_id in report.quarantined_chunk_ids]
-    if quarantined:
-        detected.add(L3B_LAYER)
+    saved = report.model_dump(mode="json")
+    facts = case_protocol(saved, generation_called=generation is not None)
     metadata: dict[str, Any] = dict(final.metadata) if final is not None else {}
     reply_v1 = dict(generation.content) if generation is not None else None
     body_original = str(reply_v1.get("draft", "")) if reply_v1 is not None else None
@@ -311,8 +306,8 @@ def summarize_guard_outcome(
         "decision_stage": metadata.get("stage"),
         "layers_flagged": list(metadata.get("layers_flagged") or []),
         "threat_types": list(metadata.get("threat_types") or []),
-        "detected_layers": sorted(detected),
-        "l3b_quarantined": quarantined,
+        "detected_layers": sorted(set(flagged_layers(saved))),
+        **facts.to_dict(),
         "max_severity": _value(report.max_severity),
         "prompt_mode": getattr(bundle.prompt, "mode", None) if bundle is not None else None,
         "generation": generation_summary(generation),
@@ -320,7 +315,7 @@ def summarize_guard_outcome(
             "action": str(draft.action) if draft is not None else None,
             "body_original": body_original,
             "body_after_guard": body_after_guard,
-            "redacted_by_l4": (
+            "redacted_by_output_guard": (
                 body_original is not None
                 and body_after_guard is not None
                 and body_original != body_after_guard
@@ -477,7 +472,7 @@ class GuardedCaseExecutor:
             # Recorded only when the guard can say so: no key means "not recorded" (the v1 guard),
             # an empty list means "no AI step fell back".
             record["guard_fallbacks"] = [f.to_dict() for f in failures.fallbacks]
-            record["l2_llm_schema_fallback"] = failures.l2_schema_fallback
+            record["extract_llm_schema_fallback"] = failures.extract_schema_fallback
             # The judges that failed closed (guard v3 Task 11): scored rows, decided by P00.
             record["guard_judge_invalid"] = list(failures.judge_invalid)
         if route_failures:

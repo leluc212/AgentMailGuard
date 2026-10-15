@@ -14,12 +14,25 @@ from typing import Any
 
 import pytest
 
+from evaluation.mailguard_bench.scheme import GUARD_STAGES
 from packages.core.settings import ModelPricing
 from tests.unit.mailguard_live_fixtures import live_meta, live_row
 
 ATTACKER = "contact@contact.com"
+V3_STAGES_LIVE = {
+    "classifier": True,
+    "inbound_judge": True,
+    "inbound_extractor": True,
+    "doc_judge": True,
+    "doc_set_judge": True,
+    "output_judge": True,
+}
 C3_META: dict[str, Any] = {
+    "scheme": "v3",
+    "judge_fail_closed": True,
+    "guarded_prompt_version": "guarded.v3",
     "preset": "C3",
+    "guard_preset": "C3",
     "cases_sha256": "c" * 64,
     "rag_email_commit": "a" * 40,
     "mailguard_commit": "b" * 40,
@@ -31,7 +44,14 @@ C3_META: dict[str, Any] = {
     "retrieval": {"top_k": 5, "top_n": 20, "timeout_ms": 2000},
     "database": "rag_email",
     "guard": {
-        "active_layers": ["l1", "l2", "l3", "l3b", "l4", "l5"],
+        "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation",
+        ],
+        "live_stages": V3_STAGES_LIVE,
         "missing_live_stages": [],
     },
     "degraded_allowed": False,
@@ -44,14 +64,14 @@ C0_META: dict[str, Any] = {
     "guard_preset": None,
     "guard_models": None,
     "live_layers": None,
-    "guard": {"active_layers": [], "missing_live_stages": []},
+    "guard": {"active_layers": [], "live_stages": {}, "missing_live_stages": []},
 }
 # C0T is the guard's template with preset("C0"): an AgentMailGuard run with no layer active.
 C0T_META: dict[str, Any] = {
     **C3_META,
     "preset": "C0T",
     "guard_preset": "C0",
-    "guard": {"active_layers": [], "missing_live_stages": []},
+    "guard": {"active_layers": [], "live_stages": {}, "missing_live_stages": []},
 }
 
 
@@ -61,14 +81,37 @@ def test_degraded_guard_runs_are_refused() -> None:
     assert degradation_problems("C3", C3_META) == []
     assert degradation_problems("C0", None) == []
     assert degradation_problems("C3", None) == ["C3: raw/C3.meta.json is missing"]
-    no_clf = {**C3_META, "guard": {**C3_META["guard"], "missing_live_stages": ["l1.classifier"]}}
-    assert degradation_problems("C3", no_clf) == ["C3: guard stages not live: l1.classifier"]
-    fewer = {**C3_META, "guard": {"active_layers": ["l1", "l2", "l3", "l5"]}}
+    no_clf = {**C3_META, "guard": {**C3_META["guard"], "missing_live_stages": ["classifier"]}}
+    assert degradation_problems("C3", no_clf) == ["C3: guard stages not live: classifier"]
+    fewer = {
+        **C3_META,
+        "guard": {**C3_META["guard"], "active_layers": ["inbound_guard", "inbound_gate"]},
+    }
     assert degradation_problems("C3", fewer)[0].startswith("C3: active layers")
     assert degradation_problems("C3", {**C3_META, "degraded_allowed": True}) == [
         "C3: started with --allow-degraded"
     ]
-    assert degradation_problems("C2", {"guard": {"active_layers": ["l1", "l2", "l3", "l5"]}}) == []
+    # a judge the meta does not record as live is not live, whatever missing_live_stages says
+    unlive = {**C3_META["guard"], "live_stages": {**V3_STAGES_LIVE, "output_judge": False}}
+    assert degradation_problems("C3", {**C3_META, "guard": unlive}) == [
+        "C3: guard stages not live: output_judge"
+    ]
+    no_record = {**C3_META, "guard": {**C3_META["guard"], "live_stages": {}}}
+    assert "(no live_stages recorded)" in degradation_problems("C3", no_record)[0]
+    # C2 runs no Output Guard, so its judge need not be live, but the meta must say what ran
+    c2 = {
+        **C3_META,
+        "guard_preset": "C2",
+        "guard": {
+            "active_layers": ["inbound_guard", "doc_scanner", "inbound_gate", "channel_isolation"],
+            "live_stages": {**V3_STAGES_LIVE, "output_judge": False},
+            "missing_live_stages": [],
+        },
+    }
+    assert degradation_problems("C2", c2) == []
+    assert degradation_problems("C2", {**c2, "guard_preset": "C3"}) == [
+        "C2: guard preset 'C3' is not 'C2'"
+    ]
 
 
 def test_c0t_is_checked_as_a_guarded_config() -> None:
@@ -76,8 +119,11 @@ def test_c0t_is_checked_as_a_guarded_config() -> None:
 
     assert degradation_problems("C0T", C0T_META) == []
     assert degradation_problems("C0T", None) == []  # optional config: settings_problems asks
-    stage = {**C0T_META, "guard": {"active_layers": [], "missing_live_stages": ["l2.llm"]}}
-    assert degradation_problems("C0T", stage) == ["C0T: guard stages not live: l2.llm"]
+    stage = {
+        **C0T_META,
+        "guard": {"active_layers": [], "missing_live_stages": ["inbound_extractor"]},
+    }
+    assert degradation_problems("C0T", stage) == ["C0T: guard stages not live: inbound_extractor"]
     assert degradation_problems("C0T", {**C0T_META, "degraded_allowed": True}) == [
         "C0T: started with --allow-degraded"
     ]
@@ -85,18 +131,42 @@ def test_c0t_is_checked_as_a_guarded_config() -> None:
     assert degradation_problems("C0T", {**C0T_META, "guard_preset": "C3"}) == [
         "C0T: guard preset 'C3' is not 'C0'"
     ]
-    layered = {**C0T_META, "guard": {"active_layers": ["l1"], "missing_live_stages": []}}
-    assert degradation_problems("C0T", layered) == ["C0T: active layers ['l1'] are not []"]
+    layered = {
+        **C0T_META,
+        "guard": {"active_layers": ["inbound_guard"], "missing_live_stages": []},
+    }
+    assert degradation_problems("C0T", layered) == [
+        "C0T: active layers ['inbound_guard'] are not []"
+    ]
     assert degradation_problems("C0", C0_META) == []
     assert degradation_problems("C0", {**C0_META, "guard_preset": "C0"}) == [
         "C0: guard preset 'C0' ran, but C0 is rag-email's native path"
     ]
-    guarded_c0 = {**C0_META, "guard": {"active_layers": ["l1"], "missing_live_stages": []}}
-    assert degradation_problems("C0", guarded_c0) == ["C0: active layers ['l1'] are not []"]
+    guarded_c0 = {
+        **C0_META,
+        "guard": {"active_layers": ["inbound_guard"], "missing_live_stages": []},
+    }
+    assert degradation_problems("C0", guarded_c0) == [
+        "C0: active layers ['inbound_guard'] are not []"
+    ]
     assert settings_problems("C0T", C0T_META) == []
     assert settings_problems("C0T", {**C0T_META, "guard_models": "fake"}) == [
         "C0T: guard model 'fake' is not the generation model 'gemma-4-26b-a4b-it'"
     ]
+
+
+def test_a_pre_v3_run_meta_is_refused_naming_the_legacy_reader() -> None:
+    import pytest as _pytest
+
+    from evaluation.mailguard_bench.report import degradation_problems
+    from evaluation.mailguard_bench.scoring import LegacyReportError
+
+    for old in ({**C3_META, "scheme": "v2"}, {**C3_META, "scheme": "v1"}):
+        with _pytest.raises(LegacyReportError, match="legacy reader"):
+            degradation_problems("C3", old)
+    without_scheme = {k: v for k, v in C3_META.items() if k != "scheme"}  # written before schemes
+    with _pytest.raises(LegacyReportError, match="scheme v1"):
+        degradation_problems("C3", without_scheme)
 
 
 def test_fake_or_unpinned_models_are_refused() -> None:
@@ -190,6 +260,21 @@ def _case(case_id: str, kind: str, scenario: str = "level2v") -> dict[str, Any]:
     return case
 
 
+def _blocked_report() -> dict[str, Any]:
+    """The schema-3 report of an email the inbound gate stopped at pass 1 (no model call)."""
+    stop = {
+        "action": "block",
+        "matched_rule_id": "P10",
+        "metadata": {"gate_passes": 1},
+    }
+    return {
+        "schema_version": 3,
+        "inbound_decision": stop,
+        "decision": stop,
+        "metadata": {"guard_calls": dict.fromkeys(GUARD_STAGES, 0)},
+    }
+
+
 def _raw(
     case_id: str, config: str, body: str | None, *, blocked: bool = False, status: str = "ok"
 ) -> dict[str, Any]:
@@ -203,7 +288,7 @@ def _raw(
         "final_action": "reply",
         "blocked_inbound": blocked,
         "blocked_outbound": False,
-        "report": {"decision": {"action": "block", "matched_rule_id": "P10"}} if blocked else None,
+        "report": _blocked_report() if blocked else None,
         "total_latency_ms": 1500,
         "guard_latency_ms": 300,
         "generation_latency_ms": 1200,

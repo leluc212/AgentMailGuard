@@ -100,7 +100,7 @@ async def test_c0_record_has_the_runner_row_shape_with_no_guard() -> None:
         False,
         False,
     )
-    assert record["detected_layers"] == [] and record["l3b_quarantined"] == []
+    assert record["detected_layers"] == [] and record["doc_quarantined_chunk_ids"] == []
     assert record["generation"]["called"] is True
     assert record["generation"]["calls"] == 1
     assert record["generation"]["prompt_version"] == "support.v3"
@@ -109,7 +109,7 @@ async def test_c0_record_has_the_runner_row_shape_with_no_guard() -> None:
         "action": "forward",
         "body_original": REPLY["draft"],
         "body_after_guard": REPLY["draft"],
-        "redacted_by_l4": False,
+        "redacted_by_output_guard": False,
     }
     assert record["final_draft"] == {"action": "forward", "body": REPLY["draft"]}
     assert record["guard_llm"] == {"model": "", "calls": 0, "input_tokens": 0, "output_tokens": 0}

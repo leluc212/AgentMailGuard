@@ -31,7 +31,7 @@ the service (an HTTP 402, 404, 408, 409, 429 or 5xx, a timeout, a connection err
 in an HTTP 200 body; the row is an error row of kind ``guard_route_failure``, owner decision
 2026-10-01) and, when the guard marks its failed AI steps, ``guard_fallbacks`` (one
 ``{layer, reason, error}`` per AI step that fell back to its cheap result; the row is scored
-normally unless a route failure caused it) and ``l2_llm_schema_fallback`` (L2's model answer
+normally unless a route failure caused it) and ``extract_llm_schema_fallback`` (L2's model answer
 carried no schema). A job that is retried appends a line per attempt; the last line of a message
 wins.
 """

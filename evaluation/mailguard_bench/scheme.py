@@ -161,6 +161,17 @@ V3_AI_STAGES: dict[str, tuple[str, ...]] = {
     for config, on in V3_LAYERS.items()
 }
 """Every judge of every layer a v3 config runs is live (the full architecture is measured)."""
+V3_JUDGE_STAGE: dict[str, str] = {
+    "inbound_judge": "inbound_scan",
+    "inbound_extractor": "inbound_extract",
+    "doc_judge": "doc_chunk",
+    "doc_set_judge": "doc_set",
+    "output_judge": "output",
+}
+"""The guard's own name (``JudgeStage``, the keys of ``report.metadata["guard_calls"]`` and of a
+verdict's ``judge_invalid``) of each judge ``V3_LAYER_JUDGES`` lists. The reports speak in these."""
+GUARD_STAGES = tuple(V3_JUDGE_STAGE.values())
+"""Every guard judge stage, in pipeline order (``mailguard.llm.judge_calls.JUDGE_STAGES``)."""
 
 
 class SchemeMixError(ValueError):
@@ -273,6 +284,12 @@ def v3_required_stages(config: str) -> tuple[str, ...]:
     require_config(SCHEME_V3, config)
     needs_classifier = bool(V3_CLASSIFIER_LAYERS & set(V3_LAYERS[config]))
     return (*(("classifier",) if needs_classifier else ()), *V3_AI_STAGES[config])
+
+
+def v3_ai_stage_names(config: str) -> tuple[str, ...]:
+    """The guard judge stages (``GUARD_STAGES`` names) whose AI step a v3 config runs."""
+    require_config(SCHEME_V3, config)
+    return tuple(V3_JUDGE_STAGE[judge] for judge in V3_AI_STAGES[config])
 
 
 def v2_guard_name(config: str) -> str:

@@ -44,19 +44,25 @@ from evaluation.mailguard_bench.report import (
     load_cases,
     settings_problems,
 )
-from evaluation.mailguard_bench.scheme import SCHEME_V2, folder_scheme
-from evaluation.mailguard_bench.scoring import LIVE_TRANSPORT, RawRecord, read_raw
+from evaluation.mailguard_bench.scheme import SCHEME_V3, folder_scheme
+from evaluation.mailguard_bench.scoring import (
+    LEGACY_READER_HINT,
+    LIVE_TRANSPORT,
+    RawRecord,
+    read_raw,
+)
 from evaluation.mailguard_bench.threat_model import render_threat_model
 
 ATTACKS_VS_TRAIN_HALF = "attacks_vs_train_half"
 ATTACKS_VS_L1_ROWS = "attacks_vs_l1_train_rows"
 BENIGN_VS_L1_ROWS = "benign_vs_l1_train_rows"
-# The guard's LLM stages as the runner records them in a meta's live_layers.
+# The guard's LLM judges as the runner records them in a meta's live_layers (``LiveLayers``).
 GUARD_LLM_STAGES = {
-    "l1_judge": "L1's LLM judge",
-    "l2_llm": "L2's LLM intent extraction",
-    "l3b_llm": "L3b's LLM poisoned-document check",
-    "l4_llm": "L4's LLM output check",
+    "inbound_judge": "L1 Inbound Guard's LLM scan judge",
+    "inbound_extractor": "L1 Inbound Guard's LLM intent extraction",
+    "doc_judge": "L2 Doc Scanner's LLM chunk judge",
+    "doc_set_judge": "L2 Doc Scanner's LLM set judge",
+    "output_judge": "L4 Output Guard's LLM output check",
 }
 
 
@@ -165,15 +171,13 @@ def run_analyses(
     Raises:
         FileNotFoundError: If the run has no scored C3 results yet.
         ValueError: If the report would refuse the run (weakened guard or off-pin settings), or
-            the run is scheme v2: these analyses read C3 as the full guard, which in v2 is C7
-            (C3 is channel isolation there), so a v2 folder is refused instead of misread.
+            the run is scheme v1 or v2, which only the legacy reader reads.
     """
-    if folder_scheme(run_dir) == SCHEME_V2:
+    scheme = folder_scheme(run_dir)
+    if scheme not in (None, SCHEME_V3):
         raise ValueError(
-            f"{run_dir} is a scheme v2 run: the no-API analyses (leakage, first catching layer, "
-            "worked examples) read C3 as the full guard, which is C7 in v2, and are not adapted "
-            "to it yet (specs/tasks.md 7.20). Its report has no analyses.md: use "
-            "`make mailguard-report RUN=<run>`"
+            f"{run_dir} is a scheme {scheme} run: the v3 analyses never read it "
+            f"({LEGACY_READER_HINT})"
         )
     cases = load_cases(run_dir / "cases.jsonl")
     manifest = json.loads((run_dir / "case_manifest.json").read_text(encoding="utf-8"))
@@ -208,7 +212,7 @@ def run_analyses(
             layers[case_id] = first_catching_layer(
                 c3_records[case_id],
                 goal=bool(row["goal_achieved"]),
-                goal_pre_l4=bool((row.get("extra") or {}).get("goal_pre_l4")),
+                goal_pre_output_guard=bool((row.get("extra") or {}).get("goal_pre_output_guard")),
             )
     llmail_layers = [v for k, v in layers.items() if k in llmail_ids]
     rag_ids = set(manifest.get("rag_attack_ids") or [])

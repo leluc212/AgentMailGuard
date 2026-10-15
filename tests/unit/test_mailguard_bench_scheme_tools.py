@@ -1,7 +1,8 @@
-"""The meaning reader and the no-API analyses under config scheme v2 (ADR-0012 decision 11).
+"""The meaning reader and the no-API analyses under config schemes (ADR-0012 decision 11).
 
-The reader follows the scheme's configs; the analyses, written for v1's C3 (the full guard), refuse
-a v2 folder instead of reading its C3 (channel isolation) as the full guard. No network, no model.
+Both read scheme v3 only (plan_v3 Task 13): a v1 or v2 folder is refused, naming the legacy reader,
+instead of reading its C3 (a different guard, or channel isolation) as the full guard. The reader
+follows the v3 configs. No network, no model.
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ def write_run(tmp_path: Path, configs: tuple[str, ...], *, meta_scheme: str | No
     (run / "cases.jsonl").write_text("".join(json.dumps(c) + "\n" for c in cases), "utf-8")
     base = {"generation_model": "gpt-4o-mini"}
     meta = live_meta({**base, **({"scheme": meta_scheme} if meta_scheme else {})})
+    if meta_scheme is None:
+        meta.pop("scheme")  # written before the schemes existed: v1
     for config in configs:
         rows = [
             live_row("attack-llmail-a", config, body="LEAK: sent to contact at contact.com"),
@@ -40,21 +43,25 @@ def write_run(tmp_path: Path, configs: tuple[str, ...], *, meta_scheme: str | No
     return run
 
 
-async def test_the_meaning_reader_reads_every_config_of_a_v2_run(tmp_path: Path) -> None:
-    run = write_run(tmp_path, ("C0", "C0T", "C4", "C5", "C6", "C7"), meta_scheme="v2")
+V3_RUN_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
+
+
+async def test_the_meaning_reader_reads_every_config_of_a_v3_run(tmp_path: Path) -> None:
+    run = write_run(tmp_path, V3_RUN_CONFIGS, meta_scheme="v3")
     _provider, reader = fake_reader(responder=verdict_by_marker())
 
     summaries = await run_meaning(run, reader=reader)
 
-    assert set(summaries) == {"C0", "C0T", "C4", "C5", "C6", "C7"}
+    assert set(summaries) == set(V3_RUN_CONFIGS)
     for config in summaries:
         rows = ResultStore(run / "analysis" / f"meaning__{config}.jsonl").latest_records()
         assert {k: v["verdict"] for k, v in rows.items()} == {"attack-llmail-a": "succeeded"}
 
 
-async def test_the_meaning_reader_of_a_v1_run_reads_the_v1_configs_only(tmp_path: Path) -> None:
-    # a stray C4 file in a v1 folder is no config of it; a v1 folder without a scheme key is v1
-    run = write_run(tmp_path, ("C0", "C3", "C4"), meta_scheme=None)
+async def test_the_meaning_reader_of_a_v3_run_leaves_out_a_stray_v1_config_file(
+    tmp_path: Path,
+) -> None:
+    run = write_run(tmp_path, ("C0", "C3", "C3-L5"), meta_scheme="v3")  # C3-L5 is v1's
     _provider, reader = fake_reader(responder=verdict_by_marker())
 
     summaries = await run_meaning(run, reader=reader)
@@ -62,25 +69,41 @@ async def test_the_meaning_reader_of_a_v1_run_reads_the_v1_configs_only(tmp_path
     assert set(summaries) == {"C0", "C3"}
 
 
+@pytest.mark.parametrize("scheme", [None, "v1", "v2"])
+async def test_the_meaning_reader_refuses_a_pre_v3_folder(
+    tmp_path: Path, scheme: str | None
+) -> None:
+    run = write_run(tmp_path, ("C0", "C3"), meta_scheme=scheme)  # no scheme key is v1
+    _provider, reader = fake_reader(responder=verdict_by_marker())
+
+    with pytest.raises(ValueError, match="legacy reader"):
+        await run_meaning(run, reader=reader)
+
+    assert not (run / "analysis").exists()
+
+
 async def test_the_meaning_reader_refuses_a_config_of_the_other_scheme(tmp_path: Path) -> None:
-    run = write_run(tmp_path, ("C0", "C3"), meta_scheme="v1")
+    run = write_run(tmp_path, ("C0", "C3"), meta_scheme="v3")
     _provider, reader = fake_reader(responder=verdict_by_marker())
 
     with pytest.raises(ValueError, match="C7"):
-        await run_meaning(run, reader=reader, configs=["C7"])  # no such config in v1
+        await run_meaning(run, reader=reader, configs=["C7"])  # no such config in v3
 
 
-def test_the_analyses_refuse_a_v2_folder_and_say_what_to_run_instead(tmp_path: Path) -> None:
-    run = write_run(tmp_path, ("C0", "C3", "C7"), meta_scheme="v2")
+@pytest.mark.parametrize("scheme", ["v1", "v2"])
+def test_the_analyses_refuse_a_pre_v3_folder_and_say_what_to_run_instead(
+    tmp_path: Path, scheme: str
+) -> None:
+    run = write_run(tmp_path, ("C0", "C3", "C7"), meta_scheme=scheme)
 
-    with pytest.raises(ValueError, match="scheme v2") as caught:
+    with pytest.raises(ValueError, match=f"scheme {scheme}") as caught:
         analyses.run_analyses(run, train_half=lambda: [], l1_rows=lambda _source: [])
 
-    assert "make mailguard-report" in str(caught.value)
+    assert "LEGACY=1" in str(caught.value)
     assert not (run / "analyses.md").exists() and not (run / "analysis").exists()
 
 
-def test_the_analyses_command_prints_fail_for_a_v2_folder(
+def test_the_analyses_command_prints_fail_for_a_pre_v3_folder(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = write_run(tmp_path, ("C7",), meta_scheme="v2")

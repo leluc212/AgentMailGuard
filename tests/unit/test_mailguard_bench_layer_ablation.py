@@ -1,4 +1,4 @@
-"""Layer ablation: remove one layer at a time from the full guard (task 7.22; R22.12).
+"""Layer ablation: remove one part at a time from the full guard (task 7.22; plan_v3 Task 13).
 
 Pre-registration: docs/superpowers/specs/2026-09-30-mailguard-layer-ablation-design.md.
 The runner, the degradation and settings checks and the report section are covered here.
@@ -16,26 +16,21 @@ from typing import Any
 
 import pytest
 
+from evaluation.mailguard_bench.scheme import V3_ABLATIONS, V3_SWITCHES
 from tests.unit.test_mailguard_bench_report import (
     C0_META,
     C3_META,
     PRICES,
+    V3_STAGES_LIVE,
     _amg_or_skip,
     _case,
     _raw,
     _run_folder,
 )
 
-LAYER_OF = {
-    "C3-L1": "l1",
-    "C3-L2": "l2",
-    "C3-L3": "l3",
-    "C3-L3B": "l3b",
-    "C3-L4": "l4",
-    "C3-L5": "l5",
-}
-FULL = ["l1", "l2", "l3", "l3b", "l4", "l5"]
-GOLDEN = Path(__file__).parent / "golden"
+LAYER_OF = dict(V3_ABLATIONS)  # the config -> the switch it turns off (C3-L1 .. C3-L4, C3-ISO)
+FULL = list(V3_SWITCHES)
+V1_ABLATIONS = ("C3-L1", "C3-L2", "C3-L3", "C3-L3B", "C3-L4", "C3-L5")
 
 
 def _ablation_meta(config: str, **over: Any) -> dict[str, Any]:
@@ -44,7 +39,11 @@ def _ablation_meta(config: str, **over: Any) -> dict[str, Any]:
         **C3_META,
         "preset": config,
         "guard_preset": config,
-        "guard": {"active_layers": active, "missing_live_stages": []},
+        "guard": {
+            "active_layers": active,
+            "live_stages": V3_STAGES_LIVE,
+            "missing_live_stages": [],
+        },
     }
     return {**meta, **over}
 
@@ -63,15 +62,16 @@ def _wilson_text(successes: int, total: int) -> str:
 # --- the runner accepts the six presets and pairs them with C3 on the full case set
 
 
-def test_ablation_configs_are_the_six_guard_presets_and_the_old_configs_are_unchanged() -> None:
+def test_the_v1_ablation_presets_are_retired_and_the_v3_ones_are_the_guards() -> None:
     from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS
     from evaluation.mailguard_bench.runner import BENCH_CONFIGS, parse_args
 
-    assert tuple(LAYER_OF) == ABLATION_CONFIGS
+    assert ABLATION_CONFIGS == V1_ABLATIONS  # the retired v1 presets, kept for the legacy reader
+    assert tuple(LAYER_OF) == ("C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
     assert BENCH_CONFIGS == ("C0", "C0T", "C1", "C2", "C3")
     # the v1 ablation is read from its committed folders only: scheme v1 runs are refused, and
     # v1's C3-L3B / C3-L5 do not exist in v3 (whose C3-L1..C3-L4 and C3-ISO are the v3 presets)
-    for config in (*BENCH_CONFIGS, *LAYER_OF):
+    for config in (*BENCH_CONFIGS, *V1_ABLATIONS):
         with pytest.raises(SystemExit):
             parse_args(["--config", config, "--run", "r", "--scheme", "v1"])
     for config in ("C3-L3B", "C3-L5", "C3-L6"):
@@ -122,14 +122,21 @@ def test_a_correct_ablation_run_passes_the_degradation_and_settings_checks(confi
 def test_an_ablation_run_must_have_removed_exactly_its_layer() -> None:
     from evaluation.mailguard_bench.report import degradation_problems
 
-    full = {**_ablation_meta("C3-L4"), "guard": {"active_layers": FULL, "missing_live_stages": []}}
+    full = {
+        **_ablation_meta("C3-L4"),
+        "guard": {"active_layers": FULL, "live_stages": V3_STAGES_LIVE, "missing_live_stages": []},
+    }
     (problem,) = degradation_problems("C3-L4", full)
     assert problem.startswith("C3-L4: active layers")
-    assert "['l1', 'l2', 'l3', 'l3b', 'l5']" in problem  # what the preset must run
+    assert "['inbound_guard', 'doc_scanner', 'inbound_gate', 'channel_isolation']" in problem
 
     wrong_layer = {
         **_ablation_meta("C3-L4"),
-        "guard": {"active_layers": [x for x in FULL if x != "l2"], "missing_live_stages": []},
+        "guard": {
+            "active_layers": [x for x in FULL if x != "doc_scanner"],
+            "live_stages": V3_STAGES_LIVE,
+            "missing_live_stages": [],
+        },
     }
     assert degradation_problems("C3-L4", wrong_layer)[0].startswith("C3-L4: active layers")
 
@@ -143,8 +150,8 @@ def test_a_missing_stage_or_allow_degraded_refuses_an_ablation_run() -> None:
     from evaluation.mailguard_bench.report import degradation_problems, settings_problems
 
     stage = _ablation_meta("C3-L2")
-    stage["guard"] = {**stage["guard"], "missing_live_stages": ["l1.classifier"]}
-    assert degradation_problems("C3-L2", stage) == ["C3-L2: guard stages not live: l1.classifier"]
+    stage["guard"] = {**stage["guard"], "missing_live_stages": ["classifier"]}
+    assert degradation_problems("C3-L2", stage) == ["C3-L2: guard stages not live: classifier"]
     assert degradation_problems("C3-L2", _ablation_meta("C3-L2", degraded_allowed=True)) == [
         "C3-L2: started with --allow-degraded"
     ]
@@ -170,11 +177,7 @@ def test_the_analyses_acceptance_check_covers_ablation_configs(tmp_path: Path) -
     assert weakened == ["C3-L1: started with --allow-degraded"]
 
 
-# --- report.md: the old output is untouched, the ablation section is added
-
-
-def _golden(name: str) -> str:
-    return (GOLDEN / name).read_text(encoding="utf-8")
+# --- report.md: the ablation section is added next to the headline tables
 
 
 def _report(run: Path) -> str:
@@ -186,19 +189,6 @@ def _report(run: Path) -> str:
     ).read_text("utf-8")
 
 
-@pytest.mark.parametrize(
-    ("with_c0t", "golden"),
-    [(False, "legacy_c0_c3.md"), (True, "legacy_c0_c0t_c3.md")],
-)
-def test_report_without_ablation_configs_is_byte_identical_to_v1(
-    tmp_path: Path, with_c0t: bool, golden: str
-) -> None:
-    # The goldens were written by the runner at dbe8e6b (before task 7.22).
-    text = _report(_run_folder(tmp_path, with_c0t=with_c0t))
-    assert text == _golden(golden)
-    assert "Layer ablation" not in text
-
-
 def _append_config(
     run: Path, config: str, rows: list[dict[str, Any]], meta: dict[str, Any]
 ) -> None:
@@ -208,7 +198,16 @@ def _append_config(
     (run / "raw" / f"{config}.meta.json").write_text(json.dumps(meta), "utf-8")
 
 
-def test_old_sections_stay_as_they_were_when_an_ablation_config_is_added(tmp_path: Path) -> None:
+def test_a_run_without_ablation_configs_has_no_layer_ablation_section(tmp_path: Path) -> None:
+    text = _report(_run_folder(tmp_path, with_c0t=True))
+
+    assert "Layer ablation" not in text
+    assert "## Where each job stopped, and why" in text
+
+
+def test_a_config_added_to_the_run_gets_its_ablation_section_and_every_table(
+    tmp_path: Path,
+) -> None:
     run = _run_folder(tmp_path, with_c0t=False)
     _append_config(
         run,
@@ -223,14 +222,10 @@ def test_old_sections_stay_as_they_were_when_an_ablation_config_is_added(tmp_pat
 
     text = _report(run)
 
-    v1 = _golden("legacy_c0_c3.md")
-    before_layer_section = text.split("## Layer ablation: remove one layer")[0]
-    assert before_layer_section == v1.split("## Overhead per email")[0]
-    assert "Reduced ablation" not in text  # C1/C2 did not run; C3-L1 is not one of them
+    assert "## Layer ablation: remove one layer" in text
     assert "| C3-L1 | 3 |" in text  # overhead and errors still cover every config that ran
     summary = json.loads((run / "summary.json").read_text("utf-8"))
-    assert summary["tables"]["ablation"] == {}
-    assert set(summary["tables"]["llmail"]) == {"C0", "C3"}
+    assert set(summary["tables"]["llmail"]) == {"C0", "C3", "C3-L1"}  # every config, every case
     assert set(summary["paired"]) >= {"LLMail-Inject C0 vs C3"}
 
 
@@ -299,14 +294,14 @@ def test_layer_ablation_section_reports_each_config_against_the_same_run_c3(
         _wilson_text(2, 4),
     ]
     assert rows["C3-L1"] == [
-        "L1",
+        "L1 Inbound Guard",
         _wilson_text(6, 6),
         _wilson_text(2, 2),
         _wilson_text(1, 4),
         _wilson_text(1, 4),  # only the 40 character draft; 39 characters and "hi" are too short
     ]
     assert rows["C3-L4"] == [
-        "L4",
+        "L4 Output Guard",
         _wilson_text(2, 6),
         _wilson_text(1, 2),
         _wilson_text(0, 4),
@@ -376,7 +371,7 @@ def test_layer_ablation_without_c3_states_that_no_paired_test_is_possible(tmp_pa
     text = _report(run)
 
     section = text.split("## Layer ablation: remove one layer")[1].split("\n## ")[0]
-    assert "| C3-L1 | L1 |" in section
+    assert "| C3-L1 | L1 Inbound Guard |" in section
     assert "C3 was not run in this folder" in section
     assert "McNemar" not in section.split("C3 was not run in this folder")[0]
     assert "C3 (full guard)" not in section
@@ -426,16 +421,27 @@ def _set_reports(run: Path, config: str, reports: dict[str, dict[str, Any]]) -> 
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), "utf-8")
 
 
+def _v3_report(
+    *, scan: str = "none", extract: str = "none", rule: str | None = None
+) -> dict[str, Any]:
+    stages = {"scan": {"severity": scan}, "extract": {"severity": extract}}
+    return {
+        "schema_version": 3,
+        "inbound_guard": {"severity": scan, "metadata": {"stages": stages}},
+        "decision": {"action": "block", "matched_rule_id": rule},
+    }
+
+
 def _attribution_run(tmp_path: Path) -> Path:
     run = _layer_run(tmp_path)
     _set_reports(
         run,
         "C3-L4",
         {
-            "attack-llmail-0": {"l2": {"severity": "medium"}},  # flagged but got through
-            "attack-llmail-2": {"l1": {"severity": "high"}, "decision": {"matched_rule_id": "P1"}},
-            "attack-llmail-3": {"l1": {"severity": "critical"}},
-            "attack-llmail-4": {"l1": {"severity": "low"}, "l2": {"severity": "medium"}},
+            "attack-llmail-0": _v3_report(extract="medium"),  # flagged but got through
+            "attack-llmail-2": _v3_report(scan="high", rule="P1"),
+            "attack-llmail-3": _v3_report(scan="critical"),
+            "attack-llmail-4": _v3_report(scan="low", extract="medium"),
             # attack-llmail-5: blocked with no verdict flag, default report (rule P10)
         },
     )
@@ -460,11 +466,11 @@ def test_layer_ablation_reports_which_layer_stopped_and_flagged_each_attack(
     assert rows[("C3-L4", "LLMail-Inject")] == [
         "6",
         "2",
-        "L1 injection scanner: 2; L2 intent extractor: 1; L5 policy rule P10: 1",
-        "L1 injection scanner: 2; L2 intent extractor: 2",
+        "L1 Inbound Guard: 3; L3 Inbound Gate rule P10: 1",
+        "L1 Inbound Guard: 4",
     ]
-    assert rows[("C3-L4", "RAG vector")] == ["2", "1", "L5 policy rule P10: 1", "none"]
-    assert rows[("C3", "LLMail-Inject")] == ["6", "0", "L5 policy rule P10: 6", "none"]
+    assert rows[("C3-L4", "RAG vector")] == ["2", "1", "L3 Inbound Gate rule P10: 1", "none"]
+    assert rows[("C3", "LLMail-Inject")] == ["6", "0", "L3 Inbound Gate rule P10: 6", "none"]
     assert rows[("C3-L1", "LLMail-Inject")][:2] == ["6", "6"]
     assert rows[("C3-L1", "LLMail-Inject")][2:] == ["none", "none"]
 
@@ -473,12 +479,8 @@ def test_layer_ablation_reports_which_layer_stopped_and_flagged_each_attack(
     assert got == {
         "attacks": 6,
         "succeeded": 2,
-        "first_catching": {
-            "L1 injection scanner": 2,
-            "L2 intent extractor": 1,
-            "L5 policy rule P10": 1,
-        },
-        "flagged": {"L1 injection scanner": 2, "L2 intent extractor": 2},
+        "first_catching": {"L1 Inbound Guard": 3, "L3 Inbound Gate rule P10": 1},
+        "flagged": {"L1 Inbound Guard": 4},
     }
 
 

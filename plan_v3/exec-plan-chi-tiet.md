@@ -411,19 +411,27 @@ Commit: `refactor(guard): bench scheme v3 configs and guard wiring [task v3.12]`
   with a clear message (Q1=b). Committed `evaluation/results/mailguard_bench/*` stay as historical data
   (not rewritten). **[review, Q1=b' / design decision 11]** New `evaluation/mailguard_bench/legacy_reader.py`:
   read-only loader for the committed v1/v2 run folders (run meta + per-case reports, old layer names
-  kept as-is, no conversion to schema 3) used only by the report path (`make mailguard-report` /
-  `scheme_report.py --legacy <run_dir>`); it raises on any attempt to run, score or ablate. Test:
-  the Review 1 GPT-4o-mini and Qwen2.5-7B tables regenerate byte-identical from the committed folders;
+  kept as-is, no conversion to schema 3) used only by the report path (`make mailguard-report LEGACY=1` /
+  `report.py --legacy <run_dir>`, F15 R2); it raises on any attempt to run, score or ablate. **[F15 R1]**
+  The raw inputs of the Review 1 runs are gitignored on purpose (attack text), so byte-identical
+  regeneration is impossible on a clean clone: the legacy reader loads the *committed outputs*
+  (`summary.json`, `metrics.csv`, `manifest.json`, `case_manifest.json`, `analysis/first_layer.csv`) and
+  `l2_recount.py` moves into it (R4). Test: for the Review 1 GPT-4o-mini and Qwen2.5-7B folders the
+  rendered "Security and usefulness" and "ASR by vector" tables carry, row for row, the numbers of the
+  committed `metrics.csv` and every rendered table row appears verbatim in the committed `report.md`;
   a v3 folder passed to the legacy reader is refused, a v2 folder passed to the v3 reader is refused.
   `runmeta.py` records `guarded_prompt_version`. **[review, design decision 12/13]** `overhead.py`
   reports, per config, guard calls per job (from `guard_calls`), guard latency p50/p95 and end-to-end
   p50/p95; `scheme_report.py` prints that table next to the ASR table.
-- Root tests `test_mailguard_bench_{scoring,report,report_v2,report_v2_build,scheme_report,artifacts,
-  analyses,first_layer,l2_recount,overhead}.py`. Clear `expires: Task 13` entries.
+- Root tests `test_mailguard_bench_{scoring,report,report_v2,report_v3_build,scheme_report,artifacts,
+  analyses,first_layer,legacy_reader,protocol,overhead}.py`. There are no `expires: Task 13` entries
+  (F15 R5): the two stale markers (`scoring.py` docstring, `guarded_reply.py` comment) are removed.
 - **[review 10-15, protocol visibility]** The v3 report must show *where each job stopped and why*, not
   only the final action. Per-case record (`guarded_reply.py`, from the guard report, no new guard
   field): `exit_point` ∈ {`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`} derived from
-  `decision.metadata.decided_by`, `inbound_decision.metadata.gate_passes` and `generation_called`;
+  `decision.metadata.decided_by`, `inbound_decision.metadata.gate_passes` and `generation_called`
+  (F15 R6: no model call and an inbound block → the gate pass that decided; a model call and a final
+  action stricter than `draft_only` → `output_guard`; else `delivered`; missing keys read as None/False);
   `carried_from_inbound` (inbound floor won); `guard_calls` per stage (`inbound_scan`,
   `inbound_extract`, `doc_chunk`, `doc_set`, `output`); `judge_invalid` stages (fail-closed events);
   `doc_quarantined_chunk_ids` (rename of `l3b_quarantined`; the 15a ratchet rejects the old name).

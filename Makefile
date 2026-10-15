@@ -31,7 +31,7 @@ help:
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
 	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO [JUDGE_FALLBACK=1] - Benchmark on the real rag-email path, scheme v3 (guard v3 presets, ADR-0015): C0 no guard, C0T guard template with no layer, C1 Inbound Guard + Inbound Gate, C2 C1 + Doc Scanner + isolation, C3 the full guard, C3-L1..C3-L4 C3 minus one layer, C3-ISO C3 without channel isolation; every judge of a layer the config runs is live. Schemes v1/v2 are refused (their guard commits). Owner-run, live model (not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
-	@echo "  mailguard-report RUN=... - Score a benchmark run; writes manifest.json, metrics.csv, report.md; no model calls (task 7.19)"
+	@echo "  mailguard-report RUN=... [LEGACY=1] - Score a scheme v3 run (manifest.json, metrics.csv, report.md); LEGACY=1 prints a committed v1/v2 folder's tables read-only; no model calls (task 7.19, v3.13)"
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
 	@echo "  bench-doctor [MODEL=<profile>] [READER=<model>] - Teammate kit: check this machine (Docker, Python, disk, keys in .env, the embedding) before the first run; MODEL adds that profile's key and, for a local model, the Ollama and GPU checks; no model calls (tasks 7.25, 7.29)"
 	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
@@ -262,16 +262,19 @@ mailguard-bench-test:
 MAILGUARD_RUN_DIR = evaluation/results/mailguard_bench/$(RUN)
 MAILGUARD_PY = $(MAILGUARD_UV) python
 
+# LEGACY=1 re-reads a committed scheme v1/v2 folder (the Review 1 runs) from its committed outputs
+# and prints its tables; it scores and writes nothing. Every other call scores a scheme v3 run and
+# refuses an older one (plan_v3 Task 13).
 mailguard-report:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
-	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
+	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report $(if $(LEGACY),--legacy,--run-dir) $(MAILGUARD_RUN_DIR) $(if $(LEGACY),,--mailguard-dir $(MAILGUARD_DIR))
 
 mailguard-analyses:
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR)
 	@scheme=$$($(MAILGUARD_PY) -m evaluation.mailguard_bench.scheme --run-dir $(MAILGUARD_RUN_DIR)) || exit 1; \
-	if [ "$$scheme" = v2 ] || [ "$$scheme" = v3 ]; then \
-		echo "NOTE scheme $$scheme: the no-API analyses read C3 with scheme v1's meaning, so they are v1-only; the report above is all a $$scheme run has"; \
+	if [ "$$scheme" = v1 ] || [ "$$scheme" = v2 ]; then \
+		echo "NOTE scheme $$scheme is read only by the legacy reader: make mailguard-report RUN=$(RUN) LEGACY=1"; \
 	else \
 		$(MAILGUARD_PY) -m evaluation.mailguard_bench.analyses --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR) && \
 		$(MAILGUARD_PY) -m evaluation.mailguard_bench.report --run-dir $(MAILGUARD_RUN_DIR) --mailguard-dir $(MAILGUARD_DIR); \

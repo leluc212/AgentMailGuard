@@ -981,7 +981,7 @@ async def test_c0_row_carries_the_v1_fields_from_the_persisted_draft() -> None:
         "action": "reply",
         "body_original": "The answer is Herman Melville.",
         "body_after_guard": "The answer is Herman Melville.",
-        "redacted_by_l4": False,
+        "redacted_by_output_guard": False,
     }
     assert result["final_draft"] == {"action": "reply", "body": "The answer is Herman Melville."}
     assert result["guard_llm"] == {"model": "", "calls": 0, "input_tokens": 0, "output_tokens": 0}
@@ -1558,7 +1558,7 @@ async def test_the_v1_scoring_flatten_reads_a_c0_row_as_it_reads_a_v1_row() -> N
         "input_tokens": 900,
         "output_tokens": 60,
     }
-    assert flat["retrieval"] == {"poison_retrieved": True}
+    assert flat["retrieval"] == {"poison_retrieved": True, "poisoned_chunk_ids": ["ch-poison"]}
     assert flat["system_instructions"] and flat["guard_latency_ms"] == 0
     assert (
         flat["total_latency_ms"]
@@ -1573,7 +1573,7 @@ GUARDED_AUDIT: dict[str, Any] = {
     "final_action": "reply",
     "blocked_inbound": False,
     "blocked_outbound": False,
-    "report": {"decision": {"action": "allow"}},
+    "report": {"schema_version": 3, "decision": {"action": "allow"}},
     "generation": {
         "called": True,
         "model": "qwen2.5:7b-instruct",
@@ -1615,7 +1615,7 @@ async def test_a_guarded_row_takes_the_guard_fields_from_the_audit_line(tmp_path
     result = await _collect(world, FakeClock(), config="C3", audit=path)
 
     assert result["final_body"] == "I cannot do that." and result["final_action"] == "reply"
-    assert result["report"] == {"decision": {"action": "allow"}}
+    assert result["report"] == {"schema_version": 3, "decision": {"action": "allow"}}
     assert result["guard_llm"]["calls"] == 4
     assert result["timings_ms"] == {"guarded_total": 9000, "generation": 6000, "guard": 3000}
     assert result["generation"]["reply_v1"]["draft"] == "raw draft"
@@ -1637,7 +1637,7 @@ async def test_a_guarded_row_fills_the_v1_blocks_the_audit_line_leaves_out(tmp_p
         "action": "reply",
         "body_original": "raw draft",
         "body_after_guard": "I cannot do that.",
-        "redacted_by_l4": True,
+        "redacted_by_output_guard": True,
     }
     assert result["final_draft"] == {"action": "reply", "body": "I cannot do that."}
     assert result["blocked"] is False and result["prompt_mode"] is None  # the audit names none
@@ -1684,14 +1684,14 @@ async def test_the_audits_ai_step_fallbacks_reach_the_row_and_do_not_make_it_an_
     tmp_path: Path,
 ) -> None:
     # ADR-0012 decision 4: a fallback is recorded and the case is scored like any other.
-    fallbacks = [{"layer": "l2_intent_extractor", "reason": "non_json", "error": "prose"}]
-    audit = {**GUARDED_AUDIT, "guard_fallbacks": fallbacks, "l2_llm_schema_fallback": True}
+    fallbacks = [{"layer": "inbound_extract", "reason": "non_json", "error": "prose"}]
+    audit = {**GUARDED_AUDIT, "guard_fallbacks": fallbacks, "extract_llm_schema_fallback": True}
     world, path = await _guarded_world(tmp_path, audit)
 
     result = await _collect(world, FakeClock(), config="C3", audit=path)
 
     assert result["guard_fallbacks"] == fallbacks
-    assert result["l2_llm_schema_fallback"] is True
+    assert result["extract_llm_schema_fallback"] is True
     assert result["guard_errors"] == []
     from evaluation.mailguard_bench.scoring import RawRecord
 
@@ -1704,7 +1704,7 @@ async def test_the_audits_ai_step_fallbacks_reach_the_row_and_do_not_make_it_an_
         "result": result,
     }
     record = RawRecord.from_dict(row)
-    assert record.ok and record.l2_schema_fallback is True
+    assert record.ok and record.extract_schema_fallback is True
 
 
 async def test_a_row_of_an_audit_without_fallback_keys_says_nothing_about_them(

@@ -271,19 +271,30 @@ def _run_analyses_target(tmp_path: Path, scheme: str | None) -> tuple[int, list[
     return done.returncode, steps, done.stdout + done.stderr
 
 
-def test_analyses_on_a_v1_run_still_scores_analyses_then_reports(tmp_path: Path) -> None:
-    for scheme in (None, "v1"):  # a folder from before the schemes is v1
+def test_analyses_on_a_v3_run_scores_analyses_then_reports(tmp_path: Path) -> None:
+    for scheme in (None, "v3"):  # a folder with no meta yet is read as the default scheme
         code, steps, _ = _run_analyses_target(tmp_path / str(scheme), scheme)
         assert code == 0
         assert [s.rsplit(".", 1)[1] for s in steps] == ["report", "analyses", "report"]
 
 
-def test_analyses_on_a_v2_or_v3_run_writes_the_report_and_ends_cleanly(tmp_path: Path) -> None:
-    # the no-API analyses read C3 with scheme v1's meaning: they refuse a v2 or v3 folder, so the
-    # target must not reach them and then fail after the report is written
-    for scheme in ("v2", "v3"):
+def test_analyses_on_a_pre_v3_run_ends_cleanly_naming_the_legacy_reader(tmp_path: Path) -> None:
+    # the analyses read C3 as the v3 full guard and refuse a v1 or v2 folder, so the target must
+    # not reach them; it points at the legacy reader instead
+    for scheme in ("v1", "v2"):
         code, steps, output = _run_analyses_target(tmp_path / scheme, scheme)
 
         assert code == 0
         assert [s.rsplit(".", 1)[1] for s in steps] == ["report"]
-        assert f"scheme {scheme}" in output and "v1-only" in output
+        assert f"scheme {scheme}" in output and "LEGACY=1" in output
+
+
+def test_report_target_routes_legacy_to_the_legacy_reader() -> None:
+    body = recipe("mailguard-report")
+    assert "$(if $(LEGACY),--legacy,--run-dir)" in body
+    legacy = _make("-n", "mailguard-report", "RUN=r", "LEGACY=1")
+    assert "--legacy evaluation/results/mailguard_bench/r" in legacy
+    assert "--run-dir" not in legacy and "--mailguard-dir" not in legacy
+    scored = _make("-n", "mailguard-report", "RUN=r")
+    assert "--run-dir evaluation/results/mailguard_bench/r" in scored
+    assert "--legacy" not in scored

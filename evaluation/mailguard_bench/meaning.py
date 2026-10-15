@@ -51,8 +51,13 @@ from evaluation.mailguard_bench.model_profiles import (
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT, immediate_stop
-from evaluation.mailguard_bench.scheme import SCHEME_V1, SCHEME_V2, configs_for, folder_scheme
-from evaluation.mailguard_bench.scoring import RawRecord, final_draft_fields, read_raw
+from evaluation.mailguard_bench.scheme import SCHEME_V3, V3_CONFIGS, folder_scheme
+from evaluation.mailguard_bench.scoring import (
+    LEGACY_READER_HINT,
+    RawRecord,
+    final_draft_fields,
+    read_raw,
+)
 from packages.core.settings import AppSettings, LLMTiersSettings
 from packages.llm.factory import create_llm_provider
 from packages.llm.protocol import (
@@ -636,13 +641,18 @@ async def run_meaning(
         ValueError: If a config has no raw file, the reader is refused, or a case is unreadable.
         MeaningSettingsMismatchError: If a config's file was read by another reader.
     """
-    from evaluation.mailguard_bench.report import CONFIG_ORDER, load_cases  # report imports us
+    from evaluation.mailguard_bench.report import load_cases  # report imports us
 
     cases = load_cases(run_dir / "cases.jsonl")
-    # The configs of the run's scheme (scheme.py): v2 reads C0 to C7, v1 (and a folder from before
-    # the schemes) C0, C0T, C1, C2 and C3 as always. A folder that mixes the schemes is refused.
-    scheme = folder_scheme(run_dir) or SCHEME_V1
-    known = configs_for(SCHEME_V2) if scheme == SCHEME_V2 else CONFIG_ORDER
+    # Only scheme v3 is read (scheme.py): a v1/v2 folder is refused, and so is one that mixes the
+    # schemes.
+    scheme = folder_scheme(run_dir) or SCHEME_V3
+    if scheme != SCHEME_V3:
+        raise ValueError(
+            f"{run_dir} is a scheme {scheme} run: the v3 reader never reads it "
+            f"({LEGACY_READER_HINT})"
+        )
+    known = V3_CONFIGS
     present = [c for c in known if (run_dir / "raw" / f"{c}.jsonl").exists()]
     chosen = present if configs is None else list(configs)
     missing = [c for c in chosen if c not in present]

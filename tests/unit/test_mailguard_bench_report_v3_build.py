@@ -1,7 +1,9 @@
-"""build_report on run folders of a v2 run (ADR-0012 decisions 2(d), 2(e), 4; Amendment 1, E.1).
+"""build_report on run folders of a scheme-v3 run (ADR-0012 decisions 2(d), 2(e), 4; Amendment 1,
+E.1; plan_v3 Task 13).
 
-Needs AgentMailGuard's scorer, so they skip where mailguard is not installed (CI). The v1
-run folders' reports stay byte-identical: test_mailguard_bench_layer_ablation.py holds the goldens.
+Needs AgentMailGuard's scorer, so they skip where mailguard is not installed (CI). A v1 or v2
+folder is refused here and read by the legacy reader instead
+(test_mailguard_bench_legacy_reader.py).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from tests.unit.test_mailguard_bench_report import (
     _run_folder,
 )
 
-L2 = "l2_intent_extractor"
+L2 = "inbound_extract"
 GPT_PRICE = {GPT: ModelPricing(input_per_m=0.15, output_per_m=0.60)}
 
 
@@ -45,7 +47,7 @@ def with_fallbacks(row: dict[str, Any], *fallbacks: tuple[str, str]) -> dict[str
     row["result"]["guard_fallbacks"] = [
         {"layer": layer, "reason": reason, "error": "x"} for layer, reason in fallbacks
     ]
-    row["result"]["l2_llm_schema_fallback"] = any(
+    row["result"]["extract_llm_schema_fallback"] = any(
         layer == L2 and reason in ("non_json", "schema_missing") for layer, reason in fallbacks
     )
     return row
@@ -85,7 +87,7 @@ def test_the_report_counts_the_guards_ai_step_fallbacks_per_config_and_layer(
             "benign-llmailfp-1": with_fallbacks(
                 live_row("benign-llmailfp-1", "C3", kind="benign", outcome="template"),
                 (L2, "timeout"),
-                ("l1_injection_scanner", "invalid_fields"),
+                ("inbound_scan", "invalid_fields"),
             ),
         }
     )
@@ -97,9 +99,9 @@ def test_the_report_counts_the_guards_ai_step_fallbacks_per_config_and_layer(
 
     assert "## Guard AI-step fallbacks" in text
     assert f"| C3 | {L2} | 5 | 2 |" in text and "non_json: 1; timeout: 1 |" in text
-    assert "| C3 | l1_injection_scanner | 5 | 1 |" in text
+    assert "| C3 | inbound_scan | 5 | 1 |" in text
     assert "C3: 2 of 5 scored emails had at least one AI-step fallback" in text
-    assert "L2 schema fallbacks (the model's answer carried no schema): 1." in text
+    assert "extractor schema fallbacks (the model's answer carried no schema): 1." in text
     assert "| C0 |" not in text.split("## Guard AI-step fallbacks")[1].split("\n## ")[0]
     summary = json.loads((run / "summary.json").read_text("utf-8"))
     l2 = summary["fallbacks"]["C3"]["layers"][L2]
@@ -175,7 +177,7 @@ def test_only_fail_closed_attack_rows_widen_the_denominators(tmp_path: Path) -> 
     assert "C3 sensitivity: no fail_closed_validation attack rows" in text
 
 
-def test_a_v1_report_has_no_sensitivity_line(tmp_path: Path) -> None:
+def test_an_in_process_report_has_no_sensitivity_line(tmp_path: Path) -> None:
     assert "sensitivity" not in build(_run_folder(tmp_path, with_c0t=False)).lower()
 
 
@@ -284,7 +286,7 @@ def test_a_guard_route_failure_row_is_counted_under_the_errors_row_and_never_sco
     assert c3["asr"]["total"] == 2  # a and b are scored; c, the route failure, is not
 
 
-def test_a_v1_folder_reports_no_service_failure_rows(tmp_path: Path) -> None:
+def test_an_in_process_folder_reports_no_service_failure_rows(tmp_path: Path) -> None:
     run = _run_folder(tmp_path, with_c0t=False)
 
     text = build(run)
@@ -333,7 +335,7 @@ def test_a_live_report_prints_both_benign_utility_rules(tmp_path: Path) -> None:
     assert "C3 pipeline benign utility, legacy rule (not blocked and non-empty, as in v1)" in text
 
 
-def test_a_v1_schema_run_whose_meta_asks_for_the_strict_rule_gets_it(tmp_path: Path) -> None:
+def test_an_in_process_run_whose_meta_asks_for_the_strict_rule_gets_it(tmp_path: Path) -> None:
     run = _run_folder(tmp_path, with_c0t=False)
     meta = json.loads((run / "raw" / "C3.meta.json").read_text("utf-8"))
     (run / "raw" / "C3.meta.json").write_text(json.dumps({**meta, **scoring_meta({})}), "utf-8")

@@ -52,6 +52,11 @@ class Overhead:
     generation_ms: Percentiles
     generation_calls_per_email: float
     guard_calls_per_email: float
+    """Guard model calls per email as the provider tally counts them (the cost is priced on it)."""
+    guard_calls_per_job: float
+    """Guard judge calls per job as the guard reports them (``report.metadata["guard_calls"]``)."""
+    guard_calls_max: int
+    """The most judge calls any one job made; the ceiling is five (ADR-0015 decision 12)."""
     generation_tokens_per_email: float
     guard_tokens_per_email: float
     cost_per_email_usd: float | None
@@ -97,6 +102,8 @@ def overhead(
     def per_email(value: float) -> float:
         return value / n if n else 0.0
 
+    reported = [sum(r.protocol.guard_calls.values()) if r.protocol else 0 for r in ok]
+
     return Overhead(
         config=config,
         n=n,
@@ -107,6 +114,8 @@ def overhead(
         ),
         generation_calls_per_email=per_email(sum(r.generation.calls for r in ok)),
         guard_calls_per_email=per_email(sum(r.guard_llm.calls for r in ok)),
+        guard_calls_per_job=per_email(sum(reported)),
+        guard_calls_max=max(reported, default=0),
         generation_tokens_per_email=per_email(
             sum(r.generation.input_tokens + r.generation.output_tokens for r in ok)
         ),

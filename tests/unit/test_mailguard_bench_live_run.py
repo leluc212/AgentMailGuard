@@ -1775,7 +1775,7 @@ class SimWorld:
                 "result": {
                     "blocked_inbound": False,
                     "blocked_outbound": False,
-                    "report": {"decision": {"action": "allow"}},
+                    "report": {"schema_version": 3, "decision": {"action": "allow"}},
                     "generation": {
                         "called": True,
                         "model": "qwen2.5:7b-instruct",
@@ -2533,7 +2533,10 @@ async def test_a_guarded_run_reads_each_drafted_cases_audit_line(
     rows = _rows(live_env, "C3")
     assert {r["status"] for r in rows.values()} == {"ok"}
     a1 = rows["attack-a1"]["result"]
-    assert a1["guard_llm"]["calls"] == 3 and a1["report"] == {"decision": {"action": "allow"}}
+    assert a1["guard_llm"]["calls"] == 3 and a1["report"] == {
+        "schema_version": 3,
+        "decision": {"action": "allow"},
+    }
     assert a1["system_instructions"] == "guard-worker instructions"
     assert a1["final_body"] == "drafted reply to attack-a1"
     assert a1["pipeline"]["reached_drafting"] is True
@@ -2698,7 +2701,8 @@ async def test_the_rows_of_a_guarded_run_are_read_by_the_scorers_reader(
     a1 = records["attack-a1"]
     assert triage_bucket(a1) == "drafted" and a1.guard_llm.calls == 3
     assert a1.guard_llm.model == "qwen2.5:7b-instruct" and a1.report == {
-        "decision": {"action": "allow"}
+        "schema_version": 3,
+        "decision": {"action": "allow"},
     }
     assert a1.generation.input_tokens == 1100  # the guard-worker's own count, from its audit line
     assert triage_bucket(records["attack-a2"]) == "early_exit"

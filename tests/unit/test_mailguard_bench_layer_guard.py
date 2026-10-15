@@ -200,7 +200,7 @@ async def test_without_the_inbound_guard_the_output_guard_still_decides(tmp_path
     report = execution.record["report"]
     assert report["inbound_guard"] is None
     assert report["output_guard"] is not None and report["decision"] is not None
-    assert "l1_injection_scanner" not in execution.record["detected_layers"]
+    assert "inbound_guard" not in execution.record["detected_layers"]
 
 
 async def test_without_the_inbound_gate_the_output_guard_makes_the_only_decision(

@@ -400,8 +400,12 @@ def test_configs_of_one_run_must_share_the_scheme_and_a_missing_key_is_v1() -> N
     from tests.unit.test_mailguard_bench_report import C0_META, C3_META
 
     assert "scheme" in SHARED_SETTINGS
-    old, marked = C0_META, {**C3_META, "scheme": "v1"}  # C0_META predates the schemes
+    # a meta that predates the schemes is v1: it agrees with one that says so, never with v3
+    old = {k: v for k, v in C0_META.items() if k != "scheme"}
+    marked = {**C3_META, "scheme": "v1"}
     assert consistency_problems({"C0": old, "C3": marked}, {}) == []
     (problem,) = consistency_problems({"C0": old, "C3": {**C3_META, "scheme": "v2"}}, {})
     assert problem.startswith("configs ran with different scheme")
     assert "'v1'" in problem and "'v2'" in problem
+    (v3_vs_old,) = consistency_problems({"C0": old, "C3": C3_META}, {})
+    assert "'v1'" in v3_vs_old and "'v3'" in v3_vs_old

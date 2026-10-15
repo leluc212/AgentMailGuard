@@ -55,6 +55,7 @@ làm hỏng hệ thống đang chạy (guard_worker, contract `Job.result_ref`, 
 | F12 | Task 6: `GuardConfig` một công tắc Inbound Guard (R-a). Preset golden v2 `C1` (chỉ scan) cũng đổi nghĩa — không có trong ước lượng F11 — nên trần Task 6 nâng từ 26 lên **52**: 26 case `C3-L1` (không còn sub-stage nào) + 26 case `C1` (thêm sub-stage extract: `removed_ratio`, 1 call extractor khi `llm=1`; action không đổi, s-001/s-003 `llm=1` P99→P09). Delta lưu ở `agentmailguard/tests/deltas/task6_guard_config.json`, gộp với delta Task 4/5 bằng `_merge_deltas`. Quyết định outbound tạm đi theo `inbound_gate` tới Task 8. Root bench: tập layer v2 → cờ v3 qua `guard_factory.v3_guard_config` (Inbound Guard bật khi có `l1`), `realized_layers` ghi cái thực chạy; 8 assertion chỉ-v2 là strict-xfail `V3_CANNOT`, **Task 12 phải xóa hết** |
 | F13 | Task 7: Doc Scanner chạy trước Inbound Gate, gate 2 lượt, cheap signals (`echo_vs_question`, `ordered_prefix`, `bait_clusters`), `build_escalated_draft`, `guarded.v3`. Trần delta Task 7 nâng từ 20 lên **21** (toàn bộ bullet 1: C3/C3-L1 × docs poisoned/x-forged/borderline). Ngưỡng chọn trên dev split `agentmailguard/datasets/splits/rag_poison_dev.json` (90 item PoisonedRAG ngoài pool benchmark và ngoài 89 case pin, 3 style; 600 chunk clean Bitext): v3 bắt đủ chunk độc 78 % prefix / 79 % mid / 0 % paraphrase, 7/600 clean bị flag (v2: 28 / 0 / 0 %, 1/600). Paraphrase không bắt được bằng cheap stage → việc của LLM set judge (Task 10) |
 | F14 | Task 8: L4 Output Guard sở hữu quyết định outbound (R-e), không còn Outbound Gate. Preset golden v2 `C3-L5` (L5 tắt = không có quyết định nào) chạy như v3 `inbound_gate=False`, nên Output Guard giờ ra quyết định sau generation: 26/26 case `C3-L5` đổi `final_action`/`final_rule`/`requires_human`/`risk_tier` (draft và call không đổi). Inbound floor tự nó không đổi case nào. Trần delta Task 8 nâng từ 6 lên **26**; delta ở `agentmailguard/tests/deltas/task8_output_guard.json`, ADR-0015 intended change 6 |
+| F15 | Task 13 (quyết định điều phối, ghi khi implementer trước bị chặn): **(R1)** raw của các run Review 1 (`raw/*.jsonl`, `cases.jsonl`) bị gitignore có chủ đích (chứa attack text) nên "bảng tái tạo byte-identical" không thực hiện được trên clone sạch; `legacy_reader.py` nạp **output đã commit** (`summary.json`, `metrics.csv`, `manifest.json`, `case_manifest.json`, `analysis/first_layer.csv`), giữ tên layer cũ, không convert; test thay byte-identity bằng: bảng "Security and usefulness"/"ASR by vector" khớp từng hàng số của `metrics.csv` đã commit và mỗi hàng bảng xuất hiện nguyên văn trong `report.md` đã commit. **(R2)** `--legacy <run_dir>` nằm ở `report.py` (CLI sau `make mailguard-report`, thêm `LEGACY=1`), không thêm CLI cho `scheme_report.py`; legacy chỉ in bảng, không ghi vào folder. **(R3)** `report.py` có đường v3 thật (`V3_CONFIGS`, kiểm tra degradation/consistency v3, bảng protocol); đường v1/v2 chỉ còn sau legacy reader. **(R4)** `l2_recount.py` chuyển vào `legacy_reader.py` (namespace legacy), xóa file, test chuyển sang `test_mailguard_bench_legacy_reader.py`. **(R5)** `l3b_quarantined` → `doc_quarantined_chunk_ids` ở `guarded_reply.py`, `native_reply.py`, `live/collect.py`; hai marker cũ (`scoring.py` docstring, `guarded_reply.py` comment) bị xóa, không có entry `expires` nào khác. **(R6)** `exit_point`: không gọi generation và inbound block/quarantine → `gate_pass_1` nếu `gate_passes == 1`, ngược lại `gate_pass_2`; đã gọi generation và action cuối nghiêm hơn `draft_only`/`auto_send` (`human_approval`, `block`, `quarantine`) → `output_guard`; còn lại `delivered`; `carried_from_inbound` báo riêng; thiếu `decided_by`/`carried_from_inbound` (gate stop, Output Guard tắt) → None/False, không lỗi. **(R7)** bảng guard calls theo stage lấy từ `report.metadata["guard_calls"]` với tên stage của guard (`inbound_scan`, `inbound_extract`, `doc_chunk`, `doc_set`, `output`); tally provider của `overhead.py` giữ cho bảng cost, hai số cùng được báo; claim "≤ 1" chỉ kiểm trên cột `doc_set` (`doc_chunk` đếm theo chunk); ánh xạ `V3_LAYER_JUDGES` → tên stage ở một dict (`scheme.V3_JUDGE_STAGE`) |
 
 
 
@@ -375,7 +376,7 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   ghi "1 doc chunk judge" — cần chủ dự án chọn: trần 1 chunk-judge call/job, hay nâng ngân sách;
   (2) README gốc và `docs/overview/layers/*` vẫn ghi "failed LLM stage keeps the cheap result" (Task 14);
   (3) `tests/integration/test_mailguard_bench_guarded_run.py` cần Docker, chưa chạy.
-- [x] Task 12 — on `4778a8e`: root bench scheme **v3** (`scheme.py`): `C0`, `C0T` (= preset `C0`), `C1`,
+- [x] Task 12 — commit `bf56886`: root bench scheme **v3** (`scheme.py`): `C0`, `C0T` (= preset `C0`), `C1`,
   `C2`, `C3`, `C3-L1…C3-L4`, `C3-ISO` = đúng `GuardConfig.preset` (`V3_LAYERS`, test so với bảng preset của
   guard); `V3_AI_STAGES` = mọi judge của layer mà config chạy (Inbound Guard: `inbound_judge` +
   `inbound_extractor`; Doc Scanner: `doc_judge` + `doc_set_judge`; Output Guard: `output_judge`; ≤ 5);
@@ -403,3 +404,28 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   vẫn đọc vocabulary v1/v2 và chưa chấm folder v3 (Task 13); (2) docs (`README.md`, `docs/BENCHMARK.md`,
   runbook §9) còn mô tả scheme v2/C0–C7 và `--scheme v2|v1` (Task 14); (3) pin Makefile `MAILGUARD_COMMIT`
   vẫn là v2 (Task 15b), nên một run live thật ở HEAD chưa qua được kiểm tra worktree tới 15b.
+- [x] Task 13 — on `4e86f04`: bench scheme v3, chấm điểm và report (chỉ root, không chạm `agentmailguard/`;
+  quyết định điều phối ghi ở F15). `scoring.py`: vocabulary layer v3 (`inbound_guard`, `doc_scanner`,
+  `inbound_gate`, `output_guard`), `flagged_layers` chỉ đọc schema 3 và ném `LegacyReportError` (nêu
+  legacy reader) với report `schema_version != 3`, `RawRecord.from_dict` từ chối report cũ; chunk chỉ bị
+  quarantine vì `judge_invalid` không tính là detection. `runmeta.require_v3_meta` từ chối meta không có
+  `scheme: v3`; `runmeta` ghi và giữ `guarded_prompt_version` khi resume. Module mới `protocol.py`:
+  `exit_point` (`gate_pass_1`/`gate_pass_2`/`output_guard`/`delivered`), `carried_from_inbound`,
+  `guard_calls` theo stage, `judge_invalid`, `doc_quarantined_chunk_ids` (đổi tên từ `l3b_quarantined`),
+  một hàm cho cả writer (`guarded_reply`) lẫn reader (`RawRecord.protocol`). `scheme_report.py` viết lại
+  cho v3: bảng config, 5 bảng protocol (exit point, inbound floor, guard calls theo stage với cột `doc_set`
+  riêng, fail-closed theo stage + cột quarantine/P00 không tính là detection, metric F8: inbound catch rate
+  và "bắt đủ chunk độc") và bảng overhead (guard calls/job từ `guard_calls` cạnh tally provider, p50/p95
+  guard và end-to-end) in cạnh bảng ASR. `report.py`: đường v3 thật (mọi config trên mọi case,
+  `degradation_problems` v3, ablation `C3-L1…C3-L4`/`C3-ISO` qua `layer_ablation`), từ chối folder v1/v2;
+  `--legacy <run_dir>` + `make mailguard-report LEGACY=1` → `legacy_reader.py` (đọc output đã commit, giữ tên
+  cũ, raise khi run/score/ablate, không ghi vào folder; kèm recount L2 chuyển từ `l2_recount.py`, đã xóa).
+  `first_layer.py`/`analyses.py`/`meaning.py`/`artifacts.py` dùng id v3 (`goal_pre_l4` →
+  `goal_pre_output_guard`, `redacted_by_l4` → `redacted_by_output_guard`, `l2_*schema_fallback` →
+  `extract_*schema_fallback`, fallback theo stage của guard). Test: `protocol` (15), `scheme_report` (16, bảng
+  assert chính xác trên bộ record tổng hợp phủ cả 4 exit point + 2 ca fail-closed), `legacy_reader` (32,
+  gồm hai folder Review 1), `report_v3_build`, `guarded_reply` (record thật qua guard fake); root `tests/unit`
+  4063 test, 0 fail, 75 skipped vì không có guard (4261 test với guard overlay, 0 fail, 8 skipped); `agentmailguard/tests` 613 passed; `make fmt-check
+  lint` xanh. Còn mở: (1) docs (`README.md`, `docs/BENCHMARK.md`, runbook §9) còn mô tả scheme v2 (Task 14);
+  (2) ratchet 15a cần allowlist `legacy_reader.py` cho tên layer v1/v2 (`l2_intent_extractor`, `l1`…`l5`);
+  (3) `meta.live_layers` trong `analyses.run_facts` giờ đọc khóa v3 (`inbound_judge`…`output_judge`).

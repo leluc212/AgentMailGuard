@@ -51,7 +51,7 @@ def _run_dir(tmp_path: Path) -> Path:
                     "case_id": "a1",
                     "kind": "attack",
                     "goal_achieved": goal,
-                    "extra": {"goal_pre_l4": goal},
+                    "extra": {"goal_pre_output_guard": goal},
                 },
                 {"case_id": "b1", "kind": "benign", "goal_achieved": False, "extra": {}},
             ],
@@ -77,7 +77,14 @@ def _run_dir(tmp_path: Path) -> Path:
                 "config": "C3",
                 "status": "ok",
                 "blocked_inbound": True,
-                "report": {"l1": {"severity": "high"}, "decision": {"matched_rule_id": "P10"}},
+                "report": {
+                    "schema_version": 3,
+                    "inbound_guard": {
+                        "severity": "high",
+                        "metadata": {"stages": {"scan": {"severity": "high"}}},
+                    },
+                    "decision": {"matched_rule_id": "P10"},
+                },
             },
             {"case_id": "b1", "config": "C3", "status": "ok"},
         ],
@@ -99,7 +106,7 @@ def test_run_analyses_writes_all_sections(tmp_path: Path) -> None:
     assert leak["attacks_vs_l1_train_rows"]["n_reference"] == 0
     assert leak["benign_vs_l1_train_rows"]["near_duplicate_ids"] == ["b1"]
     layer_csv = (run / "analysis" / "first_layer.csv").read_text("utf-8")
-    assert "a1,llmail,L1 injection scanner" in layer_csv
+    assert "a1,llmail,L1 Inbound Guard" in layer_csv
     text = path.read_text("utf-8")
     for heading in (
         "## Leakage check",
@@ -120,11 +127,12 @@ def test_run_analyses_names_the_run_model_and_its_guard_stages_that_did_not_run(
     }
     live = {
         "preset": "C3",
-        "l1_classifier": True,
-        "l1_judge": "CountingProvider:gpt-4o-mini",
-        "l2_llm": "CountingProvider:gpt-4o-mini",
-        "l3b_llm": None,
-        "l4_llm": None,
+        "classifier": True,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": None,
+        "doc_set_judge": None,
+        "output_judge": None,
     }
     c0 = {**C0_META, **model}
     c3 = {**C3_META, **model, "guard_models": "gpt-4o-mini", "live_layers": live}
@@ -133,9 +141,10 @@ def test_run_analyses_names_the_run_model_and_its_guard_stages_that_did_not_run(
     text = run_analyses(run, train_half=lambda: [], l1_rows=lambda source: []).read_text("utf-8")
     assert "`gpt-4o-mini`" in text
     assert "gemma-4-26b-a4b-it" not in text
-    assert "L3b's LLM poisoned-document check" in text
-    assert "L4's LLM output check" in text
-    assert "L2's LLM intent extraction" not in text  # it ran
+    assert "L2 Doc Scanner's LLM chunk judge" in text
+    assert "L2 Doc Scanner's LLM set judge" in text
+    assert "L4 Output Guard's LLM output check" in text
+    assert "L1 Inbound Guard's LLM intent extraction" not in text  # it ran
 
 
 def _live_run_dir(tmp_path: Path) -> Path:
@@ -166,7 +175,12 @@ def _live_run_dir(tmp_path: Path) -> Path:
     )
     for config, goal in (("C0", True), ("C3", False)):
         scored = [
-            {"case_id": i, "kind": "attack", "goal_achieved": goal, "extra": {"goal_pre_l4": goal}}
+            {
+                "case_id": i,
+                "kind": "attack",
+                "goal_achieved": goal,
+                "extra": {"goal_pre_output_guard": goal},
+            }
             for i in ("a1", "a2")
         ]
         _write(run / f"ragemail__{config}.jsonl", scored + [{"case_id": "b1", "kind": "benign"}])
@@ -201,7 +215,7 @@ def test_run_analyses_credits_a_triage_stopped_attack_to_triage_not_to_the_model
 
     layer_csv = (run / "analysis" / "first_layer.csv").read_text("utf-8")
     assert "a1,llmail,triage: early exit (never reached the guard)" in layer_csv
-    assert "a2,llmail,L5 policy rule P10" in layer_csv
+    assert "a2,llmail,L3 Inbound Gate rule P10" in layer_csv
     assert "no layer: the model did not follow the injection" not in layer_csv
     text = path.read_text("utf-8")
     assert "triage: early exit (never reached the guard)" in text
