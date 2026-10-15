@@ -140,7 +140,7 @@ guard's own repository outside it), overlaid per command with `uv run --with-edi
 and nothing runs in `make ci`.
 
 ```bash
-make mailguard-worktree   # v3 (default, 1835a6e): verifies agentmailguard/ is at the pin; v2 (915cb1e) and v1 (81df5d07): a worktree at MAILGUARD_COMMIT, see docs/demo-runbook.md section 9
+make mailguard-worktree   # v3 (default, d95e542): verifies agentmailguard/ is at the pin; v2 (915cb1e) and v1 (81df5d07): a worktree at MAILGUARD_COMMIT, see docs/demo-runbook.md section 9
 make mailguard-prep       # one-time: guard datasets + L1 classifier (network, no API key)
 make mailguard-smoke      # offline wiring check
 make mailguard-cases      # build, or verify against manifest.json, the pinned case set

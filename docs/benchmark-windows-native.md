@@ -7,7 +7,7 @@
 
 **What was not exercised on Windows.** The kit and this guide were written and tested on Linux. Nothing below has been run on Windows by the author. The commands are taken from the tools' own documentation, which is cited for each one. Where I am guessing, the text says so. The list of what to watch is at the end.
 
-The benchmark is **scheme v3** (ADR-0015): configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO`, with the default campaign every config except `C0T`; the meanings are in `docs/BENCHMARK.md` D5. The `MAILGUARD_COMMIT` below is the v3 guard pin (`1835a6e`). The steps of the benchmark itself, and what the kit does in each, are the same as in `docs/BENCHMARK.md` (parts C to F); this guide only replaces the setup (its part A and B) and the way to start the commands.
+The benchmark is **scheme v3** (ADR-0015): configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO`, with the default campaign every config except `C0T`; the meanings are in `docs/BENCHMARK.md` D5. The `MAILGUARD_COMMIT` below is the v3 guard pin (`d95e542`). The steps of the benchmark itself, and what the kit does in each, are the same as in `docs/BENCHMARK.md` (parts C to F); this guide only replaces the setup (its part A and B) and the way to start the commands.
 
 **The Layer-1 classifier is not in git.** You need the file `l1_injection_clf_v1.joblib` from the owner (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed; `evaluation/mailguard_bench/pinned/NOTICE.md` says why). The owner sends it to you privately, never by a public link, and you place it in section 2. Never commit, push or share it.
 
@@ -118,7 +118,7 @@ Every `make bench-*` target runs a `python -m` command under one overlay: AgentM
 ```powershell
 $repo = (Get-Location).Path
 $env:MAILGUARD_DIR = Join-Path $repo "agentmailguard"
-$env:MAILGUARD_COMMIT = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
+$env:MAILGUARD_COMMIT = "d95e542c616ca9ef4fee067a0862816004fffac3"
 $env:MAILGUARD_ARTIFACTS = Join-Path $repo "evaluation\mailguard_bench\pinned"
 $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python", "-m")
 ```
@@ -126,7 +126,7 @@ $mg = @("run", "--project", ".", "--with-editable", $env:MAILGUARD_DIR, "python"
 Check that the guard folder is exactly the pinned commit and unmodified (once; this is what `make mailguard-worktree` checks; the doctor and `setup` check it again):
 
 ```powershell
-git rev-parse HEAD:agentmailguard              # must print e3ecca18d0814334c1c94ba0d3696e11bf1c1b43, the pinned commit's tree
+git rev-parse HEAD:agentmailguard              # must print f1b3fa4d69a7d39713058fb5e420ae0b0c243964, the pinned commit's tree
 git status --porcelain -- agentmailguard       # must print nothing
 ```
 

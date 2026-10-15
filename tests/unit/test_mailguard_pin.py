@@ -1,4 +1,4 @@
-"""The AgentMailGuard pin: v3 pins 1835a6e; v2 (915cb1e) and v1 (81df5d07) stay reproducible.
+"""The AgentMailGuard pin: v3 pins d95e542; v2 (915cb1e) and v1 (81df5d07) stay reproducible.
 
 ADR-0012 decision 3: guard fixes (b) and (c) were committed on feature/mailguard-defense-stack and
 that commit (1a3ef62) was pinned for v2; ADR-0014 moved the pin to 915cb1e, which adds OpenRouter
@@ -32,7 +32,7 @@ from evaluation.mailguard_bench.guard_env import (
 MAKEFILE = REPO_ROOT / "Makefile"
 V1 = "81df5d07b15b5bb3d1ecf3aae556df01e304cbe0"
 V2 = "915cb1e2b86395e4389673deb9914308cc39627b"
-V3 = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
+V3 = "d95e542c616ca9ef4fee067a0862816004fffac3"
 needs_git_and_make = pytest.mark.skipif(
     shutil.which("git") is None or shutil.which("make") is None, reason="needs git and make"
 )

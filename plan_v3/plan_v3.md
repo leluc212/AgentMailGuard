@@ -474,7 +474,8 @@ commit của Task N (ghi commit nền), rồi commit của Task N+1 sửa dòng 
   `make fmt-check lint` xanh. Còn mở: 15b (pin), 15c (push, `make ci` do chủ dự án, GitHub CI), và `docs/architecture/*.html`
   vẫn vẽ lớp v2 (để chủ dự án / thời Task 16, chưa ai sửa).
 - **Task 15b** (2026-10-16, root only, không chạm `agentmailguard/`): pin dời sang `1835a6e` (commit 15a, commit cuối
-  chạm `agentmailguard/`), tree `e3ecca18d0814334c1c94ba0d3696e11bf1c1b43` (`git rev-parse 1835a6e:agentmailguard`).
+  chạm `agentmailguard/`), tree `e3ecca18d0814334c1c94ba0d3696e11bf1c1b43` (`git rev-parse 1835a6e:agentmailguard`)
+  (re-pinned to `d95e542c616ca9ef4fee067a0862816004fffac3` after the nits, tree `f1b3fa4d69a7d39713058fb5e420ae0b0c243964`).
   `guard_env.py` thêm `V3_MAILGUARD_COMMIT`/`V3_MAILGUARD_TREE`, `DEFAULT_MAILGUARD_COMMIT` = v3, v3 vào map
   commit→tree, danh sách ứng viên và tên thế hệ; Makefile `MAILGUARD_COMMIT ?=` v3, `MAILGUARD_V3_COMMIT`/`_TREE`,
   bộ chọn `MAILGUARD_TREE` biết v3; V1/V2 giữ nguyên. Test pin v2 strict-xfail thành

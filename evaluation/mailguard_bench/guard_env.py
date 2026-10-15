@@ -41,11 +41,12 @@ plus OpenRouter provider routing and per-call provenance in its OpenAI provider 
 ``915cb1e``), transport only: no layer, prompt or rule changed."""
 V2_MAILGUARD_TREE = "f659748a611340e093d41189dc1f445a2f842134"
 """``git rev-parse V2_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
-V3_MAILGUARD_COMMIT = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
+V3_MAILGUARD_COMMIT = "d95e542c616ca9ef4fee067a0862816004fffac3"
 """The guard commit the v3 benchmark pins (ADR-0015, plan_v3 Task 15b): the v3 guard (four layers,
-channel isolation, fail-closed judge) after the identifier ratchet and cleanup of Task 15a, the
-last commit that touched ``agentmailguard/``. Moving it needs a guard change, which is a new pin."""
-V3_MAILGUARD_TREE = "e3ecca18d0814334c1c94ba0d3696e11bf1c1b43"
+channel isolation, fail-closed judge) after the identifier ratchet and cleanup of Task 15a and
+its review nits, the last commit that touched ``agentmailguard/``. Moving it needs a guard
+change, which is a new pin."""
+V3_MAILGUARD_TREE = "f1b3fa4d69a7d39713058fb5e420ae0b0c243964"
 """``git rev-parse V3_MAILGUARD_COMMIT:agentmailguard``; see ``V1_MAILGUARD_TREE``."""
 DEFAULT_MAILGUARD_COMMIT = V3_MAILGUARD_COMMIT
 """What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""

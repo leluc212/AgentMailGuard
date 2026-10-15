@@ -1,6 +1,6 @@
 # Running the v3 benchmark on your laptop
 
-This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and the configs are `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO` (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and have **not been re-measured for v3** (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`1835a6e`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
+This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and the configs are `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO` (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and have **not been re-measured for v3** (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
 
 ```
   Windows 11 Home laptop
@@ -296,7 +296,7 @@ The reader is reached through the `LLM__*` settings of the process that runs it,
 make mailguard-worktree
 ```
 
-The guard (AgentMailGuard) comes with the clone, in `agentmailguard/`. `make mailguard-worktree` only checks that this folder is exactly the commit the benchmark pins (`1835a6ea3c120aae8f5074abe92d6c404d7ce3d4`, the v3 guard) and unmodified, and prints `ok AgentMailGuard subtree ... @ 1835a6e...`; it changes nothing. `make bench-setup` (D3) checks the same, and the doctor (D2) fails on a guard that is not at the pin.
+The guard (AgentMailGuard) comes with the clone, in `agentmailguard/`. `make mailguard-worktree` only checks that this folder is exactly the commit the benchmark pins (`d95e542c616ca9ef4fee067a0862816004fffac3`, the v3 guard) and unmodified, and prints `ok AgentMailGuard subtree ... @ d95e542...`; it changes nothing. `make bench-setup` (D3) checks the same, and the doctor (D2) fails on a guard that is not at the pin.
 
 Now the classifier. The owner sends you `l1_injection_clf_v1.joblib` privately (it is not in git, see "What you need"). Save it on Windows, for example in Downloads, copy it into the repository folder (replace `<your Windows name>`), and check its fingerprint:
 
