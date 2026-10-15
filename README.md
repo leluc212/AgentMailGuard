@@ -157,7 +157,7 @@ Benchmark configs (scheme v3, the only scheme a run at HEAD takes). They are the
 | C3-L4 | C3 without L4 | the four inbound and document judges |
 | C3-ISO | C3 without channel isolation | all five judges |
 
-A judge that fails fails closed (human review) unless the run passes `--judge-fallback` (`JUDGE_FALLBACK=1`), which restores the v2 visible fallback. The report adds per-config exit points (`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`), the inbound floor, guard calls per stage and fail-closed events. Committed v1/v2 run folders are read, never re-run, with `make mailguard-report RUN=<id> LEGACY=1`. The Makefile's `MAILGUARD_COMMIT` pin still names the v2 guard until plan_v3 Task 15b moves it, so a live run at HEAD cannot pass the worktree check until then.
+A judge that fails fails closed (human review) unless the run passes `--judge-fallback` (`JUDGE_FALLBACK=1`), which restores the v2 visible fallback. The report adds per-config exit points (`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`), the inbound floor, guard calls per stage and fail-closed events. Committed v1/v2 run folders are read, never re-run, with `make mailguard-report RUN=<id> LEGACY=1`. The Makefile's `MAILGUARD_COMMIT` pin names the v3 guard (`1835a6e`, plan_v3 Task 15b).
 
 Results go to `evaluation/results/mailguard_bench/<RUN>/`; `raw/` is git-ignored. Each report's "Run setup" section names the model, the pinned provider and the providers that served the calls, and the embedding. Guides: [docs/BENCHMARK.md](docs/BENCHMARK.md) (Windows/WSL2, cloud models), owner runbook [docs/demo-runbook.md](docs/demo-runbook.md) sections 9.9 and 9.10.
 

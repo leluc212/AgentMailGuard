@@ -46,7 +46,7 @@ V3_MAILGUARD_COMMIT = "1835a6ea3c120aae8f5074abe92d6c404d7ce3d4"
 channel isolation, fail-closed judge) after the identifier ratchet and cleanup of Task 15a, the
 last commit that touched ``agentmailguard/``. Moving it needs a guard change, which is a new pin."""
 V3_MAILGUARD_TREE = "e3ecca18d0814334c1c94ba0d3696e11bf1c1b43"
-"""``git rev-parse V3_MAILGUARD_COMMIT^{tree}``; see ``V1_MAILGUARD_TREE``."""
+"""``git rev-parse V3_MAILGUARD_COMMIT:agentmailguard``; see ``V1_MAILGUARD_TREE``."""
 DEFAULT_MAILGUARD_COMMIT = V3_MAILGUARD_COMMIT
 """What the Makefile's ``MAILGUARD_COMMIT ?=`` is (a test keeps the two equal)."""
 L1_MODEL_NAME = "l1_injection_clf_v1.joblib"

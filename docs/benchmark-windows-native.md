@@ -7,7 +7,7 @@
 
 **What was not exercised on Windows.** The kit and this guide were written and tested on Linux. Nothing below has been run on Windows by the author. The commands are taken from the tools' own documentation, which is cited for each one. Where I am guessing, the text says so. The list of what to watch is at the end.
 
-The benchmark is **scheme v3** (ADR-0015): configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO`, with the default campaign every config except `C0T`; the meanings are in `docs/BENCHMARK.md` D5. The `MAILGUARD_COMMIT` below still names the v2 guard, because the pin moves only in plan_v3 Task 15b. The steps of the benchmark itself, and what the kit does in each, are the same as in `docs/BENCHMARK.md` (parts C to F); this guide only replaces the setup (its part A and B) and the way to start the commands.
+The benchmark is **scheme v3** (ADR-0015): configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO`, with the default campaign every config except `C0T`; the meanings are in `docs/BENCHMARK.md` D5. The `MAILGUARD_COMMIT` below is the v3 guard pin (`1835a6e`). The steps of the benchmark itself, and what the kit does in each, are the same as in `docs/BENCHMARK.md` (parts C to F); this guide only replaces the setup (its part A and B) and the way to start the commands.
 
 **The Layer-1 classifier is not in git.** You need the file `l1_injection_clf_v1.joblib` from the owner (ADR-0012 decision 15: a dataset that went into its training declares no license, so the file is not redistributed; `evaluation/mailguard_bench/pinned/NOTICE.md` says why). The owner sends it to you privately, never by a public link, and you place it in section 2. Never commit, push or share it.
 
