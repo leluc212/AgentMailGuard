@@ -1236,3 +1236,23 @@ One validated settings object per service, loaded from environment, failing fast
 | 12 Technology | R24.6, ADR record |
 | 13 Deployment | R20.1–R20.9, R23.x (API surface) |
 | 14 Testing | R24.1–R24.7 |
+
+### Expanded v3 benchmark pin
+
+Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
+emails (all 203 LLMail FP emails plus 297 seeded Enron ham emails), and 300
+poisoned-document cases (222 valid PoisonedRAG questions, 18 seed cases, and
+60 explicitly labeled `synthetic_poison_v1` cases). Synthetic cases use six
+fictional policies and ten instruction payload templates; they are not independent
+real-world observations. Source labels remain available for separate reporting.
+The historical manifest key `llmail_benign` now includes both benign sources.
+The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
+
+Nine default configs give 16,200 case runs per model; optional C0T raises this to
+18,000. Earlier 550-case timing/cost estimates below describe the old dataset
+and should not be used for this expansion. Existing run folders keep their own pins;
+use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
+
+Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
+`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
+Use `--force` only to intentionally replace an older pin. The seed stays 20260930.

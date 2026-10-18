@@ -1,6 +1,6 @@
 """The pinned benchmark inputs and their verification (task 7.25; R22.12).
 
-The teammate does not rebuild the 550 benchmark cases (``make mailguard-cases``) or train the L1
+The teammate does not rebuild the 1,800 benchmark cases (``make mailguard-cases``) or train the L1
 classifier (``make mailguard-prep``): both are pinned here by sha256. The case set and its
 companions are committed. The classifier is **not**: ADR-0012 decision 15 keeps it out of git
 (42 % of its training rows come from a dataset that declares no license), so the owner sends the
@@ -47,7 +47,7 @@ PINNED_DIR = Path("evaluation/mailguard_bench/pinned")
 PINNED = PinnedSpec(
     cases=PinnedFile(
         Path("evaluation/datasets/mailguard/cases.jsonl"),
-        "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870",
     ),
     manifest=Path("evaluation/datasets/mailguard/manifest.json"),
     classifier=PinnedFile(

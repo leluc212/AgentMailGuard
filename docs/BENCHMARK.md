@@ -1,5 +1,25 @@
 # Running the v3 benchmark on your laptop
 
+## Expanded v3 pinned dataset (2026-10-18)
+
+Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
+emails (all 203 LLMail FP emails plus 297 seeded Enron ham emails), and 300
+poisoned-document cases (222 valid PoisonedRAG questions, 18 seed cases, and
+60 explicitly labeled `synthetic_poison_v1` cases). Synthetic cases use six
+fictional policies and ten instruction payload templates; they are not independent
+real-world observations. Source labels remain available for separate reporting.
+The historical manifest key `llmail_benign` now includes both benign sources.
+The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
+
+Nine default configs give 16,200 case runs per model; optional C0T raises this to
+18,000. Earlier 550-case timing/cost estimates below describe the old dataset
+and should not be used for this expansion. Existing run folders keep their own pins;
+use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
+
+Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
+`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
+Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
+
 This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and the configs are `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO` (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and have **not been re-measured for v3** (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
 
 ```

@@ -196,7 +196,7 @@ def select_cases(
         "llmail_attack", pools.llmail_attack, kind="attack", vector="email", source="llmail_inject"
     )
     validate_pool(
-        "llmail_benign", pools.llmail_benign, kind="benign", vector="email", source="llmail_inject"
+        "llmail_benign", pools.llmail_benign, kind="benign", vector="email"
     )
     validate_pool("rag_attack", pools.rag_attack, kind="attack", vector="rag")
     if n_ablation > n_attack:
