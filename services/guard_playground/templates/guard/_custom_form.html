@@ -1,0 +1,42 @@
+{#- Custom_Email (D12; Requirement 2). Context: custom {subject, body, chunks list[str]},
+    samples list[Sample], custom_error str|None, live_enabled, mode. Fields join #run-form
+    through the form attribute, so one Run button serves cases and custom emails. -#}
+{%- set custom = custom or {"subject": "", "body": "", "chunks": []} -%}
+<section id="custom-email" class="custom" aria-labelledby="custom-heading"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 id="custom-heading">Your own email</h2>
+  {%- if samples %}
+  <div class="samples" role="group" aria-label="Load a sample email">
+    <p class="note">Load a real benchmark email, then edit it:</p>
+    {%- for s in samples %}
+    <button type="button" class="sample" hx-get="/guard/samples/{{ s.key }}" hx-target="#custom-email" hx-swap="outerHTML">{{ s.label }}</button>
+    {%- endfor %}
+  </div>
+  {%- endif %}
+  <label for="custom-subject">Subject</label>
+  <input id="custom-subject" name="custom_subject" form="run-form" maxlength="2000" value="{{ custom.subject }}">
+  <label for="custom-body">Email body <span class="note">(paste the email; a first line "Subject: …" fills the subject)</span></label>
+  <textarea id="custom-body" name="custom_body" form="run-form" rows="8"
+            {%- if custom_error %} aria-invalid="true" aria-describedby="custom-error"{% endif %}>{{ custom.body }}</textarea>
+  {%- if custom_error %}<p id="custom-error" class="pg-alert" role="alert">{{ custom_error }}</p>{% endif %}
+  <details class="advanced"{% if custom.chunks %} open{% endif %}>
+    <summary>Advanced: knowledge base chunks ({{ custom.chunks|length }}/5)</summary>
+    <div id="chunk-fields">
+      {%- for chunk in custom.chunks %}
+      <div class="chunk-field">
+        <label for="chunk-{{ loop.index }}">KB chunk {{ loop.index }}</label>
+        <textarea id="chunk-{{ loop.index }}" name="custom_chunk" form="run-form" rows="3">{{ chunk }}</textarea>
+        <button type="button" class="link" data-remove-chunk>Remove chunk {{ loop.index }}</button>
+      </div>
+      {%- endfor %}
+    </div>
+    <button type="button" id="add-chunk" data-add-chunk{% if custom.chunks|length >= 5 %} disabled{% endif %}>Add KB chunk</button>
+  </details>
+  <p class="note">Typing here or loading a sample switches the Run input to your own email. Your own email requires Live mode.</p>
+  <form class="dropzone" hx-post="/guard/upload" hx-encoding="multipart/form-data" hx-target="#upload-result" hx-trigger="change">
+    <label class="dropzone__label">
+      <span>Upload external data: drop a <code>.eml</code>, <code>.json</code> or <code>.jsonl</code> file here (max 5 MB, 50 emails), or</span>
+      <span class="dropzone__button">Choose file</span>
+      <input type="file" name="file" accept=".eml,.json,.jsonl" class="dropzone__input">
+    </label>
+  </form>
+</section>

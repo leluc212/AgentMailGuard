@@ -1,0 +1,83 @@
+{#- One result column. Context: column = ColumnView (core/view_model.py) or an error dict
+    {"error": str, "preset": str}. Order: banner, stepper, decisions, draft, highlighted email
+    and chunks, layer sections, guarded prompt (Requirements 4, 5, 12, 13, 14). -#}
+{%- if column.error is defined %}
+<div class="column column--error" role="alert">
+  <p>Run failed: {{ column.preset }} — {{ column.error }}</p>
+  {%- if column.replay_url %}
+  <button type="button" hx-get="{{ column.replay_url }}" hx-target="closest .column" hx-swap="outerHTML">Show the recorded REPLAY result instead</button>
+  {%- endif %}
+</div>
+{%- else %}
+{%- set b = column.banner %}
+<article class="column" aria-label="{{ column.preset_display }}">
+  <header class="column__header">
+    <h2 class="column__title">{{ column.preset_display }}</h2>
+    <p class="column__label">{{ column.label }}</p>
+  </header>
+
+  <section class="banner {{ b.css }}" data-part="banner" aria-label="Outcome">
+    <p class="banner__head">{{ b.icon_svg }}<span class="banner__text">{{ b.text }}</span></p>
+    {%- if b.rule_id %}<p class="banner__rule">Rule <code>{{ b.rule_id }}</code></p>{% endif %}
+    {%- if b.reason %}<p class="banner__reason">{{ b.reason }}</p>{% endif %}
+    {%- if b.score_line %}<p class="banner__score">Score {{ b.score_line }}</p>{% endif %}
+  </section>
+
+  {% include "guard/_stepper.html" %}
+
+  <section class="decisions" data-part="decisions" aria-label="Decisions">
+    <h3>Decisions</h3>
+    {%- for d in [column.inbound, column.final] %}
+    {%- if d %}
+    <dl class="meta decision">
+      <dt>{{ d.label|capitalize }}</dt><dd><strong>{{ d.action }}</strong></dd>
+      <dt>Rule</dt><dd class="wrap"><code>{{ d.matched_rule_id }}</code></dd>
+      <dt>Risk tier</dt><dd>{{ d.risk_tier }}</dd>
+      <dt>Requires human</dt><dd>{{ d.requires_human }}</dd>
+      <dt>Reason</dt><dd>{{ d.reason }}</dd>
+    </dl>
+    {%- endif %}
+    {%- endfor %}
+    {%- if not column.inbound and not column.final %}<p class="note">No guard decision.</p>{% endif %}
+  </section>
+
+  <section class="draft" data-part="draft" aria-label="{{ column.draft.label }}">
+    <h3>{{ column.draft.label }}</h3>
+    {%- if column.draft.generated %}
+    <pre class="draft__body">{{ column.draft.body }}</pre>
+    {%- else %}
+    <p class="draft__none">{{ column.draft.statement }}</p>
+    {%- if column.draft.stop_action %}<p class="note">Stopped by <strong>{{ column.draft.stop_action }}</strong> · rule <code>{{ column.draft.stop_rule_id }}</code></p>{% endif %}
+    {%- endif %}
+  </section>
+
+  <details class="evidence-email" open>
+    <summary>Email and KB chunks with evidence</summary>
+    <pre class="email-body">{{ column.highlighted_body }}</pre>
+    {%- if column.highlighted_chunks %}
+    <ol class="chunks">
+      {%- for c in column.highlighted_chunks %}
+      <li class="chunk{% if c.quarantined %} chunk--quarantined{% endif %}">
+        <p class="chunk__id">{{ c.chunk_id }}
+          {%- if c.quarantined %} <span class="chunk__label">QUARANTINED</span>{% endif %}
+          <span class="chunk__score">score {{ c.score_text }}</span></p>
+        {%- if c.quarantined %}<p class="chunk__reason">{{ c.quarantine_reason }}</p>{% endif %}
+        <pre class="chunk__text">{{ c.html }}</pre>
+      </li>
+      {%- endfor %}
+    </ol>
+    {%- else %}
+    <p class="note">No KB chunk attached.</p>
+    {%- endif %}
+  </details>
+
+  {% include "guard/_layers.html" %}
+
+  {%- if column.guarded_prompt %}
+  <details class="prompt">
+    <summary>Guarded prompt</summary>
+    <pre>{{ column.guarded_prompt }}</pre>
+  </details>
+  {%- endif %}
+</article>
+{%- endif %}

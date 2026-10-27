@@ -41,6 +41,8 @@ dev = [
     "mypy>=1.10.0",
     "playwright>=1.63.0",
     "python-dotenv>=1.2.3",
+    # Property-based tests of the Guard Playground (decision D10); pinned exactly.
+    "hypothesis==6.170.9",
 ]
 
 [build-system]

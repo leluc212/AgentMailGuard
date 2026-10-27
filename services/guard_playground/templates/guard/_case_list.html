@@ -1,0 +1,21 @@
+{#- Case list (#case-list). Context: cases, count, demo_ids, selected. Also returned alone by
+    GET /guard/cases?kind=&source= (Requirements 1.1-1.4). -#}
+{%- set demo_ids = demo_ids or [] -%}
+<p class="case-count" aria-live="polite">{{ count if (count is defined and count is not none) else (cases or [])|length }} cases</p>
+{%- if cases %}
+<ul class="case-list">
+  {%- for case in cases %}
+  <li>
+    <button type="button" class="case-item{% if selected and selected.case_id == case.case_id %} case-item--selected{% endif %}"
+            hx-get="/guard/cases/{{ case.case_id|urlencode }}" hx-target="#case-detail"
+            {%- if selected and selected.case_id == case.case_id %} aria-current="true"{% endif %}>
+      {%- if case.case_id in demo_ids %}<span class="demo-star" aria-hidden="true">★</span><span class="visually-hidden">Demo set: </span>{% endif -%}
+      <span class="case-item__id">{{ case.case_id }}</span>
+      <span class="case-item__meta">{{ case.kind }} · {{ case.source }}</span>
+    </button>
+  </li>
+  {%- endfor %}
+</ul>
+{%- else %}
+<p class="note">No cases match these filters.</p>
+{%- endif %}

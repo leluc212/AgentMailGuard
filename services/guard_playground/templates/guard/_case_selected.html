@@ -1,0 +1,5 @@
+{#- Response of GET /guard/cases/{id}: the case detail (swapped into #case-detail) plus the
+    Run button state as an out-of-band swap of #run-status. Context: selected,
+    run_disabled_reason, guard_available, oob=True. -#}
+{% include "guard/_case_detail.html" %}
+{% include "guard/_run_status.html" %}

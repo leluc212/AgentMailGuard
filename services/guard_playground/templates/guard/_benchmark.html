@@ -1,0 +1,18 @@
+{#- Recorded benchmark results of a pinned case (Requirement 6). Context: bench_rows, bench_presets. -#}
+{%- if bench_rows %}
+<section class="benchmark" aria-labelledby="bench-heading">
+  <h3 id="bench-heading">Recorded benchmark results (runs of 2026-10-19, not a live run)</h3>
+  <table class="bench-table">
+    <thead><tr><th scope="col">Model (result folder)</th>
+      {%- for p in bench_presets %}<th scope="col">{{ p }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {%- for row in bench_rows %}
+      <tr><th scope="row">{{ row.model }}<br><small>{{ row.run_dir }}</small></th>
+        {%- for cell in row.cells %}
+        <td>{% if cell.goal %}goal achieved: <strong>{{ cell.goal }}</strong><br>blocked: <strong>{{ cell.blocked }}</strong><br>rule: <code>{{ cell.rule }}</code>{% else %}{{ cell.text }}{% endif %}</td>
+        {%- endfor %}</tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</section>
+{%- endif %}

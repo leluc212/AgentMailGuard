@@ -1,0 +1,11 @@
+{#- Run button and its disabled reason (#run-status, inside #run-form). Context:
+    run_disabled_reason, guard_available, oob (bool). Rendered in the page, refreshed by
+    GET /guard/run-status when a toolbar control changes, and swapped out-of-band by
+    GET /guard/cases/{id} (Requirements 2.6, 7.13). -#}
+{%- set run_reason = run_disabled_reason or (None if guard_available else "Guard library unavailable") -%}
+<div id="run-status" class="toolbar__group toolbar__run" hx-get="/guard/run-status"
+     hx-trigger="change from:#run-form" hx-include="#run-form" hx-swap="outerHTML"
+     {%- if oob %} hx-swap-oob="true"{% endif %}>
+  <button type="submit" class="primary"{% if run_reason %} disabled aria-describedby="run-reason"{% endif %}>Run</button>
+  {% if run_reason %}<p id="run-reason" class="note">{{ run_reason }}</p>{% endif %}
+</div>

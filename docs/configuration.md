@@ -496,3 +496,18 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 | `GUARD_MODELS__JUDGE` | `GUARD_MODELS__INBOUND_JUDGE` |
 | `GUARD_MODELS__EXTRACTOR` | `GUARD_MODELS__INBOUND_EXTRACTOR` |
 | `GUARD_MODELS__DOC_SCANNER` | `GUARD_MODELS__DOC_JUDGE` |
+
+### Guard Playground (`PLAYGROUND__*`)
+
+Settings of the committee demo app `services/guard_playground` (spec `.kiro/specs/guard-playground`). Every path defaults from `PLAYGROUND__REPO_ROOT` (the repository root on the host, `/app` in Docker). The service listens on `127.0.0.1:3010` only and has no login.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PLAYGROUND__REPO_ROOT` | repository root | Base of every data path |
+| `PLAYGROUND__LIVE_ENABLED` | `true` | `false` = Replay mode only, no model call (`run_playground.ps1` without `-Live`) |
+| `PLAYGROUND__L1_MODEL_PATH` | `C:/AgentMailGuard-bench-artifacts/l1_injection_clf_v1.joblib` | Pinned L1 classifier |
+| `PLAYGROUND__RUN_TIMEOUT_S` | `120` | Live run time limit (seconds) |
+| `PLAYGROUND__BATCH_CONCURRENCY` | `2` | Live runs at a time in a batch of external data |
+| `PLAYGROUND_ARTIFACTS_DIR` | `C:/AgentMailGuard-bench-artifacts` | docker-compose mount source of the classifier |
+
+Live mode uses `BENCH_OPENAI_API_KEY` (or `OPENAI_API_KEY`) and `BENCH_OPENROUTER_API_KEY`, read at call time; their values are never rendered or logged.

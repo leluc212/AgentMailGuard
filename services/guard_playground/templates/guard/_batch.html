@@ -1,0 +1,25 @@
+{#- Batch_Run progress and summary (Requirement 21.8-21.12). Context: batch, finished, rows, totals, done. -#}
+<section id="batch" class="batch" aria-label="External data batch"
+  {%- if not done %} hx-get="/guard/batch/{{ batch.batch_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p class="mode-badge mode-badge--result">External data · LIVE · {{ batch.model_key }}</p>
+  <p role="status"><strong>{{ finished }} of {{ batch.total }}</strong> runs finished{% if batch.stopped %} (stopped){% endif %}</p>
+  {%- if not done and not batch.stopped %}
+  <button type="button" hx-post="/guard/batch/{{ batch.batch_id }}/stop" hx-target="#batch" hx-swap="outerHTML">Stop batch</button>
+  {%- endif %}
+  <table class="bench-table">
+    <thead><tr><th scope="col">#</th><th scope="col">id</th><th scope="col">Subject</th>
+      {%- for p in batch.presets %}<th scope="col">{{ p }}</th>{% endfor %}<th scope="col">Details</th></tr></thead>
+    <tbody>
+      {%- for row in rows %}
+      <tr><td>{{ row.item.position }}</td><td>{{ row.item.ext_id or "—" }}</td><td>{{ row.subject }}</td>
+        {%- for c in row.cells %}<td>{{ c.text }}{% if c.rule %}<br><code>{{ c.rule }}</code><br><small>{{ c.layer }}</small>{% endif %}</td>{% endfor %}
+        <td><button type="button" class="link" hx-get="/guard/batch/{{ batch.batch_id }}/row/{{ row.item.position }}" hx-target="#batch-detail">Show</button></td></tr>
+      {%- endfor %}
+    </tbody>
+    {%- if done %}
+    <tfoot><tr><th scope="row" colspan="3">Totals</th>
+      {%- for p in batch.presets %}<td>{% for k, v in totals[p].items() %}{{ k }}: {{ v }}<br>{% endfor %}</td>{% endfor %}<td></td></tr></tfoot>
+    {%- endif %}
+  </table>
+  <div id="batch-detail"></div>
+</section>

@@ -1,0 +1,8 @@
+{#- Response of a Live POST /guard/run: one progress frame per Run, side by side.
+    Context: frames, badge, compare_c0. -#}
+<p class="mode-badge mode-badge--result mode-badge--live">{{ badge }}</p>
+<div class="columns columns--{{ frames|length }}">
+  {%- for frame in frames %}
+  {% include "guard/_progress.html" %}
+  {%- endfor %}
+</div>

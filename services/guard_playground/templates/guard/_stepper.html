@@ -1,0 +1,22 @@
+{#- Pipeline_Stepper: 7 stages (core/stepper.py StageView). Context: column (ColumnView).
+    Stages tied to a layer link to that layer's <details>; playground.js opens it on click
+    (Requirements 13.8, 13.9). Each status has its own icon and text, not only color. -#}
+<section class="stepper-wrap" data-part="stepper" aria-label="Pipeline stages">
+  <ol class="stepper">
+    {%- for s in column.stepper %}
+    {%- set lv = column.layers|selectattr("layer", "equalto", s.layer)|first if s.layer else none %}
+    <li class="stage stage--{{ s.status|replace(' ', '-') }}">
+      {%- if lv %}
+      <a class="stage__body stage-link" href="#{{ lv.anchor_id }}">
+      {%- else %}
+      <span class="stage__body">
+      {%- endif %}
+        <span class="stage__icon" aria-hidden="true">{{ s.icon }}</span>
+        <span class="stage__label">{{ s.label }}</span>
+        <span class="stage__status">{{ s.status }}</span>
+        {%- if s.note %}<span class="stage__note">{{ s.note }}</span>{% endif %}
+      {%- if lv %}</a>{% else %}</span>{% endif %}
+    </li>
+    {%- endfor %}
+  </ol>
+</section>

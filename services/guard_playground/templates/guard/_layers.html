@@ -1,0 +1,72 @@
+{#- Layer sections: one native <details> per LayerView; the Deciding_Layer is open
+    (Requirements 4, 5.4-5.6, 14.4, 14.7, 15). Context: column (ColumnView). -#}
+<section class="layers" data-part="layers" aria-label="Layer details">
+  <h3>Layers</h3>
+  {%- if column.no_layer_verdicts %}<p class="note">no layer verdicts</p>{% endif %}
+  {%- for lv in column.layers %}
+  <details id="{{ lv.anchor_id }}" class="layer" tabindex="-1"{% if lv.expanded %} open{% endif %}>
+    <summary>
+      <span class="layer__name">{{ lv.name }}</span>
+      {%- if lv.ran %}
+      <span class="sev {{ lv.severity_css }}">{{ lv.severity }}</span>
+      <span class="layer__score">{{ lv.score_text }}</span>
+      {%- else %}
+      <span class="sev sev--notrun">{{ lv.not_run_label }}</span>
+      {%- endif %}
+    </summary>
+    <div class="layer__body">
+      {%- if not lv.ran %}
+      <p>{{ lv.not_run_label }}{% if lv.not_run_reason %}: {{ lv.not_run_reason }}{% endif %}</p>
+      {%- else %}
+      <dl class="meta">
+        <dt>Decided by</dt><dd>{{ lv.decided_by }}</dd>
+        <dt>Latency</dt><dd>{{ lv.latency_ms }} ms</dd>
+        {%- if lv.judge_label %}<dt>Judge</dt><dd>{{ lv.judge_label }}</dd>{% endif %}
+        {%- if lv.error_label %}<dt>Error</dt><dd class="wrap">{{ lv.error_label }}</dd>{% endif %}
+        {%- if lv.user_intent %}<dt>User intent</dt><dd>{{ lv.user_intent }}</dd>{% endif %}
+      </dl>
+      {%- if lv.findings %}
+      <table class="findings">
+        <caption class="visually-hidden">{{ lv.name }} findings</caption>
+        <thead><tr><th scope="col">Detector</th><th scope="col">Rule</th><th scope="col">Score</th><th scope="col">Technique</th><th scope="col">Excerpt</th></tr></thead>
+        <tbody>
+          {%- for f in lv.findings %}
+          <tr id="{{ f.anchor_id }}" tabindex="-1">
+            <td>{{ f.detector }}</td>
+            <td class="wrap"><code>{{ f.rule_id }}</code></td>
+            <td>{{ f.score_text }}</td>
+            <td>{{ f.technique }}</td>
+            <td class="wrap"><q>{{ f.excerpt }}</q>
+              {%- if f.back_link %} <a class="back-ref" href="#{{ f.back_link }}">↑ evidence ({{ f.count }})</a>{% endif %}
+              {%- if f.note %}<br><span class="note">{{ f.note }}</span>{% endif %}</td>
+          </tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+      {%- elif lv.no_findings %}
+      <p class="note">no findings</p>
+      {%- endif %}
+      {%- if lv.layer == "inbound_guard" and lv.stripped %}
+      <h4>Stripped segments</h4>
+      <ul class="stripped">
+        {%- for s in lv.stripped %}
+        <li id="{{ s.anchor_id }}" tabindex="-1"><q class="wrap">{{ s.text }}</q> · {{ s.reason }} · {{ s.score_text }}
+          {%- if s.back_link %} <a class="back-ref" href="#{{ s.back_link }}">↑ evidence ({{ s.count }})</a>{% endif %}
+          {%- if s.note %} <span class="note">{{ s.note }}</span>{% endif %}</li>
+        {%- endfor %}
+      </ul>
+      {%- endif %}
+      {%- if lv.layer == "inbound_guard" and lv.removed_ratio_text %}<p>Removed ratio: {{ lv.removed_ratio_text }}</p>{% endif %}
+      {%- if lv.layer == "doc_scanner" and lv.quarantine_count %}
+      <p>Quarantined chunks: {{ lv.quarantine_count }} ({{ lv.quarantine_pct }})</p>
+      {%- if lv.quarantined %}
+      <ul class="quarantined">
+        {%- for q in lv.quarantined %}<li><code>{{ q.chunk_id }}</code> · {{ q.rule_id }} · {{ q.technique }}</li>{% endfor %}
+      </ul>
+      {%- endif %}
+      {%- endif %}
+      {%- endif %}
+    </div>
+  </details>
+  {%- endfor %}
+</section>

@@ -1,0 +1,19 @@
+{#- Demo_Tour bar (Requirement 17) and Presenter_Mode toggle (Requirement 19).
+    Context: tour (core/tour.py Tour), tour_json (str, JSON of the steps). -#}
+<div class="tour-bar" role="region" aria-label="Demo tour and presenter mode">
+  <button type="button" id="presenter-toggle" aria-pressed="false">Presenter mode: off</button>
+  {%- if tour and tour.valid %}
+  <button type="button" id="tour-start">Start tour</button>
+  <div id="tour-panel" class="tour-panel" hidden>
+    <p class="tour-step"><strong id="tour-count">Step 1 of {{ tour.steps|length }}</strong> — <span id="tour-point"></span></p>
+    <p id="tour-blocked" class="note" hidden></p>
+    <button type="button" id="tour-prev">Previous</button>
+    <button type="button" id="tour-next">Next</button>
+    <button type="button" id="tour-exit">Exit tour</button>
+    <span class="note">Keys: N next, P previous</span>
+  </div>
+  <script type="application/json" id="tour-data">{{ tour_json }}</script>
+  {%- elif tour %}
+  <p class="warning" role="alert">Demo tour unavailable: {{ tour.error }}</p>
+  {%- endif %}
+</div>

@@ -1,0 +1,18 @@
+{#- Result of POST /guard/upload (Requirement 21). Context: error, parsed (ParseResult),
+    upload_id, custom/samples/mode when exactly one email (fills the Custom_Email form). -#}
+{%- if error %}
+<p class="pg-alert" role="alert">File rejected: {{ error }}</p>
+{%- else %}
+<p class="note"><strong>External data</strong>: {{ parsed.emails|length }} valid email(s){% if parsed.excluded %}, {{ parsed.excluded|length }} excluded{% endif %}.</p>
+{%- if parsed.excluded %}
+<ul class="excluded">{% for line in parsed.excluded %}<li>{{ line }}</li>{% endfor %}</ul>
+{%- endif %}
+{%- if parsed.emails|length == 1 %}
+<p class="note">Loaded into "Your own email" below. Press Run.</p>
+<template>{% set oob = true %}{% include "guard/_custom_form.html" %}</template>
+{%- elif parsed.emails %}
+<button type="button" class="primary" hx-post="/guard/batch" hx-include="#run-form"
+        hx-vals='{"upload_id": "{{ upload_id }}"}' hx-target="#results">Run all {{ parsed.emails|length }} emails</button>
+{%- endif %}
+<button type="button" hx-post="/guard/external/clear" hx-target="#upload-result">Clear external data</button>
+{%- endif %}

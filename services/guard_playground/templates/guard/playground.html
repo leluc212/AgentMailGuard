@@ -1,0 +1,149 @@
+{#-
+  Guard Playground page (Requirements 1, 3, 4, 5, 7.1, 7.3, 10, 12, 13, 14).
+
+  Context contract (all keys optional unless noted; routes/pages.py fills them):
+    nav                  "playground" (header aria-current)
+    guard_available      bool (required)  False -> "Guard library unavailable" alert, Run disabled
+    guard_error          str | None       import error text shown in the alert
+    catalog_error        str | None       cases.jsonl missing/unreadable: filters + list hidden
+    excluded_lines       int              bad cases.jsonl lines -> "N lines excluded from cases.jsonl"
+    cases                list[Case]       filtered case list (core/cases.py)
+    count                int              len(cases)
+    kind, source         str              current filter values ("all" = no filter)
+    kinds                list[str]        ["all", "attack", "rag_poison", "benign"]
+    sources              list[str]        ["all", *catalog.sources]
+    demo_ids             set[str]         Demo_Set case ids (★ marker)
+    selected             Case | None      case shown in #case-detail; puts hidden case_id in the run form
+    mode                 "replay"|"live"  checked mode radio (default "replay")
+    live_enabled         bool             False -> Live radio disabled + live_disabled_reason
+    live_disabled_reason str | None       e.g. "Live mode requires the Docker service"
+    presets              list[str]        the 9 presets in order (core/schema.py PRESETS)
+    compare              bool             True = comparison (two columns), False = single preset
+    left_preset, right_preset, single_preset  str   defaults "C0", "C3", "C3"
+    models               list[(key, label, route_label)]   Draft_Model choices, fixed order
+    model_key            str              selected Draft_Model key
+    run_disabled_reason  str | None       Run button disabled and this text shown (e.g. "replay unavailable")
+    columns              list[ColumnView | {"error": str, "preset": str}]   results (0, 1 or 2)
+    replay_badge         str | None       "REPLAY · generated 2026-10-26 14:05 · gpt-4o-mini"
+
+  Form fields posted to POST /guard/run (#run-form): mode, model_key, compare ("1"|"0"),
+  left_preset, right_preset, single_preset, case_id (hidden input rendered by _case_detail.html
+  with form="run-form").
+-#}
+{% extends "guard/base.html" %}
+{% block title %}Playground{% endblock %}
+{% block content %}
+{%- set mode = mode or "replay" -%}
+{%- set presets = presets or [] -%}
+{%- set models = models or [] -%}
+{%- set left_preset = left_preset or "C0" -%}
+{%- set right_preset = right_preset or "C3" -%}
+{%- set single_preset = single_preset or "C3" -%}
+{%- set compare = true if compare is not defined else compare -%}
+<h1>Guard Playground</h1>
+{% include "guard/_tour.html" %}
+{% if not guard_available %}
+<div class="pg-alert" role="alert">
+  <h2>Guard library unavailable</h2>
+  <p>The guard library could not be imported, so runs are disabled. The health route keeps working.</p>
+  {% if guard_error %}<p class="pg-alert__detail">Import error: <code>{{ guard_error }}</code></p>{% endif %}
+</div>
+{% endif %}
+
+<form id="run-form" class="toolbar" hx-post="/guard/run" hx-target="#results"
+      hx-disabled-elt="find button, find select, find input[name=mode]">
+  <input type="hidden" id="input-source" name="input_source" value="case">
+  <fieldset class="toolbar__group">
+    <legend>Mode</legend>
+    <label class="radio"><input type="radio" name="mode" value="replay"{% if mode != "live" or not live_enabled %} checked{% endif %}> Replay</label>
+    <label class="radio"><input type="radio" name="mode" value="live"{% if mode == "live" and live_enabled %} checked{% endif %}{% if not live_enabled %} disabled aria-describedby="live-reason"{% endif %}> Live</label>
+    {% if not live_enabled %}<p id="live-reason" class="note">{{ live_disabled_reason or "Live mode is not available" }}</p>{% endif %}
+  </fieldset>
+
+  <div class="toolbar__group">
+    <label for="model-key">Draft model</label>
+    <select id="model-key" name="model_key">
+      {% for key, label, route_label in models %}
+      <option value="{{ key }}"{% if key == model_key %} selected{% endif %}>{{ label }} ({{ route_label }})</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <fieldset class="toolbar__group">
+    <legend>Layout</legend>
+    <label class="radio"><input type="radio" name="compare" value="1"{% if compare %} checked{% endif %}> Compare two presets</label>
+    <label class="radio"><input type="radio" name="compare" value="0"{% if not compare %} checked{% endif %}> Single preset</label>
+  </fieldset>
+
+  <div class="toolbar__group toolbar__presets">
+    <div>
+      <label for="left-preset">Left preset</label>
+      <select id="left-preset" name="left_preset">
+        {% for p in presets %}<option value="{{ p }}"{% if p == left_preset %} selected{% endif %}>{{ "C0 (guard template, no layer)" if p == "C0" else p }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="right-preset">Right preset</label>
+      <select id="right-preset" name="right_preset">
+        {% for p in presets %}<option value="{{ p }}"{% if p == right_preset %} selected{% endif %}>{{ "C0 (guard template, no layer)" if p == "C0" else p }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="single-preset">Single preset</label>
+      <select id="single-preset" name="single_preset">
+        {% for p in presets %}<option value="{{ p }}"{% if p == single_preset %} selected{% endif %}>{{ "C0 (guard template, no layer)" if p == "C0" else p }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  {% include "guard/_run_status.html" %}
+
+  <p id="mode-badge" class="mode-badge">
+    {%- if mode == "live" and live_enabled -%}
+      {%- for key, label, route_label in models if key == model_key -%}LIVE · {{ label }} ({{ route_label }}){%- else -%}LIVE{%- endfor -%}
+    {%- else -%}
+      {{ replay_badge or "REPLAY" }}
+    {%- endif -%}
+  </p>
+</form>
+
+<div class="pg-layout">
+  <aside class="rail" aria-labelledby="cases-heading">
+    <h2 id="cases-heading">Cases</h2>
+    {% if catalog_error %}
+    <p class="pg-alert" role="alert">{{ catalog_error }}</p>
+    {% else %}
+    <form id="case-filters" class="filters">
+      <label for="filter-kind">Kind</label>
+      <select id="filter-kind" name="kind" hx-get="/guard/cases" hx-trigger="change"
+              hx-target="#case-list" hx-include="#case-filters">
+        {% for k in kinds or [] %}<option value="{{ k }}"{% if k == kind %} selected{% endif %}>{{ k }}</option>{% endfor %}
+      </select>
+      <label for="filter-source">Source</label>
+      <select id="filter-source" name="source" hx-get="/guard/cases" hx-trigger="change"
+              hx-target="#case-list" hx-include="#case-filters">
+        {% for s in sources or [] %}<option value="{{ s }}"{% if s == source %} selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </form>
+    {% if excluded_lines %}<p class="warning">{{ excluded_lines }} lines excluded from cases.jsonl</p>{% endif %}
+    <div id="case-list">
+      {% include "guard/_case_list.html" %}
+    </div>
+    {% endif %}
+  </aside>
+
+  <div class="pg-main">
+    <p id="input-source-label" class="input-source" aria-live="polite">Input: selected case</p>
+    <section id="case-detail" class="case-detail" aria-label="Selected case">
+      {% if selected %}{% include "guard/_case_detail.html" %}{% else %}<p class="note">Choose a case from the list, or write your own email below.</p>{% endif %}
+    </section>
+    {% include "guard/_custom_form.html" %}
+    <div id="upload-result" aria-live="polite"></div>
+    <section id="results" class="results" aria-label="Results" aria-live="polite">
+      {% include "guard/_results.html" %}
+    </section>
+  </div>
+</div>
+{% set show_link = true %}
+{% include "guard/_kpi.html" %}
+{% endblock %}

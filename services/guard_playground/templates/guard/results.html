@@ -1,0 +1,23 @@
+{#- Results_Page (Requirement 18.12-18.15). Context: kpi, figures [(Figure, png_ok, pdf_ok)], provenance. -#}
+{% extends "guard/base.html" %}
+{% block title %}Results{% endblock %}
+{% block content %}
+<h1>Benchmark results</h1>
+<p class="note">Read-only view of the three 1,800-case benchmark runs. Defense rate = 100 − ASR. Back to the <a href="/guard">Playground</a>.</p>
+{% set show_link = false %}
+{% include "guard/_kpi.html" %}
+{%- if provenance %}<p class="provenance">Provenance: {{ provenance }}</p>{% endif %}
+<section class="figures" aria-label="Figures">
+  {%- for fig, png_ok, pdf_ok in figures %}
+  <figure class="figure" id="{{ fig.stem }}">
+    {%- if png_ok %}
+    <img src="/guard/figures/{{ fig.stem }}.png" alt="{{ fig.alt }}" loading="lazy">
+    {%- else %}
+    <p class="pg-alert" role="alert">figure not available: {{ fig.stem }}.png</p>
+    {%- endif %}
+    <figcaption>{{ fig.caption }}
+      {%- if pdf_ok %} · <a href="/guard/figures/{{ fig.stem }}.pdf">PDF</a>{% endif %}</figcaption>
+  </figure>
+  {%- endfor %}
+</section>
+{% endblock %}

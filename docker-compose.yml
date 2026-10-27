@@ -383,6 +383,39 @@ services:
       retries: 5
       start_period: 10s
 
+  # Guard Playground (committee demo): the guard library runs in-process. Same image, no
+  # Dockerfile change; guard, data, results, figures and the L1 classifier are bind-mounted
+  # read-only. No depends_on: it works with the rest of the stack stopped. Local only: no login.
+  guard-playground:
+    build: *app-build
+    container_name: rag-email-guard-playground
+    restart: "no"
+    command: ["python", "-m", "uvicorn", "services.guard_playground.main:app", "--host", "0.0.0.0", "--port", "3010"]
+    ports:
+      - "127.0.0.1:3010:3010"   # local only: the playground has no login (ADR-0009)
+    environment:
+      PYTHONPATH: /app:/app/agentmailguard
+      PLAYGROUND__REPO_ROOT: /app
+      PLAYGROUND__L1_MODEL_PATH: /artifacts/l1_injection_clf_v1.joblib
+      PLAYGROUND__LIVE_ENABLED: ${PLAYGROUND__LIVE_ENABLED:-true}
+      BENCH_OPENAI_API_KEY: ${BENCH_OPENAI_API_KEY:-}
+      BENCH_OPENROUTER_API_KEY: ${BENCH_OPENROUTER_API_KEY:-}
+    volumes:
+      - ./agentmailguard:/app/agentmailguard:ro
+      - ./evaluation/datasets:/app/evaluation/datasets:ro
+      - ./evaluation/results:/app/evaluation/results:ro
+      - ./evaluation/mailguard_bench:/app/evaluation/mailguard_bench:ro
+      - ./paper/figures/final:/app/paper/figures/final:ro
+      - ./services/guard_playground:/app/services/guard_playground:ro
+      - ./services/frontend/static:/app/services/frontend/static:ro
+      - ${PLAYGROUND_ARTIFACTS_DIR:-C:/AgentMailGuard-bench-artifacts}:/artifacts:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
 volumes:
   postgres_data:
   rabbitmq_data:

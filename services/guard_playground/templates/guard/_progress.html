@@ -1,0 +1,11 @@
+{#- One Live Run in progress (Requirement 20). Polls every 1 s and replaces itself with the
+    result column when the Run ends. Context: frame {run_id, preset, prefix, stage, elapsed},
+    compare_c0 ("1"|"0"). A failed poll keeps this frame and htmx polls again (20.6). -#}
+<div class="column column--progress" role="status" aria-live="polite"
+     hx-get="/guard/progress/{{ frame.run_id }}?prefix={{ frame.prefix }}&c0={{ compare_c0 }}"
+     hx-trigger="every 1s" hx-swap="outerHTML">
+  <h2 class="column__title">{{ "C0 (guard template, no layer)" if frame.preset == "C0" else frame.preset }}</h2>
+  <p class="progress__stage"><span class="spinner" aria-hidden="true"></span>
+    {%- if frame.stage == "Starting" %} Starting the run…{% else %} Running: <strong>{{ frame.stage }}</strong>{% endif %}</p>
+  <p class="progress__elapsed">{{ frame.elapsed }} s elapsed (limit 120 s)</p>
+</div>

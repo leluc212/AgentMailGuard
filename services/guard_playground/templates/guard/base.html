@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Playground{% endblock %} · AgentMailGuard Playground</title>
+  <link rel="stylesheet" href="/static/review.css">
+  <link rel="stylesheet" href="/pg-static/playground.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/pg-static/playground.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header pg-header">
+    <p class="pg-brand">AgentMailGuard Playground</p>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="/guard"{% if nav == "playground" %} aria-current="page"{% endif %}>Playground</a></li>
+        <li><a href="/guard/results"{% if nav == "results" %} aria-current="page"{% endif %}>Results</a></li>
+      </ul>
+    </nav>
+    <a class="pg-external" href="http://127.0.0.1:3001" target="_blank" rel="noopener">Review UI <span aria-hidden="true">↗</span><span class="visually-hidden">(opens in a new tab)</span></a>
+  </header>
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="status-region" class="status-region" role="status" aria-live="polite" aria-atomic="true">{{ page_notice or "" }}</div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{#- Selected case (#case-detail). Context: selected (Case). Returned alone by
+    GET /guard/cases/{id}. The hidden case_id joins #run-form through the form attribute. -#}
+{%- if selected %}
+<article class="case" aria-labelledby="case-title">
+  <input type="hidden" name="case_id" value="{{ selected.case_id }}" form="run-form">
+  <h2 id="case-title">Email</h2>
+  <dl class="meta">
+    <dt>Case</dt><dd class="wrap">{{ selected.case_id }}</dd>
+    <dt>Kind</dt><dd>{{ selected.kind }}</dd>
+    <dt>Source</dt><dd>{{ selected.source }}</dd>
+    <dt>Subject</dt><dd class="wrap">{{ selected.subject }}</dd>
+  </dl>
+  <pre class="email-body">{{ selected.body }}</pre>
+  <h3>Knowledge base chunks</h3>
+  {%- if selected.chunks %}
+  <ol class="chunks">
+    {%- for chunk_id, content in selected.chunks %}
+    <li class="chunk"><p class="chunk__id">{{ chunk_id }}</p><pre class="chunk__text">{{ content }}</pre></li>
+    {%- endfor %}
+  </ol>
+  {%- else %}
+  <p class="note">No KB chunk attached.</p>
+  {%- endif %}
+  {% include "guard/_benchmark.html" %}
+</article>
+{%- endif %}

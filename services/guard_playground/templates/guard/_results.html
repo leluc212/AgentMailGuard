@@ -1,0 +1,16 @@
+{#- Result area (#results). Context: columns (list of ColumnView or {"error", "preset"}),
+    replay_badge, results_message (str: shown instead of columns, e.g. "Custom email requires
+    Live mode"). Rendered by GET /guard and by POST /guard/run (htmx swap into #results). -#}
+{%- set columns = columns or [] -%}
+{%- if results_message -%}
+<p class="pg-alert" role="alert">{{ results_message }}</p>
+{%- elif columns -%}
+{%- if replay_badge %}<p class="mode-badge mode-badge--result">{{ replay_badge }}</p>{% endif %}
+<div class="columns columns--{{ columns|length }}">
+  {%- for column in columns %}
+  {% include "guard/_column.html" %}
+  {%- endfor %}
+</div>
+{%- else -%}
+<p class="note">No run yet. Pick a case and press Run.</p>
+{%- endif -%}

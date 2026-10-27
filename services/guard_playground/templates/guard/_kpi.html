@@ -1,0 +1,29 @@
+{#- KPI_Strip (Requirement 18.1-18.11). Context: kpi (core/kpi.py KpiStrip), show_link (bool). Read-only. -#}
+{%- if kpi %}
+<section class="kpi" aria-labelledby="kpi-heading">
+  <h2 id="kpi-heading">Benchmark results at a glance <span class="kpi__src">(1,800 pinned cases, runs of 2026-10-19)</span></h2>
+  <div class="kpi__cards">
+    {%- for card in kpi.cards %}
+    <article class="kpi-card" aria-labelledby="kpi-{{ card.key }}">
+      <h3 id="kpi-{{ card.key }}">{{ card.title }}</h3>
+      <p class="kpi-card__sub">{{ card.subtitle }}</p>
+      <ul class="kpi-card__lines">
+        {%- for line in card.lines %}
+        <li>
+          <span class="kpi-card__model">{{ line.model }}</span>
+          <span class="kpi-card__value">
+            {%- if line.c0 -%}
+            <strong>{{ line.c0.text }}</strong> <small>({{ line.c0.n }})</small> → <strong>{{ line.c3.text }}</strong> <small>({{ line.c3.n }})</small>
+            {%- else -%}
+            <strong>{{ line.c3.text }}</strong> <small>({{ line.c3.n }})</small>
+            {%- endif -%}
+          </span>
+        </li>
+        {%- endfor %}
+      </ul>
+    </article>
+    {%- endfor %}
+  </div>
+  {%- if show_link %}<p class="kpi__link"><a href="/guard/results">Full results</a></p>{% endif %}
+</section>
+{%- endif %}
