@@ -53,7 +53,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0.5
 .pg-layout { display: grid; grid-template-columns: var(--pg-rail) minmax(0, 1fr); gap: var(--pg-gap); }
 .pg-main { min-width: 0; }
 @media (max-width: 1439px) { :root { --pg-rail: 240px; } }
-@media (max-width: 1023px) { .pg-layout { grid-template-columns: 1fr; } }
+/* <= 1100 px (about 117% zoom on a 1280 px screen): the case list moves above the results,
+   so the two result columns keep about 480 px each. */
+@media (max-width: 1100px) { .pg-layout { grid-template-columns: minmax(0, 1fr); } }
 html.presenter .rail { display: none; }
 html.presenter .pg-layout { grid-template-columns: 1fr; }
 
@@ -230,3 +232,56 @@ html.presenter .column, html.presenter .column * { overflow-wrap: anywhere; }
 .dropzone__input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 .dropzone__label:focus-within { outline: 3px solid #1a5fb4; outline-offset: 2px; }
 .excluded { margin: .25rem 0; }
+
+/* ---------------------------------------------------------------- responsive / browser zoom
+   Browser zoom narrows the CSS viewport: on a 1280 px screen 150% = 853 px, 200% = 640 px,
+   300% = 427 px, 400% = 320 px (WCAG 1.4.10 Reflow). Content reflows instead of scrolling
+   sideways; nothing is hidden, only stacked. */
+img, svg, video { max-width: 100%; height: auto; }
+pre, code { overflow-wrap: anywhere; }
+pre { white-space: pre-wrap; }
+.meta dd, .meta dt { overflow-wrap: anywhere; min-width: 0; }
+
+/* Wide tables scroll inside their own box instead of widening the page. */
+.bench-table { display: block; overflow-x: auto; max-width: 100%; }
+.bench-table td, .bench-table th { overflow-wrap: anywhere; }
+
+/* <= 900 px (about 140% zoom and above): the two result columns stack, C0 then C3. */
+@media (max-width: 900px) {
+  .columns--2 { grid-template-columns: minmax(0, 1fr); }
+  .kpi__cards { grid-template-columns: minmax(0, 1fr); }
+  .toolbar__presets > div { flex: 1 1 12rem; }
+}
+
+/* <= 700 px (about 180% zoom and above): one column everywhere, vertical stepper. */
+@media (max-width: 700px) {
+  :root { --pg-gap: 0.75rem; }
+  .toolbar { flex-direction: column; align-items: stretch; padding: 0.5rem 0.75rem; }
+  .toolbar select, .toolbar input:not([type="radio"]) { width: 100%; max-width: none; }
+  .toolbar__presets { flex-direction: column; }
+  .pg-header { flex-wrap: wrap; gap: 0.5rem 1rem; }
+  .stepper { flex-direction: column; gap: 4px; }
+  .stage { flex: none; }
+  .stage__body { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; }
+  .stage__label { -webkit-line-clamp: unset; display: inline; }
+  .tour-bar button, .samples .sample { flex: 1 1 auto; }
+  .decision { display: block; }
+  .decision dt { margin-top: 0.4rem; }
+}
+
+/* <= 400 px (about 320% zoom and above): every control full width. */
+@media (max-width: 400px) {
+  .toolbar label.radio { margin-right: 0; }
+  select, input, textarea, button { max-width: 100%; }
+  .tour-bar > *, .samples > * { width: 100%; }
+}
+
+/* Presenter mode keeps the side-by-side comparison as long as the columns stay readable. */
+@media (min-width: 901px) {
+  html.presenter .columns--2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* Stacked layout: the case list scrolls in its own box so the results stay close below it. */
+@media (max-width: 1100px) {
+  .case-list { max-height: 40vh; overflow-y: auto; border: 1px solid var(--border); }
+}

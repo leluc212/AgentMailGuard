@@ -85,6 +85,8 @@ Thứ tự theo `requirements.md` (MUST trước, SHOULD sau). Mọi code mới 
   - [x] 6.3 Test an toàn: khóa giả không xuất hiện trong trang, RunResult, log; `audit=False` ở mọi lần dựng `MailGuardPipeline`; không file nào dưới `agentmailguard/` và `evaluation/results/` bị ghi; Review_UI chỉ thêm đúng một link "Guard"
     - Thêm một dòng nav "Guard" trỏ tới `http://127.0.0.1:3010/guard` vào `services/frontend/templates/base.html`.
     - _Requirements: 8.1, 8.3, 8.7, 8.8, 9.3–9.7, 11.5, 11.6, 11.7_
+  - [x] 6.7 Responsive cho zoom trình duyệt 100–400% (D15): breakpoint 1.100 / 900 / 700 / 400 px trong `playground.css`, bảng cuộn trong khung riêng, kiểm tra bằng `scripts/playground/ui_check.py` và test tĩnh
+    - _Requirements: 10.3, 10.8, 13.8, 19.4_
   - [x] 6.6 Đổi bảng màu Outcome_Banner theo D11 trong `playground.css` và kiểm tra tương phản ≥ 4.5:1 bằng test tính tỷ lệ tương phản
     - _Requirements: 12.4, 10.7_
   - [x] 6.4 Docker và Fallback_Launcher (`run_playground.ps1` mặc định Replay, `-Live` bật Live theo D13)

@@ -52,6 +52,21 @@ def test_banner_palette_and_contrast(name: str) -> None:
     assert contrast(background, text) >= 4.5
 
 
+@pytest.mark.parametrize(
+    ("width", "rule"),
+    [
+        ("1100px", ".pg-layout { grid-template-columns: minmax(0, 1fr); }"),
+        ("900px", ".columns--2 { grid-template-columns: minmax(0, 1fr); }"),
+        ("700px", ".stepper { flex-direction: column;"),
+    ],
+)
+def test_zoom_breakpoints_stack_the_layout(width: str, rule: str) -> None:
+    """D15 / Requirement 10.8: browser zoom reflows instead of scrolling sideways."""
+    blocks = re.findall(rf"@media \(max-width: {width}\) \{{(.*?)\n\}}", CSS, re.S)
+    blocks += re.findall(rf"@media \(max-width: {width}\) \{{([^\n]*)\}}", CSS)
+    assert any(rule in block for block in blocks), f"missing {rule!r} at max-width {width}"
+
+
 def test_known_contrast_values() -> None:
     assert contrast("#ffffff", "#000000") == pytest.approx(21.0)
     assert contrast("#ffffff", "#ffffff") == pytest.approx(1.0)

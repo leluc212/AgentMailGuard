@@ -4,7 +4,8 @@ Start the Playground first, then run:  .venv\Scripts\python.exe scripts\playgrou
 Screenshots go to %TEMP%\guard_playground_ui_check. Exit status 1 lists every failed check.
 
 Checks Requirements 10.3 (no horizontal scroll, two columns side by side), 10.6 and 19.3
-(font sizes), 13.8 (stepper fits), 17 (tour), 19 (presenter mode) and that no JS error occurs.
+(font sizes), 13.8 (stepper fits), 17 (tour), 19 (presenter mode), 10.8 (browser zoom 125-400%
+reflows without horizontal scrolling) and that no JS error occurs.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from playwright.sync_api import Page, sync_playwright
 
@@ -46,6 +48,34 @@ def layout(page: Page, tag: str) -> tuple[float, float]:
             check(fits, f"[{tag}] stepper fits its column")
             break
     return page.evaluate(BODY_SIZE_JS), page.evaluate(HEADING_SIZE_JS)
+
+
+ZOOMS = (1.25, 1.5, 2.0, 3.0, 4.0)
+SIDE_BY_SIDE_UNTIL = 1.25  # above this zoom the two result columns stack (C0 above C3)
+
+
+def check_zoom(browser: Any, zoom: float) -> None:
+    tag = f"zoom {int(zoom * 100)}%"
+    page = browser.new_page(viewport={"width": int(1280 / zoom), "height": int(720 / zoom)})
+    page.goto(BASE + "/guard?case_id=attack-llmail-0a41d5272ecd")
+    page.wait_for_load_state("networkidle")
+    page.click("#run-status button")
+    page.wait_for_selector(".column .banner__text", timeout=5000)
+    width = page.evaluate("document.documentElement.scrollWidth")
+    client = page.evaluate("document.documentElement.clientWidth")
+    check(width <= client, f"[{tag}] /guard reflows without horizontal scroll ({width}/{client})")
+    tops = page.evaluate(
+        "[...document.querySelectorAll('.columns .column')].map(c => c.getBoundingClientRect().top)"
+    )
+    side = len(tops) == 2 and abs(tops[0] - tops[1]) < 5
+    expected = zoom <= SIDE_BY_SIDE_UNTIL
+    check(side == expected, f"[{tag}] columns {'side by side' if expected else 'stacked'}")
+    page.screenshot(path=str(OUT / f"zoom{int(zoom * 100)}.png"))
+    page.goto(BASE + "/guard/results")
+    page.wait_for_load_state("networkidle")
+    width = page.evaluate("document.documentElement.scrollWidth")
+    check(width <= client, f"[{tag}] /guard/results reflows ({width}/{client})")
+    page.close()
 
 
 def main() -> int:
@@ -97,6 +127,11 @@ def main() -> int:
         page.screenshot(path=str(OUT / "results.png"))
 
         check(not errors, f"no JS errors {json.dumps(errors)[:300]}")
+        page.close()
+
+        # Browser zoom on a 1280x720 screen = a narrower CSS viewport (WCAG 1.4.10 Reflow).
+        for zoom in ZOOMS:
+            check_zoom(browser, zoom)
         browser.close()
     print(f"\n{len(problems)} problem(s); screenshots in {OUT}")
     return 1 if problems else 0

@@ -48,6 +48,7 @@ Thứ tự đề xuất: Requirement 9, 1, 3, 4, 5, 7 (phần Replay_Mode), 12, 
 - D11 (26/10/2026): Bảng màu Outcome_Banner an toàn cho người mù màu, không dùng cặp đỏ–xanh lá: BLOCKED đỏ đậm `#8B0000`, QUARANTINED tím đậm `#4A148C`, NEEDS HUMAN REVIEW cam `#E66100`, DRAFT ONLY xanh dương `#1A5FB4`, AUTO-SEND xanh ngọc `#006D77`, NO GUARD DECISION xám; mọi banner vẫn kèm chữ và icon khác hình (Requirement 12 tiêu chí 4).
 - D12 (26/10/2026): Đơn giản hóa nhập Custom_Email: một ô Subject nhỏ, một ô body lớn (dán vào; nếu dòng đầu có dạng `Subject: ...` và ô Subject trống thì tự tách), KB chunk nằm trong phần "Advanced" gập sẵn, các nút mẫu một chạm lấy nguyên văn từ case thật của bộ benchmark (không tự bịa), và vùng thả file luôn có nút "Choose file" (Requirement 2, 21).
 - D13 (26/10/2026): Fallback_Launcher bật được cả Live_Mode bằng tùy chọn `-Live`, Docker trở thành tùy chọn. Thay cho phần "chỉ Replay" của D8 (Requirement 16 tiêu chí 4, 8, 9).
+- D15 (27/10/2026): Giao diện responsive cho việc zoom trình duyệt khi trình bày (100–400%, theo WCAG 1.4.10 Reflow): danh sách case lên trên ở ≤ 1.100 px, hai cột kết quả xếp dọc ở ≤ 900 px, stepper chuyển dọc ở ≤ 700 px; không có thanh cuộn ngang (Requirement 10 tiêu chí 8).
 - D14 (26/10/2026): Replay_Store thật gồm Demo_Set × {C0, C3} × 3 Draft_Model. Chỉ chạy script tạo Replay sau khi người dùng cho phép (có chi phí API).
 
 ### Câu hỏi còn mở
@@ -264,6 +265,7 @@ Không còn câu hỏi mở.
 5. WHEN a form control receives keyboard focus, THE Playground SHALL display a visible focus indicator on that control that remains visible until focus moves to another element.
 6. THE Playground SHALL render body text and comparison-column content at a computed font size of at least 18 pixels and headings at a computed font size of at least 24 pixels at 100% zoom.
 7. THE Playground SHALL render all text with a contrast ratio against its background of at least 4.5:1 for body text and at least 3:1 for headings of 24 pixels or larger.
+8. WHEN the Presenter zooms the browser from 100% to 400% on a 1280 × 720 screen (a CSS viewport down to 320 pixels wide), THE Playground SHALL reflow the `/guard` and `/guard/results` pages without a horizontal page scrollbar and without hiding content: the case list moves above the results at widths of 1,100 pixels or less, the two comparison columns stack (left column first) at widths of 900 pixels or less, and the Pipeline_Stepper becomes vertical at widths of 700 pixels or less (decision D15).
 
 ### Requirement 11: Kiểm thử [MUST]
 
