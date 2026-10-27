@@ -3,7 +3,7 @@
     GET /guard/run-status when a toolbar control changes, and swapped out-of-band by
     GET /guard/cases/{id} (Requirements 2.6, 7.13). -#}
 {%- set run_reason = run_disabled_reason or (None if guard_available else "Guard library unavailable") -%}
-<div id="run-status" class="toolbar__group toolbar__run" hx-get="/guard/run-status"
+<div id="run-status" class="toolbar__group toolbar__run" hx-get="/guard/run-status" hx-target="this"
      hx-trigger="change from:#run-form" hx-include="#run-form" hx-swap="outerHTML"
      {%- if oob %} hx-swap-oob="true"{% endif %}>
   <button type="submit" class="primary"{% if run_reason %} disabled aria-describedby="run-reason"{% endif %}>Run</button>

@@ -149,6 +149,15 @@ def test_column_renders_in_order_with_escaped_evidence(column: ColumnView) -> No
     assert "↑ evidence (1)" in html
 
 
+def test_run_status_inside_the_run_form_targets_itself() -> None:
+    """Regression (browser check 2026-10-27): #run-status sits inside #run-form, whose
+    hx-target is #results; without its own hx-target the toolbar refresh replaced the whole
+    result area and the next Run had no #results to swap into."""
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
+    html = env.get_template("guard/_run_status.html").render(guard_available=True)
+    assert 'id="run-status"' in html and 'hx-target="this"' in html
+
+
 def test_error_column_renders_alert() -> None:
     html = _render_column({"error": "connection error", "preset": "C3"})
     assert 'class="column column--error" role="alert"' in html

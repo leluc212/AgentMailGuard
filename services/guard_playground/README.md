@@ -64,6 +64,7 @@ Fallback order: **Live → Replay → screen recording**.
 
 - [ ] (a) or (b) with Live: one Live run each with gpt-4o-mini, Qwen and Llama completes.
 - [ ] (b) Replay only: `/guard` loads on the demo laptop and the tour runs all 5 steps.
+- [ ] Browser check passes on the demo laptop (Playground running): `.venv\Scripts\python.exe scripts\playground\ui_check.py` prints `0 problem(s)`. It checks the 1280×720 layout, the tour, presenter mode and the Results figures, and makes no API call.
 - [ ] The primary copy of the screen recording plays from start to end.
 - [ ] The backup copy plays from start to end.
 - [ ] The commit in the table above equals `git rev-parse --short HEAD` on the demo laptop.
