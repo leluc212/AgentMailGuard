@@ -887,6 +887,7 @@
   - Resilience: each case is written as it finishes; reruns skip recorded cases; HTTP 429 gets back-off; failed cases are reported as errors, never as defended.
   - Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`. Code is unit-tested on the fake provider; live runs are owner-run (`make mailguard-bench`, runbook §9) and never in `make ci`.
   - Superseded vocabulary: since ADR-0015 (task 7.30) the benchmark at HEAD runs config scheme v3 only (configs `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4`, `C3-ISO`); this task's scheme v1/v2 names (`C4` to `C7`, `C3-L5`, `L3b`) are read only through `make mailguard-report RUN=<id> LEGACY=1`. The text above is left as the history it is.
+  - Superseded by ADR-0017 (task 7.33, 2026-11-05): scheme v3 has the configs `C0` and `C3` only, so `C0T` is no longer a required baseline and McNemar compares C0 vs C3 only.
   - _Requirements: R22.12, R21.5, R21.6, R24.5, SC4, SC5, SC9_
 
 - [~] **7.20 AgentMailGuard live pipeline benchmark, v2 (every service live)**
@@ -993,12 +994,19 @@
   - Decision: ADR-0015 decision 13; plan_v3 Task 16. Scheme v3, configs `C0, C1, C2, C3, C3-L1, C3-L2, C3-L3, C3-L4, C3-ISO` (`C0T` when asked), `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=true`, LLMail-Inject as in v1, the 100 pinned poisoned-document cases and a benign set built once by a seeded script (`benign_v3`); owner-run on the Windows machine with the OpenRouter/GPT-4o-mini profile of 7.19; no commit anywhere in the checkout while a RUN is in progress.
   - Acceptance, each with its measured value written into the run's `README.md` and the paper's results section: C3 ASR ≤ 5 % on LLMail-Inject; "every poisoned chunk caught" on at least 80 of the 100 poisoned-document cases; at most 5 % of benign question emails and 2 % of clean documents quarantined or escalated; guard calls per job at most 5 for every config with p95 end-to-end reported (SC5 stays a target); and each single-layer ablation worse than C3 on its own route metric (C3-L1 inbound catch rate, C3-L2 "every poisoned chunk caught"). A failed criterion reopens plan_v3 Task 5 or 7 and is recorded in ADR-0015; thresholds are never tuned on the pinned cases.
   - Not started: blocked on plan_v3 Task 15 (the pin). The paper's v3 tables are filled from this run; the existing ones stay labelled "v2 results".
+  - Amended by ADR-0017 (task 7.33, 2026-11-05): the run's configs are `C0` and `C3` only (the other v3 configs no longer exist), so the last acceptance criterion (each single-layer ablation worse than C3 on its route metric) cannot be measured by this run; the owner accepted that consequence when approving the plan (`implementation_plan.md` §7).
   - _Requirements: R22.12, R14.7, R21.5, R21.6, R24.5, SC4, SC5, SC9_
 
 - [ ] **7.32 Placeholder: ADR-0016 host hooks that consume the Doc Scanner's `trust` (blocked on 7.31; needs the owner)**
   - ADR-0015 decision 11: the host-side changes (review-UI badge, `knowledge_document.trust_level`, `exclude_document_ids`, re-retrieval, ingestion scan) are a separate ADR-0016 that starts after 7.31. They would change rag-email production code (ingestion, retrieval, the review UI), so they need the owner's approval first, and CLAUDE.md §6 (no improvised security design) applies: nothing is designed or built here.
   - Requirements it would touch, to be fixed by ADR-0016: R9.1 (ingestion), R10.4 (retrieval filters) and R23.4 (review UI).
   - _Requirements: R9.1, R10.4, R23.4_
+
+- [~] **7.33 The v3 benchmark runs C0 and C3 only**
+  - Decision: ADR-0017 (owner, 2026-11-05; plan `implementation_plan.md`). Scheme v3 keeps `C0` (rag-email alone) and `C3` (the full guard); `C0T`, `C1`, `C2`, `C3-L1` to `C3-L4` and `C3-ISO` are removed from the benchmark and refused by every v3 entry point. The default campaign is `C0, C3` (2 x 1,800 case runs per model).
+  - Scope: root `evaluation/mailguard_bench` only (`scheme.py`, the report's single baseline, the refusal of `raw/` files of removed configs in the report, the meaning reader and the analyses), the `mailguard-bench` Make target, the tests and the guides. `agentmailguard/` is not changed, so the guard pin (`d95e542`) and its tree hash stay; schemes v1/v2 and the legacy reader are not changed.
+  - Left open: the live run itself (7.31).
+  - _Requirements: R22.12_
 
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 

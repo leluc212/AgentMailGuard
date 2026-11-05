@@ -496,6 +496,8 @@ from task 7.19; it never touches `agentmailguard/` (the pin from 15b is what is 
   progress** (`rag_email_commit` is fingerprinted). Results zipped into
   `evaluation/results/mailguard_bench/<run_id>/` and committed afterwards:
   `chore(bench): v3 benchmark run <run_id> [task v3.16]`.
+  **Superseded by ADR-0017 (2026-11-05, task 7.33):** scheme v3 runs `C0` and `C3` only; the other
+  configs listed above no longer exist in the benchmark.
 - 16c — acceptance, written into the run's `README.md` and the paper's results section, each criterion
   with its measured value and pass/fail:
   (a) C3 ASR ≤ 5% on LLMail-Inject;
@@ -509,6 +511,8 @@ from task 7.19; it never touches `agentmailguard/` (the pin from 15b is what is 
   is not earning its place and the ADR must say so). Final ASR is reported for every config but is not
   criterion (e), since L4 can still catch injections with L1 off. `scoring.py`/`overhead.py` (Task 13)
   must compute the inbound catch rate per config.
+  **Superseded by ADR-0017 (2026-11-05):** without the ablation configs (e) cannot be measured by a
+  run of scheme v3; the owner accepted that consequence.
   Any of (a)–(c) failing reopens Task 5 or 7 through the divergence protocol with the measured numbers
   in ADR-0015; thresholds are never re-tuned on the pinned cases. ADR-0015 moves to Accepted only after
   16c; Task 14 leaves it at "Accepted pending Task 16".
