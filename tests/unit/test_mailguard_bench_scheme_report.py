@@ -52,25 +52,13 @@ def test_the_config_table_names_what_every_v3_config_turns_on() -> None:
 
     assert "## Config scheme v3" in text
     assert "| C0 | none (rag-email's own prompt, no guard) | none | yes |" in text
-    assert "| C0T | none (the guard's prompt template) | none | no |" in text
-    assert (
-        "| C1 | L1 Inbound Guard + L3 Inbound Gate | L1 scan judge, L1 intent extraction | no |"
-        in text
-    )
     assert (
         "| C3 | L1 Inbound Guard + L2 Doc Scanner + L3 Inbound Gate + L4 Output Guard + "
         "channel isolation | L1 scan judge, L1 intent extraction, L2 chunk judge, "
         "L2 set judge, L4 output check | yes |"
     ) in text
-    assert (
-        "| C3-ISO | L1 Inbound Guard + L2 Doc Scanner + L3 Inbound Gate + L4 Output Guard | "
-        "L1 scan judge, L1 intent extraction, L2 chunk judge, L2 set judge, L4 output check | no |"
-    ) in text
-    assert (
-        "| C3-L2 | L1 Inbound Guard + L3 Inbound Gate + L4 Output Guard + channel isolation |"
-        in text
-    )
-    assert text.count("\n| C") == 11  # the header and one row per v3 config
+    assert text.count("\n| C") == 3  # the header and one row per v3 config (C0, C3; ADR-0017)
+    assert "C0T" not in text and "C3-ISO" not in text and "C3-L" not in text
 
 
 def test_the_five_protocol_tables_are_exact() -> None:
@@ -163,10 +151,6 @@ def test_the_overhead_percentiles_are_the_rows_latencies() -> None:
 
 
 def test_the_fallback_note_names_the_configs_that_run_no_guard_ai_step() -> None:
-    assert render_no_ai_stage_note(("C0", "C0T", "C3")) == [
-        "C0 and C0T run no guard AI step, so they have no fallbacks to report.",
-        "",
-    ]
     assert render_no_ai_stage_note(("C0", "C3")) == [
         "C0 runs no guard AI step, so it has no fallbacks to report.",
         "",

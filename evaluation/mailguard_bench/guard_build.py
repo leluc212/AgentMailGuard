@@ -12,11 +12,10 @@ imported lazily, so this module imports in CI where AgentMailGuard is not instal
 
 Configs (owner decision 2026-09-29, plan BINDING section): ``C0`` is rag-email's native
 path and runs no AgentMailGuard code, so it has no guard to build here. Scheme v3 (guard v3,
-ADR-0015, plan_v3 Task 12), the only scheme a run takes at HEAD: ``C0T`` is the guard's template
-with ``GuardConfig.preset("C0")`` (nothing active); ``C1``, ``C2``, ``C3``, ``C3-L1`` ..
-``C3-L4`` and ``C3-ISO`` are the guard's own presets of the same name (``scheme.V3_LAYERS``).
-Every judge of a layer the config runs is live (``scheme.V3_AI_STAGES``). Schemes v1 and v2 ran
-on other guard commits and are refused (``scheme.require_run_scheme``).
+ADR-0015, plan_v3 Task 12), the only scheme a run takes at HEAD, has one guarded config since
+ADR-0017: ``C3``, the guard's own preset of the same name (``scheme.V3_LAYERS``). Every judge of
+a layer it runs is live (``scheme.V3_AI_STAGES``). Schemes v1 and v2 ran on other guard commits
+and are refused (``scheme.require_run_scheme``).
 """
 
 from __future__ import annotations
@@ -180,8 +179,8 @@ def build_guard(
     the Output Guard's judge are off unless asked for (``live_guard_llm_stages`` gives a config's).
 
     Args:
-        preset: The benchmark config: ``C0T`` builds ``GuardConfig.preset("C0")``, every other
-            guarded v3 config the guard's preset of the same name (``scheme.V3_LAYERS``).
+        preset: The benchmark config: a guarded v3 config (``C3``) builds the guard's preset of
+            the same name (``scheme.V3_LAYERS``).
         doc_llm: Also run the Doc Scanner's chunk judge and set judge on ``model_name``.
         output_llm: Also run the Output Guard's judge on ``model_name``.
         judge_fail_closed: A failed or invalid judge answer fails closed (the guard's default);
@@ -202,7 +201,7 @@ def build_guard(
     if key == NATIVE_CONFIG:
         raise ValueError(
             "C0 is rag-email's native path (generate_draft, no AgentMailGuard code) and has "
-            "no guard to build; C0T is the guard template with no layer active"
+            "no guard to build"
         )
     require_config(scheme, key)
     guard_preset = v3_guard_preset(key)

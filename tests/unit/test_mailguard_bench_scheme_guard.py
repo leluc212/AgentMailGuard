@@ -102,7 +102,11 @@ def test_the_scheme_table_is_the_guards_preset_table() -> None:
     for config in V3_GUARDED:
         preset = GuardConfig.preset(scheme.v3_guard_preset(config))
         assert active_switches(preset) == scheme.V3_LAYERS[config], config
-    assert dict(GuardConfig.ABLATIONS) == scheme.V3_ABLATIONS
+    # ADR-0017: the benchmark runs none of the guard's ablations, and the guard is unchanged (it
+    # still has its five), so every v3 ablation would be one of the guard's own.
+    assert set(scheme.V3_ABLATIONS) <= set(GuardConfig.ABLATIONS)
+    guard_names = {*GuardConfig.PRESETS, *GuardConfig.ABLATIONS}
+    assert set(scheme.V3_REMOVED_CONFIGS) - {"C0T"} <= guard_names  # C0T built preset C0
     assert tuple(GuardConfig.LAYERS) + ("channel_isolation",) == scheme.V3_SWITCHES
 
 
@@ -125,7 +129,7 @@ def test_a_retired_scheme_is_never_built(retired: str, tmp_path: Path) -> None:
 
 
 def test_v2_and_v1_names_do_not_exist_in_v3(tmp_path: Path) -> None:
-    for name in ("C4", "C7", "C3-L3B", "C3-L5"):
+    for name in ("C4", "C7", "C3-L3B", "C3-L5", *scheme.V3_REMOVED_CONFIGS):
         with pytest.raises(ValueError, match="scheme v3"):
             build_guard(
                 name,
@@ -146,12 +150,10 @@ def test_the_live_judge_rule_of_v3() -> None:
     assert {c: live_guard_llm_stages(c) for c in V3_GUARDED} == {
         c: scheme.v3_llm_stages(c) for c in V3_GUARDED
     }
-    assert live_guard_llm_stages("C0T") == (False, False)
-    assert live_guard_llm_stages("C1") == (False, False)  # the Inbound Guard's judges are built
-    assert live_guard_llm_stages("C2") == (True, False)
     assert live_guard_llm_stages("C3") == (True, True)
-    assert live_guard_llm_stages("C3-L2") == (False, True)
-    assert live_guard_llm_stages("C3-L4") == (True, False)
+    for removed in scheme.V3_REMOVED_CONFIGS:  # ADR-0017
+        with pytest.raises(ValueError, match="scheme v3"):
+            live_guard_llm_stages(removed)
 
 
 @pytest.mark.parametrize("config", V3_GUARDED)

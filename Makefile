@@ -29,13 +29,13 @@ help:
 	@echo "  mailguard-test - ONE guard-side unit file (tests/unit/test_mailguard_bench_guard.py) under the AgentMailGuard overlay (fake models, no network); the whole suite is mailguard-unit"
 	@echo "  mailguard-unit - The WHOLE unit suite under the AgentMailGuard overlay (fake models, no network, no classifier): runs the ~260 tests that plain pytest skips for want of the guard; CI runs it on the committed agentmailguard/ (run it before main and before a benchmark)"
 	@echo "  mailguard-cases - Build/verify the pinned benchmark case set from the guard's builder (no API calls; not CI)"
-	@echo "  mailguard-bench RUN=... CONFIG=C0|C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO [JUDGE_FALLBACK=1] - Benchmark on the real rag-email path, scheme v3 (guard v3 presets, ADR-0015): C0 no guard, C0T guard template with no layer, C1 Inbound Guard + Inbound Gate, C2 C1 + Doc Scanner + isolation, C3 the full guard, C3-L1..C3-L4 C3 minus one layer, C3-ISO C3 without channel isolation; every judge of a layer the config runs is live. Schemes v1/v2 are refused (their guard commits). Owner-run, live model (not CI)"
+	@echo "  mailguard-bench RUN=... CONFIG=C0|C3 [JUDGE_FALLBACK=1] - Benchmark on the real rag-email path, scheme v3 (guard v3 presets, ADR-0015; C0 and C3 only, ADR-0017): C0 no guard, C3 the full guard; every judge of C3 is live. Schemes v1/v2 are refused (their guard commits). Owner-run, live model (not CI)"
 	@echo "  mailguard-bench-test - Guard-wiring tests under the AgentMailGuard overlay (fake providers; not CI)"
 	@echo "  mailguard-report RUN=... [LEGACY=1] - Score a scheme v3 run (manifest.json, metrics.csv, report.md); LEGACY=1 prints a committed v1/v2 folder's tables read-only; no model calls (task 7.19, v3.13)"
 	@echo "  mailguard-analyses RUN=... - Leakage check, first catching layer, worked examples, then the report; no model calls (task 7.19)"
 	@echo "  bench-doctor [MODEL=<profile>] [READER=<model>] - Teammate kit: check this machine (Docker, Python, disk, keys in .env, the embedding) before the first run; MODEL adds that profile's key and, for a local model, the Ollama and GPU checks; no model calls (tasks 7.25, 7.29)"
 	@echo "  bench-setup - Teammate kit, once per machine: guard worktree, pinned inputs, offline guard smoke, then the stack up and healthy (task 7.23)"
-	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one embedding check, then one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes, also after another model's run; CASE_IDS is a trial over chosen cases, RUN=trial-... (tasks 7.23, 7.29)"
+	@echo "  bench-run MODEL=<profile> RUN=<id> [CONFIGS=C0,C3] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1] - Teammate kit: one embedding check, then one model through every config, the retry pass and the reports (runbook 9.9 steps 3-7); owner-run, live; a rerun resumes, also after another model's run; CASE_IDS is a trial over chosen cases, RUN=trial-... (tasks 7.23, 7.29)"
 	@echo "  bench-report RUN=<id> [READER=<model>] - Teammate kit: rebuild the reports of a run, with the meaning column when READER is given (run it with LLM__PROVIDER and LLM__OPENAI_BASE_URL set inline: the reader is served by LLM__*); no model calls except the reader's (task 7.23)"
 	@echo "  bench-package RUN=<id> - Teammate kit: bench-results-<id>.zip of the run folder (raw/ included, never a key) and how to commit it to branch bench/<id> (task 7.23)"
 	@echo "  bench-canary MODEL=qwen2.5-7b-openrouter|llama-3.1-8b-openrouter - ONE live, billed strict-JSON call through rag-email's pinned client: checks the answer, the served provider and saves the exchange (no key) under evaluation/results/mailguard_bench/canary/; under a cent. Owner- or teammate-run before each OpenRouter run, never CI (task 7.29)"
@@ -235,7 +235,7 @@ unexport CONCURRENCY
 unexport CASE_IDS
 
 # The config names have several meanings (ADR-0012 decision 11). Runs at HEAD are SCHEME=v3 (the
-# guard v3 presets, ADR-0015): C0, C0T, C1, C2, C3, C3-L1..C3-L4, C3-ISO. SCHEME=v1 and v2 ran on
+# guard v3 presets, ADR-0015): C0 and C3 only since ADR-0017. SCHEME=v1 and v2 ran on
 # other guard commits and the runner refuses them, naming the commit. JUDGE_FALLBACK=1 keeps a
 # failed guard judge answer on the v2 visible fallback instead of failing closed (to compare with
 # v2). SCHEME and JUDGE_FALLBACK reach the runner as flags only, like CONCURRENCY.
@@ -244,7 +244,7 @@ unexport SCHEME
 unexport JUDGE_FALLBACK
 
 mailguard-bench:
-	@case "$(SCHEME)/$(CONFIG)" in v3/C0|v3/C0T|v3/C1|v3/C2|v3/C3|v3/C3-L1|v3/C3-L2|v3/C3-L3|v3/C3-L4|v3/C3-ISO|v1/*|v2/*) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C3-L1|C3-L2|C3-L3|C3-L4|C3-ISO [MODEL=gpt-4o-mini|qwen2.5-7b-openrouter|llama-3.1-8b-openrouter|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2] [JUDGE_FALLBACK=1]"; exit 2;; esac
+	@case "$(SCHEME)/$(CONFIG)" in v3/C0|v3/C3|v1/*|v2/*) ;; *) echo "usage: make mailguard-bench RUN=<id> CONFIG=C0|C3 [MODEL=gpt-4o-mini|qwen2.5-7b-openrouter|llama-3.1-8b-openrouter|llama-3.1-8b-local|qwen2.5-7b|gemma-4-26b] [LIMIT=n] [CONCURRENCY=1|2] [JUDGE_FALLBACK=1]"; exit 2;; esac
 	@test -n "$(RUN)" || { echo "FAIL set RUN=<run_id>" >&2; exit 1; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.runner \
 		--config $(CONFIG) --scheme $(SCHEME) --run $(RUN) --retry-errors \
@@ -296,7 +296,7 @@ bench-setup:
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign setup
 
 bench-run:
-	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C0T,...] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run or a CASE_IDS trial its own, trial-...)" >&2; exit 2; }
+	@test -n "$(MODEL)" -a -n "$(RUN)" || { echo "usage: make bench-run MODEL=<model profile, see evaluation/mailguard_bench/model_profiles.py> RUN=<id> [CONFIGS=C0,C3] [LIMIT=n] [CASE_IDS=id,id,...] [CONCURRENCY=1|2] [DRY_RUN=1]  (RUN names the results folder and is never made up: a resume needs the same RUN, a smoke run or a CASE_IDS trial its own, trial-...)" >&2; exit 2; }
 	@test -z "$(READER)" || { echo "FAIL READER= is not a bench-run option: the reader is served by LLM__* in the shell and bench-run refuses an exported LLM__*. Add the meaning column afterwards: LLM__PROVIDER=... LLM__OPENAI_BASE_URL=... make bench-report RUN=$(RUN) READER=<reader model>" >&2; exit 2; }
 	$(MAILGUARD_UV) python -m evaluation.mailguard_bench.kit.campaign run \
 		--model-profile $(MODEL) \

@@ -51,7 +51,12 @@ from evaluation.mailguard_bench.model_profiles import (
 from evaluation.mailguard_bench.resilience import BackoffPolicy, is_rate_limited, redact
 from evaluation.mailguard_bench.results import ResultStore
 from evaluation.mailguard_bench.route import ROUTE_STOP_EXIT, immediate_stop
-from evaluation.mailguard_bench.scheme import SCHEME_V3, V3_CONFIGS, folder_scheme
+from evaluation.mailguard_bench.scheme import (
+    SCHEME_V3,
+    V3_CONFIGS,
+    folder_scheme,
+    require_no_removed_v3_configs,
+)
 from evaluation.mailguard_bench.scoring import (
     LEGACY_READER_HINT,
     RawRecord,
@@ -638,7 +643,8 @@ async def run_meaning(
 
     Raises:
         FileNotFoundError: If the case file or a raw file is missing.
-        ValueError: If a config has no raw file, the reader is refused, or a case is unreadable.
+        ValueError: If a config has no raw file, the reader is refused, a case is unreadable,
+            or ``raw/`` holds the rows of a config scheme v3 no longer has (ADR-0017).
         MeaningSettingsMismatchError: If a config's file was read by another reader.
     """
     from evaluation.mailguard_bench.report import load_cases  # report imports us
@@ -652,6 +658,7 @@ async def run_meaning(
             f"{run_dir} is a scheme {scheme} run: the v3 reader never reads it "
             f"({LEGACY_READER_HINT})"
         )
+    require_no_removed_v3_configs(run_dir)  # rows of a removed config: refused (ADR-0017)
     known = V3_CONFIGS
     present = [c for c in known if (run_dir / "raw" / f"{c}.jsonl").exists()]
     chosen = present if configs is None else list(configs)

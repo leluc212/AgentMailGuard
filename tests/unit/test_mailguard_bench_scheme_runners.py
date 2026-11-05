@@ -66,8 +66,8 @@ GUARDED = tuple(c for c in scheme.V3_CONFIGS if c != "C0")
 
 
 def test_a_new_run_of_the_in_process_runner_defaults_to_v3() -> None:
-    args = runner.parse_args(["--config", "C3-ISO", "--run", "r"])
-    assert args.scheme == "v3" and args.config == "C3-ISO" and args.judge_fallback is False
+    args = runner.parse_args(["--config", "C3", "--run", "r"])
+    assert args.scheme == "v3" and args.config == "C3" and args.judge_fallback is False
 
 
 @pytest.mark.parametrize("config", scheme.V3_CONFIGS)
@@ -85,7 +85,9 @@ def test_the_in_process_runner_refuses_a_retired_scheme_naming_its_guard(
     assert scheme.RETIRED_SCHEME_GUARDS[retired] in err and "scheme v3" in err
 
 
-@pytest.mark.parametrize("config", ["C4", "C7", "C3-L3B", "C3-L5", "C8"])
+@pytest.mark.parametrize(
+    "config", ["C4", "C7", "C3-L3B", "C3-L5", "C8", *scheme.V3_REMOVED_CONFIGS]
+)
 def test_the_in_process_runner_refuses_a_config_v3_does_not_have(config: str) -> None:
     with pytest.raises(SystemExit):
         runner.parse_args(["--config", config, "--run", "r"])
@@ -106,7 +108,7 @@ def test_v3_runs_every_config_on_the_full_case_set_and_v1_keeps_its_case_selecti
     assert config_case_ids(manifest, "C3", "v1") == full
 
 
-def _runner_meta(*argv: str, config: str = "C3-L2") -> dict[str, Any]:
+def _runner_meta(*argv: str, config: str = "C3") -> dict[str, Any]:
     args = runner.parse_args(["--config", config, "--run", "r1", *argv])
     guard_facts = {
         "config": config,
@@ -132,9 +134,8 @@ def _runner_meta(*argv: str, config: str = "C3-L2") -> dict[str, Any]:
 def test_a_v3_meta_records_its_scheme_the_guard_preset_and_the_full_case_sets() -> None:
     meta = _runner_meta()
     assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
-    assert meta["preset"] == "C3-L2" and meta["guard_preset"] == "C3-L2"
+    assert meta["preset"] == "C3" and meta["guard_preset"] == "C3"
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
-    assert _runner_meta(config="C0T")["guard_preset"] == "C0"
 
 
 def test_a_v3_meta_records_whether_the_judges_fail_closed() -> None:
@@ -259,17 +260,18 @@ def test_the_live_runner_refuses_a_retired_scheme_and_a_config_v3_does_not_have(
             parse_args(argv)
 
 
-def test_the_v3_ablations_run_live() -> None:
-    # Unlike v1's in-process-only ablation, a v3 ablation keeps every judge of the layers it runs.
+def test_the_configs_adr_0017_removed_never_run_live(capsys: pytest.CaptureFixture[str]) -> None:
     profile = ["--model-profile", "qwen2.5-7b"]
-    for config in scheme.V3_ABLATIONS:
-        assert parse_args(["--config", config, "--run", "r", *profile]).config == config
+    for config in scheme.V3_REMOVED_CONFIGS:
+        with pytest.raises(SystemExit):
+            parse_args(["--config", config, "--run", "r", *profile])
+        assert "C0, C3" in capsys.readouterr().err, config
 
 
 def _live_meta(config: str, *argv: str) -> dict[str, Any]:
     args = parse_args(["--config", config, "--run", "r1", "--model-profile", "qwen2.5-7b", *argv])
     args.guard_model = "qwen2.5:7b-instruct"
-    facts = _guard_facts(config, llm_stages=config in ("C2", "C3"))
+    facts = _guard_facts(config, llm_stages=config == "C3")
     facts["preset"] = scheme.v3_guard_preset(config)
     guard = GuardDescription(facts, dict(facts["live_stages"]), [])
     return build_live_meta(
@@ -287,7 +289,7 @@ def _live_meta(config: str, *argv: str) -> dict[str, Any]:
 
 
 def test_a_live_v3_meta_records_the_scheme_and_the_judge_mode_in_the_fingerprint() -> None:
-    meta = _live_meta("C3-L1")
+    meta = _live_meta("C3")
     assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
     assert meta["judge_fail_closed"] is True and meta["fingerprint"]["judge_fail_closed"] is True
     assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
@@ -351,12 +353,12 @@ def test_the_worker_serves_the_guarded_configs_of_v3() -> None:
     for config in GUARDED:
         args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
         assert (args.config, args.scheme) == (config, "v3")
-    for bad in ("C0", "C4", "C7", "C3-L3B", "C3-L5", "C8"):
+    for bad in ("C0", "C4", "C7", "C3-L3B", "C3-L5", "C8", *scheme.V3_REMOVED_CONFIGS):
         with pytest.raises(SystemExit):
             guard_worker.parse_args(["--config", bad, "--run", "r", *profile])
     for retired in RETIRED:
         with pytest.raises(SystemExit):
-            guard_worker.parse_args(["--config", "C2", "--run", "r", "--scheme", retired, *profile])
+            guard_worker.parse_args(["--config", "C3", "--run", "r", "--scheme", retired, *profile])
 
 
 def test_the_workers_fingerprint_carries_the_scheme_and_the_judge_mode() -> None:
@@ -366,7 +368,7 @@ def test_the_workers_fingerprint_carries_the_scheme_and_the_judge_mode() -> None
 def test_a_v3_worker_builds_its_guard_with_the_scheme_and_the_configs_judges(
     rig: Rig,  # noqa: F811
 ) -> None:
-    for config in ("C1", "C2", "C3-L2", "C3-ISO"):
+    for config in GUARDED:  # C3 only since ADR-0017
         rig.built.clear()
         assert _start(config=config, run=f"run-{config}") == 0
         (call,) = rig.built

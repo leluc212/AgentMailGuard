@@ -44,7 +44,11 @@ from evaluation.mailguard_bench.report import (
     load_cases,
     settings_problems,
 )
-from evaluation.mailguard_bench.scheme import SCHEME_V3, folder_scheme
+from evaluation.mailguard_bench.scheme import (
+    SCHEME_V3,
+    folder_scheme,
+    require_no_removed_v3_configs,
+)
 from evaluation.mailguard_bench.scoring import (
     LEGACY_READER_HINT,
     LIVE_TRANSPORT,
@@ -127,7 +131,12 @@ def acceptance_problems(run_dir: Path) -> tuple[list[str], list[str]]:
     ``ragemail__C3.jsonl`` alone is no proof the report accepted the run: the report
     writes it before it refuses a weakened or off-pin run. Returns the weakened-guard
     problems and the off-pin problems (both empty when the report would score the run).
+
+    Raises:
+        ValueError: If ``raw/`` holds the rows of a config scheme v3 no longer has (ADR-0017),
+            which the report refuses too.
     """
+    require_no_removed_v3_configs(run_dir)
     configs = [c for c in ALL_CONFIGS if (run_dir / "raw" / f"{c}.jsonl").exists()]
     run_meta: dict[str, Any] = {}
     records: dict[str, list[RawRecord]] = {}

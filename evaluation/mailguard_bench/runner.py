@@ -1,12 +1,12 @@
 """AgentMailGuard benchmark runner hosted by rag-email (task 7.19; spec §4, §4b, §5; ADR-0010).
 
-    make mailguard-bench RUN=<id> CONFIG=C0|C0T|C1|C2|C3|C3-L1|C3-L2|C3-L3|C3-L4|C3-ISO [LIMIT=n]
+    make mailguard-bench RUN=<id> CONFIG=C0|C3 [LIMIT=n]
 
 A run has a config scheme (``scheme.py``, ADR-0012 decision 11), recorded in every meta and its
-settings fingerprint. Runs at HEAD are scheme v3 (guard v3, ADR-0015): C0 native, C0T the guard
-template with no layer, and the guard's own presets C1, C2, C3 and the ablations C3-L1 .. C3-L4,
-C3-ISO, every judge of a layer the config runs live. Schemes v1 and v2 ran on other guard commits
-and are refused; the descriptions below are scheme v1's, kept for the committed v1 folders.
+settings fingerprint. Runs at HEAD are scheme v3 (guard v3, ADR-0015), which has two configs since
+ADR-0017: C0 native and the guard's own preset C3, every judge of a layer it runs live. Schemes v1
+and v2 ran on other guard commits and are refused; the descriptions below are scheme v1's, kept
+for the committed v1 folders.
 
 Owner-run live evaluation (real Gemini calls). It is never part of ``make ci`` (R24.5).
 For each case it opens a throwaway organization, ingests the case KB and builds the real

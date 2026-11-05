@@ -39,37 +39,67 @@ def test_a_retired_scheme_is_refused_naming_its_guard_commit(retired: str) -> No
         scheme.require_run_scheme("v4")
 
 
-def test_the_v3_configs_are_the_guard_v3_presets() -> None:
-    assert scheme.V3_CONFIGS == (
-        "C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO",
-    )  # fmt: skip
+REMOVED_V3 = ("C0T", "C1", "C2", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")  # ADR-0017
+
+
+def test_the_v3_configs_are_c0_and_c3_only() -> None:
+    # ADR-0017: the benchmark runs rag-email alone (C0) and the full guard (C3), nothing else.
+    assert scheme.V3_CONFIGS == ("C0", "C3")
     assert scheme.configs_for("v3") == scheme.live_configs_for("v3") == scheme.V3_CONFIGS
+    assert scheme.V3_DEFAULT_CAMPAIGN == ("C0", "C3")
     assert scheme.target_config("v3") == "C3"
-    assert scheme.V3_LAYERS["C0"] == scheme.V3_LAYERS["C0T"] == ()
-    assert scheme.V3_LAYERS["C1"] == ("inbound_guard", "inbound_gate")
-    assert scheme.V3_LAYERS["C3"] == scheme.V3_SWITCHES
-    for config, removed in scheme.V3_ABLATIONS.items():
-        assert scheme.V3_LAYERS[config] == tuple(s for s in scheme.V3_SWITCHES if s != removed)
-    assert scheme.v3_guard_preset("C0T") == "C0" and scheme.v3_guard_preset("C3-ISO") == "C3-ISO"
+    assert scheme.V3_LAYERS == {"C0": (), "C3": scheme.V3_SWITCHES}
+    assert scheme.V3_ABLATIONS == {}
+    assert scheme.v3_guard_preset("C3") == "C3"
     with pytest.raises(ValueError, match="native"):
         scheme.v3_guard_preset("C0")
-    assert tuple(c for c in scheme.V3_CONFIGS if c != "C0T") == scheme.V3_DEFAULT_CAMPAIGN
+    assert scheme.V3_REMOVED_CONFIGS == REMOVED_V3
+    assert scheme.V3_FULL_CAMPAIGN_COMMIT == "4fe2ec3f83a64908f2830c268d2371c28d193cbd"
+
+
+@pytest.mark.parametrize("removed", REMOVED_V3)
+def test_a_removed_v3_config_is_refused_everywhere_the_scheme_is_asked(removed: str) -> None:
+    for check in (
+        lambda: scheme.require_config("v3", removed),
+        lambda: scheme.require_live_config("v3", removed),
+        lambda: scheme.v3_guard_preset(removed),
+        lambda: scheme.v3_llm_stages(removed),
+        lambda: scheme.v3_required_stages(removed),
+        lambda: scheme.v3_ai_stage_names(removed),
+    ):
+        with pytest.raises(ValueError, match=r"scheme v3.*C0, C3"):
+            check()
 
 
 def test_every_judge_of_a_layer_a_v3_config_runs_is_live() -> None:
-    assert scheme.V3_AI_STAGES["C0T"] == ()
-    assert scheme.V3_AI_STAGES["C1"] == ("inbound_judge", "inbound_extractor")
-    assert scheme.V3_AI_STAGES["C2"] == (
-        "inbound_judge", "inbound_extractor", "doc_judge", "doc_set_judge",
-    )  # fmt: skip
-    assert scheme.V3_AI_STAGES["C3"] == scheme.V3_STAGES[1:]
-    assert scheme.V3_AI_STAGES["C3-L1"] == ("doc_judge", "doc_set_judge", "output_judge")
-    assert scheme.V3_AI_STAGES["C3-L3"] == scheme.V3_AI_STAGES["C3-ISO"] == scheme.V3_STAGES[1:]
+    assert dict(scheme.V3_AI_STAGES) == {"C0": (), "C3": scheme.V3_STAGES[1:]}
     assert len(scheme.V3_STAGES[1:]) == 5  # ADR-0015 decision 12: at most five guard calls
-    assert scheme.v3_llm_stages("C2") == (True, False)
-    assert scheme.v3_llm_stages("C3-L4") == (True, False)
-    assert scheme.v3_required_stages("C0T") == ()
-    assert scheme.v3_required_stages("C3-L1")[0] == "classifier"  # the Doc Scanner reads it
+    assert scheme.v3_llm_stages("C3") == (True, True)
+    assert scheme.v3_required_stages("C3")[0] == "classifier"  # the Inbound Guard reads it
+    assert scheme.v3_required_stages("C0") == ()
+
+
+def _raw_file(run: Path, name: str) -> None:
+    (run / "raw").mkdir(parents=True, exist_ok=True)
+    (run / "raw" / f"{name}.jsonl").write_text("", encoding="utf-8")
+
+
+def test_a_run_folder_with_rows_of_a_removed_v3_config_is_refused(tmp_path: Path) -> None:
+    for name in ("C0", "C3", "audit__C3", "guard_l5__C3", "C3-L5"):  # C3-L5 is a stray v1 name
+        _raw_file(tmp_path, name)
+    assert scheme.removed_v3_raw_configs(tmp_path) == []
+    scheme.require_no_removed_v3_configs(tmp_path)
+    scheme.require_no_removed_v3_configs(tmp_path / "no-such-run")  # no raw/: nothing to refuse
+
+    _raw_file(tmp_path, "C0T")
+    _raw_file(tmp_path, "C3-ISO")
+    assert scheme.removed_v3_raw_configs(tmp_path) == ["C0T", "C3-ISO"]
+    with pytest.raises(ValueError) as caught:
+        scheme.require_no_removed_v3_configs(tmp_path)
+    message = str(caught.value)
+    assert "raw/C0T.jsonl, raw/C3-ISO.jsonl" in message
+    assert "C0, C3" in message and "ADR-0017" in message
+    assert scheme.V3_FULL_CAMPAIGN_COMMIT in message
 
 
 def test_the_v2_configs_and_their_layer_flags_are_the_pre_registered_ones() -> None:
@@ -235,7 +265,7 @@ def test_the_live_configs_leave_out_the_v1_ablation() -> None:
     assert scheme.live_configs_for("v1") == scheme.V1_CONFIGS
     assert scheme.live_configs_for("v2") == scheme.V2_CONFIGS
     assert not set(scheme.ABLATION_CONFIGS) & set(scheme.live_configs_for("v1"))
-    assert scheme.live_configs_for("v3") == scheme.V3_CONFIGS  # v3 ablations run live
+    assert scheme.live_configs_for("v3") == scheme.V3_CONFIGS  # both v3 configs run live
     with pytest.raises(ValueError, match="unknown config scheme"):
         scheme.live_configs_for("v4")
 

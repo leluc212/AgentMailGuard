@@ -117,7 +117,7 @@ def test_build_guard_can_turn_the_output_judge_on_alone(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("config", "doc", "output"),
-    [("C3", True, True), ("C2", True, False), ("C1", False, False), ("C0T", False, False)],
+    [("C3", True, True)],  # the only guarded v3 config since ADR-0017
 )
 def test_a_guard_built_with_the_live_rule_reports_the_judges_the_worker_runs(
     tmp_path: Path, config: str, doc: bool, output: bool

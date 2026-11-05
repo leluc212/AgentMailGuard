@@ -1,11 +1,9 @@
 """What a report of a scheme-v3 run adds: the config table and the protocol tables.
 
 Scheme v3 (``scheme.py``) reads a run as one experiment on the guard v3 presets (ADR-0015): C0 is
-rag-email without a guard, C0T the guard's prompt template with no layer, C1 the Inbound Guard and
-Gate, C2 adds the Doc Scanner and channel isolation, C3 is the full guard, and each of C3-L1 ..
-C3-L4 and C3-ISO removes one part of C3. The headline tests (C0 and C0T against C3) and the
-ablation pairs are the report's own; this module adds what the v3 report must show beyond the
-final action (plan_v3 Task 13, review 10-15): where each job stopped and why.
+rag-email without a guard and C3 is the full guard, the only two v3 configs since ADR-0017. The
+headline test (C0 against C3) is the report's own; this module adds what the v3 report must show
+beyond the final action (plan_v3 Task 13, review 10-15): where each job stopped and why.
 
     1. exit points        gate pass 1, gate pass 2, output guard, delivered (counts per config)
     2. inbound floor      jobs whose inbound floor won the merge in the Output Guard
@@ -53,7 +51,6 @@ STAGE_LABELS = {
 }
 NO_LAYER_TEXT = {
     "C0": "none (rag-email's own prompt, no guard)",
-    "C0T": "none (the guard's prompt template)",
 }
 EXIT_LABELS = {
     "gate_pass_1": "gate pass 1",
@@ -86,7 +83,7 @@ def _names(configs: Sequence[str]) -> str:
 
 
 def configs_without_ai_stage(configs_run: Sequence[str]) -> list[str]:
-    """The configs of ``configs_run`` that run no guard AI step (C0, C0T)."""
+    """The configs of ``configs_run`` that run no guard AI step (C0)."""
     return [c for c in configs_run if not V3_AI_STAGES[c]]
 
 

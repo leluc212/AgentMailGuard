@@ -11,7 +11,7 @@ and `evaluation` win over the guard's packages of the same name:
 
     MAILGUARD_DIR=... MAILGUARD_COMMIT=... MAILGUARD_ARTIFACTS=... \\
       uv run --with-editable $MAILGUARD_DIR \\
-      python -m evaluation.mailguard_bench.live.guard_worker --config C0T|C1|...|C3-ISO --run RUN \\
+      python -m evaluation.mailguard_bench.live.guard_worker --config C3 --run RUN \\
         --model-profile M [--judge-fallback]
 
 It applies the model profile (keys from the environment or ``.env``, as the runner does), builds

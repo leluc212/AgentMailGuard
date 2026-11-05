@@ -1,6 +1,6 @@
 """Live benchmark runner: every rag-email service runs for real (task 7.20; ADR-0011; R22.12).
 
-    python -m evaluation.mailguard_bench.live.run --config C0|C0T|C1|C2|C3|C3-L1..C3-L4|C3-ISO \\
+    python -m evaluation.mailguard_bench.live.run --config C0|C3 \\
         --run RUN --model-profile M [--judge-fallback] [--limit n] [--case-ids ID,ID,..] \\
         [--concurrency 1|2] [--case-timeout-s 300]
 

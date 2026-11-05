@@ -45,8 +45,8 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool[Any], None]:
 
 @pytest.mark.parametrize(
     "config",
-    # scheme v3 (plan_v3 Task 12): the guard's own presets, every judge of a run layer live
-    ["C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"],
+    # scheme v3 (plan_v3 Task 12; C0 and C3 only since ADR-0017): every judge of a run layer live
+    ["C0", "C3"],
 )
 async def test_rag_case_runs_end_to_end_and_leaves_no_tenant_behind(
     db_pool: asyncpg.Pool[Any], tmp_path: Path, config: str

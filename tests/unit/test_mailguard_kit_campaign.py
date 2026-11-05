@@ -56,17 +56,7 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
 
 
 def test_the_default_config_list_is_the_v3_benchmark() -> None:
-    assert DEFAULT_CONFIGS == (
-        "C0",
-        "C1",
-        "C2",
-        "C3",
-        "C3-L1",
-        "C3-L2",
-        "C3-L3",
-        "C3-L4",
-        "C3-ISO",
-    )
+    assert DEFAULT_CONFIGS == ("C0", "C3")  # ADR-0017: rag-email alone, then the full guard
 
 
 def test_the_default_config_list_is_the_scheme_s_own_v3_list() -> None:

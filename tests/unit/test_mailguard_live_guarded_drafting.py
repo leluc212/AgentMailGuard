@@ -379,19 +379,6 @@ async def test_the_audit_line_carries_the_v1_fields_of_a_guarded_row(tmp_path: P
     assert isinstance(line["ts"], str)
 
 
-async def test_c0t_runs_the_template_with_no_layer_and_no_guard_call(tmp_path: Path) -> None:
-    rig = await _rig(tmp_path, preset="C0T")
-
-    outcome = await rig.service.draft(rig.job, rig.context(), category="support")
-
-    assert rig.guard_calls() == 0
-    assert outcome.draft.body == REPLY["draft"]
-    assert outcome.draft.escalation_reason == "none"
-    (line,) = rig.audit_lines()
-    assert line["config"] == "C0T" and line["prompt_mode"] == "none"
-    assert line["report"]["decision"] is None
-
-
 async def test_the_l4_redacted_body_is_what_gets_persisted(tmp_path: Path) -> None:
     rig = await _rig(tmp_path, reply=LEAKS_AN_ADDRESS)
 
@@ -500,7 +487,7 @@ async def test_the_jobs_budget_tracker_counts_the_one_generation(tmp_path: Path)
     assert tracker.total_calls == 1  # the guard's own stage calls are not the job's budget
 
 
-@pytest.mark.parametrize("preset", ["C0T", "C3"])
+@pytest.mark.parametrize("preset", ["C3"])  # the only guarded v3 config (ADR-0017)
 async def test_the_ai_workers_guarded_prompt_carries_the_reply_format_rules(
     preset: str, tmp_path: Path
 ) -> None:

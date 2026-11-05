@@ -200,11 +200,11 @@ def _meta(rig: Rig, config: str = "C3", run: str = "r1") -> dict[str, Any]:
 
 def test_the_worker_serves_one_guarded_config() -> None:
     profile = ["--model-profile", "gpt-4o-mini"]
-    for config in ("C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"):
-        args = guard_worker.parse_args(["--config", config, "--run", "r", *profile])
-        assert args.config == config
-        assert (args.model_profile, args.port) == ("gpt-4o-mini", guard_worker.DEFAULT_PORT)
-    for bad in ("C0", "C4", "C7", "C3-L5", "c3"):  # C0 is the ai-worker container's job
+    args = guard_worker.parse_args(["--config", "C3", "--run", "r", *profile])
+    assert args.config == "C3"
+    assert (args.model_profile, args.port) == ("gpt-4o-mini", guard_worker.DEFAULT_PORT)
+    # C0 is the ai-worker container's job; C0T .. C3-ISO were removed from v3 by ADR-0017
+    for bad in ("C0", "C4", "C7", "C3-L5", "c3", "C0T", "C1", "C2", "C3-L1", "C3-ISO"):
         with pytest.raises(SystemExit):
             guard_worker.parse_args(["--config", bad, "--run", "r", *profile])
     with pytest.raises(SystemExit):
@@ -230,9 +230,9 @@ def test_a_config_runs_the_opt_in_judges_of_the_layers_it_runs() -> None:
     # runner's fingerprint) asks the same question the worker asked when it built its own.
     assert guard_build.live_guard_llm_stages("C3") == (True, True)
     assert guard_build.live_guard_llm_stages("c3") == (True, True)  # build_guard reads any case
-    assert guard_build.live_guard_llm_stages("C2") == (True, False)
-    for config in ("C0T", "C1"):
-        assert guard_build.live_guard_llm_stages(config) == (False, False)
+    for removed in ("C0T", "C1", "C2"):  # no v3 config since ADR-0017
+        with pytest.raises(ValueError, match="does not exist in scheme v3"):
+            guard_build.live_guard_llm_stages(removed)
 
 
 def test_a_retired_scheme_never_starts_a_worker(capsys: pytest.CaptureFixture[str]) -> None:
@@ -469,12 +469,12 @@ def test_a_restart_under_other_settings_is_refused(
     assert len(_meta(rig)["invocations"]) == 1
 
 
-def test_another_config_or_run_keeps_its_own_history(rig: Rig) -> None:
+def test_another_run_keeps_its_own_history(rig: Rig) -> None:
+    # C3 is the only guarded v3 config since ADR-0017, so a history is per run (and config).
     assert _start() == 0
-    assert _start(config="C1") == 0
     assert _start(run="r2") == 0
 
-    assert [len(_meta(rig, "C3")["invocations"]), len(_meta(rig, "C1")["invocations"])] == [1, 1]
+    assert len(_meta(rig, "C3")["invocations"]) == 1
     assert len(_meta(rig, "C3", run="r2")["invocations"]) == 1
 
 
@@ -605,19 +605,13 @@ def test_the_guard_is_built_for_the_config_on_the_runs_model(rig: Rig) -> None:
     assert call["audit_log_path"] == guard_worker.l5_log_path(rig.run_dir(), "C3")
 
 
-def test_each_config_gets_the_opt_in_judges_of_its_layers(rig: Rig) -> None:
+def test_the_full_guard_gets_every_opt_in_judge(rig: Rig) -> None:
+    # C3 is the only guarded v3 config since ADR-0017: it runs the Doc Scanner's and the Output
+    # Guard's judges.
     os.environ["BENCH_OPENAI_API_KEY"] = "sk-bench"
-    for config, stages in (
-        ("C0T", (False, False)),
-        ("C1", (False, False)),
-        ("C2", (True, False)),
-        ("C3-L2", (False, True)),
-        ("C3-L4", (True, False)),
-    ):
-        rig.built.clear()
-        assert _main("--config", config, "--run", "r1", "--model-profile", "gpt-4o-mini") == 0
-        (call,) = rig.built
-        assert (call["doc_llm"], call["output_llm"]) == stages, config
+    assert _main("--config", "C3", "--run", "r1", "--model-profile", "gpt-4o-mini") == 0
+    (call,) = rig.built
+    assert (call["doc_llm"], call["output_llm"]) == (True, True)
 
 
 def test_the_judge_fallback_mode_is_asked_for_and_fingerprinted(rig: Rig) -> None:

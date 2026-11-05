@@ -182,39 +182,14 @@ def test_unknown_preset_and_unknown_guard_model_fail_loudly(tmp_path: Path) -> N
         )
 
 
-def test_missing_l1_classifier_is_reported_for_guarded_presets_only(tmp_path: Path) -> None:
+def test_a_missing_l1_classifier_is_reported(tmp_path: Path) -> None:
+    # C3 is the only guarded v3 config since ADR-0017 (C0T, which needed no classifier, is gone).
     clf = tmp_path / "clf.joblib"
     guard = build_guard(
         "C3", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf
     )
     guard.pipeline.inbound_guard.classifier.pipeline = None  # what a missing joblib leaves behind
     assert "classifier" in guard.missing_live_stages()
-    c0t = build_guard(
-        "C0T", model_name="fake", audit_log_path=tmp_path / "b.jsonl", l1_model_path=clf
-    )
-    assert c0t.preset == "C0" and c0t.config == "C0T"
-    assert c0t.missing_live_stages() == []
-
-
-async def test_c0t_sends_the_guard_prompt_through_one_generation_call(tmp_path: Path) -> None:
-    # C0T (optional): AgentMailGuard's template with preset("C0"), no layer active.
-    executor, fake, _ = _executor("C0T", tmp_path)
-
-    execution = await executor.execute(_prepared(BENIGN))
-
-    assert len(fake.recorded_calls) == 1
-    sent = fake.recorded_calls[0]["messages"]
-    assert [m.role for m in sent] == ["system", "user"]
-    assert "[TASK]" in sent[1].content
-    record = execution.record
-    assert record["prompt_mode"] == "none"
-    assert record["blocked"] is False
-    assert record["generation"]["called"] is True
-    assert record["generation"]["calls"] == 1
-    assert record["generation"]["reply_v1"] == REPLY
-    assert record["final_draft"] == {"action": "reply", "body": REPLY["draft"]}
-    assert record["guard_llm"]["calls"] == 0
-    assert execution.guard_errors == ()
 
 
 async def test_c3_spotlights_a_benign_email_and_lets_it_through(tmp_path: Path) -> None:
@@ -230,7 +205,7 @@ async def test_c3_spotlights_a_benign_email_and_lets_it_through(tmp_path: Path) 
     assert execution.guard_errors == ()
 
 
-@pytest.mark.parametrize("preset", ["C0T", "C1", "C2", "C3"])
+@pytest.mark.parametrize("preset", ["C3"])  # the only guarded v3 config (ADR-0017)
 async def test_the_trusted_system_message_carries_the_reply_format_rules(
     preset: str, tmp_path: Path
 ) -> None:
@@ -331,18 +306,6 @@ async def test_the_record_of_a_delivered_draft_carries_the_guards_own_call_count
     assert record["guard_calls"]["doc_chunk"] == 0  # a case with no retrieved chunk scans none
     assert sum(record["guard_calls"].values()) <= 5  # the job ceiling (ADR-0015 decision 12)
     assert record["report"]["metadata"]["guard_calls"] == record["guard_calls"]
-
-
-async def test_a_guard_with_no_gate_and_no_layers_still_records_its_exit_point(
-    tmp_path: Path,
-) -> None:
-    executor, _, _ = _executor("C0T", tmp_path)  # the guard's template, nothing active
-
-    record = (await executor.execute(_prepared(BENIGN))).record
-
-    assert record["exit_point"] == "delivered"
-    assert record["carried_from_inbound"] is False  # no decided_by was written: never an error
-    assert sum(record["guard_calls"].values()) == 0
 
 
 async def test_a_rate_limited_guard_stage_raises_instead_of_degrading(tmp_path: Path) -> None:

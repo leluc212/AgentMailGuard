@@ -95,6 +95,7 @@ from evaluation.mailguard_bench.scheme import (
     V3_LAYERS,
     V3_TARGET_CONFIG,
     folder_scheme,
+    require_no_removed_v3_configs,
     scheme_of_meta,
     v3_ai_stage_names,
     v3_guard_preset,
@@ -117,14 +118,14 @@ from evaluation.mailguard_bench.scoring import (
 from packages.core.settings import AppSettings, ModelPricing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# C0 = rag-email native (no AgentMailGuard code); C0T = the guard's template with no layer;
-# C1, C2, C3 and the ablations C3-L1 .. C3-L4, C3-ISO are the guard v3 presets (scheme.py). C0 and
-# C0T are required baselines (B1 = a, b); a missing one is stated in the report, never refused.
+# C0 = rag-email native (no AgentMailGuard code), the required baseline; C3 = the full guard, the
+# guard v3 preset of that name (scheme.py). Since ADR-0017 these are the only v3 configs; a missing
+# C0 is stated in the report, never refused.
 ALL_CONFIGS = V3_CONFIGS
-ABLATION_CONFIGS = tuple(V3_ABLATIONS)
+ABLATION_CONFIGS = tuple(V3_ABLATIONS)  # empty since ADR-0017: no layer-ablation section
 # Same-run reference rows of the layer-ablation table, and what each removes from the guard.
 REFERENCE_REMOVED = {"C0": "all", "C3": "none"}
-BASELINES = ("C0", "C0T")  # each is paired against C3 with McNemar when both ran
+BASELINES = ("C0",)  # paired against C3 with McNemar when both ran
 AGENT = "ragemail"
 # Settings every compared config must share (spec Q6: "same model, same settings").
 # preset, guard, live_layers, guard_models and degraded_allowed differ by design. transport,
@@ -157,8 +158,8 @@ def degradation_problems(
 ) -> list[str]:
     """Why a guarded run would describe a weaker guard than its preset (empty when none).
 
-    A v3 config must be the guard preset of its name (``scheme.v3_guard_preset``: C0T is the
-    guard's empty ``C0``) with exactly its switches on (``scheme.V3_LAYERS``) and every stage it
+    A guarded v3 config (C3) must be the guard preset of its name (``scheme.v3_guard_preset``)
+    with exactly its switches on (``scheme.V3_LAYERS``) and every stage it
     needs live (``scheme.v3_required_stages``: the trained classifier and each judge of a layer it
     runs). C0 is rag-email's native path: no guard preset and no layer. C3 needs its run meta.
 
@@ -594,6 +595,7 @@ def build_report(
 
     Raises:
         FileNotFoundError: If the case file, case manifest or every raw file is missing.
+        ValueError: If ``raw/`` holds the rows of a config scheme v3 no longer has (ADR-0017).
     """
     cases = load_cases(run_dir / "cases.jsonl")
     manifest_path = run_dir / "case_manifest.json"
@@ -609,6 +611,7 @@ def build_report(
             f"{run_dir} is a scheme {scheme} run: the v3 reader never scores it "
             f"({LEGACY_READER_HINT})"
         )
+    require_no_removed_v3_configs(run_dir)  # rows of a removed config: refused, never dropped
     configs = [c for c in V3_CONFIGS if (run_dir / "raw" / f"{c}.jsonl").exists()]
     if not configs:
         raise FileNotFoundError(f"no raw/<config>.jsonl under {run_dir}")
@@ -699,7 +702,7 @@ def build_report(
     rag_retrieved = table(retrieved_ids, main_configs) if retrieved_ids else {}
     all_cases = table(set(cases), main_configs)
 
-    # Headline: C0 vs C3. C0T vs C3 is added whenever the C0T run exists.
+    # Headline: C0 vs C3, the only pair since ADR-0017 (no C0T run).
     paired: dict[str, dict[str, Any]] = {}
     for base in BASELINES:
         if base not in configs or "C3" not in configs:

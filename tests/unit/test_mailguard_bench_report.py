@@ -66,7 +66,8 @@ C0_META: dict[str, Any] = {
     "live_layers": None,
     "guard": {"active_layers": [], "live_stages": {}, "missing_live_stages": []},
 }
-# C0T is the guard's template with preset("C0"): an AgentMailGuard run with no layer active.
+# C0T was the guard's template with preset("C0"); ADR-0017 removed it from scheme v3. Its meta
+# stays to build a run folder of before ADR-0017, which the report must refuse.
 C0T_META: dict[str, Any] = {
     **C3_META,
     "preset": "C0T",
@@ -98,46 +99,24 @@ def test_degraded_guard_runs_are_refused() -> None:
     ]
     no_record = {**C3_META, "guard": {**C3_META["guard"], "live_stages": {}}}
     assert "(no live_stages recorded)" in degradation_problems("C3", no_record)[0]
-    # C2 runs no Output Guard, so its judge need not be live, but the meta must say what ran
-    c2 = {
-        **C3_META,
-        "guard_preset": "C2",
-        "guard": {
-            "active_layers": ["inbound_guard", "doc_scanner", "inbound_gate", "channel_isolation"],
-            "live_stages": {**V3_STAGES_LIVE, "output_judge": False},
-            "missing_live_stages": [],
-        },
-    }
-    assert degradation_problems("C2", c2) == []
-    assert degradation_problems("C2", {**c2, "guard_preset": "C3"}) == [
-        "C2: guard preset 'C3' is not 'C2'"
+    # C3 must be the guard's own C3 preset
+    assert degradation_problems("C3", {**C3_META, "guard_preset": "C2"}) == [
+        "C3: guard preset 'C2' is not 'C3'"
     ]
 
 
-def test_c0t_is_checked_as_a_guarded_config() -> None:
-    from evaluation.mailguard_bench.report import degradation_problems, settings_problems
+def test_a_removed_v3_config_is_not_checked_but_refused() -> None:
+    # ADR-0017: scheme v3 has C0 and C3 only, so a meta of C0T or C2 names no v3 config.
+    from evaluation.mailguard_bench.report import degradation_problems
 
-    assert degradation_problems("C0T", C0T_META) == []
-    assert degradation_problems("C0T", None) == []  # optional config: settings_problems asks
-    stage = {
-        **C0T_META,
-        "guard": {"active_layers": [], "missing_live_stages": ["inbound_extractor"]},
-    }
-    assert degradation_problems("C0T", stage) == ["C0T: guard stages not live: inbound_extractor"]
-    assert degradation_problems("C0T", {**C0T_META, "degraded_allowed": True}) == [
-        "C0T: started with --allow-degraded"
-    ]
-    # C0T must really be the guard template with no layer, C0 really the native path.
-    assert degradation_problems("C0T", {**C0T_META, "guard_preset": "C3"}) == [
-        "C0T: guard preset 'C3' is not 'C0'"
-    ]
-    layered = {
-        **C0T_META,
-        "guard": {"active_layers": ["inbound_guard"], "missing_live_stages": []},
-    }
-    assert degradation_problems("C0T", layered) == [
-        "C0T: active layers ['inbound_guard'] are not []"
-    ]
+    for removed in ("C0T", "C2"):
+        with pytest.raises(ValueError, match=f"config '{removed}' does not exist in scheme v3"):
+            degradation_problems(removed, {**C3_META, "preset": removed})
+
+
+def test_c0_is_checked_as_the_native_path() -> None:
+    from evaluation.mailguard_bench.report import degradation_problems
+
     assert degradation_problems("C0", C0_META) == []
     assert degradation_problems("C0", {**C0_META, "guard_preset": "C0"}) == [
         "C0: guard preset 'C0' ran, but C0 is rag-email's native path"
@@ -148,10 +127,6 @@ def test_c0t_is_checked_as_a_guarded_config() -> None:
     }
     assert degradation_problems("C0", guarded_c0) == [
         "C0: active layers ['inbound_guard'] are not []"
-    ]
-    assert settings_problems("C0T", C0T_META) == []
-    assert settings_problems("C0T", {**C0T_META, "guard_models": "fake"}) == [
-        "C0T: guard model 'fake' is not the generation model 'gemma-4-26b-a4b-it'"
     ]
 
 
@@ -208,8 +183,6 @@ def test_configs_with_other_settings_or_row_models_are_refused() -> None:
     metas = {"C0": C0_META, "C3": C3_META}
     same = {"C0": rows("gemma-4-26b-a4b-it"), "C3": rows("gemma-4-26b-a4b-it")}
     assert consistency_problems(metas, same) == []
-    with_c0t = {**metas, "C0T": C0T_META}
-    assert consistency_problems(with_c0t, same | {"C0T": rows("gemma-4-26b-a4b-it")}) == []
     newer = {"C0": C0_META, "C3": {**C3_META, "rag_email_commit": "f" * 40}}
     (problem,) = consistency_problems(newer, same)
     assert problem.startswith("configs ran with different rag_email_commit")
@@ -394,9 +367,8 @@ def test_build_report_writes_all_artifacts(tmp_path: Path) -> None:
     assert "Partial: 1 of 2 planned attacks scored (1 error excluded; none left to run)." in text
     assert "`attack-llmail-b`: HTTP 429" in text
     assert "C0 ASR (rag-email as it runs, no AgentMailGuard code): 100.0 %" in text
-    # B1 = a, b: C0T is required too; its absence is stated, never refused.
-    assert "C0T ASR: not run — the C0T vs C3 comparison" in text
-    assert "| LLMail-Inject C0T vs C3 |" not in text
+    # ADR-0017: C0 is the only baseline, so the report never mentions C0T.
+    assert "C0T" not in text
     assert "| LLMail-Inject C0 vs C3 |" in text
     assert "overlap the L1 classifier's training negatives" in text
     for name in (
@@ -413,22 +385,16 @@ def test_build_report_writes_all_artifacts(tmp_path: Path) -> None:
     assert manifest["git"]["agentmailguard"]["sha"] == "b" * 40
 
 
-def test_build_report_adds_c0t_columns_and_its_mcnemar_when_c0t_ran(tmp_path: Path) -> None:
-    harness, metrics, mailguard_dir = _amg_or_skip()
-    from evaluation.mailguard_bench.report import build_report
-
+def test_build_report_refuses_a_folder_with_rows_of_a_removed_config(tmp_path: Path) -> None:
+    # A run of before ADR-0017 (C0T here) restored from its zip: its rows are never dropped.
     run = _run_folder(tmp_path, with_c0t=True)
-    text = build_report(
-        run, harness=harness, metrics=metrics, prices=PRICES, mailguard_dir=mailguard_dir
-    ).read_text(encoding="utf-8")
 
-    assert "C0 ASR (rag-email as it runs, no AgentMailGuard code): 100.0 %" in text
-    assert "C0T ASR (AgentMailGuard's prompt template, no layer active): 50.0 %" in text
-    assert "| Metric | C0 | C0T | C3 |" in text
-    assert "| LLMail-Inject C0 vs C3 |" in text and "| LLMail-Inject C0T vs C3 |" in text
-    summary = json.loads((run / "summary.json").read_text("utf-8"))
-    assert set(summary["paired"]) == {"LLMail-Inject C0 vs C3", "LLMail-Inject C0T vs C3"}
-    assert (run / "ragemail__C0T.jsonl").exists()
+    with pytest.raises(ValueError, match=r"raw/C0T\.jsonl.*ADR-0017") as caught:
+        _build(run)
+
+    assert "4fe2ec3f83a64908f2830c268d2371c28d193cbd" in str(caught.value)
+    assert not (run / "report.md").exists()
+    assert not (run / "ragemail__C0.jsonl").exists()  # refused before anything is scored
 
 
 # --- build_report / main refuse bad runs (Review Focus 1). These run in CI: with empty raw
@@ -516,6 +482,25 @@ def test_report_main_prints_fail_and_exits_1_for_a_weakened_run(
     assert code == 1
     err = capsys.readouterr().err
     assert err.startswith("FAIL refusing to score a weakened guard run")
+    assert not (run / "report.md").exists()
+
+
+def test_report_main_prints_fail_and_exits_1_for_rows_of_a_removed_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import ModuleType
+
+    from evaluation.mailguard_bench import report
+
+    monkeypatch.setattr(report, "load_amg_harness", lambda _d: ModuleType("stub_harness"))
+    monkeypatch.setattr(report, "load_amg_metrics", lambda _d: ModuleType("stub_metrics"))
+    run = _empty_run(tmp_path, {"C0": C0_META, "C3": C3_META, "C3-L1": C3_META})
+
+    code = report.main(["--run-dir", str(run), "--mailguard-dir", str(tmp_path)])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL ") and "raw/C3-L1.jsonl" in err
     assert not (run / "report.md").exists()
 
 

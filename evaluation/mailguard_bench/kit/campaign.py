@@ -64,7 +64,7 @@ and a config the kit log says is finished is not started again). One JSON line p
 ``<run>/kit-log.jsonl``.
 
 Config names are not checked here: ``live.run`` and ``guard_worker`` validate them, so the
-scheme of the configs (``scheme.V3_DEFAULT_CAMPAIGN``) stays in one
+scheme of the configs (``scheme.V3_DEFAULT_CAMPAIGN``, C0 and C3 since ADR-0017) stays in one
 place. Model profiles are whatever ``model_profiles.PROFILES`` holds: the kit has no model list
 and no route of its own.
 """

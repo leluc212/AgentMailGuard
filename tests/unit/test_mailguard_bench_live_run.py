@@ -70,7 +70,7 @@ def test_the_live_runner_takes_the_documented_options() -> None:
 def test_every_option_can_be_set() -> None:
     args = parse_args(
         [
-            "--config", "C0T", "--run", "r", "--model-profile", "gpt-4o-mini", "--limit", "5",
+            "--config", "C3", "--run", "r", "--model-profile", "gpt-4o-mini", "--limit", "5",
             "--concurrency", "2", "--case-timeout-s", "120", "--retry-errors",
             "--allow-degraded", "--allow-dirty", "--api-url", "http://api.test:8000",
         ]
@@ -87,6 +87,8 @@ def test_every_option_can_be_set() -> None:
         ["--config", "C3", "--model-profile", "qwen2.5-7b"],  # no run
         ["--config", "C3", "--run", "r"],  # the live model must be named: one model per run
         ["--config", "C9", "--run", "r", "--model-profile", "qwen2.5-7b"],
+        ["--config", "C0T", "--run", "r", "--model-profile", "qwen2.5-7b"],  # gone (ADR-0017)
+        ["--config", "C3-L1", "--run", "r", "--model-profile", "qwen2.5-7b"],  # gone (ADR-0017)
         ["--config", "C3", "--run", "r", "--model-profile", "no-such-model"],
         ["--config", "C3", "--run", "r", "--model-profile", "qwen2.5-7b", "--concurrency", "3"],
     ],
@@ -1127,7 +1129,7 @@ def test_c0_has_no_guard_stages_but_its_fingerprint_is_still_complete() -> None:
 
 def test_every_v3_config_records_the_full_case_set() -> None:
     # Scheme v1 ran C1/C2 on the ablation subset; v3 runs every config on every pinned case.
-    for config in ("C1", "C2", "C3-L1"):
+    for config in scheme.V3_CONFIGS:
         assert _meta(config)["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
 
 

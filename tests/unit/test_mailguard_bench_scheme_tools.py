@@ -43,7 +43,7 @@ def write_run(tmp_path: Path, configs: tuple[str, ...], *, meta_scheme: str | No
     return run
 
 
-V3_RUN_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
+V3_RUN_CONFIGS = ("C0", "C3")  # every v3 config since ADR-0017
 
 
 async def test_the_meaning_reader_reads_every_config_of_a_v3_run(tmp_path: Path) -> None:
@@ -67,6 +67,27 @@ async def test_the_meaning_reader_of_a_v3_run_leaves_out_a_stray_v1_config_file(
     summaries = await run_meaning(run, reader=reader)
 
     assert set(summaries) == {"C0", "C3"}
+
+
+@pytest.mark.parametrize("removed", ["C0T", "C1", "C3-ISO"])
+async def test_the_meaning_reader_refuses_a_v3_run_with_rows_of_a_removed_config(
+    tmp_path: Path, removed: str
+) -> None:
+    # ADR-0017: a run of before the decision is never read without its removed configs.
+    run = write_run(tmp_path, ("C0", "C3", removed), meta_scheme="v3")
+    _provider, reader = fake_reader(responder=verdict_by_marker())
+
+    with pytest.raises(ValueError, match=rf"raw/{removed}\.jsonl.*ADR-0017"):
+        await run_meaning(run, reader=reader)
+
+    assert not (run / "analysis").exists()
+
+
+def test_the_analyses_refuse_a_v3_run_with_rows_of_a_removed_config(tmp_path: Path) -> None:
+    run = write_run(tmp_path, ("C0", "C3", "C3-L2"), meta_scheme="v3")
+
+    with pytest.raises(ValueError, match=r"raw/C3-L2\.jsonl"):
+        analyses.acceptance_problems(run)
 
 
 @pytest.mark.parametrize("scheme", [None, "v1", "v2"])

@@ -4,14 +4,15 @@ Three schemes use the same config names for different things. A run records its 
 meta and in its settings fingerprint, and a run folder never mixes them.
 
     v3  the guard v3 configs (ADR-0015, plan_v3 Task 12), the only scheme a run at HEAD takes.
-        The names are the guard's own presets (``GuardConfig.preset``), plus the two baselines:
+        Since ADR-0017 it has two configs, named like the guard's own presets
+        (``GuardConfig.preset``):
 
-        C0     no guard (rag-email's own prompt)      C3-L1  C3 without the L1 Inbound Guard
-        C0T    the guard's prompt template, no layer  C3-L2  C3 without the L2 Doc Scanner
-        C1     L1 Inbound Guard + L3 Inbound Gate     C3-L3  C3 without the L3 Inbound Gate
-        C2     C1 + L2 Doc Scanner + isolation        C3-L4  C3 without the L4 Output Guard
-        C3     the full guard                         C3-ISO C3 without channel isolation
+        C0     no guard (rag-email's own prompt)
+        C3     the full guard
 
+        The other v3 configs (C0T, C1, C2, C3-L1 .. C3-L4, C3-ISO) are no longer run; the guard
+        keeps its presets of those names, the benchmark never builds them, and a run folder whose
+        raw/ holds one of them is refused (``require_no_removed_v3_configs``).
         Every judge of a layer the config runs is live (``V3_AI_STAGES``). A judge that fails
         or answers outside its schema fails closed (``MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR``)
         unless the run asks for the v2 fallback (``--judge-fallback``, to compare with v2).
@@ -115,29 +116,24 @@ V3_SWITCHES = ("inbound_guard", "doc_scanner", "inbound_gate", "output_guard", "
 _V3_FULL = V3_SWITCHES
 V3_LAYERS: dict[str, tuple[str, ...]] = {
     "C0": (),  # rag-email's own path: no guard code runs at all
-    "C0T": (),  # the guard's template, nothing active (GuardConfig.preset("C0"))
-    "C1": ("inbound_guard", "inbound_gate"),
-    "C2": ("inbound_guard", "doc_scanner", "inbound_gate", "channel_isolation"),
     "C3": _V3_FULL,
-    "C3-L1": tuple(s for s in _V3_FULL if s != "inbound_guard"),
-    "C3-L2": tuple(s for s in _V3_FULL if s != "doc_scanner"),
-    "C3-L3": tuple(s for s in _V3_FULL if s != "inbound_gate"),
-    "C3-L4": tuple(s for s in _V3_FULL if s != "output_guard"),
-    "C3-ISO": tuple(s for s in _V3_FULL if s != "channel_isolation"),
 }
-"""The switches each v3 config turns on: exactly ``GuardConfig.preset`` of its guard preset."""
+"""The switches each v3 config turns on: exactly ``GuardConfig.preset`` of its guard preset.
+
+Only C0 and C3 since ADR-0017; re-enabling a config is adding it back here (and an ablation to
+``V3_ABLATIONS``)."""
 V3_CONFIGS = tuple(V3_LAYERS)
 V3_TARGET_CONFIG = "C3"
-V3_ABLATIONS: dict[str, str] = {
-    "C3-L1": "inbound_guard",
-    "C3-L2": "doc_scanner",
-    "C3-L3": "inbound_gate",
-    "C3-L4": "output_guard",
-    "C3-ISO": "channel_isolation",
-}
-"""The switch each v3 ablation turns off (the guard's ``GuardConfig.ABLATIONS``)."""
-V3_DEFAULT_CAMPAIGN = tuple(c for c in V3_CONFIGS if c != "C0T")
-"""The configs of the v3 live benchmark (plan_v3 Task 16); C0T runs when asked for."""
+V3_ABLATIONS: dict[str, str] = {}
+"""The switch each v3 ablation turns off: none since ADR-0017 (the guard's ``GuardConfig.ABLATIONS``
+still has its five; the benchmark runs none of them)."""
+V3_DEFAULT_CAMPAIGN = V3_CONFIGS
+"""The configs of the v3 live benchmark: every v3 config, C0 then C3 (ADR-0017)."""
+V3_REMOVED_CONFIGS = ("C0T", "C1", "C2", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
+"""The v3 configs ADR-0017 removed. Their rows in a v3 run folder are refused, not skipped."""
+V3_FULL_CAMPAIGN_COMMIT = "4fe2ec3f83a64908f2830c268d2371c28d193cbd"
+"""The last commit whose scheme v3 also had ``V3_REMOVED_CONFIGS`` (ADR-0017): the reports of a
+run folder holding those configs are rebuilt from a checkout of it."""
 V3_LAYER_JUDGES: dict[str, tuple[str, ...]] = {
     "inbound_guard": ("inbound_judge", "inbound_extractor"),
     "doc_scanner": ("doc_judge", "doc_set_judge"),
@@ -221,7 +217,7 @@ def live_configs_for(scheme: str) -> tuple[str, ...]:
 
     v1's remove-one ablation (C3-L1 .. C3-L5) is in-process only: its presets switch L3b's and
     L4's AI stages off, so a live one would be a weaker guard than live C3 and was never designed.
-    v3's ablations run live with every judge of the layers they keep (``V3_AI_STAGES``).
+    v3 runs both its configs (C0 and C3) live, C3 with every judge (``V3_AI_STAGES``).
 
     Raises:
         ValueError: If ``scheme`` is not one of ``SCHEMES``.
@@ -250,7 +246,7 @@ def target_config(scheme: str) -> str:
 
 
 def v3_guard_preset(config: str) -> str:
-    """The ``GuardConfig.preset`` a guarded v3 config builds: its own name, C0T the empty ``C0``.
+    """The ``GuardConfig.preset`` a guarded v3 config builds: its own name (C3).
 
     Raises:
         ValueError: If ``config`` is the native path (no guard) or not a v3 config.
@@ -258,7 +254,36 @@ def v3_guard_preset(config: str) -> str:
     if config == "C0":
         raise ValueError("C0 is rag-email's native path and has no guard config")
     require_config(SCHEME_V3, config)
-    return "C0" if config == "C0T" else config
+    return config
+
+
+def removed_v3_raw_configs(run_dir: Path) -> list[str]:
+    """The configs of ``V3_REMOVED_CONFIGS`` whose ``raw/<config>.jsonl`` is in ``run_dir``.
+
+    Any other file is left to the readers as before: a stray file of another name (a v1 config,
+    an ``audit__<config>.jsonl``) is not one of the configs they read.
+    """
+    return [c for c in V3_REMOVED_CONFIGS if (run_dir / "raw" / f"{c}.jsonl").exists()]
+
+
+def require_no_removed_v3_configs(run_dir: Path) -> None:
+    """Refuse a v3 run folder that holds the rows of a config ADR-0017 removed from scheme v3.
+
+    Before ADR-0017 scheme v3 also had C0T, C1, C2 and the ablations, and the report scored their
+    rows. In a restored ``raw/`` they would now be skipped without a word, and the rewritten
+    report would lose them.
+
+    Raises:
+        ValueError: Naming the files, the v3 configs and the commit to rebuild the run from.
+    """
+    removed = removed_v3_raw_configs(run_dir)
+    if removed:
+        files = ", ".join(f"raw/{name}.jsonl" for name in removed)
+        raise ValueError(
+            f"{run_dir} holds rows of configs that scheme v3 no longer has ({files}; its "
+            f"configs are {', '.join(V3_CONFIGS)}, ADR-0017). Rebuild that run's reports from a "
+            f"checkout of commit {V3_FULL_CAMPAIGN_COMMIT}, which still has them"
+        )
 
 
 def v3_llm_stages(config: str) -> tuple[bool, bool]:

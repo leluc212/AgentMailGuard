@@ -121,7 +121,8 @@ def test_the_worker_count_reaches_the_runner_as_an_argument_only() -> None:
     assert "--concurrency 2" in dry_run
 
 
-V3_CONFIGS = ("C0", "C0T", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
+V3_CONFIGS = ("C0", "C3")  # ADR-0017
+REMOVED_V3_CONFIGS = ("C0T", "C1", "C2", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO")
 
 
 def test_the_bench_target_defaults_to_scheme_v3_and_accepts_its_configs() -> None:
@@ -172,7 +173,10 @@ def _config_check_exit(config: str, scheme: str = "v3") -> int:
 def test_the_config_check_lets_the_v3_configs_through_and_only_those() -> None:
     for config in V3_CONFIGS:
         assert _config_check_exit(config) == 0, config
-    for config in ("C3-L5", "C3-L3B", "C3-L6", "C3-l1", "C3-", "C4", "C7", "C8", "C0t", ""):
+    for config in (
+        *("C3-L5", "C3-L3B", "C3-L6", "C3-l1", "C3-", "C4", "C7", "C8", "C0t", ""),
+        *REMOVED_V3_CONFIGS,
+    ):
         assert _config_check_exit(config) == 2, config
     for retired in ("v1", "v2"):  # the runner refuses these, naming the guard commit
         assert _config_check_exit("C3", retired) == 0, retired
@@ -193,11 +197,12 @@ def _usage(*args: str) -> str:
 
 
 def test_the_bench_target_rejects_other_configs_and_its_usage_names_every_config() -> None:
-    for args in (["CONFIG=C3-L5"], ["CONFIG=C4"], ["CONFIG=C8"], ["SCHEME=v4"]):
+    for args in (["CONFIG=C3-L5"], ["CONFIG=C4"], ["CONFIG=C8"], ["CONFIG=C1"], ["SCHEME=v4"]):
         usage = _usage(*args)
         assert usage.startswith("usage: make mailguard-bench")
         for config in V3_CONFIGS:
             assert config in usage, (args, config)
+        assert "CONFIG=C0|C3 " in usage  # and no other config (ADR-0017)
         assert "JUDGE_FALLBACK=1" in usage
         assert "python -m evaluation" not in usage  # rejected before anything runs
 

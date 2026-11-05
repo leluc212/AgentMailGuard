@@ -119,9 +119,9 @@ def require_live(
     missing classifier only logs a warning, so without this check a mis-set model name or a
     skipped prep step would report a weaker C3 than the real guard.
 
-    Only the layers the preset runs are checked (``layers.active_layers``): C3-L1 has no
-    Inbound Guard judge, C3-L2 no Doc Scanner judge. The classifier is needed wherever the
-    Inbound Guard or the Doc Scanner runs.
+    Only the layers the preset runs are checked (``layers.active_layers``): a preset without the
+    Inbound Guard needs none of its judges, one without the Doc Scanner none of that layer's.
+    The classifier is needed wherever the Inbound Guard or the Doc Scanner runs.
     """
     expected = f"OpenAIProvider:{model_name}"
     active = set(layers.active_layers)
