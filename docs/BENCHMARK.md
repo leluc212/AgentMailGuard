@@ -11,8 +11,9 @@ real-world observations. Source labels remain available for separate reporting.
 The historical manifest key `llmail_benign` now includes both benign sources.
 The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
 
-Nine default configs give 16,200 case runs per model; optional C0T raises this to
-18,000. Earlier 550-case timing/cost estimates below describe the old dataset
+The two v3 configs (C0 and C3, ADR-0017) give 3,600 case runs per model (until
+ADR-0017 there were nine default configs, 16,200 case runs). Earlier 550-case
+timing/cost estimates below describe the old dataset
 and should not be used for this expansion. Existing run folders keep their own pins;
 use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
 
@@ -20,7 +21,7 @@ Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
 `python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
 Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
 
-This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and the configs are `C0`, `C0T`, `C1`, `C2`, `C3`, `C3-L1` to `C3-L4` and `C3-ISO` (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and have **not been re-measured for v3** (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
+This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and since ADR-0017 the configs are `C0` (rag-email alone) and `C3` (the full guard) only (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and for nine configs, and have **not been re-measured for v3** or for the two configs of ADR-0017 (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
 
 ```
   Windows 11 Home laptop
@@ -370,12 +371,12 @@ make bench-run MODEL=qwen2.5-7b-openrouter RUN=2026-10-02-qwen25-openrouter-live
 make bench-run MODEL=llama-3.1-8b-openrouter RUN=2026-10-02-llama31-openrouter-live CONCURRENCY=2
 ```
 
-`CONCURRENCY=2` for all three; never more. The configs default to the v3 campaign `C0, C1, C2, C3, C3-L1, C3-L2, C3-L3, C3-L4, C3-ISO` (`C0` is rag-email alone; `C1` the L1 Inbound Guard with the L3 Inbound Gate; `C2` adds the L2 Doc Scanner and channel isolation; `C3` is the full guard, the target; `C3-L1` to `C3-L4` are C3 without one layer; `C3-ISO` is C3 without channel isolation). `C0T` (the guard's reply template with no layer active) is valid and runs only when asked for. A judge that fails fails closed (human review, `judge_invalid:<stage>`). `make bench-run` has no `JUDGE_FALLBACK` option (the visible v2 fallback exists only for `make mailguard-bench`). `CONFIGS=C0,C3` runs only those, `LIMIT=5` runs only the first five cases of each config, and `CASE_IDS=<id>,<id>,...` runs only those cases of each config (a trial, below; its `RUN` must start with `trial`).
+`CONCURRENCY=2` for all three; never more. The configs default to the v3 campaign `C0, C3` (`C0` is rag-email alone; `C3` is the full guard, the target). They are the only v3 configs since ADR-0017: `C0T`, `C1`, `C2`, `C3-L1` to `C3-L4` and `C3-ISO` are refused. A judge that fails fails closed (human review, `judge_invalid:<stage>`). `make bench-run` has no `JUDGE_FALLBACK` option (the visible v2 fallback exists only for `make mailguard-bench`). `CONFIGS=C0` or `CONFIGS=C3` runs only that one, `LIMIT=5` runs only the first five cases of each config, and `CASE_IDS=<id>,<id>,...` runs only those cases of each config (a trial, below; its `RUN` must start with `trial`).
 
 **Do a small trial first**, under a throwaway name, and read what it says. It runs one LLMail attack, one benign email and one RAG case, so it also uploads (and embeds) the RAG case's knowledge documents:
 
 ```bash
-make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
+make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
 ```
 
 It costs a few calls. `CASE_IDS` only picks cases the config runs anyway; the pinned case file and the full run's selection are not changed, and the kit refuses it unless `RUN` starts with `trial`. Do the same for each OpenRouter model before its run, after its canary (`RUN=trial-qwen` and `RUN=trial-llama`, with its `MODEL=`), and run the report of one trial with your reader (`make bench-report RUN=trial-gpt READER=<your reader model>`, with the `LLM__` words of D7) so the reader's endpoint is tried once.
@@ -391,7 +392,7 @@ This prints one line per case of the trial (no key, no email text):
 
 ```bash
 RUN=trial-gpt
-for c in C0 C0T C3; do python3 -c "
+for c in C0 C3; do python3 -c "
 import json, sys
 latest = {}
 for line in open(sys.argv[1]):
@@ -698,7 +699,7 @@ ollama run llama3.1:8b "Reply with OK"
 make bench-run MODEL=llama-3.1-8b-local RUN=<date>-llama31-local-live CONCURRENCY=1
 ```
 
-Do a small trial first for each local model too (D4), after loading it: `make bench-run MODEL=qwen2.5-7b RUN=trial-qwen CONFIGS=C0,C0T,C3 LIMIT=5 CONCURRENCY=1`. A local model answers slowly (about 10 s per case on the owner's desktop), so the trial is a few minutes, not seconds.
+Do a small trial first for each local model too (D4), after loading it: `make bench-run MODEL=qwen2.5-7b RUN=trial-qwen CONFIGS=C0,C3 LIMIT=5 CONCURRENCY=1`. A local model answers slowly (about 10 s per case on the owner's desktop), so the trial is a few minutes, not seconds.
 
 ---
 
