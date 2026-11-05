@@ -1,5 +1,7 @@
 # Biểu đồ dùng cho bài báo (bản chính thức)
 
+> **Audit update — 26 October 2026:** See [the audited figure pack and findings](../audit-2026-10-26/audit.md). It separates pipeline and drafting-stage rates, clarifies benign-output proxies, and recalculates intervals from counts. This older set is preserved for comparison. The new source-breakdown chart remains provisional pending missing raw records; neither pack establishes a full raw-level re-score.
+
 Ngày: 21/10/2026. Chỉ dùng biểu đồ trong thư mục `final/`. Các thư mục khác trong `paper/figures/` là bản cũ, xem mục 6.
 
 ## 1. Bốn bộ biểu đồ

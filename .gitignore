@@ -94,6 +94,7 @@ evaluation/results/mailguard_bench/*/ragemail__*.jsonl
 evaluation/results/mailguard_bench/canary/
 
 # OS specific
+.chart-deps/
 .DS_Store
 Thumbs.db
 
