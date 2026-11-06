@@ -112,11 +112,13 @@ from evaluation.mailguard_bench.scheme import (
     V3_DEFAULT_CAMPAIGN,
     SchemeMixError,
     folder_scheme,
+    live_configs_for,
 )
 
 # The configs of the v3 live benchmark (plan_v3 Task 16): the scheme's own list (ADR-0012
-# decision 11), never a copy. The kit accepts any list (--configs); live.run and guard_worker
-# validate the names, and both run the default scheme (v3), the only one HEAD runs.
+# decision 11), never a copy. The kit refuses a --configs name the default scheme (v3) cannot run
+# live before anything starts (ADR-0017: C0 and C3 only), so a removed config never costs a
+# finished C0 run; live.run and guard_worker check the names again.
 DEFAULT_CONFIGS = V3_DEFAULT_CAMPAIGN
 TRIAL_PREFIX = "trial"
 """What the RUN of a trial over chosen cases (``--case-ids``) must start with: never a result."""
@@ -602,6 +604,13 @@ class _Campaign:
             problems.append("no configs given")
         if len(set(opts.configs)) != len(opts.configs):
             problems.append(f"a config is listed twice: {', '.join(opts.configs)}")
+        live = live_configs_for(DEFAULT_SCHEME)
+        unknown = [c for c in opts.configs if c not in live]
+        if unknown:
+            problems.append(
+                f"{', '.join(unknown)}: not a config of scheme {DEFAULT_SCHEME}; its configs are "
+                f"{', '.join(live)} (ADR-0017)"
+            )
         if opts.concurrency not in (1, 2):
             problems.append("--concurrency must be 1 or 2")
         if opts.limit is not None and opts.limit < 1:
