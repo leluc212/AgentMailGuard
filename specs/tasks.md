@@ -1005,6 +1005,7 @@
 - [~] **7.33 The v3 benchmark runs C0 and C3 only**
   - Decision: ADR-0017 (owner, 2026-11-05; plan `implementation_plan.md`). Scheme v3 keeps `C0` (rag-email alone) and `C3` (the full guard); `C0T`, `C1`, `C2`, `C3-L1` to `C3-L4` and `C3-ISO` are removed from the benchmark and refused by every v3 entry point. The default campaign is `C0, C3` (2 x 1,800 case runs per model).
   - Scope: root `evaluation/mailguard_bench` only (`scheme.py`, the report's single baseline, the refusal of `raw/` files of removed configs in the report, the meaning reader and the analyses), the `mailguard-bench` Make target, the tests and the guides. `agentmailguard/` is not changed, so the guard pin (`d95e542`) and its tree hash stay; schemes v1/v2 and the legacy reader are not changed.
+  - Follow-up 2026-11-06: the teammate kit (`make bench-run CONFIGS=...`, `kit/campaign.py`) also refuses a config scheme v3 does not have, before anything starts; before this it planned the list as given, so C0 could run and be billed before the removed config's guard-worker refused. Benchmark data overlaps found the same day are recorded in `docs/benchmark-data-leaks-2026-11-06.md` (not yet fixed).
   - Left open: the live run itself (7.31).
   - _Requirements: R22.12_
 
