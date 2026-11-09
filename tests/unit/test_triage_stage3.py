@@ -19,9 +19,11 @@ from packages.domain.entities import EmailAddress, NormalizedMessage
 from packages.domain.rules import EmailContext
 from packages.llm.client import HttpLLMProvider
 from packages.llm.fake import FakeLLMProvider
-from packages.llm.protocol import LLMTimeoutError, ModelTier
+from packages.llm.protocol import LLMSchemaValidationError, LLMTimeoutError, ModelTier
 from services.triage_worker.llm_classifier import (
     CANONICAL_CATEGORIES,
+    REASONING_MAX_CHARS,
+    TRIAGE_MAX_TOKENS,
     LLMTriageClassifier,
     LLMTriageOutput,
     prepare_triage_prompt,
@@ -347,6 +349,54 @@ class TestStrictResponseSchema:
 
     def test_schema_meets_the_strict_mode_rules(self) -> None:
         assert strict_mode_violations(LLMTriageOutput.model_json_schema()) == []
+
+    def test_category_is_an_enum_of_the_canonical_categories_on_the_wire(self) -> None:
+        """Task 7.35, R6.4: strict decoding can only emit a listed category.
+
+        The 2026-10-19 Qwen runs invented ``automation_notification`` for a free-string field,
+        which the validator rejected, so those emails fell to the R6.11 safe default.
+        """
+        category = LLMTriageOutput.model_json_schema()["properties"]["category"]
+        assert category["type"] == "string"
+        assert category["enum"] == sorted(CANONICAL_CATEGORIES)
+        assert len(category["enum"]) == 9
+
+    def test_reasoning_has_no_keyword_strict_mode_does_not_support(self) -> None:
+        """OpenAI strict mode supports only ``pattern`` and ``format`` for strings (task 7.35)."""
+        reasoning = LLMTriageOutput.model_json_schema()["properties"]["reasoning"]
+        variants = reasoning.get("anyOf", [reasoning])
+        for variant in variants:
+            assert not {"maxLength", "minLength"} & set(variant), variant
+        assert str(REASONING_MAX_CHARS) in reasoning["description"]
+
+    def test_the_validator_still_catches_a_provider_that_ignores_the_enum(self) -> None:
+        with pytest.raises(ValidationError, match="not recognized"):
+            LLMTriageOutput.model_validate({**STRICT_ANSWER, "category": "automation_notification"})
+
+    def test_the_output_budget_covers_the_longest_answer_seen(self) -> None:
+        """219 tokens was the longest successful answer of the 2026-10-19 runs (task 7.35)."""
+        assert TRIAGE_MAX_TOKENS >= 300
+        assert LLMTriageClassifier()._max_tokens == TRIAGE_MAX_TOKENS
+
+    @pytest.mark.asyncio
+    async def test_a_failure_logs_the_providers_stop_reason(
+        self, sample_context: EmailContext, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A cut answer says whether it hit max_tokens (task 7.35)."""
+
+        class CutProvider(FakeLLMProvider):
+            async def generate(self, **kwargs: Any) -> Any:  # type: ignore[override]
+                raise LLMSchemaValidationError(
+                    "Failed to parse structured JSON",
+                    raw_content='{"category": "sup',
+                    finish_reason="length",
+                )
+
+        classifier = LLMTriageClassifier(provider=CutProvider(), fallback_on_error=True)
+        with caplog.at_level("WARNING"):
+            result = await classifier.classify(sample_context)
+        assert result.decided_by == "default"
+        assert "finish_reason=length" in caplog.text
 
     def test_root_is_an_object_not_a_union(self) -> None:
         schema = LLMTriageOutput.model_json_schema()

@@ -63,6 +63,13 @@ Routing guidelines:
 """
 
 
+REASONING_MAX_CHARS = 160
+"""The length ``reasoning`` is asked to stay under (task 7.35), in its description only."""
+TRIAGE_MAX_TOKENS = 400
+"""Stage-3 output budget (task 7.35). The longest successful answer of the 2026-10-19 runs was
+219 tokens (Llama-3.1-8B); 250 left a long ``reasoning`` cut mid-string (unparseable JSON)."""
+
+
 def _strict_wire_schema(schema: dict[str, Any]) -> None:
     """Shape the generated schema for OpenAI Structured Outputs, ``strict: true`` (R6.1, R6.3).
 
@@ -70,10 +77,22 @@ def _strict_wire_schema(schema: dict[str, Any]) -> None:
     and a ``default``. The optional values (``priority``, ``reasoning``) are therefore required and
     nullable on the wire, while parsing stays lenient: extra keys are ignored and a null or
     omitted priority is the default.
+
+    ``category`` is an ``enum`` of the canonical categories on the wire (task 7.35, R6.4): with
+    strict mode the provider then decodes only a listed value. A free string let a model invent
+    one (``automation_notification``) that the validator below rejected, so the email fell to the
+    R6.11 safe default. The validator stays: a provider that ignores the schema is still caught,
+    and an alias is still normalised.
+
+    ``reasoning`` gets no ``maxLength``: OpenAI's Structured Outputs guide lists only ``pattern``
+    and ``format`` as supported string keywords, and a strict schema with an unsupported keyword
+    is refused, so its length is asked for in the description and bounded by
+    ``TRIAGE_MAX_TOKENS`` instead.
     """
     properties: dict[str, Any] = schema["properties"]
     for prop in properties.values():
         prop.pop("default", None)
+    properties["category"]["enum"] = sorted(CANONICAL_CATEGORIES)
     schema["required"] = list(properties)
     schema["additionalProperties"] = False
 
@@ -105,7 +124,7 @@ class LLMTriageOutput(BaseModel):
     )
     reasoning: str | None = Field(
         default=None,
-        description="Brief justification for the classification decision",
+        description=f"Brief justification, at most {REASONING_MAX_CHARS} characters",
     )
 
     @field_validator("category")
@@ -154,7 +173,7 @@ class LLMTriageClassifier:
         provider: LLMProvider | None = None,
         tier: ModelTier = ModelTier.FAST,
         fallback_on_error: bool = False,
-        max_tokens: int = 250,
+        max_tokens: int = TRIAGE_MAX_TOKENS,
         temperature: float = 0.0,
     ) -> None:
         self._provider = provider or HttpLLMProvider()
@@ -259,7 +278,12 @@ class LLMTriageClassifier:
 
         except Exception as exc:
             elapsed_ms = max(1, int((time.perf_counter() - start_time) * 1000))
-            logger.warning("Stage 3 LLM triage classification failed: %s", exc)
+            # The stop reason says whether a cut answer hit max_tokens (task 7.35): the
+            # 2026-10-19 logs could not tell a length stop from a provider cut.
+            finish = getattr(exc, "finish_reason", None)
+            logger.warning(
+                "Stage 3 LLM triage classification failed (finish_reason=%s): %s", finish, exc
+            )
             if self._fallback_on_error:
                 return self.safe_default(error_message=str(exc), latency_ms=elapsed_ms)
             if isinstance(exc, (LLMError, ValueError)):

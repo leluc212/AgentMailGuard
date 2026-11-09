@@ -1009,6 +1009,12 @@
   - Left open: the live run itself (7.31).
   - _Requirements: R22.12_
 
+- [~] **7.35 Triage stage 3: category enum on the wire, larger output budget**
+  - Decision: ADR-0018 (owner, 2026-11-09). The 2026-10-19 runs lost Qwen2.5-7B cases to an invented category (`automation_notification`, 128 rejections in C3) and Llama-3.1-8B cases to answers cut inside `reasoning`; both fell to the R6.11 safe default and were excluded as `triage_stage_failure` rows.
+  - Done: `category` is an `enum` of the nine canonical categories in the strict schema; `TRIAGE_MAX_TOKENS` 400 (was 250); `reasoning` asked to stay under 160 characters (no `maxLength`: OpenAI strict mode supports only `pattern` and `format` for strings); a failed call logs `finish_reason`. Unit tests in `tests/unit/test_triage_stage3.py`.
+  - Left: confirm on the live run that the triage rejections are gone (count `not recognized` and `Unterminated string` in `services.<config>.log`).
+  - _Requirements: R6.1, R6.3, R6.4, R6.11_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
