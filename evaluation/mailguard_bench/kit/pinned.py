@@ -1,6 +1,6 @@
 """The pinned benchmark inputs and their verification (task 7.25; R22.12).
 
-The teammate does not rebuild the 1,800 benchmark cases (``make mailguard-cases``) or train the L1
+The teammate does not rebuild the 2,143 benchmark cases (``make mailguard-cases``) or train the L1
 classifier (``make mailguard-prep``): both are pinned here by sha256. The case set and its
 companions are committed. The classifier is **not**: ADR-0012 decision 15 keeps it out of git
 (42 % of its training rows come from a dataset that declares no license), so the owner sends the
@@ -45,14 +45,17 @@ class PinnedSpec:
 
 PINNED_DIR = Path("evaluation/mailguard_bench/pinned")
 PINNED = PinnedSpec(
+    # ADR-0019 (task 7.36): the 2,143-case set built from partition_v1.json, and the classifier
+    # retrained on the L1 corpus without the benchmark's 500 Enron emails. The 1,800-case set
+    # (df350223...) and the classifier 8fc1cbe7... of the 2026-10-19 runs are no longer pinned.
     cases=PinnedFile(
-        Path("evaluation/datasets/mailguard/cases.jsonl"),
-        "df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870",
+        Path("evaluation/datasets/mailguard_v4/cases.jsonl"),
+        "a65bde85fb11c81b7492a6ca63a2ff117ac20c01e85632cd6c5c30fe33af5768",
     ),
-    manifest=Path("evaluation/datasets/mailguard/manifest.json"),
+    manifest=Path("evaluation/datasets/mailguard_v4/manifest.json"),
     classifier=PinnedFile(
         PINNED_DIR / "l1_injection_clf_v1.joblib",
-        "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103",
+        "9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6",
     ),
     metrics=PINNED_DIR / "l1_injection_clf_v1.metrics.json",
     sums=PINNED_DIR / "SHA256SUMS",

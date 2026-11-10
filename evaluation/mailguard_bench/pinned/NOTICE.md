@@ -1,5 +1,33 @@
 # Pinned benchmark inputs: sources and licenses
 
+## v4 pinned dataset and classifier (2026-11-10, ADR-0019, task 7.36)
+
+The pinned case set is now `evaluation/datasets/mailguard_v4/` (2,143 cases, sha256
+`a65bde85fb11c81b7492a6ca63a2ff117ac20c01e85632cd6c5c30fe33af5768`), built from
+`evaluation/datasets/partition_v1.json` so that no case is in the L1 corpus, the LLMail train half or
+the Doc Scanner tuning split:
+
+| Set | Cases | Sources |
+|---|---|---|
+| `llmail_attack` | 1,000 | LLMail-Inject phase 2, bench half (949 of the 1,800-case set's attacks, 51 replaced) |
+| `llmail_benign` | 500 | Enron ham (SetFit/enron_spam, public domain), the partition's benchmark units |
+| `rag_attack` | 583 | 165 PoisonedRAG, 18 AgentMailGuard seed, 400 LLMail-Inject **phase 1** retrieval attacks (scenarios 3 and 4) |
+| `rag_synthetic` | 60 | `synthetic_poison_v1`, reported apart from `rag_attack` |
+
+The LLMail-Inject benign emails (`emails_for_fp_tests.json`) are no longer benchmark cases: all
+160 distinct texts stay in the L1 corpus (owner, 2026-11-10). The phase-1 cases come from the
+same Microsoft dataset (MIT, notice below), processed by the owner (`eval_attack.jsonl`, not in git).
+The PoisonedRAG question terms below now apply to 165 cases (HotpotQA, Natural Questions, MS MARCO).
+
+The classifier `l1_injection_clf_v1.joblib` is retrained without the benchmark's 500 Enron emails
+(19,069 train rows); its sha256 must be `9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6`.
+It is still not in git, for the reason in "Why the classifier is not in git". Its metrics are in
+`l1_injection_clf_v1.metrics.json`; ADR-0019 compares them with the earlier classifier.
+
+The sections below describe the 1,800-case set (`evaluation/datasets/mailguard/`, still in git,
+no longer pinned) and the earlier classifier (`8fc1cbe7…`); their source and license notices apply
+to the v4 set as well.
+
 ## Expanded v3 pinned dataset (2026-10-18)
 
 Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
@@ -16,9 +44,7 @@ Nine default configs give 16,200 case runs per model; optional C0T raises this t
 and should not be used for this expansion. Existing run folders keep their own pins;
 use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
 
-Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
-`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
-Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
+That set was built by `build_cases.py` at `4957774`; the builder at HEAD builds the v4 set (ADR-0019).
 
 The case file, its manifest and the classifier's metrics are committed, so nobody has to rebuild
 them (`make mailguard-cases` is not needed to run the v2 benchmark). **The L1 classifier is not in

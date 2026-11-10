@@ -1,4 +1,4 @@
-df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870  ../../datasets/mailguard/cases.jsonl
-44f97d1342d8eb3ff100c965e851517635406c642212ebdf9e119f7f7f9aa29c  ../../datasets/mailguard/manifest.json
-8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103  l1_injection_clf_v1.joblib
-502054150385ace40b0d3bc74aa26d1717d7f8d4816e97a6e89cb22535a60224  l1_injection_clf_v1.metrics.json
+a65bde85fb11c81b7492a6ca63a2ff117ac20c01e85632cd6c5c30fe33af5768  ../../datasets/mailguard_v4/cases.jsonl
+076a904cd0c00fd8ee1c38e5afbe705b66d123bd87058c0cd2662b0db174d1d5  ../../datasets/mailguard_v4/manifest.json
+9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6  l1_injection_clf_v1.joblib
+5cb0f4175899f4144304adabd384abf8df7cb85a05e65f565290142c12789800  l1_injection_clf_v1.metrics.json

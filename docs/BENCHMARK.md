@@ -1,5 +1,16 @@
 # Running the v3 benchmark on your laptop
 
+## v4 pinned dataset (2026-11-10, ADR-0019)
+
+Runs now read `evaluation/datasets/mailguard_v4/` by default (2,143 cases, sha256 `a65bde85…`):
+1,000 LLMail phase-2 bench-half attacks, 500 Enron benign emails, 583 RAG attacks (165 PoisonedRAG,
+18 seed, 400 LLMail phase-1 scenario 3/4) and 60 `synthetic_poison_v1` cases in their own set
+`rag_synthetic`, reported apart. No case is in the L1 corpus, the LLMail train half or the Doc Scanner
+tuning split (`evaluation/datasets/partition_v1.json`). The L1 classifier is a new file,
+sha256 `9c3c6c46…`: get it from the owner again. Two configs give 4,286 case runs per model.
+The section below describes the 1,800-case set, which stays in `evaluation/datasets/mailguard/` for
+the 2026-10-19 runs; rebuilding the v4 set is in ADR-0019, "Rebuilding".
+
 ## Expanded v3 pinned dataset (2026-10-18)
 
 Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
@@ -17,9 +28,7 @@ timing/cost estimates below describe the old dataset
 and should not be used for this expansion. Existing run folders keep their own pins;
 use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
 
-Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
-`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
-Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
+That set was built by `build_cases.py` at `4957774`; the builder at HEAD builds the v4 set.
 
 This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and since ADR-0017 the configs are `C0` (rag-email alone) and `C3` (the full guard) only (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and for nine configs, and have **not been re-measured for v3** or for the two configs of ADR-0017 (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
 
@@ -326,7 +335,7 @@ cp /mnt/c/Users/<your Windows name>/Downloads/l1_injection_clf_v1.joblib evaluat
 sha256sum evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib
 ```
 
-The second command must print `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103`; any other number means this is not the pinned file, so ask the owner again (the doctor refuses it too). The file stays in that folder: git ignores that exact path, so `git status` does not show it and a commit cannot pick it up. **Never commit, push or share it.** Once the file is there, the Makefile reads the classifier from that folder by itself (`MAILGUARD_ARTIFACTS` defaults to it), so you export nothing. If you ever exported `MAILGUARD_ARTIFACTS` yourself, unset it; the doctor prints the folder it found.
+The second command must print `9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6`; any other number means this is not the pinned file, so ask the owner again (the doctor refuses it too). The file stays in that folder: git ignores that exact path, so `git status` does not show it and a commit cannot pick it up. **Never commit, push or share it.** Once the file is there, the Makefile reads the classifier from that folder by itself (`MAILGUARD_ARTIFACTS` defaults to it), so you export nothing. If you ever exported `MAILGUARD_ARTIFACTS` yourself, unset it; the doctor prints the folder it found.
 
 ### D2. The doctor
 
@@ -376,7 +385,7 @@ make bench-run MODEL=llama-3.1-8b-openrouter RUN=2026-10-02-llama31-openrouter-l
 **Do a small trial first**, under a throwaway name, and read what it says. It runs one LLMail attack, one benign email and one RAG case, so it also uploads (and embeds) the RAG case's knowledge documents:
 
 ```bash
-make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
+make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-enron-1010,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
 ```
 
 It costs a few calls. `CASE_IDS` only picks cases the config runs anyway; the pinned case file and the full run's selection are not changed, and the kit refuses it unless `RUN` starts with `trial`. Do the same for each OpenRouter model before its run, after its canary (`RUN=trial-qwen` and `RUN=trial-llama`, with its `MODEL=`), and run the report of one trial with your reader (`make bench-report RUN=trial-gpt READER=<your reader model>`, with the `LLM__` words of D7) so the reader's endpoint is tried once.

@@ -107,7 +107,7 @@ Copy-Item "$env:USERPROFILE\Downloads\l1_injection_clf_v1.joblib" evaluation\mai
 (Get-FileHash evaluation\mailguard_bench\pinned\l1_injection_clf_v1.joblib -Algorithm SHA256).Hash
 ```
 
-The hash must be `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103` (PowerShell prints the letters in upper case; that is the same number). Any other value means it is not the pinned file: ask the owner again. Git ignores that exact path, so a commit cannot pick it up. (Get-FileHash uses SHA256 by default: https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/get-filehash, read 2026-10-01.)
+The hash must be `9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6` (PowerShell prints the letters in upper case; that is the same number). Any other value means it is not the pinned file: ask the owner again. Git ignores that exact path, so a commit cannot pick it up. (Get-FileHash uses SHA256 by default: https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/get-filehash, read 2026-10-01.)
 
 ---
 
@@ -143,7 +143,7 @@ uv @mg evaluation.mailguard_bench.kit.campaign setup
 # a small trial first, under a throwaway name (it must start with trial), over one LLMail attack, one benign email and one
 # RAG case, so it also embeds knowledge documents; it passes only as docs/BENCHMARK.md D4 says (every `ok <config>:` line
 # says `0 error`, and so on). Then try the reader once on it, and delete the trial folder.
-uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C3 --case-ids attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4
+uv @mg evaluation.mailguard_bench.kit.campaign run --model-profile gpt-4o-mini --run trial-gpt --configs C0,C3 --case-ids attack-llmail-01d16d4e4af9,benign-enron-1010,attack-prag-hotpotqa-5a76e88555429972597f13f4
 $env:LLM__PROVIDER = "openai"; $env:LLM__OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 uv @mg evaluation.mailguard_bench.kit.campaign report --run trial-gpt --reader <your reader model>
 Remove-Item Env:LLM__PROVIDER, Env:LLM__OPENAI_BASE_URL

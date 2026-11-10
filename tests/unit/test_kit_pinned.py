@@ -181,11 +181,12 @@ def test_without_the_owners_classifier_the_real_verify_names_only_that_file() ->
 
 
 def test_the_pinned_hashes_are_the_ones_the_context_fixed() -> None:
+    """ADR-0019 (task 7.36): the v4 case set and the classifier retrained without its Enron."""
     assert pinned.PINNED.cases.sha256 == (
-        "df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870"
+        "a65bde85fb11c81b7492a6ca63a2ff117ac20c01e85632cd6c5c30fe33af5768"
     )
     assert pinned.PINNED.classifier.sha256 == (
-        "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103"
+        "9c3c6c469779cfc5038aa971a31021c5a56f963bd1606f48274053cbe5efbfb6"
     )
 
 
@@ -274,7 +275,7 @@ def test_the_case_file_really_has_the_three_question_dataset_prefixes() -> None:
         for name in counts:
             if case_id.startswith(f"attack-prag-{name}-"):
                 counts[name] += 1
-    assert counts == {"hotpotqa": 68, "nq": 89, "msmarco": 65}
+    assert counts == {"hotpotqa": 50, "nq": 62, "msmarco": 53}
 
 
 def test_the_classifier_is_not_tracked_by_git() -> None:
