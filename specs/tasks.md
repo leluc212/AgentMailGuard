@@ -1015,6 +1015,13 @@
   - Left: confirm on the live run that the triage rejections are gone (count `not recognized` and `Unterminated string` in `services.<config>.log`).
   - _Requirements: R6.1, R6.3, R6.4, R6.11_
 
+- [~] **7.36 Benchmark data with no training or tuning overlap**
+  - Decision: ADR-0019 (owner, 2026-11-10, option C). Fixes the two overlaps of `docs/benchmark-data-leaks-2026-11-06.md`.
+  - Done: `evaluation/datasets/partition_v1.json` assigns every Enron ham group, LLMail benign text and PoisonedRAG question to one of `l1_train`, `doc_tuning`, `benchmark`, `unused`; the L1 corpus is the guard's builder output minus the 500 benchmark Enron emails (`l1_corpus_filter.py`); the classifier is retrained on it (sha256 `9c3c6c46…`, not in git); `build_cases.py` builds `evaluation/datasets/mailguard_v4/` (2,143 cases: 1,000 email attacks, 500 Enron benign, 583 RAG, 60 synthetic apart) and fails naming the ids on any overlap; pins, NOTICE and tests updated. `agentmailguard/` unchanged.
+  - Left: the live C0/C3 runs on the new set (7.31); `agentmailguard/tests/unit/test_doc_scanner_tuning_guard.py` still reads the 1,800-case set and fails (ADR-0019 Consequences).
+  - Number: 7.34 is not used (ADR-0018 named "7.34/7.36" before this task was numbered).
+  - _Requirements: R22.12_
+
 > **Phase 7 gate:** every hypothesis H1–H5 has a reproducible artifact with a run manifest, and SC1–SC10 are reported with measured values.
 
 ---
@@ -1097,7 +1104,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
 | R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29, 7.30, 7.31 |
-| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29, 7.30, 7.31 |
+| R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29, 7.30, 7.31, 7.33, 7.36 |
 | R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8, 7.32 |
 | R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29, 7.30, 7.31 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
