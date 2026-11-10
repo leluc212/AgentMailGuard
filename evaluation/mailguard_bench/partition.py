@@ -1,6 +1,7 @@
-"""One partition of the raw benign and RAG items, fixed before training or tuning (task 7.36; R22.12).
+"""One partition of the raw benign and RAG items, fixed before training (task 7.36; R22.12).
 
-    uv run --project . --with-editable <abs>/agentmailguard python -m evaluation.mailguard_bench.partition
+    uv run --project . --with-editable <abs>/agentmailguard \\
+        python -m evaluation.mailguard_bench.partition
 
 Every raw item a benchmark case can be built from is assigned to exactly one use:
 
@@ -54,7 +55,10 @@ PRAG_DATASETS = ("nq", "hotpotqa", "msmarco")
 RAW_FILES = {
     "enron_ham": "enron_ham/test.jsonl",
     "llmail_benign": "llmail_inject/data/emails_for_fp_tests.json",
-    **{f"poisonedrag_{n}": f"poisonedrag/results/adv_targeted_results/{n}.json" for n in PRAG_DATASETS},
+    **{
+        f"poisonedrag_{n}": f"poisonedrag/results/adv_targeted_results/{n}.json"
+        for n in PRAG_DATASETS
+    },
 }
 DEV_SPLIT = Path("datasets/splits/rag_poison_dev.json")  # inside the guard directory
 
@@ -94,7 +98,9 @@ def assign_enron(
     """
     groups: dict[str, list[Mapping[str, Any]]] = {}
     for d in hams:
-        groups.setdefault(text_key(str(d.get("subject", "")), str(d.get("message", ""))), []).append(d)
+        groups.setdefault(
+            text_key(str(d.get("subject", "")), str(d.get("message", ""))), []
+        ).append(d)
 
     def chars(d: Mapping[str, Any]) -> int:
         return len(str(d.get("message", "")))
@@ -116,7 +122,9 @@ def assign_enron(
     units.sort(key=lambda u: u["message_ids"][0])
     eligible = [u for u in units if u["bench_ok"]]
     if len(eligible) < n_benchmark:
-        raise PartitionError(f"only {len(eligible)} Enron groups fit the benchmark, need {n_benchmark}")
+        raise PartitionError(
+            f"only {len(eligible)} Enron groups fit the benchmark, need {n_benchmark}"
+        )
     picked = {u["key"] for u in random.Random(seed).sample(eligible, n_benchmark)}
     out = []
     for u in units:
@@ -165,7 +173,11 @@ def check_partition(partition: Mapping[str, Any]) -> None:
     """Every id in one unit and one bucket, per source; fails naming the ids."""
     if partition.get("schema") != PARTITION_SCHEMA:
         raise PartitionError(f"schema {partition.get('schema')!r} is not {PARTITION_SCHEMA}")
-    for source, field in (("enron_ham", "message_ids"), ("llmail_benign", "indices"), ("poisonedrag", "item")):
+    for source, field in (
+        ("enron_ham", "message_ids"),
+        ("llmail_benign", "indices"),
+        ("poisonedrag", "item"),
+    ):
         seen: dict[str, str] = {}
         keys: set[str] = set()
         for unit in partition["units"][source]:
@@ -221,7 +233,11 @@ def build(guard_dir: Path, *, seed: int = SEED) -> dict[str, Any]:
     raw = guard_dir / "datasets" / "raw"
     hams = [
         d
-        for d in (json.loads(line) for line in (raw / RAW_FILES["enron_ham"]).read_text(encoding="utf-8").split("\n") if line.strip())
+        for d in (
+            json.loads(line)
+            for line in (raw / RAW_FILES["enron_ham"]).read_text(encoding="utf-8").split("\n")
+            if line.strip()
+        )
         if d.get("label_text") == "ham"
     ]
     fp = json.loads((raw / RAW_FILES["llmail_benign"]).read_text(encoding="utf-8"))
@@ -230,7 +246,10 @@ def build(guard_dir: Path, *, seed: int = SEED) -> dict[str, Any]:
     for name in PRAG_DATASETS:
         data = json.loads((raw / RAW_FILES[f"poisonedrag_{name}"]).read_text(encoding="utf-8"))
         all_items += [f"{name}-{item.get('id', key)}" for key, item in data.items()]
-    valid = [str(c["case_id"]).removeprefix("attack-prag-") for c in poisonedrag_cases(10**9, random.Random(0))]
+    valid = [
+        str(c["case_id"]).removeprefix("attack-prag-")
+        for c in poisonedrag_cases(10**9, random.Random(0))
+    ]
     split = json.loads((guard_dir / DEV_SPLIT).read_text(encoding="utf-8"))
     tuning = {f"{r['dataset']}-{r['item_id']}" for r in split["poisoned"]}
 
@@ -239,8 +258,14 @@ def build(guard_dir: Path, *, seed: int = SEED) -> dict[str, Any]:
         "llmail_benign": assign_llmail_benign(llmail, bucket="l1_train"),
         "poisonedrag": assign_poisonedrag(all_items, valid, tuning),
     }
-    sources = {name: {"path": f"datasets/raw/{rel}", "sha256": sha256_path(raw / rel)} for name, rel in RAW_FILES.items()}
-    sources["doc_tuning_split"] = {"path": str(DEV_SPLIT.as_posix()), "sha256": sha256_path(guard_dir / DEV_SPLIT)}
+    sources = {
+        name: {"path": f"datasets/raw/{rel}", "sha256": sha256_path(raw / rel)}
+        for name, rel in RAW_FILES.items()
+    }
+    sources["doc_tuning_split"] = {
+        "path": str(DEV_SPLIT.as_posix()),
+        "sha256": sha256_path(guard_dir / DEV_SPLIT),
+    }
     partition = {
         "schema": PARTITION_SCHEMA,
         "task": "7.36",
@@ -249,12 +274,16 @@ def build(guard_dir: Path, *, seed: int = SEED) -> dict[str, Any]:
         "normalisation": NORM_RULE,
         "rules": {
             "enron_ham": (
-                f"ham only, grouped by normalised text; {N_ENRON_BENCHMARK} groups whose every message is "
-                f"{ENRON_BENCH_CHARS[0]}-{ENRON_BENCH_CHARS[1]} chars -> benchmark (seeded draw, groups sorted by "
-                f"first message_id); else {ENRON_L1_CHARS[0]}-{ENRON_L1_CHARS[1]} chars -> l1_train; else unused"
+                f"ham only, grouped by normalised text; {N_ENRON_BENCHMARK} groups whose "
+                f"every message is {ENRON_BENCH_CHARS[0]}-{ENRON_BENCH_CHARS[1]} chars -> "
+                "benchmark (seeded draw, groups sorted by first message_id); else "
+                f"{ENRON_L1_CHARS[0]}-{ENRON_L1_CHARS[1]} chars -> l1_train; else unused"
             ),
             "llmail_benign": "every distinct normalised text -> l1_train (owner, 2026-11-10)",
-            "poisonedrag": "in rag_poison_dev.json -> doc_tuning; machine-checkable (poisonedrag_cases) -> benchmark; else unused",
+            "poisonedrag": (
+                "in rag_poison_dev.json -> doc_tuning; machine-checkable (poisonedrag_cases) "
+                "-> benchmark; else unused"
+            ),
         },
         "sources": sources,
         "counts": {source: counts(u) for source, u in units.items()},
@@ -272,16 +301,21 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--guard-dir", type=Path, default=REPO_ROOT / "agentmailguard")
     ap.add_argument("--out", type=Path, default=PARTITION_PATH)
     ap.add_argument("--force", action="store_true", help="overwrite a partition that differs")
     args = ap.parse_args(argv)
     fresh = build(args.guard_dir.resolve())
-    if args.out.is_file() and not args.force:
-        if json.loads(args.out.read_text(encoding="utf-8")) != fresh:
-            print(f"FAIL {args.out} exists and differs; the partition is fixed (--force to replace)", file=sys.stderr)
-            return 1
+    existing = json.loads(args.out.read_text(encoding="utf-8")) if args.out.is_file() else None
+    if existing is not None and existing != fresh and not args.force:
+        print(
+            f"FAIL {args.out} exists and differs; the partition is fixed (--force to replace)",
+            file=sys.stderr,
+        )
+        return 1
     write_json(args.out, fresh)
     print(f"ok partition {fresh['counts']} -> {args.out}")
     return 0

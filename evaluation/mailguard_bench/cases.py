@@ -36,7 +36,11 @@ N_ABLATION_ATTACK = 100
 MANIFEST_SCHEMA = "mailguard-case-manifest/v1"
 CASES_FILE = "cases.jsonl"
 MANIFEST_FILE = "manifest.json"
-DEFAULT_CASE_DIR = REPO_ROOT / "evaluation" / "datasets" / "mailguard"
+DEFAULT_CASE_DIR = REPO_ROOT / "evaluation" / "datasets" / "mailguard_v4"
+"""The case set new runs use (task 7.36, ADR-0019): built from ``partition_v1.json``."""
+LEGACY_CASE_DIR = REPO_ROOT / "evaluation" / "datasets" / "mailguard"
+"""The 1,800-case set of the 2026-10-19 runs (overlaps documented in
+docs/benchmark-data-leaks-2026-11-06.md); kept unchanged so those runs stay readable."""
 SET_NAMES = ("llmail_attack", "llmail_benign", "rag_attack", "ablation_attack")
 REQUIRED_KEYS = ("case_id", "kind", "source", "vector", "email", "goal", "attacker", "meta")
 
@@ -195,9 +199,7 @@ def select_cases(
     validate_pool(
         "llmail_attack", pools.llmail_attack, kind="attack", vector="email", source="llmail_inject"
     )
-    validate_pool(
-        "llmail_benign", pools.llmail_benign, kind="benign", vector="email"
-    )
+    validate_pool("llmail_benign", pools.llmail_benign, kind="benign", vector="email")
     validate_pool("rag_attack", pools.rag_attack, kind="attack", vector="rag")
     if n_ablation > n_attack:
         raise CaseManifestError(f"ablation subset {n_ablation} > LLMail sample {n_attack}")
@@ -277,10 +279,13 @@ def write_case_set(
     cases_path = out_dir / CASES_FILE
     manifest_path = out_dir / MANIFEST_FILE
     body = "".join(canonical_line(c) + "\n" for c in selection.all_cases())
-    cases_path.write_text(body, encoding="utf-8")
+    # newline="\n": on Windows text mode would write CRLF and the file would no longer hash to
+    # cases_sha256 (which is computed over LF lines).
+    cases_path.write_text(body, encoding="utf-8", newline="\n")
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return cases_path, manifest_path
 

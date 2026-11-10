@@ -308,7 +308,8 @@ def test_build_cases_without_make_env_fails_cleanly(
 ) -> None:
     for name in ("MAILGUARD_DIR", "MAILGUARD_COMMIT", "MAILGUARD_ARTIFACTS"):
         monkeypatch.delenv(name, raising=False)
-    assert build_cases.main([]) == 1
+    # --l1-corpus and --phase1 are required since task 7.36; the env check comes first after them
+    assert build_cases.main(["--l1-corpus", "x", "--phase1", "y"]) == 1
     assert "FAIL MAILGUARD_DIR" in capsys.readouterr().err
 
 

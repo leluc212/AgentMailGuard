@@ -3,7 +3,8 @@
     # 1. the guard's own builder, unchanged (as `make mailguard-prep` runs it)
     uv run ... --directory <guard> python -m mailguard.datasets.build_l1_corpus --out-dir <full>
     # 2. this filter
-    uv run --project . python -m evaluation.mailguard_bench.l1_corpus_filter --full <full> --out <filtered>
+    uv run --project . python -m evaluation.mailguard_bench.l1_corpus_filter \\
+        --full <full> --out <filtered>
 
 A row is removed when its normalised text is the content key of a ``benchmark`` unit of
 ``evaluation/datasets/partition_v1.json``, whatever source the builder's dedupe kept it under.
@@ -41,7 +42,9 @@ class CorpusFilterError(ValueError):
 
 
 def read_rows(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()
+    ]
 
 
 def filter_rows(
@@ -101,7 +104,9 @@ def write_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--full", type=Path, required=True, help="output dir of build_l1_corpus")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--partition", type=Path, default=PARTITION_PATH)
@@ -125,7 +130,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     write_json(args.out / "stats.json", stats(kept))
     write_json(args.out / "filter_report.json", report)
     print(f"ok removed {tally['removed']} rows {tally['removed_by']}")
-    print(f"ok filtered {report['filtered']['by_split']} (full {report['full']['by_split']}) -> {args.out}")
+    print(
+        f"ok filtered {report['filtered']['by_split']} "
+        f"(full {report['full']['by_split']}) -> {args.out}"
+    )
     return 0
 
 
