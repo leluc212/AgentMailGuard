@@ -135,7 +135,7 @@ def test_a_v3_meta_records_its_scheme_the_guard_preset_and_the_full_case_sets() 
     meta = _runner_meta()
     assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
     assert meta["preset"] == "C3" and meta["guard_preset"] == "C3"
-    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack", "rag_synthetic"]
 
 
 def test_a_v3_meta_records_whether_the_judges_fail_closed() -> None:
@@ -292,7 +292,7 @@ def test_a_live_v3_meta_records_the_scheme_and_the_judge_mode_in_the_fingerprint
     meta = _live_meta("C3")
     assert meta["scheme"] == "v3" and meta["fingerprint"]["scheme"] == "v3"
     assert meta["judge_fail_closed"] is True and meta["fingerprint"]["judge_fail_closed"] is True
-    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack", "rag_synthetic"]
     assert _live_meta("C3", "--judge-fallback")["fingerprint"]["judge_fail_closed"] is False
 
 

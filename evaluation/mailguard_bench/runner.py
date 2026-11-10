@@ -346,7 +346,9 @@ RESULTS_ROOT = REPO_ROOT / "evaluation" / "results" / "mailguard_bench"
 BENCH_CONFIGS = (NATIVE_CONFIG, *BENCH_PRESETS)
 # Every config the CLI runs: the v1 configs plus the layer ablation (C3 minus one layer).
 RUNNABLE_CONFIGS = (*BENCH_CONFIGS, *ABLATION_CONFIGS)  # scheme v1; scheme.configs_for has both
-FULL_RUN_SETS = ("llmail_attack", "llmail_benign", "rag_attack")
+FULL_RUN_SETS = ("llmail_attack", "llmail_benign", "rag_attack", "rag_synthetic")
+"""``rag_synthetic`` (task 7.36, ADR-0019): run by every config, scored apart from ``rag_attack``.
+A case set without it (the 1,800-case set) simply has no such cases."""
 ABLATION_SETS = ("ablation_attack", "llmail_benign")  # spec §4b D2: C1/C2 subset + same benign
 RUN_CASES_SCHEMA = "mailguard-bench-run-cases/v1"
 
@@ -440,7 +442,7 @@ def config_case_ids(
     seen: set[str] = set()
     ids: list[str] = []
     for name in case_set_names(config_name, scheme):
-        for case_id in sets[name]:
+        for case_id in sets.get(name, ()):
             if case_id not in seen:
                 seen.add(case_id)
                 ids.append(case_id)
@@ -470,6 +472,8 @@ def snapshot_case_set(loaded: LoadedCaseSet, run_dir: Path) -> Path:
         "rag_attack_ids": list(sets["rag_attack"]),
         "ablation_attack_ids": list(sets["ablation_attack"]),
     }
+    if "rag_synthetic" in sets:  # only v4 sets have it; older run folders keep their exact keys
+        wanted["rag_synthetic_ids"] = list(sets["rag_synthetic"])
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / "case_manifest.json"
     if path.exists():

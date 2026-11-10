@@ -602,6 +602,8 @@ def build_report(
     case_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     llmail_ids = set(case_manifest["llmail_attack_ids"]) | set(case_manifest["benign_ids"])
     rag_ids = set(case_manifest.get("rag_attack_ids") or [])
+    # ADR-0019: the synthetic RAG cases are scored in their own table, never in the RAG headline.
+    synthetic_ids = set(case_manifest.get("rag_synthetic_ids") or [])
     # The config scheme decides what the names mean (scheme.py): only v3 is scored. A folder whose
     # metas record v1 or v2 (a meta without a scheme is v1) is refused here, before anything is
     # scored or written, and so is one that mixes schemes.
@@ -700,6 +702,7 @@ def build_report(
     rag = table(rag_ids, main_configs) if rag_ids else {}
     retrieved_ids = poison_retrieved_ids(records, main_configs, rag_ids)
     rag_retrieved = table(retrieved_ids, main_configs) if retrieved_ids else {}
+    rag_synthetic = table(synthetic_ids, main_configs) if synthetic_ids else {}
     all_cases = table(set(cases), main_configs)
 
     # Headline: C0 vs C3, the only pair since ADR-0017 (no C0T run).
@@ -713,6 +716,10 @@ def build_report(
         if rag_ids:
             paired[f"RAG vector {base} vs C3"] = metrics.paired_comparison(
                 _subset(scored[base], rag_ids), _subset(scored["C3"], rag_ids)
+            )
+        if synthetic_ids:
+            paired[f"RAG synthetic {base} vs C3"] = metrics.paired_comparison(
+                _subset(scored[base], synthetic_ids), _subset(scored["C3"], synthetic_ids)
             )
     # Where each job stopped and why (protocol.py): only configs with a guard report have a table.
     attack_ids = set(case_manifest["llmail_attack_ids"])
@@ -780,6 +787,7 @@ def build_report(
     attack_sets = {
         "llmail": set(case_manifest["llmail_attack_ids"]),
         "rag": rag_ids,
+        "rag_synthetic": synthetic_ids,
     }
     inputs = ReportInputs(
         run_id=run_dir.name,
@@ -798,6 +806,8 @@ def build_report(
         headline_extra=headline_extra,
         extra_sections=extra_sections,
         rag_retrieved=rag_retrieved,
+        rag_synthetic=rag_synthetic,
+        planned_rag_synthetic=len(synthetic_ids),
         triage=triage,
         layer_ablation=layer.summary if layer else None,
         fallbacks=fallbacks,
@@ -813,6 +823,8 @@ def build_report(
         "rag_poison_retrieved": rag_retrieved,
         "all": all_cases,
     }
+    if rag_synthetic:
+        tables["rag_synthetic"] = rag_synthetic
     layer_pairs = layer.summary.paired_by_name() if layer else {}
     if layer:
         tables.update(layer.tables)

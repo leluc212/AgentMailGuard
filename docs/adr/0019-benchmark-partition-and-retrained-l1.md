@@ -77,7 +77,7 @@ The owner chose to retrain L1 without 500 Enron emails and benchmark on those.
    | `llmail_attack` | 1,000 | the 1,000 phase-2 attacks of the 1,800-case set; 51 overlap and are replaced by a seeded draw of the same scenario |
    | `llmail_benign` | 500 | the 500 Enron benchmark units |
    | `rag_attack` | 583 | 165 PoisonedRAG + 18 seed + 400 LLMail phase-1 (scenario 3: 108, scenario 4: 292) |
-   | `rag_synthetic` | 60 | `synthetic_poison_v1`, run by every config, reported apart |
+   | `rag_synthetic` | 60 | `synthetic_poison_v1`, run by every config (`runner.FULL_RUN_SETS`), scored in its own report section and `metrics.csv` table `rag_synthetic`, with its own C0 vs C3 McNemar; never in the RAG headline |
 
    Pool rules, each counted in the manifest's `pool_rules`: a phase-2 bench-half attack is dropped
    when its text repeats another bench item (229, lowest case id kept) or is in the L1 corpus or the

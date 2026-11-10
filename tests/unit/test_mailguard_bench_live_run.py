@@ -1045,7 +1045,7 @@ def test_the_live_meta_keeps_the_v1_keys_and_adds_the_live_ones() -> None:
     assert meta["guard_models"] == "qwen2.5:7b-instruct" and meta["degraded_allowed"] is False
     assert set(meta["retrieval"]) == {"top_k", "top_n", "timeout_ms", "category_filter"}
     assert meta["generation"]["model"] == meta["generation_model"]
-    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+    assert meta["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack", "rag_synthetic"]
     assert set(meta["fingerprint"]) == {*FINGERPRINT_KEYS, *LIVE_KEYS}
 
 
@@ -1130,7 +1130,12 @@ def test_c0_has_no_guard_stages_but_its_fingerprint_is_still_complete() -> None:
 def test_every_v3_config_records_the_full_case_set() -> None:
     # Scheme v1 ran C1/C2 on the ablation subset; v3 runs every config on every pinned case.
     for config in scheme.V3_CONFIGS:
-        assert _meta(config)["case_sets"] == ["llmail_attack", "llmail_benign", "rag_attack"]
+        assert _meta(config)["case_sets"] == [
+            "llmail_attack",
+            "llmail_benign",
+            "rag_attack",
+            "rag_synthetic",
+        ]
 
 
 def test_a_missing_live_fact_stops_the_run_instead_of_being_recorded_as_none() -> None:

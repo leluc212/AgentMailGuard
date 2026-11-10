@@ -329,3 +329,29 @@ def test_v4_has_nothing_in_the_filtered_l1_corpus(v4) -> None:
     from evaluation.mailguard_bench.build_cases import read_corpus_keys
 
     assert case_checks.in_corpus(list(v4.cases.values()), read_corpus_keys(Path(corpus))) == []
+
+
+# ---------------------------------------------------------------- the synthetic set is run, apart
+def test_every_v3_config_runs_the_synthetic_set(v4) -> None:
+    from evaluation.mailguard_bench.runner import config_case_ids
+    from evaluation.mailguard_bench.scheme import V3_CONFIGS
+
+    for config in V3_CONFIGS:
+        ids = config_case_ids(v4.manifest, config, scheme="v3")
+        assert len(ids) == len(set(ids)) == 2143
+        assert set(v4.manifest["sets"]["rag_synthetic"]) <= set(ids)
+
+
+def test_a_set_without_synthetic_still_selects(v4) -> None:
+    from evaluation.mailguard_bench.runner import config_case_ids
+
+    legacy = {"sets": {k: v for k, v in v4.manifest["sets"].items() if k != "rag_synthetic"}}
+    assert len(config_case_ids(legacy, "C0", scheme="v3")) == 2083
+
+
+def test_the_run_snapshot_keeps_synthetic_ids_apart(v4, tmp_path: Path) -> None:
+    from evaluation.mailguard_bench.runner import snapshot_case_set
+
+    written = json.loads(snapshot_case_set(v4, tmp_path).read_text(encoding="utf-8"))
+    assert len(written["rag_synthetic_ids"]) == 60
+    assert not set(written["rag_synthetic_ids"]) & set(written["rag_attack_ids"])

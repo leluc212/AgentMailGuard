@@ -967,6 +967,10 @@ class ReportInputs:
     extra_sections: list[str] = field(default_factory=list)
     rag_retrieved: dict[str, ConfigSummary] = field(default_factory=dict)
     planned_rag_attacks: int = 0
+    # ADR-0019: the synthetic RAG cases, scored apart from the RAG headline; empty when the
+    # case set has none (the 1,800-case set and every earlier run).
+    rag_synthetic: dict[str, ConfigSummary] = field(default_factory=dict)
+    planned_rag_synthetic: int = 0
     # Error rows among the planned ATTACKS only, per table ("llmail", "rag") and
     # config; ConfigSummary.n_errors also counts benign errors, which would misstate how
     # many attacks are still to run.
@@ -1537,6 +1541,18 @@ def render_report(inputs: ReportInputs) -> str:
                 "so the RAG table does not test the guard.",
                 "",
             ]
+    if inputs.rag_synthetic:
+        lines += ["## RAG vector, synthetic cases (reported apart, not in the headline)", ""]
+        lines += [
+            "`synthetic_poison_v1`: six fictional policies x ten payload templates written for "
+            "this project (ADR-0019). They are not independent observations and are not part of "
+            "the RAG numbers above.",
+            "",
+        ]
+        lines += _partial_notes(
+            inputs, "rag_synthetic", inputs.planned_rag_synthetic, "synthetic RAG attacks"
+        )
+        lines += _side_by_side("Security", inputs.rag_synthetic)
     lines += _grouped(
         f"{'Pipeline ASR' if live else 'ASR'} by vector (email vs rag)",
         inputs.all_cases,
