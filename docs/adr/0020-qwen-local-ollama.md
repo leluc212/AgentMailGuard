@@ -46,9 +46,18 @@ The owner chose the exact model over a hosted route.
    Ollama that answers one call at a time, so two long calls in a row reach about 55 s, and a draft
    at its full 1,000-token budget about 75 s. With 60 s such calls would be error rows left out of n
    for the machine's speed, not the model's answer. The timeout changes no prompt, answer or score;
-   the run records it (`generation.timeout_s`). Owner decision, 2026-11-11.
-5. **Runs after Llama-3.1-8B**, on the same stack, never alongside it.
-6. **Everything else is unchanged:** case set `mailguard_v4`, classifier `9c3c6c46…`, guard pin
+   the run records it (`generation.timeout_s`). Owner decision, 2026-11-11. Passed as
+   `kit.campaign run --llm-timeout-s 180` (commit `4c4b964`), which also checks `.env` against it.
+5. **Case budget unchanged: 300 s** (`live.run` default, the same as gpt-4o-mini and Llama).
+   Measured on a C3 trial of the 10 heaviest cases (RUN `trial-qwen-local-timing`, never a result:
+   6 PoisonedRAG / phase-1 cases with 4–8 guard calls, 2 seed RAG, the longest email attack and
+   the longest benign email, picked from the Llama C3 rows): all 10 `ok` on the first attempt,
+   slowest 111.3 s (61 s of it the context step, KB ingestion while Ollama was busy), the others
+   7–59 s; 0 timeouts, 0 `not recognized`, 0 `Unterminated string` in its logs; 6.6 min for the 10.
+   300 s is about 2.7 times the slowest, so no per-run case budget is needed. Owner decision,
+   2026-11-11.
+6. **Runs after Llama-3.1-8B**, on the same stack, never alongside it.
+7. **Everything else is unchanged:** case set `mailguard_v4`, classifier `9c3c6c46…`, guard pin
    `d95e542`, embedding `text-embedding-3-small` (still OpenAI), configs C0 and C3, scoring.
 
 ## Consequences
