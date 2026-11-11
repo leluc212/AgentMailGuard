@@ -1,0 +1,2 @@
+case_id,kind,source,attempts,error_kind,error_message,finished_at
+attack-llmail-419f00fc2f2f,attack,llmail_inject,1,retrieval_degraded,case attack-llmail-419f00fc2f2f: job f1b241f4-2f43-443d-a942-f81fb3446bad: retrieval degraded (the vector branch failed: Timeout after 3.0s),2026-11-10T13:22:20.643643+00:00
