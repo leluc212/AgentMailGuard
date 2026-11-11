@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -808,6 +809,9 @@ def build_report(
         rag_retrieved=rag_retrieved,
         rag_synthetic=rag_synthetic,
         planned_rag_synthetic=len(synthetic_ids),
+        benign_sources=dict(
+            Counter(str(cases[i].get("source")) for i in case_manifest["benign_ids"] if i in cases)
+        ),
         triage=triage,
         layer_ablation=layer.summary if layer else None,
         fallbacks=fallbacks,

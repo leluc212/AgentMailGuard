@@ -971,6 +971,8 @@ class ReportInputs:
     # case set has none (the 1,800-case set and every earlier run).
     rag_synthetic: dict[str, ConfigSummary] = field(default_factory=dict)
     planned_rag_synthetic: int = 0
+    # The benign cases' sources (``case["source"]`` -> count); empty keeps the original caveat.
+    benign_sources: dict[str, int] = field(default_factory=dict)
     # Error rows among the planned ATTACKS only, per table ("llmail", "rag") and
     # config; ConfigSummary.n_errors also counts benign errors, which would misstate how
     # many attacks are still to run.
@@ -997,6 +999,34 @@ class ReportInputs:
 
 
 LEGACY_UTILITY_ROW = "Benign utility, legacy rule (not blocked and non-empty; comparable with v1)"
+
+LLMAIL_BENIGN_SOURCE = "llmail_inject"
+
+
+def benign_caveat(sources: Mapping[str, int], *, restated: bool) -> str:
+    """The caveat under the headline FPR, true to the run's own benign cases.
+
+    LLMail benign emails are L1 training negatives (the guard's corpus takes the whole file), so a
+    set that holds them gets the overlap caveat, with their count. A set without them (the v4 set,
+    task 7.36: Enron units the partition kept out of the L1 corpus, ADR-0019) says so instead. An
+    empty mapping (sources unknown) keeps the original wording.
+    """
+    llmail = sources.get(LLMAIL_BENIGN_SOURCE, 0)
+    if sources and not llmail:
+        listed = ", ".join(f"{n} {s}" for s, n in sorted(sources.items()))
+        return (
+            f"The benign emails ({listed}) are not in the L1 classifier's corpus: "
+            "evaluation/datasets/partition_v1.json kept them out before it was trained, and the "
+            "case builder refuses any overlap (ADR-0019)."
+        )
+    share = f"{llmail} of the {sum(sources.values())} " if sources else ""
+    return (
+        f"Caveat: {share}the benign emails come from LLMail's emails_for_fp_tests.json, and "
+        "AgentMailGuard's L1 corpus uses that whole file as label-0 rows (about 80 % land "
+        "in train.jsonl), so they overlap the L1 classifier's training negatives and this "
+        "FPR is likely optimistic."
+        + ("" if restated else " `make mailguard-analyses` restates it without them.")
+    )
 
 
 def _cell(r: RateCI | None) -> str:
@@ -1506,13 +1536,7 @@ def render_report(inputs: ReportInputs) -> str:
                     f"{c3.utility.fmt()}; legacy rule (not blocked and non-empty, as in v1): "
                     f"{c3.utility_legacy.fmt()}."
                 )
-        lines.append(
-            "Caveat: the benign emails come from LLMail's emails_for_fp_tests.json, and "
-            "AgentMailGuard's L1 corpus uses that whole file as label-0 rows (about 80 % land "
-            "in train.jsonl), so they overlap the L1 classifier's training negatives and this "
-            "FPR is likely optimistic."
-            + ("" if fpr_restated else " `make mailguard-analyses` restates it without them.")
-        )
+        lines.append(benign_caveat(inputs.benign_sources, restated=bool(fpr_restated)))
     lines += fpr_restated  # directly under the headline FPR and its caveat
     lines += _meaning_lines(inputs.llmail, live=live)
     lines += _sensitivity_lines(inputs.llmail)

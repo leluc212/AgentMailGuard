@@ -89,3 +89,15 @@ def test_journal_writes_csv_and_summary(tmp_path: Path) -> None:
         "rate_limited"
     ) == 1
     assert "delivered" in (tmp_path / "journal" / "cases.C0.csv").read_text(encoding="utf-8")
+
+
+def test_the_fpr_caveat_follows_the_runs_benign_sources() -> None:
+    from evaluation.mailguard_bench.artifacts import benign_caveat
+
+    v4 = benign_caveat({"enron_ham": 500}, restated=False)
+    assert "not in the L1 classifier's corpus" in v4 and "500 enron_ham" in v4
+    assert "optimistic" not in v4
+    mixed = benign_caveat({"llmail_inject": 203, "enron_ham": 297}, restated=False)
+    assert "203 of the 500" in mixed and "optimistic" in mixed
+    assert "restates it without them" in benign_caveat({}, restated=False)
+    assert "restates it" not in benign_caveat({}, restated=True)
