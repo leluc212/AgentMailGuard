@@ -230,6 +230,10 @@ class RunOptions:
     stack_wait_s: float = DEFAULT_STACK_WAIT_S
     dry_run: bool = False
     stop_wait_s: float = DEFAULT_STOP_WAIT_S
+    llm_timeout_s: float = stack_env.DEFAULT_LLM_TIMEOUT_S
+    """Per LLM call, for the containers and the host processes (ADR-0020: 180 for local Qwen)."""
+    case_timeout_s: float | None = None
+    """One case's budget in ``live.run`` (ingestion and job); None: live.run's own default (300)."""
 
 
 class _AbortError(Exception):
@@ -259,13 +263,26 @@ def resume_commands(options: RunOptions) -> list[str]:
         + (f" CASE_IDS={case_ids}" if case_ids else "")
         + f" CONCURRENCY={options.concurrency}"
     )
+    # A resume must repeat the timeouts: a different one is another fingerprint (refused).
+    timeouts = (
+        f" --llm-timeout-s {options.llm_timeout_s:g}"
+        if options.llm_timeout_s != stack_env.DEFAULT_LLM_TIMEOUT_S
+        else ""
+    ) + (
+        f" --case-timeout-s {options.case_timeout_s:g}"
+        if options.case_timeout_s is not None
+        else ""
+    )
     module = (
         "python -m evaluation.mailguard_bench.kit.campaign run "
         f"--model-profile {options.model_profile} --run {options.run} --configs {configs}"
         + (f" --limit {options.limit}" if options.limit is not None else "")
         + (f" --case-ids {case_ids}" if case_ids else "")
         + f" --concurrency {options.concurrency}"
+        + timeouts
     )
+    if timeouts:  # the Make target has no such options; only the module command resumes it
+        make = "(make bench-run has no timeout options: resume with the module command below)"
     return [make, module]
 
 
@@ -693,6 +710,7 @@ class _Campaign:
                 self.opts.model_profile,
                 env_file=env_file,
                 out=out,
+                llm_timeout_s=self.opts.llm_timeout_s,
                 process_env=self.ctx.environ,
             )
         except (stack_env.StackEnvError, model_profiles.ModelProfileError) as exc:
@@ -943,6 +961,11 @@ class _Campaign:
             str(opts.concurrency),
             *(["--limit", str(opts.limit)] if opts.limit is not None else []),
             *(["--case-ids", ",".join(opts.case_ids)] if opts.case_ids else []),
+            *(
+                ["--case-timeout-s", f"{opts.case_timeout_s:g}"]
+                if opts.case_timeout_s is not None
+                else []
+            ),
         )
 
     def _worker_command(self, config: str) -> list[str]:
@@ -1307,6 +1330,13 @@ def run_package(ctx: KitContext, run: str, out: Path | None = None) -> int:
 # --- the command line -------------------------------------------------------------------------
 
 
+def _positive_seconds(text: str) -> float:
+    value = float(text)
+    if not value > 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number of seconds, got {text!r}")
+    return value
+
+
 def _config_list(text: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in text.split(",") if item.strip())
 
@@ -1352,6 +1382,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     run.add_argument(
         "--dry-run", action="store_true", help="print every command; run nothing, needs no docker"
+    )
+    run.add_argument(
+        "--llm-timeout-s",
+        type=_positive_seconds,
+        default=stack_env.DEFAULT_LLM_TIMEOUT_S,
+        help="per LLM call, containers and host processes; .env's LLM__TIMEOUT_S must say the same "
+        "(default: %(default)g; ADR-0020: 180 for the local Qwen run)",
+    )
+    run.add_argument(
+        "--case-timeout-s",
+        type=_positive_seconds,
+        default=None,
+        help="one case's budget in live.run, its KB ingestion and its job; an overrun is an error "
+        "row (default: live.run's own)",
     )
 
     sub.add_parser("setup", help="once per machine: guard, pinned inputs, guard smoke, the stack")
@@ -1403,6 +1447,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         gw_wait_s=args.gw_wait_s,
                         stack_wait_s=args.stack_wait_s,
                         dry_run=args.dry_run,
+                        llm_timeout_s=args.llm_timeout_s,
+                        case_timeout_s=args.case_timeout_s,
                     ),
                 )
             if args.command == "setup":

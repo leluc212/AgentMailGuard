@@ -52,6 +52,7 @@ from evaluation.mailguard_bench.guard_env import (
 from evaluation.mailguard_bench.kit import pinned
 from evaluation.mailguard_bench.live.guard_worker import DEFAULT_PORT as GUARD_WORKER_PORT
 from evaluation.mailguard_bench.live.stack_env import (
+    DEFAULT_LLM_TIMEOUT_S,
     EMBEDDING_DIMENSION,
     EMBEDDING_KEY_ENV,
     EMBEDDING_SETTINGS,
@@ -530,11 +531,17 @@ def check_embedding(environ: Mapping[str, str]) -> Result:
     )
 
 
-def check_env_settings(environ: Mapping[str, str], profile: ModelProfile | None) -> Result:
+def check_env_settings(
+    environ: Mapping[str, str],
+    profile: ModelProfile | None,
+    *,
+    llm_timeout_s: float = DEFAULT_LLM_TIMEOUT_S,
+) -> Result:
     """The host processes read what the containers get (runbook 9.9 step 1).
 
     Reuses the stack env's own comparison. A wrong value is reported as what the setting must be;
-    the found value is never printed.
+    the found value is never printed. ``llm_timeout_s`` is the run's (``campaign run
+    --llm-timeout-s``; ADR-0020: 180 for the local Qwen run), so .env is checked against it.
     """
     if embedding_problems(environ):
         return Result(
@@ -554,9 +561,9 @@ def check_env_settings(environ: Mapping[str, str], profile: ModelProfile | None)
         fixed_api_key="unused",
     )
     try:
-        values = render_stack_env(profile or stand_in, environ)
+        values = render_stack_env(profile or stand_in, environ, llm_timeout_s=llm_timeout_s)
     except ModelProfileError:  # the profile's own key is missing; its key check reports that
-        values = render_stack_env(stand_in, environ)
+        values = render_stack_env(stand_in, environ, llm_timeout_s=llm_timeout_s)
     except StackEnvError as exc:
         return Result(Status.FAIL, ".env settings", str(exc), f"fix .env ({GUIDE}, part C)")
     # The two old lines have their own check (the file) and the shell check (exports).
@@ -1069,7 +1076,13 @@ def check_reader(reader: str | None, profile: ModelProfile | None) -> Result:
 # --- the run -----------------------------------------------------------------------------------
 
 
-def run_checks(world: World, *, model_profile: str | None, reader: str | None) -> list[Result]:
+def run_checks(
+    world: World,
+    *,
+    model_profile: str | None,
+    reader: str | None,
+    llm_timeout_s: float = DEFAULT_LLM_TIMEOUT_S,
+) -> list[Result]:
     """Every check, in the order a person would fix them."""
     results: list[Result] = []
     profile: ModelProfile | None = None
@@ -1143,7 +1156,7 @@ def run_checks(world: World, *, model_profile: str | None, reader: str | None) -
     if env_text is not None:
         results.extend(check_env_keys(merged, profile))
         results.append(check_embedding(merged))
-        results.append(check_env_settings(merged, profile))
+        results.append(check_env_settings(merged, profile, llm_timeout_s=llm_timeout_s))
     results.append(check_shell_exports(world.environ))
     results.append(check_old_env_lines(env_text))
 
@@ -1261,9 +1274,19 @@ def main(argv: Sequence[str] | None = None, *, world: World | None = None) -> in
         "--reader",
         help="the reader model of the meaning-based column; it may not be a benchmarked model",
     )
+    parser.add_argument(
+        "--llm-timeout-s",
+        type=float,
+        default=DEFAULT_LLM_TIMEOUT_S,
+        help="the run's per-call LLM timeout (campaign run --llm-timeout-s); .env must say the "
+        "same (default: %(default)g)",
+    )
     args = parser.parse_args(argv)
     results = run_checks(
-        world or real_world(), model_profile=args.model_profile, reader=args.reader
+        world or real_world(),
+        model_profile=args.model_profile,
+        reader=args.reader,
+        llm_timeout_s=args.llm_timeout_s,
     )
     for result in results:
         for line in result.lines():

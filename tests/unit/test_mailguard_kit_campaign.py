@@ -1106,3 +1106,67 @@ def test_an_openrouter_run_prints_its_pin_and_the_embedding_without_a_key(
     assert HOST_ENV["EMBEDDING__MODEL_NAME"] in embedding and "1536 dimensions" in embedding
     printed = "\n".join(bench.out + bench.err)
     assert "sk-or-x" not in printed and EMBED_KEY not in printed
+
+
+# --- ADR-0020: per-call and per-case timeouts for a slow local model --------------------------
+
+
+def test_the_default_run_keeps_live_run_s_case_timeout_and_the_60_s_llm_timeout(
+    bench: Bench,
+) -> None:
+    bench.runner_outcomes({})
+    run_campaign(bench.ctx, opts(configs=("C0",)))
+    cmd = next(p for k, p in bench.host.events if k == "run" and "live.run" in " ".join(p))
+    assert "--case-timeout-s" not in cmd
+    stack = (bench.repo / ".env.stack").read_text(encoding="utf-8")
+    assert "LLM__TIMEOUT_S='60.0'" in stack  # Compose env file: every value single-quoted
+
+
+def test_a_longer_case_budget_reaches_live_run(bench: Bench) -> None:
+    bench.runner_outcomes({})
+    run_campaign(bench.ctx, opts(configs=("C0",), case_timeout_s=900.0))
+    cmd = next(p for k, p in bench.host.events if k == "run" and "live.run" in " ".join(p))
+    assert cmd[cmd.index("--case-timeout-s") + 1] == "900"
+
+
+def test_the_llm_timeout_reaches_the_containers_and_must_match_dot_env(bench: Bench) -> None:
+    env = bench.repo / ".env"
+    text = env.read_text(encoding="utf-8").replace("LLM__TIMEOUT_S=60", "LLM__TIMEOUT_S=180")
+    env.write_text(text, encoding="utf-8")
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C0",), llm_timeout_s=180.0)) == 0
+    assert "LLM__TIMEOUT_S='180.0'" in (bench.repo / ".env.stack").read_text(encoding="utf-8")
+
+
+def test_an_llm_timeout_dot_env_does_not_say_is_refused_before_anything_runs(bench: Bench) -> None:
+    bench.runner_outcomes({})
+    assert run_campaign(bench.ctx, opts(configs=("C0",), llm_timeout_s=180.0)) != 0
+    assert not [p for k, p in bench.host.events if k == "run" and "live.run" in " ".join(p)]
+
+
+def test_the_resume_command_repeats_the_timeouts() -> None:
+    from evaluation.mailguard_bench.kit.campaign import resume_commands
+
+    plain = resume_commands(RunOptions(model_profile="qwen2.5-7b", run="r", configs=("C0",)))
+    assert len(plain) == 2 and "--llm-timeout-s" not in plain[1]
+    slow = resume_commands(
+        RunOptions(
+            model_profile="qwen2.5-7b",
+            run="r",
+            configs=("C0",),
+            llm_timeout_s=180.0,
+            case_timeout_s=900.0,
+        )  # fmt: skip
+    )
+    assert "make bench-run has no timeout options" in slow[0]
+    assert slow[1] == (
+        "python -m evaluation.mailguard_bench.kit.campaign run --model-profile qwen2.5-7b --run r "
+        "--configs C0 --concurrency 1 --llm-timeout-s 180 --case-timeout-s 900"
+    )
+
+
+def test_the_cli_refuses_a_non_positive_timeout() -> None:
+    with pytest.raises(SystemExit):
+        campaign.parse_args(
+            ["run", "--model-profile", "gpt-4o-mini", "--run", "r", "--case-timeout-s", "0"]
+        )
