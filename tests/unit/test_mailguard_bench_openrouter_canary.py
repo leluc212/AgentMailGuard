@@ -256,3 +256,28 @@ def test_the_command_names_the_missing_key_and_makes_no_call(
 
     assert "BENCH_OPENROUTER_API_KEY" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+async def test_a_gzip_encoded_answer_is_read_once_not_decoded_twice(tmp_path: Path) -> None:
+    """OpenRouter gzips its answers (2026-11-11); the capture must not make httpx decode twice."""
+    import gzip
+
+    body = json.dumps(answer("meta-llama/llama-3.1-8b-instruct", "CoreWeave")).encode()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=gzip.compress(body),
+            headers={"Content-Encoding": "gzip", "Content-Type": "application/json"},
+        )
+
+    report = await run_canary(
+        get_profile("llama-3.1-8b-openrouter"),
+        llm_for("llama-3.1-8b-openrouter"),
+        transport=httpx.MockTransport(handler),
+        out_dir=tmp_path,
+    )
+
+    assert report.ok, report
+    assert report.checks["strict_json"] is True
+    assert report.served_provider == "CoreWeave"

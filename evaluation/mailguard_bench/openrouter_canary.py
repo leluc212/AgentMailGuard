@@ -118,8 +118,16 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
             "headers": dict(response.headers),
             "body": _json_or_text(content),
         }
+        # ``aread`` returned the decoded body; passing the original Content-Encoding on would make
+        # httpx decode it a second time ("Error -3 while decompressing data", seen 2026-11-11 once
+        # OpenRouter began gzip-encoding responses). The rebuilt response carries plain bytes.
+        headers = [
+            (k, v)
+            for k, v in response.headers.multi_items()
+            if k.lower() not in ("content-encoding", "content-length")
+        ]
         return httpx.Response(
-            response.status_code, headers=response.headers, content=content, request=request
+            response.status_code, headers=headers, content=content, request=request
         )
 
     async def aclose(self) -> None:
