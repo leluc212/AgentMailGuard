@@ -78,6 +78,7 @@ import os
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import zipfile
@@ -465,10 +466,23 @@ def _copy_is_current(folder: Path, marker: Path, image: str) -> bool:
         return False
 
 
+def _clear_readonly_and_retry(func: Callable[..., Any], path: str, exc: BaseException) -> None:
+    """``rmtree``'s ``onexc``: a read-only file (``docker compose cp`` on Windows leaves some) is
+    made writable and removed again; any other failure is raised as it was."""
+    if not isinstance(exc, PermissionError):
+        raise exc
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def _remove(path: Path) -> None:
-    """Delete a folder, or whatever file or link stands in its place; nothing when it is absent."""
+    """Delete a folder, or whatever file or link stands in its place; nothing when it is absent.
+
+    Read-only files inside the folder are removed too (WinError 5 on Windows otherwise, seen
+    2026-11-11 on the reranker copy); only the folder being replaced is touched.
+    """
     if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
+        shutil.rmtree(path, onexc=_clear_readonly_and_retry)
     else:
         path.unlink(missing_ok=True)
 
@@ -517,7 +531,8 @@ def sync_rerank_model(ctx: KitContext) -> RerankCopy:
         except OSError as exc:
             raise _rerank_failure(f"cannot write {marker}: {exc}") from exc
     except BaseException:  # a failure or Ctrl+C: leave neither half a copy nor a marker for it
-        shutil.rmtree(folder, ignore_errors=True)
+        with suppress(OSError):
+            _remove(folder)
         with suppress(OSError):
             marker.unlink(missing_ok=True)
         raise

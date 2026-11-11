@@ -1170,3 +1170,22 @@ def test_the_cli_refuses_a_non_positive_timeout() -> None:
         campaign.parse_args(
             ["run", "--model-profile", "gpt-4o-mini", "--run", "r", "--case-timeout-s", "0"]
         )
+
+
+def test_a_read_only_file_in_the_old_reranker_copy_does_not_stop_its_replacement(
+    tmp_path: Path,
+) -> None:
+    """``docker compose cp`` on Windows leaves read-only files; ``rmtree`` alone fails on them."""
+    import stat as stat_module
+
+    folder = tmp_path / "reranker"
+    (folder / "blobs").mkdir(parents=True)
+    locked = folder / "blobs" / "weights"
+    locked.write_bytes(b"x")
+    locked.chmod(stat_module.S_IREAD)
+    campaign._remove(folder)
+    assert not folder.exists()
+
+
+def test_removing_a_missing_folder_is_a_no_op(tmp_path: Path) -> None:
+    campaign._remove(tmp_path / "absent")
