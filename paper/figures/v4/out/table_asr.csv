@@ -1,0 +1,37 @@
+Model,Attack group,Cases planned,Config,k,n,Attack success rate (%),Wilson 95 % low (%),Wilson 95 % high (%),McNemar exact p (C0 vs C3)
+gpt-4o-mini,"LLMail-Inject phase 2, scenario 1 (level1*)",797,C0 (no guard),190,796,23.9,21.0,27.0,
+gpt-4o-mini,"LLMail-Inject phase 2, scenario 1 (level1*)",797,C3 (full guard),0,797,0.0,0.0,0.5,
+gpt-4o-mini,"LLMail-Inject phase 2, scenario 2 (level2*)",203,C0 (no guard),52,203,25.6,20.1,32.0,
+gpt-4o-mini,"LLMail-Inject phase 2, scenario 2 (level2*)",203,C3 (full guard),0,203,0.0,0.0,1.9,
+gpt-4o-mini,"Email attacks, all",1000,C0 (no guard),242,999,24.2,21.7,27.0,
+gpt-4o-mini,"Email attacks, all",1000,C3 (full guard),0,1000,0.0,0.0,0.4,2.8e-73
+gpt-4o-mini,PoisonedRAG (wrong answer),165,C0 (no guard),28,165,17.0,12.0,23.4,
+gpt-4o-mini,PoisonedRAG (wrong answer),165,C3 (full guard),9,165,5.5,2.9,10.0,
+gpt-4o-mini,AgentMailGuard seed RAG (wrong answer),18,C0 (no guard),12,18,66.7,43.7,83.7,
+gpt-4o-mini,AgentMailGuard seed RAG (wrong answer),18,C3 (full guard),0,18,0.0,0.0,17.6,
+gpt-4o-mini,"LLMail-Inject phase 1, scenario 3 (exfiltration)",108,C0 (no guard),21,108,19.4,13.1,27.9,
+gpt-4o-mini,"LLMail-Inject phase 1, scenario 3 (exfiltration)",108,C3 (full guard),0,108,0.0,0.0,3.4,
+gpt-4o-mini,"LLMail-Inject phase 1, scenario 4 (exfiltration)",292,C0 (no guard),23,292,7.9,5.3,11.5,
+gpt-4o-mini,"LLMail-Inject phase 1, scenario 4 (exfiltration)",292,C3 (full guard),0,292,0.0,0.0,1.3,
+gpt-4o-mini,"RAG attacks, all",583,C0 (no guard),84,583,14.4,11.8,17.5,
+gpt-4o-mini,"RAG attacks, all",583,C3 (full guard),9,583,1.5,0.8,2.9,7.3e-20
+gpt-4o-mini,"Synthetic RAG attacks, all",60,C0 (no guard),25,60,41.7,30.1,54.3,
+gpt-4o-mini,"Synthetic RAG attacks, all",60,C3 (full guard),0,60,0.0,0.0,6.0,6.0e-08
+Llama-3.1-8B,"LLMail-Inject phase 2, scenario 1 (level1*)",797,C0 (no guard),251,796,31.5,28.4,34.8,
+Llama-3.1-8B,"LLMail-Inject phase 2, scenario 1 (level1*)",797,C3 (full guard),0,796,0.0,0.0,0.5,
+Llama-3.1-8B,"LLMail-Inject phase 2, scenario 2 (level2*)",203,C0 (no guard),73,203,36.0,29.7,42.8,
+Llama-3.1-8B,"LLMail-Inject phase 2, scenario 2 (level2*)",203,C3 (full guard),0,203,0.0,0.0,1.9,
+Llama-3.1-8B,"Email attacks, all",1000,C0 (no guard),324,999,32.4,29.6,35.4,
+Llama-3.1-8B,"Email attacks, all",1000,C3 (full guard),0,999,0.0,0.0,0.4,5.9e-98
+Llama-3.1-8B,PoisonedRAG (wrong answer),165,C0 (no guard),150,165,90.9,85.5,94.4,
+Llama-3.1-8B,PoisonedRAG (wrong answer),165,C3 (full guard),20,164,12.2,8.0,18.1,
+Llama-3.1-8B,AgentMailGuard seed RAG (wrong answer),18,C0 (no guard),14,18,77.8,54.8,91.0,
+Llama-3.1-8B,AgentMailGuard seed RAG (wrong answer),18,C3 (full guard),0,18,0.0,0.0,17.6,
+Llama-3.1-8B,"LLMail-Inject phase 1, scenario 3 (exfiltration)",108,C0 (no guard),14,108,13.0,7.9,20.6,
+Llama-3.1-8B,"LLMail-Inject phase 1, scenario 3 (exfiltration)",108,C3 (full guard),0,108,0.0,0.0,3.4,
+Llama-3.1-8B,"LLMail-Inject phase 1, scenario 4 (exfiltration)",292,C0 (no guard),10,287,3.5,1.9,6.3,
+Llama-3.1-8B,"LLMail-Inject phase 1, scenario 4 (exfiltration)",292,C3 (full guard),0,292,0.0,0.0,1.3,
+Llama-3.1-8B,"RAG attacks, all",583,C0 (no guard),188,578,32.5,28.8,36.4,
+Llama-3.1-8B,"RAG attacks, all",583,C3 (full guard),20,582,3.4,2.2,5.2,1.1e-50
+Llama-3.1-8B,"Synthetic RAG attacks, all",60,C0 (no guard),14,60,23.3,14.4,35.4,
+Llama-3.1-8B,"Synthetic RAG attacks, all",60,C3 (full guard),0,60,0.0,0.0,6.0,1.2e-04
