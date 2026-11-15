@@ -199,7 +199,7 @@ def test_bench_canary_needs_a_model_and_runs_the_canary_under_the_overlay() -> N
 
 def test_the_canary_refuses_a_profile_that_is_not_routed() -> None:
     routed = sorted(name for name, profile in PROFILES.items() if profile.routing is not None)
-    assert routed == ["llama-3.1-8b-openrouter", "qwen2.5-7b-openrouter"]
+    assert routed == ["llama-3.1-8b-openrouter", "qwen2.5-7b-openrouter", "qwen3.5-9b-openrouter"]
     for name in routed:
         assert parse_args(["--model-profile", name]).model_profile == name
     with pytest.raises(SystemExit):

@@ -10,6 +10,7 @@ provider and the guard's `openai` backend reach it by base URL alone:
     gemma-4-26b         Gemini API (the first test run) key from LLM__OPENAI_API_KEY
     qwen2.5-7b-openrouter    OpenRouter, Phala pinned      key from BENCH_OPENROUTER_API_KEY
     llama-3.1-8b-openrouter  OpenRouter, CoreWeave bf16    key from BENCH_OPENROUTER_API_KEY
+    qwen3.5-9b-openrouter    OpenRouter, PrimeIntellect bf16 key from BENCH_OPENROUTER_API_KEY
 
 v1 ran Llama-3.1-8B and Qwen2.5-7B on the desktop's Ollama (owner decision 2026-09-29, evening;
 the first OpenRouter profile was removed after its account had no credit). The v2 benchmark is
@@ -134,6 +135,23 @@ PROFILES: dict[str, ModelProfile] = {
             output_per_m=0.22,
             base_url_env="BENCH_OPENROUTER_BASE_URL",
             provider_pin="coreweave",
+            quantizations=("bf16",),
+        ),
+        # ADR-0021 (owner, 2026-11-15): Qwen3.5-9B replaces Qwen2.5-7B, whose OpenRouter route
+        # was withdrawn (ADR-0020). Read from OpenRouter's live API on 2026-11-15. Qwen3.5 thinks
+        # by default and neither rag-email's nor the pinned guard's provider sends a `reasoning`
+        # field, so the pin is the one bf16 endpoint that answered with reasoning off and no
+        # field sent (PrimeIntellect: 0 reasoning tokens in 11 of 11 probe calls; DeepInfra and
+        # Together reasoned until max_tokens). The canary checks it again before every run.
+        ModelProfile(
+            name="qwen3.5-9b-openrouter",
+            model="qwen/qwen3.5-9b",
+            base_url=OPENROUTER_BASE_URL,
+            api_key_env="BENCH_OPENROUTER_API_KEY",
+            input_per_m=0.07,
+            output_per_m=0.103,
+            base_url_env="BENCH_OPENROUTER_BASE_URL",
+            provider_pin="primeintellect",
             quantizations=("bf16",),
         ),
     )

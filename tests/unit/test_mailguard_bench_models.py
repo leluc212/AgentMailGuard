@@ -37,6 +37,7 @@ def test_every_benchmark_model_has_a_profile() -> None:
         "qwen2.5-7b",
         "qwen2.5-7b-openrouter",
         "llama-3.1-8b-openrouter",
+        "qwen3.5-9b-openrouter",
     }
     assert get_profile("gpt-4o-mini").model == "gpt-4o-mini"
     assert get_profile("llama-3.1-8b-local").model == "llama3.1:8b"
@@ -146,6 +147,23 @@ def test_llama_pins_coreweave_at_bf16() -> None:
     assert json.loads(env["LLM__PRICE_TABLE"])["meta-llama/llama-3.1-8b-instruct"] == {
         "input_per_m": 0.22,
         "output_per_m": 0.22,
+    }
+
+
+def test_qwen35_pins_primeintellect_at_bf16() -> None:
+    # ADR-0021: the one bf16 endpoint that answers with reasoning off when no field is sent.
+    env = profile_env(get_profile("qwen3.5-9b-openrouter"), OPENROUTER_ENV)
+    for tier in ("LLM__FAST_MODEL", "LLM__STRONG_MODEL", "LLM__FALLBACK_MODEL"):
+        assert env[tier] == "qwen/qwen3.5-9b"
+    assert json.loads(env["LLM__OPENAI_PROVIDER_ROUTING"]) == {
+        "order": ["primeintellect"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "quantizations": ["bf16"],
+    }
+    assert env["LLM__OPENAI_RESPONSE_METADATA"] == "true"
+    assert json.loads(env["LLM__PRICE_TABLE"]) == {
+        "qwen/qwen3.5-9b": {"input_per_m": 0.07, "output_per_m": 0.103}
     }
 
 

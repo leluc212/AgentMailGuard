@@ -27,7 +27,7 @@ from evaluation.mailguard_bench.guard_env import GUARD_MODELS_YAML, GuardEnvErro
 from evaluation.mailguard_bench.model_profiles import get_profile  # noqa: E402
 from evaluation.mailguard_bench.route import NON_JSON_BODY  # noqa: E402
 
-PROFILES = ("qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter")
+PROFILES = ("qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter", "qwen3.5-9b-openrouter")
 
 
 def _guard_response(model: str, provider: str, attempt: int = 1) -> dict[str, Any]:

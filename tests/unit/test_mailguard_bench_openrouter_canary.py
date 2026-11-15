@@ -68,6 +68,7 @@ def transport(body: dict[str, Any], status: int = 200) -> tuple[httpx.MockTransp
     [
         ("llama-3.1-8b-openrouter", "meta-llama/llama-3.1-8b-instruct", "CoreWeave"),
         ("qwen2.5-7b-openrouter", "qwen/qwen-2.5-7b-instruct", "Phala"),
+        ("qwen3.5-9b-openrouter", "qwen/qwen3.5-9b", "PrimeIntellect"),
     ],
 )
 async def test_a_call_served_by_the_pinned_provider_passes_and_is_captured(
@@ -281,3 +282,39 @@ async def test_a_gzip_encoded_answer_is_read_once_not_decoded_twice(tmp_path: Pa
     assert report.ok, report
     assert report.checks["strict_json"] is True
     assert report.served_provider == "CoreWeave"
+
+
+@pytest.mark.parametrize("reasoning_tokens", [0, None])
+async def test_no_reasoning_tokens_pass(tmp_path: Path, reasoning_tokens: int | None) -> None:
+    body = answer("qwen/qwen3.5-9b", "PrimeIntellect")
+    if reasoning_tokens is not None:
+        body["usage"]["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+    mock, _ = transport(body)
+
+    report = await run_canary(
+        get_profile("qwen3.5-9b-openrouter"),
+        llm_for("qwen3.5-9b-openrouter"),
+        transport=mock,
+        out_dir=tmp_path,
+    )
+
+    assert report.ok, report
+
+
+async def test_a_reasoning_answer_fails_the_canary(tmp_path: Path) -> None:
+    # ADR-0021: Qwen3.5-9B thinks by default on some endpoints; the run's clients cannot stop it.
+    body = answer("qwen/qwen3.5-9b", "PrimeIntellect")
+    body["usage"]["completion_tokens_details"] = {"reasoning_tokens": 389}
+    mock, _ = transport(body)
+
+    report = await run_canary(
+        get_profile("qwen3.5-9b-openrouter"),
+        llm_for("qwen3.5-9b-openrouter"),
+        transport=mock,
+        out_dir=tmp_path,
+    )
+
+    assert not report.ok
+    assert "389 reasoning tokens" in report.problems[0]
+    captured = json.loads((tmp_path / "qwen3.5-9b-openrouter.json").read_text(encoding="utf-8"))
+    assert captured["problems"] == report.problems  # the evidence is kept

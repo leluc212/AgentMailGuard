@@ -2,7 +2,8 @@
 
     uv run python -m evaluation.mailguard_bench.openrouter_canary --model-profile P
 
-where P is ``llama-3.1-8b-openrouter`` or ``qwen2.5-7b-openrouter``.
+where P is a routed profile (``llama-3.1-8b-openrouter``, ``qwen2.5-7b-openrouter``,
+``qwen3.5-9b-openrouter``). A response that reports reasoning tokens fails the canary (ADR-0021).
 
 One strict-JSON call, through rag-email's own pinned client (``packages/llm``), to the model the
 profile pins. It answers three questions before a long run spends money:
@@ -162,6 +163,16 @@ def _hint(exc: LLMResponseError) -> str:
     return str(exc)[:300]
 
 
+def _reasoning_tokens(response: dict[str, Any] | None) -> int:
+    """Reasoning tokens the response reports (OpenRouter ``usage.completion_tokens_details``)."""
+    body = (response or {}).get("body")
+    if not isinstance(body, dict):
+        return 0
+    details = (body.get("usage") or {}).get("completion_tokens_details") or {}
+    value = details.get("reasoning_tokens") if isinstance(details, dict) else None
+    return int(value) if isinstance(value, int | float) else 0
+
+
 def _answer_is_valid(content: dict[str, Any]) -> bool:
     return set(content) == {"answer"} and content["answer"] == "pong"
 
@@ -223,6 +234,15 @@ async def run_canary(
         report.provider_source = provenance.provider_source
         report.generation_id = provenance.generation_id
         report.cost_usd = provenance.cost
+    tokens = _reasoning_tokens(capture.response)
+    if tokens:
+        # ADR-0021: a thinking answer spends the budget before the JSON (seen on DeepInfra and
+        # Together for Qwen3.5-9B: content empty or prose, finish_reason length). Neither client
+        # can switch it off, so the pinned endpoint must not reason at all.
+        report.problems.append(
+            f"the pinned provider reasoned ({tokens} reasoning tokens): the run's calls would "
+            "spend their budget thinking; pin an endpoint that answers with reasoning off"
+        )
     if capture.response is not None:
         report.checks["captured"] = True
         out_dir.mkdir(parents=True, exist_ok=True)

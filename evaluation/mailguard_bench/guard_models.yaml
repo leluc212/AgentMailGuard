@@ -60,3 +60,16 @@ models:
       require_parameters: true
       quantizations: [bf16]
     response_metadata: true
+  # ADR-0021 (owner, 2026-11-15): Qwen3.5-9B on OpenRouter, PrimeIntellect bf16, the endpoint that
+  # answers with reasoning off when no `reasoning` field is sent (the guard's provider sends none).
+  qwen/qwen3.5-9b:
+    backend: openai
+    model: qwen/qwen3.5-9b
+    json_mode: json_object
+    timeout_s: 120
+    provider_routing:
+      order: [primeintellect]
+      allow_fallbacks: false
+      require_parameters: true
+      quantizations: [bf16]
+    response_metadata: true
