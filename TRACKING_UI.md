@@ -108,6 +108,7 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Chốt C1, C3–C6; commit kế hoạch | C2 chưa có đề xuất trong bản trước, đã bổ sung đề xuất E2 |
 | 2026-11-16 | Soạn ADR-0018 (Proposed), R25, design §5.9, Phase 9 | Phát hiện thêm: ngân sách lời gọi LLM (C7), thứ tự phase (C8), image Docker chưa chứa `agentmailguard/`, task 8.10 (token Gmail dùng chung) nên adapter demo không được gửi mail thật |
 | 2026-11-16 | Chủ dự án duyệt mọi đề xuất; ADR-0018 Accepted; task 9.0 xong; sửa số đếm trong AGENTS.md, CLAUDE.md | Bước kế: task 9.1, chờ xác nhận trước khi code |
+| 2026-11-16 | Tạm ngưng trên máy 1 (ổ C đầy khi `docker compose up --build`); push nhánh để làm tiếp trên máy khác | Task 9.1 chưa bắt đầu code. Ghi chú môi trường: chạy unit test trên Windows trực tiếp có 191 test fail sẵn (khác biệt đường dẫn/công cụ); trong container Linux (`uv:python3.12-bookworm-slim` + git + make) chỉ 1 test fail sẵn: `tests/unit/test_kit_docs.py::test_the_stated_run_times_follow_from_the_smoke_measurements` (1800 vs 550). Chưa có `.env` (copy từ `.env.example`). Build stack cần nhiều dung lượng, nên để trống ≥25 GB. Classifier L1 riêng tư không có trong git (ADR-0012) |
 
 ---
 
