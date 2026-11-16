@@ -35,7 +35,9 @@ OUT = Path(__file__).resolve().parent / "out"
 MODELS = (  # (label in the figures, run folder)
     ("gpt-4o-mini", "2026-11-10-gpt4omini-v4"),
     ("Llama-3.1-8B", "2026-11-11-llama31-v4"),
-    ("Qwen2.5-7B (Q4_K_M, local)", "2026-11-11-qwen25-local-v4"),
+    # ADR-0021 (owner, 2026-11-15): Qwen3.5-9B replaces Qwen2.5-7B (`2026-11-11-qwen25-local-v4`,
+    # kept in the repository, not reported).
+    ("Qwen3.5-9B", "2026-11-16-qwen35-9b-v4"),
 )
 CONFIGS = ("C0", "C3")
 CONFIG_LABEL = {"C0": "C0 (no guard)", "C3": "C3 (full guard)"}
@@ -143,13 +145,48 @@ def check_inside(fig, name: str) -> None:
             raise SystemExit(f"{name}: text {text.get_text()!r} is outside the figure")
 
 
+def _overlap(a, b, tol: float = 0.5) -> bool:
+    return min(a.x1, b.x1) - max(a.x0, b.x0) > tol and min(a.y1, b.y1) - max(a.y0, b.y0) > tol
+
+
+def check_no_overlap(fig, name: str, value_texts: list, bars: list, note) -> None:
+    """Fail if a value label sits on a bar or on another label, or the note runs into an axis."""
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    boxes = [t.get_window_extent(r) for t in value_texts]
+    # A bar must be at least as tall as its value label (points; 72 per inch), or the panel was
+    # squeezed and the C0 and C3 bars and labels run into each other.
+    min_px = 0.8 * max(b.height for b in boxes)
+    for bar in bars:
+        if bar.get_window_extent(r).height < min_px:
+            raise SystemExit(f"{name}: bars are {bar.get_window_extent(r).height:.1f} px tall, "
+                             f"labels {min_px / 0.8:.1f} px: the panel is too short")  # fmt: skip
+    for i, b in enumerate(boxes):
+        for bar in bars:
+            if bar.get_width() > 0 and _overlap(b, bar.get_window_extent(r)):
+                raise SystemExit(f"{name}: value label {value_texts[i].get_text()!r} overlaps a bar")
+        for j in range(i + 1, len(boxes)):
+            if _overlap(b, boxes[j]):
+                raise SystemExit(f"{name}: value labels {value_texts[i].get_text()!r} and "
+                                 f"{value_texts[j].get_text()!r} overlap")  # fmt: skip
+    nb = note.get_window_extent(r)
+    for ax in fig.axes:
+        if _overlap(nb, ax.get_tightbbox(r)):
+            raise SystemExit(f"{name}: the note overlaps a panel")
+
+
 def draw(fig_key: str, name: str, title: str, models: list[tuple[str, dict]]) -> None:
     labels = [g[2] for g in GROUPS if g[1] == fig_key] + [TOTALS[fig_key][1]]
     if fig_key == "synthetic":
         labels = [TOTALS[fig_key][1]]
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9})
-    fig, axes = plt.subplots(len(models), 1, figsize=(7.2, 1.0 + 0.55 * len(labels) * len(models) + 0.6),
-                             squeeze=False)  # fmt: skip
+    # Sizes in inches, so a panel with one group is as readable as one with six: each group row
+    # 0.55, each panel's title, ticks and axis label 0.85, the figure title 0.35, the note 0.6.
+    panel_in = 0.55 * len(labels) + 0.85
+    title_in, note_in = 0.35, 0.6
+    height = title_in + panel_in * len(models) + note_in
+    fig, axes = plt.subplots(len(models), 1, figsize=(7.2, height), squeeze=False)
+    value_texts, bars = [], []
     for ax, (model, t) in zip(axes[:, 0], models, strict=True):
         y = list(range(len(labels)))[::-1]
         h = 0.36
@@ -166,10 +203,12 @@ def draw(fig_key: str, name: str, title: str, models: list[tuple[str, dict]]) ->
                 texts.append(fmt_pct(k, n))  # owner 2026-11-11: percent only; k/n is in the table
             ys = [v + (h / 2 if j == 0 else -h / 2) for v in y]
             style = dict(color="white", edgecolor="black", hatch="///") if c == "C0" else dict(color="black", edgecolor="black")
-            ax.barh(ys, vals, height=h, xerr=[los, his], capsize=2, error_kw={"elinewidth": 0.8, "ecolor": "0.35"},
-                    label=CONFIG_LABEL[c], **style)  # fmt: skip
+            cont = ax.barh(ys, vals, height=h, xerr=[los, his], capsize=2,
+                           error_kw={"elinewidth": 0.8, "ecolor": "0.35"}, label=CONFIG_LABEL[c], **style)  # fmt: skip
+            bars.extend(cont.patches)
             for yy, v, hi_err, txt in zip(ys, vals, his, texts, strict=True):
-                ax.text(v + hi_err + 1.0, yy, txt, va="center", fontsize=7.5)
+                value_texts.append(ax.text(v + hi_err + 1.0, yy, txt, va="center", fontsize=7.5))
+        ax.set_ylim(-0.6, len(labels) - 0.4)
         ax.set_yticks(y)
         ax.set_yticklabels(labels, fontsize=8)
         # Room right of 100 % for the value labels; the scale itself stops at 100 %.
@@ -188,9 +227,10 @@ def draw(fig_key: str, name: str, title: str, models: list[tuple[str, dict]]) ->
             "stopped by triage counts as a failed attack.\nError bars: 95 % Wilson interval. Cases that "
             "ended in an error after the retry pass are not scored. C0 and C3 run on the same cases.\n"
             "Counts (k/n) and McNemar p are in Table table_asr.")  # fmt: skip
-    fig.text(0.01, 0.005, note, fontsize=6.8, va="bottom", ha="left")
-    fig.tight_layout(rect=(0, 0.08, 1, 0.97))
+    note_text = fig.text(0.01, 0.005, note, fontsize=6.8, va="bottom", ha="left")
+    fig.tight_layout(rect=(0, note_in / height, 1, 1 - title_in / height))
     check_inside(fig, name)
+    check_no_overlap(fig, name, value_texts, bars, note_text)
     for ext in ("pdf", "png"):
         fig.savefig(OUT / f"{name}.{ext}", dpi=300 if ext == "png" else None)
     plt.close(fig)
