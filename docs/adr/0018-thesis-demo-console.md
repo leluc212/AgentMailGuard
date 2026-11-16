@@ -58,7 +58,7 @@ What the stack offers today:
    - Image: `agentmailguard/` is installed into the app image (`.dockerignore` stops excluding it; `evaluation/` stays excluded). The private L1 classifier is never baked in or committed: compose mounts it read-only from `GUARD__L1_MODEL_PATH` on the host. Without it L1's classifier stage is off, `GET /v1/demo/capabilities` says so, and the console shows a warning.
    - **Display only.** The guard's decision does not change `dispatch_mode` and never enables `auto_send`; every draft still goes through review (ADR-0009). Consuming the Doc Scanner's `trust` in rag-email (badges, `trust_level`, exclusion, re-retrieval) remains ADR-0016 / task 7.32 and is not part of this decision.
 
-7. **Guard report storage.** Table `guard_report` (migration `0006`): `organization_id`, `job_id` (unique), `guard_mode`, `schema_version` (3), `inbound_action`, `final_action`, `report` (JSONB: the per-layer verdicts, the chunk trust list, the isolation info, the judges called), `guard_llm_calls`, `timings_ms`, `created_at`. It is written in the same transaction as `persist_drafted` (AGENTS.md §4). `GET /v1/jobs/{id}/guard` returns it, organization-scoped; 404 for a `C0` job.
+7. **Guard report storage.** Table `guard_report` (migration `0007`): `organization_id`, `job_id` (unique), `guard_mode`, `schema_version` (3), `inbound_action`, `final_action`, `report` (JSONB: the per-layer verdicts, the chunk trust list, the isolation info, the judges called), `guard_llm_calls`, `timings_ms`, `created_at`. It is written in the same transaction as `persist_drafted` (AGENTS.md §4). `GET /v1/jobs/{id}/guard` returns it, organization-scoped; 404 for a `C0` job.
 
 8. **Live progress by polling (owner decision Q6).** The console polls `GET /v1/jobs/{id}/timeline` (existing, R23.5) about every 500 ms while the job is not terminal, then stops. No stream endpoint. Step details come from the existing endpoints (`messages`, `threads`, `drafts`, `search/debug`) and from timeline event payloads; where a step's data is missing from the payload (to be listed in task 9.1), the step that emits the event adds it.
 
@@ -75,7 +75,7 @@ What the stack offers today:
 - rag-email gains a second front end and a Node build stage in the Dockerfile; CI gains a UI job (lint, type-check, unit tests, build) and a Playwright end-to-end test against the stack with fake providers (R24.5: no live credentials in any test).
 - rag-email's production path can now run the guard. ADR-0010's rule still holds: the defence logic stays in `agentmailguard/`, and rag-email only calls its public API. `requirements.md` §0.5 is unchanged; R25.5 states the call, not a defence.
 - Two guard wrappers exist (benchmark and live), kept equal by the parity test, so the pinned benchmark is not touched.
-- `processing_job` gains a column and the schema gains a table (migration `0006`, with its `down`).
+- `processing_job` gains a column and the schema gains a table (migration `0006` for `run_options`, `0007` for `guard_report`, each with its `down`).
 - AGENTS.md and CLAUDE.md §1 now count 220 criteria (`R1.1`…`R25.12`) and the tasks of Phases 0–9 (owner decision C9).
 - With E2, even the fake profile needs network and an embedding key; the offline profile is the fallback.
 

@@ -54,7 +54,7 @@ def _from_json_val(val: Any) -> Any:
 JOB_SELECT_COLUMNS = """
     id, organization_id, message_id, thread_id, job_type, state,
     attempt, max_attempts, idempotency_key, result_ref, queue_name,
-    priority, lease_expires_at, last_error, next_retry_at, trace_id,
+    priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
     created_at, updated_at
 """
 """Column list that ``PostgresJobStore._row_to_job`` reads; shared by the review and
@@ -210,18 +210,18 @@ class PostgresJobStore(JobStore):
             INSERT INTO processing_job (
                 id, organization_id, message_id, thread_id, job_type, state,
                 attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10::jsonb, $11,
-                $12, $13, $14, $15, $16,
+                $12, $13, $14, $15, $16, $19::jsonb,
                 $17, $18
             )
             ON CONFLICT (idempotency_key) DO NOTHING
             RETURNING id, organization_id, message_id, thread_id, job_type, state,
                       attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                       created_at, updated_at;
         """
 
@@ -256,6 +256,7 @@ class PostgresJobStore(JobStore):
                 job.trace_id,
                 now,
                 now,
+                _to_json_val(job.run_options),
             )
 
             if row is not None:
@@ -286,7 +287,7 @@ class PostgresJobStore(JobStore):
                 query_fallback = """
                         SELECT id, organization_id, message_id, thread_id, job_type, state,
                                attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                               priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                               priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                                created_at, updated_at
                         FROM processing_job
                         WHERE idempotency_key = $1;
@@ -315,7 +316,7 @@ class PostgresJobStore(JobStore):
         query = """
             SELECT id, organization_id, message_id, thread_id, job_type, state,
                    attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                    created_at, updated_at
             FROM processing_job
             WHERE id = $1 AND organization_id = $2;
@@ -337,7 +338,7 @@ class PostgresJobStore(JobStore):
         query = """
             SELECT id, organization_id, message_id, thread_id, job_type, state,
                    attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                    created_at, updated_at
             FROM processing_job
             WHERE idempotency_key = $1 AND organization_id = $2;
@@ -399,7 +400,7 @@ class PostgresJobStore(JobStore):
         select_for_update = """
             SELECT id, organization_id, message_id, thread_id, job_type, state,
                    attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                    created_at, updated_at
             FROM processing_job
             WHERE id = $1 AND organization_id = $2
@@ -417,7 +418,7 @@ class PostgresJobStore(JobStore):
             WHERE id = $7 AND organization_id = $8
             RETURNING id, organization_id, message_id, thread_id, job_type, state,
                       attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                       created_at, updated_at;
         """
 
@@ -584,7 +585,7 @@ class PostgresJobStore(JobStore):
             WHERE id = $3 AND organization_id = $4 AND state NOT IN ('COMPLETED', 'DEAD_LETTER')
             RETURNING id, organization_id, message_id, thread_id, job_type, state,
                       attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                       created_at, updated_at;
         """
         async with self.pool.acquire() as conn:
@@ -622,7 +623,7 @@ class PostgresJobStore(JobStore):
         select_query = """
             SELECT id, organization_id, message_id, thread_id, job_type, state,
                    attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                    created_at, updated_at
             FROM processing_job
             -- DRAFTED waits for a human reviewer; no worker holds it (4.13b).
@@ -653,7 +654,7 @@ class PostgresJobStore(JobStore):
             WHERE id = $5 AND organization_id = $6
             RETURNING id, organization_id, message_id, thread_id, job_type, state,
                       attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                       created_at, updated_at;
         """
 
@@ -822,7 +823,7 @@ class PostgresJobStore(JobStore):
         select_for_update = """
             SELECT id, organization_id, message_id, thread_id, job_type, state,
                    attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                   priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                   priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                    created_at, updated_at
             FROM processing_job
             WHERE id = $1 AND organization_id = $2
@@ -840,7 +841,7 @@ class PostgresJobStore(JobStore):
             WHERE id = $4 AND organization_id = $5
             RETURNING id, organization_id, message_id, thread_id, job_type, state,
                       attempt, max_attempts, idempotency_key, result_ref, queue_name,
-                      priority, lease_expires_at, last_error, next_retry_at, trace_id,
+                      priority, lease_expires_at, last_error, next_retry_at, trace_id, run_options,
                       created_at, updated_at;
         """
 
@@ -930,6 +931,7 @@ class PostgresJobStore(JobStore):
             last_error=row["last_error"],
             next_retry_at=row["next_retry_at"],
             trace_id=row["trace_id"],
+            run_options=_from_json_val(row.get("run_options")),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

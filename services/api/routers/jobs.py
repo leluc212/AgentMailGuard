@@ -257,6 +257,7 @@ async def replay_job(
         thread_id=str(replayed_job.thread_id or ""),
         attempt=replayed_job.attempt,
         payload={"replayed": True, "reason": req_body.reason},
+        run_options=replayed_job.run_options,  # a replay keeps the job's run options (R25.3)
     )
     try:
         await publisher.publish(

@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** UI-0 xong, task 9.1 xong. Bước kế: task 9.2 (run options trên job).
+**Trạng thái chung:** UI-0 xong, task 9.1 xong (`6e3565d`), task 9.2 xong. Bước kế: task 9.3 (demo ingest door).
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -32,6 +32,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | C7 | Lời gọi judge của guard ngoài ngân sách job (ngoại lệ AGENTS.md §4) | Đếm riêng, chỉ job C3 | 2026-11-16 |
 | C8 | Phase 9 làm trước gate Phase 7, 8 | Cho phép | 2026-11-16 |
 | C9 | Nhóm requirement mới R25; cập nhật số đếm trong AGENTS.md | R25; đã sửa AGENTS.md và CLAUDE.md | 2026-11-16 |
+| C10 | Task 9.2 và 9.7 cùng ghi migration `0006` | 9.2 dùng `0006` (`run_options`), 9.7 dùng `0007` (`guard_report`); đã sửa `specs/tasks.md` | 2026-11-16 |
+| C11 | Thứ tự làm Phase 9 | Theo `specs/tasks.md` (9.2 trước), cập nhật TRACKING_UI.md theo | 2026-11-16 |
 
 ---
 
@@ -49,6 +51,7 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 
 ### UI-1 Backend demo
 - [x] UI-1.0 Task 9.1 Step-data audit: thêm field vào payload (triage, gate, context_built, DRAFTED), bảng ở `docs/demo-step-data.md`, test `tests/unit/test_step_data_audit.py`
+- [x] UI-1.0a Task 9.2 Run options trên job: đã viết migration `0006_job_run_options`, `Job.run_options`, cột trong mọi câu SQL của `PostgresJobStore` và `draft_persistence`, field envelope `run_options`; chép vào envelope ở orchestrator (tham số mới `sync_mailbox(run_options=)`), email-worker, lease reaper, replay, duyệt draft (triage → ai-worker và retry giữ nhờ `model_copy`); test `tests/unit/test_run_options.py`. Unit test xanh (chỉ còn test fail sẵn `test_kit_docs.py`); `docker compose up` healthy, migration `0006` đã áp dụng
 - [ ] UI-1.1 B2 Danh mục scenario (file config + `GET /v1/demo/scenarios`)
 - [ ] UI-1.2 B1 Demo ingest qua `SyncOrchestrator` (+ `DEMO__ENABLED`)
 - [ ] UI-1.3 B7 Nút chuyển model fake ⇄ live (theo C1, C2)
@@ -112,6 +115,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Bắt đầu task 9.1 | Thêm field payload; chưa chạy được test trên máy này |
 | 2026-11-16 | Tạm ngưng trên máy 1 (ổ C đầy khi `docker compose up --build`); push nhánh để làm tiếp trên máy khác | Task 9.1 chưa bắt đầu code. Ghi chú môi trường: chạy unit test trên Windows trực tiếp có 191 test fail sẵn (khác biệt đường dẫn/công cụ); trong container Linux (`uv:python3.12-bookworm-slim` + git + make) chỉ 1 test fail sẵn: `tests/unit/test_kit_docs.py::test_the_stated_run_times_follow_from_the_smoke_measurements` (1800 vs 550). Chưa có `.env` (copy từ `.env.example`). Build stack cần nhiều dung lượng, nên để trống ≥25 GB. Classifier L1 riêng tư không có trong git (ADR-0012) |
 | 2026-11-16 | Xong task 9.1 | Sửa `test_one_event_records_the_retrieved_chunks_and_a_skipped_summary` theo 5 field điểm mới của chunk. Unit test trong container Linux: chỉ còn 1 test fail sẵn (`test_kit_docs.py`, 1800 vs 550). Ghi chú: shell của agent trên máy này chập chờn; `uv sync` có lúc lỗi tải `torch` do mạng, chạy lại là được |
+| 2026-11-16 | Task 9.2: viết code và test | C10: `guard_report` chuyển sang migration `0007`, đã sửa `specs/tasks.md`, `specs/design.md` §5.9, ADR-0018. Chưa chạy được test vì shell agent chập chờn |
+| 2026-11-16 | Dựng stack trên máy này | Không có `make` trên Windows: dùng `docker compose up -d --build`. RabbitMQ lỗi `.erlang.cookie: eacces` do volume cũ hỏng; đã xóa `agentmailguard_rabbitmq_data` (chủ dự án đồng ý), RabbitMQ healthy. Service `init` thoát mã 1 lần đầu vì RabbitMQ báo healthy trước khi mở cổng 5672 (I6); chạy lại `docker compose up -d` thì 13 service healthy, migration `0006` áp dụng. Task 9.2 xong. Grafana đang dùng cổng 3002, trùng với cổng định cho console (task 9.9) |
 
 ---
 
@@ -124,3 +129,5 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | I3 | `GuardedDraftingService` nằm trong `evaluation/`; service không nên import từ đó | ADR-0018 đề xuất: wrapper mới trong ai-worker + parity test, không sửa benchmark |
 | I4 | Image Docker loại `agentmailguard/` (`.dockerignore`); classifier L1 là file riêng tư | ADR-0018 đề xuất: cài guard vào image, mount classifier read-only |
 | I5 | Task 8.10: `GMAIL_ACCESS_TOKEN` dùng chung cho mọi mailbox Gmail | Adapter demo ghi lại mail gửi đi, không gửi thật (task 9.3) |
+| I6 | Healthcheck RabbitMQ (`rabbitmq-diagnostics -q ping`) báo healthy trước khi cổng AMQP mở; với volume mới, `init` kết nối hụt và thoát mã 1, phải chạy lại `docker compose up -d` | Chưa sửa (ngoài phạm vi Phase 9). Đề xuất: đổi sang `check_port_connectivity`; cần chủ dự án duyệt |
+| I7 | Grafana dùng cổng 3002, trùng cổng console định trong task 9.9 | Quyết định khi làm task 9.9 |

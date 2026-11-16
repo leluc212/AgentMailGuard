@@ -764,7 +764,7 @@ demo-ui (React SPA, nginx, 127.0.0.1:3002) ──/v1 (reverse proxy)──▶ ap
 | Run options | `processing_job.run_options` (JSONB, nullable), envelope field `run_options` (§7.3) | `{model_profile: fake\|live, guard_mode: C0\|C3}`. Absent = today's behaviour. |
 | Provider per job | triage-worker, ai-worker | Two `LLMProvider`s built at start-up (`fake`, `live` from `LLM__*`), chosen per job. The embedding never switches (R5.10). |
 | Guarded drafting | `services/ai_worker/guarded_drafting.py` | Calls `mailguard.pipeline.MailGuardPipeline` (`GuardConfig.preset("C3")`) and `mailguard.integration.adapters` only (ADR-0010). Outcome mapping equals the benchmark's; a parity test keeps them equal. The benchmark code and the guard pin are unchanged. |
-| Guard report | table `guard_report` (migration `0006`); `GET /v1/jobs/{id}/guard` | Written in the `persist_drafted` transaction. Display only: dispatch mode and review are unchanged. |
+| Guard report | table `guard_report` (migration `0007`); `GET /v1/jobs/{id}/guard` | Written in the `persist_drafted` transaction. Display only: dispatch mode and review are unchanged. |
 | Metrics summary | `GET /v1/metrics/summary` | Reads Prometheus (`OBSERVABILITY__PROMETHEUS_URL`); filtered by the request's organization where a metric has the `organization` label, each panel marked `scope: "organization"` or `scope: "stack"`. |
 | Benchmark results | `scripts/export_bench_for_demo.py` → console static assets | Committed v3 1,800-case results of the three models, read-only. |
 | Fault markers | `packages/llm/fake.py` | `[[demo-fault:timeout]]`, `[[demo-fault:invalid-json]]`, only with `DEMO__FAULT_MARKERS_ENABLED=true`. |

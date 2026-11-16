@@ -1079,7 +1079,7 @@
   - For each pipeline step the console shows (triage, gate, retrieval, summarization, routing, generation, guard, dispatch), list which data the existing endpoints and `processing_event` payloads already give, and add the missing payload fields at the step that emits the event. No new endpoint.
   - _Requirements: R25.7, R23.5_
 
-- [ ] **9.2 Run options on the job**
+- [x] **9.2 Run options on the job**
   - Migration `0006`: `processing_job.run_options` (JSONB, nullable). Envelope field `run_options`, copied into every envelope of the job, kept on retry and on `POST /v1/jobs/{id}/replay`. A job without it behaves as before.
   - _Requirements: R25.3, R18.1, R19.1_
 
@@ -1101,7 +1101,7 @@
   - _Requirements: R25.11_
 
 - [ ] **9.7 AgentMailGuard in the live ai-worker**
-  - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0006`) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
+  - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0007`; `0006` is task 9.2's `run_options`) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
   - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
   - _Requirements: R25.5, R25.6_
 

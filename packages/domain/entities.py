@@ -240,6 +240,8 @@ class Job:
     last_error: str | None = None
     next_retry_at: datetime | None = None
     trace_id: str | None = None
+    run_options: dict[str, Any] | None = None
+    """Demo run options ``{model_profile, guard_mode}`` (R25.3); None behaves as before R25."""
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 

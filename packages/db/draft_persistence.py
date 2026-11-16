@@ -105,7 +105,7 @@ class PostgresDraftPersistence:
                 SELECT id, organization_id, message_id, thread_id, job_type, state,
                        attempt, max_attempts, idempotency_key, result_ref, queue_name,
                        priority, lease_expires_at, last_error, next_retry_at, trace_id,
-                       created_at, updated_at
+                       run_options, created_at, updated_at
                 FROM processing_job
                 WHERE id = $1 AND organization_id = $2
                 FOR UPDATE;
