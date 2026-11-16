@@ -179,6 +179,15 @@ async def setup_topology(
     await q_mail_sync.bind(exchanges[b_cfg.exchange_mail_ingest], routing_key=b_cfg.queue_mail_sync)
     queues[b_cfg.queue_mail_sync] = q_mail_sync
 
+    # Demo ingest queue (ADR-0018, R25.1): declared always, consumed only with DEMO__ENABLED
+    q_demo_inject = await channel.declare_queue(
+        b_cfg.queue_demo_inject, durable=True, arguments=common_args
+    )
+    await q_demo_inject.bind(
+        exchanges[b_cfg.exchange_mail_ingest], routing_key=b_cfg.queue_demo_inject
+    )
+    queues[b_cfg.queue_demo_inject] = q_demo_inject
+
     # Email Normalization Queue
     q_normalize = await channel.declare_queue(
         b_cfg.queue_normalize, durable=True, arguments=common_args

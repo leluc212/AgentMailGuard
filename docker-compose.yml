@@ -76,6 +76,8 @@ x-app-env: &app-env
   # .env or the shell sets it, and unset (a bare name) the settings default, true, applies. The
   # image sets no TRIAGE__* variable, so a bare key erases nothing. Keep it out of .env as `NAME=`.
   TRIAGE__CATEGORY_RETRIEVAL_FLOOR:
+  # Demo console ingest door (R25.1, ADR-0018): /v1/demo on the API, mail.demo.inject consumer.
+  DEMO__ENABLED: ${DEMO__ENABLED:-false}
 
 # The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
 # Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).

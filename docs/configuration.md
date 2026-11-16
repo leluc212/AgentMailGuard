@@ -395,6 +395,15 @@ The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/
 | `FRONTEND__API_BASE_URL` | `string` | `http://localhost:8000` | Starts with `http://` or `https://`; a trailing `/` is dropped | Base URL of the API the review UI calls; only `/v1` paths are used |
 | `FRONTEND__ORGANIZATION_ID` | `UUID` | unset | UUID, or blank for unset | Tenant whose drafts are reviewed, sent as `X-Organization-Id` (R23.6). `.env.example` sets the seeded demo tenant `00000000-0000-0000-0000-000000000001` |
 
+### 2.21a Demo console (`DEMO__*`)
+*The demo console's ingest door (R25.1, ADR-0018, design.md §5.9). Off by default.*
+
+With `DEMO__ENABLED=true` the API mounts `/v1/demo` (`capabilities`, `messages`, `requests/{id}`) and the mail-connector consumes `mail.demo.inject`. A demo email goes only into the organization's demo mailbox (provider `demo`, one per tenant from `make seed`), whose dispatch adapter records an approved reply and sends nothing. With `false` every `/v1/demo` path answers 404 and nothing consumes the queue. Compose forwards the key to every application container. There is no login (ADR-0018 decision 2): keep the API on `127.0.0.1`.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `DEMO__ENABLED` | `boolean` | `false` | Boolean | Mount `/v1/demo` and run the demo ingest consumer (R25.1) |
+
 ### 2.22 Live benchmark stack environment (`.env.stack`)
 *Per-model container settings of the live benchmark (task 7.20, ADR-0011, `docs/demo-runbook.md` §9.9). Not part of the application's own settings: a generated file, read only by `docker compose`.*
 

@@ -28,6 +28,7 @@ from uuid import UUID, uuid5
 
 import asyncpg
 
+from packages.adapters.demo import demo_seed_mailbox
 from packages.core.settings import AppSettings
 from packages.core.storage import MinioObjectStorageClient, ObjectKeyBuilder, StorageProtocol
 from packages.db.connection import create_pool_from_settings
@@ -63,6 +64,9 @@ ACME_SUPPORT_MBX_ID = UUID("00000000-0000-0000-0001-000000000001")
 ACME_BILLING_MBX_ID = UUID("00000000-0000-0000-0001-000000000002")
 BETA_SUPPORT_MBX_ID = UUID("00000000-0000-0000-0002-000000000001")
 GAMMA_DISPATCH_MBX_ID = UUID("00000000-0000-0000-0003-000000000001")
+ACME_DEMO_MBX_ID = UUID("00000000-0000-0000-0001-0000000000de")
+BETA_DEMO_MBX_ID = UUID("00000000-0000-0000-0002-0000000000de")
+GAMMA_DEMO_MBX_ID = UUID("00000000-0000-0000-0003-0000000000de")
 
 SEED_MAILBOXES: list[dict[str, Any]] = [
     {
@@ -97,6 +101,25 @@ SEED_MAILBOXES: list[dict[str, Any]] = [
         "display_name": "Gamma Logistics Operations",
         "status": "active",
     },
+    # One demo mailbox per tenant for the demo console's ingest door (ADR-0018, task 9.3)
+    demo_seed_mailbox(
+        mailbox_id=ACME_DEMO_MBX_ID,
+        organization_id=DEMO_ORG_ID,
+        address="demo@acme.com",
+        display_name="Acme Demo Console",
+    ),
+    demo_seed_mailbox(
+        mailbox_id=BETA_DEMO_MBX_ID,
+        organization_id=BETA_ORG_ID,
+        address="demo@beta.com",
+        display_name="Beta Demo Console",
+    ),
+    demo_seed_mailbox(
+        mailbox_id=GAMMA_DEMO_MBX_ID,
+        organization_id=GAMMA_ORG_ID,
+        address="demo@gamma.com",
+        display_name="Gamma Demo Console",
+    ),
 ]
 
 

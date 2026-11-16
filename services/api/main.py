@@ -201,6 +201,12 @@ def create_app(
     # Mount scoped /v1 API router
     app.include_router(v1_router)
 
+    # Demo console ingest door, only with DEMO__ENABLED=true (ADR-0018, R25.1); absent = 404
+    if active_settings.demo.enabled:
+        from services.api.routers.demo import demo_router
+
+        app.include_router(demo_router)
+
     return app
 
 

@@ -20,6 +20,8 @@ from packages.domain.entities import Mailbox
 AdapterFactory = Callable[..., MailProviderAdapter]
 
 _REGISTRY: dict[str, AdapterFactory] = {}
+_DEFAULT_PROVIDERS = ("fake", "gmail", "graph", "demo")
+"""Providers ``register_default_adapters`` registers; ``demo`` is the demo console's (ADR-0018)."""
 
 
 def resolve_provider_credentials(
@@ -76,6 +78,7 @@ def register_adapter(provider: str, factory: AdapterFactory) -> None:
 
 def register_default_adapters() -> None:
     """Register built-in default provider adapters."""
+    from packages.adapters.demo import DEMO_MAILBOX_PROVIDER, demo_dispatch_adapter
     from packages.adapters.fake import FakeProviderAdapter
     from packages.adapters.gmail import GmailProviderAdapter
     from packages.adapters.graph import GraphProviderAdapter
@@ -83,6 +86,7 @@ def register_default_adapters() -> None:
     register_adapter("fake", FakeProviderAdapter)
     register_adapter("gmail", GmailProviderAdapter)
     register_adapter("graph", GraphProviderAdapter)
+    register_adapter(DEMO_MAILBOX_PROVIDER, demo_dispatch_adapter)
 
 
 def get_adapter(provider: str, **kwargs: Any) -> MailProviderAdapter:
@@ -92,7 +96,7 @@ def get_adapter(provider: str, **kwargs: Any) -> MailProviderAdapter:
         NotFound: If no adapter has been registered for the provider key.
     """
     key = provider.strip().lower()
-    if key not in _REGISTRY and key in ("fake", "gmail", "graph"):
+    if key not in _REGISTRY and key in _DEFAULT_PROVIDERS:
         register_default_adapters()
 
     factory = _REGISTRY.get(key)
@@ -118,7 +122,7 @@ def get_adapter_for_mailbox(mailbox: Mailbox, **kwargs: Any) -> MailProviderAdap
 def is_provider_registered(provider: str) -> bool:
     """Check whether an adapter is registered for the specified provider."""
     key = provider.strip().lower()
-    if key not in _REGISTRY and key in ("fake", "gmail", "graph"):
+    if key not in _REGISTRY and key in _DEFAULT_PROVIDERS:
         register_default_adapters()
     return key in _REGISTRY
 

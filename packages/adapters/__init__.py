@@ -4,6 +4,7 @@ Exposes MailProviderAdapter protocol, error taxonomy, registry, contract suite,
 and concrete adapter implementations (Fake, Gmail).
 """
 
+from packages.adapters.demo import DemoMailAdapter  # registers the demo provider (ADR-0018)
 from packages.adapters.exceptions import (
     DEFAULT_RETRY_AFTER_S,
     AuthExpired,
@@ -43,6 +44,7 @@ from packages.adapters.webhooks import webhook_router
 __all__ = [
     "DEFAULT_RETRY_AFTER_S",
     "AuthExpired",
+    "DemoMailAdapter",
     "FakeProviderAdapter",
     "GmailProviderAdapter",
     "GmailPushNotification",

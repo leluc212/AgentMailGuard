@@ -1084,7 +1084,8 @@
   - _Requirements: R25.3, R18.1, R19.1_
 
 - [ ] **9.3 Demo ingest door**
-  - Inline one-message adapter in `packages/adapters/` (its dispatch side records the outbound message and sends nothing, so an approved demo draft never reaches a real mailbox; see 8.10). `mail.demo.inject` consumer in the mail-connector calling `SyncOrchestrator.sync_mailbox`. `/v1/demo` router: `capabilities`, `messages`, `requests/{id}`, mounted only when `DEMO__ENABLED=true`. One demo mailbox per seeded tenant in `make seed`.
+  - Migration `0007`: `demo` added to the `mailbox.provider` check (owner decision 2026-11-16).
+  - Inline one-message adapter in `packages/adapters/demo.py`, provider `demo` (its dispatch side records the outbound message and sends nothing, so an approved demo draft never reaches a real mailbox; see 8.10). `mail.demo.inject` consumer in the mail-connector calling `SyncOrchestrator.sync_mailbox`. `/v1/demo` router: `capabilities`, `messages`, `requests/{id}`, mounted only when `DEMO__ENABLED=true`. One demo mailbox per seeded tenant in `make seed`.
   - Integration test with ≥3 tenants and fake providers: a demo email reaches `DRAFTED` through the broker; `DEMO__ENABLED=false` gives 404.
   - _Requirements: R25.1, R25.4, R23.1, R23.6, R3.1_
 
@@ -1101,7 +1102,7 @@
   - _Requirements: R25.11_
 
 - [ ] **9.7 AgentMailGuard in the live ai-worker**
-  - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0007`; `0006` is task 9.2's `run_options`) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
+  - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0008`; `0006` is task 9.2's `run_options`, `0007` task 9.3's `demo` provider) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
   - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
   - _Requirements: R25.5, R25.6_
 

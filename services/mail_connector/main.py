@@ -24,6 +24,7 @@ from packages.db.mailbox import PostgresMailboxStore
 from packages.db.subscription import PostgresSubscriptionStore
 from services.mail_connector.background import BackgroundLoop
 from services.mail_connector.consumer import MailSyncConsumer
+from services.mail_connector.demo_consumer import DemoInjectConsumer
 from services.mail_connector.orchestrator import SyncOrchestrator
 from services.mail_connector.renewal import SubscriptionRenewalJob
 
@@ -83,6 +84,19 @@ async def build_components(res: WorkerResources) -> list[StartFn]:
         await queue_monitor.start(interval_seconds=QUEUE_MONITOR_INTERVAL_S)
 
     start_fns: list[StartFn] = [consumer.start, renewal_loop.start, start_queue_monitor]
+
+    if settings.demo.enabled:
+        demo_consumer = DemoInjectConsumer(
+            orchestrator=orchestrator,
+            mailbox_store=mailbox_store,
+            broker_settings=settings.broker,
+            retry_settings=settings.retry,
+            connection=res.connection,
+            shutdown_coordinator=res.shutdown,
+            metrics=res.metrics,
+        )
+        start_fns.append(demo_consumer.start)
+        logger.info("Demo ingest consumer enabled on '%s'", settings.broker.queue_demo_inject)
 
     if settings.lease_reaper.enabled:
         reaper = LeaseReaper(

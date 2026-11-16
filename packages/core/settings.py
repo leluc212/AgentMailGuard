@@ -121,6 +121,13 @@ class BrokerSettings(BaseModel):
     queue_dead_letter: str = Field(
         default="email.dead_letter", description="Dead-letter queue for terminal failures"
     )
+    queue_demo_inject: str = Field(
+        default="mail.demo.inject",
+        description=(
+            "Demo emails from POST /v1/demo/messages for the mail-connector (ADR-0018, R25.1); "
+            "bound to the mail.ingest exchange"
+        ),
+    )
 
     # Quorum queues support (R3.9)
     use_quorum_queues: bool = Field(
@@ -144,6 +151,7 @@ class BrokerSettings(BaseModel):
             return None
         direct_bindings = {
             self.queue_mail_sync: self.exchange_mail_ingest,
+            self.queue_demo_inject: self.exchange_mail_ingest,
             self.queue_normalize: self.exchange_email_process,
             self.queue_triage: self.exchange_email_triage,
             self.queue_dispatch: self.exchange_email_dispatch,
@@ -728,6 +736,18 @@ class ObservabilitySettings(BaseModel):
     )
 
 
+class DemoSettings(BaseModel):
+    """Demo console switches for the thesis defence (ADR-0018, design.md §5.9, R25)."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Mount /v1/demo on the API and run the mail-connector's mail.demo.inject consumer; "
+            "false answers 404 on every /v1/demo path (R25.1)"
+        ),
+    )
+
+
 class SubscriptionRenewalSettings(BaseModel):
     """Settings for scheduled provider subscription renewal (R2.10)."""
 
@@ -905,6 +925,7 @@ class AppSettings(BaseSettings):
     agent_profiles: AgentProfileSettings = Field(default_factory=AgentProfileSettings)
     business_data: BusinessDataSettings = Field(default_factory=BusinessDataSettings)
     frontend: FrontendSettings = Field(default_factory=FrontendSettings)
+    demo: DemoSettings = Field(default_factory=DemoSettings)
     complexity_router: ComplexityRouterSettings = Field(
         default_factory=ComplexityRouterSettings,
         validation_alias=AliasChoices("complexity_router", "router"),

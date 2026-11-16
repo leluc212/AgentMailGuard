@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** UI-0 xong, task 9.1 xong (`6e3565d`), task 9.2 xong. Bước kế: task 9.3 (demo ingest door).
+**Trạng thái chung:** UI-0 xong, task 9.1 xong (`6e3565d`), task 9.2 xong (`34cb6fe`). Task 9.3: đã viết code và test, chờ chạy test.
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -34,6 +34,7 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | C9 | Nhóm requirement mới R25; cập nhật số đếm trong AGENTS.md | R25; đã sửa AGENTS.md và CLAUDE.md | 2026-11-16 |
 | C10 | Task 9.2 và 9.7 cùng ghi migration `0006` | 9.2 dùng `0006` (`run_options`), 9.7 dùng `0007` (`guard_report`); đã sửa `specs/tasks.md` | 2026-11-16 |
 | C11 | Thứ tự làm Phase 9 | Theo `specs/tasks.md` (9.2 trước), cập nhật TRACKING_UI.md theo | 2026-11-16 |
+| C12 | Provider của demo mailbox (CHECK chỉ cho `gmail`, `graph`, `imap`) | A: migration `0007` thêm `demo`; adapter `demo` ghi lại mail gửi đi, không gửi thật; `guard_report` lùi sang `0008`. Đã sửa design §5.9, ADR-0018, tasks 9.3, 9.7 | 2026-11-16 |
 
 ---
 
@@ -52,8 +53,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 ### UI-1 Backend demo
 - [x] UI-1.0 Task 9.1 Step-data audit: thêm field vào payload (triage, gate, context_built, DRAFTED), bảng ở `docs/demo-step-data.md`, test `tests/unit/test_step_data_audit.py`
 - [x] UI-1.0a Task 9.2 Run options trên job: đã viết migration `0006_job_run_options`, `Job.run_options`, cột trong mọi câu SQL của `PostgresJobStore` và `draft_persistence`, field envelope `run_options`; chép vào envelope ở orchestrator (tham số mới `sync_mailbox(run_options=)`), email-worker, lease reaper, replay, duyệt draft (triage → ai-worker và retry giữ nhờ `model_copy`); test `tests/unit/test_run_options.py`. Unit test xanh (chỉ còn test fail sẵn `test_kit_docs.py`); `docker compose up` healthy, migration `0006` đã áp dụng
+- [~] UI-1.2 Task 9.3 Demo ingest door (làm trước UI-1.1 theo thứ tự `specs/tasks.md`): đã viết migration `0007_mailbox_provider_demo`, `packages/adapters/demo.py` (provider `demo`, adapter nhận tin và ghi lại thư gửi đi), `DEMO__ENABLED`, queue `mail.demo.inject`, `services/mail_connector/demo_consumer.py` (prefetch 1), router `/v1/demo` (`capabilities`, `messages`, `requests/{id}`; 404 khi tắt, 422 khi xin `live` mà chưa có model thật, 409 khi tenant chưa có demo mailbox), seed 3 demo mailbox, `.env.example`, `docs/configuration.md` §2.21a, compose. Test: `tests/unit/test_demo_ingest.py`, `tests/integration/test_demo_ingest_e2e.py`. Kết quả: unit test xanh (chỉ còn test fail sẵn `test_kit_docs.py`), ruff và mypy sạch, integration `test_demo_ingest_e2e.py` (3 tenant tới `DRAFTED` qua broker; 404 khi tắt) và `test_phase6_pipeline_e2e.py` xanh; `docker compose up` healthy, migration `0007` áp dụng, topology 28 queue. **Còn lại:** chạy lại `test_seed_loader.py` (đã sửa số mailbox và checkpoint 4 → 7), commit
 - [ ] UI-1.1 B2 Danh mục scenario (file config + `GET /v1/demo/scenarios`)
-- [ ] UI-1.2 B1 Demo ingest qua `SyncOrchestrator` (+ `DEMO__ENABLED`)
 - [ ] UI-1.3 B7 Nút chuyển model fake ⇄ live (theo C1, C2)
 - [ ] UI-1.4 B6 Ép lỗi có kiểm soát cho fake LLM
 - [ ] UI-1.5 B8 Chạy cùng email qua C0 và C3 (hai job)
