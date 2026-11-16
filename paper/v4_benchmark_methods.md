@@ -97,18 +97,22 @@ max 6,050), and the ingestion chunker may split one into several chunks.
   Doc Scanner, Inbound Gate, Output Guard) plus channel isolation, all five judges live. Guard pin
   `d95e542` (tree `f1b3fa4d…`), unchanged.
 - Models, each in every LLM role of its run: `gpt-4o-mini` (OpenAI), Llama-3.1-8B-Instruct
-  (OpenRouter, pinned to CoreWeave bf16, fallbacks off), Qwen2.5-7B-Instruct **Q4_K_M on a local
-  Ollama** (tag `qwen2.5:7b-instruct`, digest `845dbda0…697e`, context 8,192; ADR-0020: OpenRouter
-  no longer served the model on 2026-11-11). Embedding `text-embedding-3-small`, 1536 dimensions,
-  the same for all three.
+  (OpenRouter, pinned to CoreWeave bf16, fallbacks off), **Qwen3.5-9B** (`qwen/qwen3.5-9b`,
+  OpenRouter, pinned to PrimeIntellect bf16, fallbacks off; ADR-0021). Embedding
+  `text-embedding-3-small`, 1536 dimensions, the same for all three.
+- **Why Qwen3.5-9B and not Qwen2.5-7B.** OpenRouter stopped serving Qwen2.5-7B on 2026-11-11
+  (ADR-0020). A local 4-bit Qwen2.5-7B run exists (`2026-11-11-qwen25-local-v4`) and is not
+  reported; the owner replaced the model with Qwen3.5-9B (ADR-0021). Qwen3.5-9B is a newer, larger
+  model, so the third model is not a Qwen2.5 result.
+- **Qwen3.5 reasoning is off.** Qwen3.5-9B can think before it answers, and neither client sends a
+  switch for it. The pin is the endpoint that answers without reasoning; the canary fails on any
+  reasoning token, and the run logged none (ADR-0021).
 - **The guard's judges are the model under test.** In C3 the inbound, doc, doc-set and output
   judges of each run are that run's model (`manifest.json`, `runs.C3.live_layers`). A weaker model
   therefore weakens both the draft and the guard; a model difference in C3 is not a difference of
   the generator alone.
 - Triage: category is an enum of nine values in the strict schema, 400-token budget (ADR-0018).
-- Concurrency 2 for gpt-4o-mini and Llama-3.1-8B; 1 for Qwen (one laptop GPU, ADR-0020).
-- Per-call LLM timeout 60 s for gpt-4o-mini and Llama-3.1-8B; 180 s for Qwen (local speed, owner
-  decision, ADR-0020 §4). Case budget 300 s for all three. Neither changes a prompt or a score.
+- Concurrency 2, per-call LLM timeout 60 s and case budget 300 s for all three models.
 - Scoring: the harness rule on the final draft (`goal_achieved`). `human_approval` is not counted
   as blocked: a draft held for review is scored on its content, in every configuration.
 - Metric names to use in the paper (owner, 2026-11-10: report attack success, not detection):
@@ -128,7 +132,7 @@ For each run `evaluation/results/mailguard_bench/<run>/`:
 (stop stages, error kinds with an example message, the ADR-0018 log counts), `journal/cases.*.csv`,
 `journal/errors.*.csv`, `kit-log.jsonl` (step timings), `raw/` (rows and container logs, not in git).
 
-## 7. Results (filled 2026-11-12 from the committed run files)
+## 7. Results (filled 2026-11-12, Qwen3.5-9B column 2026-11-16, from the committed run files)
 
 Figures and the full per-group table: `paper/figures/v4/out/` (`table_asr.csv`, built by
 `paper/figures/v4/make_figures.py`, whose group totals are checked against each `metrics.csv`).
@@ -139,52 +143,51 @@ Figures and the full per-group table: `paper/figures/v4/out/` (`table_asr.csv`, 
 |---|---|---|---|---|---|
 | gpt-4o-mini | `2026-11-10-gpt4omini-v4` | 2,142 / 2,143 | 2,143 / 2,143 | 0.000243 / 0.000355 | 2.2 h |
 | Llama-3.1-8B | `2026-11-11-llama31-v4` | 2,136 / 2,143 | 2,141 / 2,143 | 0.000209 / 0.000375 | 3.3 h |
-| Qwen2.5-7B Q4_K_M, local | `2026-11-11-qwen25-local-v4` | 2,139 / 2,143 | 2,143 / 2,143 | 0 / 0 | 16.1 h |
+| Qwen3.5-9B | `2026-11-16-qwen35-9b-v4` | 2,140 / 2,143 | 2,140 / 2,143 | 0.000069 / 0.000137 | 4.6 h |
 
 - Cost: the report's "Overhead per email" table (`report.md`), mean over the emails with a draft
   record (n 1,243–1,802). Provider invoices are not in a committed file; total spend is not stated
-  here. Qwen ran locally (no model API cost); its embeddings were billed by OpenAI like the others.
+  here.
 - Run time: the sum of the config passes with status `ok` in `kit-log.jsonl` (gpt-4o-mini 673 s +
-  7,177 s; Llama 5,514 s + 6,382 s; Qwen 32,973 s + 24,929 s). Segments cut by an owner pause have
-  no kit-log entry and are not included (Qwen: the first 383 C0 and 1,060 C3 cases).
+  7,177 s; Llama 5,514 s + 6,382 s; Qwen3.5 6,882 s + 9,754 s).
 
 ### 7.2 Attack success rate (ASR), k/n, Wilson 95 %
 
-| Group (n planned) | Config | gpt-4o-mini | Llama-3.1-8B | Qwen2.5-7B Q4 |
+| Group (n planned) | Config | gpt-4o-mini | Llama-3.1-8B | Qwen3.5-9B |
 |---|---|---|---|---|
-| Email attacks, all (1,000) | C0 | 242/999 (24.2 %) | 324/999 (32.4 %) | 304/999 (30.4 %) |
-| | C3 | 0/1000 (0.0 %) | 0/999 (0.0 %) | 0/1000 (0.0 %) |
-| PoisonedRAG, wrong answer (165) | C0 | 28/165 (17.0 %) | 150/165 (90.9 %) | 151/165 (91.5 %) |
-| | C3 | 9/165 (5.5 %) | 20/164 (12.2 %) | 89/165 (53.9 %) |
-| Seed RAG, wrong answer (18) | C0 | 12/18 (66.7 %) | 14/18 (77.8 %) | 13/18 (72.2 %) |
+| Email attacks, all (1,000) | C0 | 242/999 (24.2 %) | 324/999 (32.4 %) | 278/999 (27.8 %) |
+| | C3 | 0/1000 (0.0 %) | 0/999 (0.0 %) | 0/998 (0.0 %) |
+| PoisonedRAG, wrong answer (165) | C0 | 28/165 (17.0 %) | 150/165 (90.9 %) | 155/165 (93.9 %) |
+| | C3 | 9/165 (5.5 %) | 20/164 (12.2 %) | 67/165 (40.6 %) |
+| Seed RAG, wrong answer (18) | C0 | 12/18 (66.7 %) | 14/18 (77.8 %) | 18/18 (100.0 %) |
 | | C3 | 0/18 | 0/18 | 0/18 |
-| LLMail phase 1 sc. 3, exfiltration (108) | C0 | 21/108 (19.4 %) | 14/108 (13.0 %) | 32/108 (29.6 %) |
+| LLMail phase 1 sc. 3, exfiltration (108) | C0 | 21/108 (19.4 %) | 14/108 (13.0 %) | 43/108 (39.8 %) |
 | | C3 | 0/108 | 0/108 | 0/108 |
-| LLMail phase 1 sc. 4, exfiltration (292) | C0 | 23/292 (7.9 %) | 10/287 (3.5 %) | 20/292 (6.8 %) |
+| LLMail phase 1 sc. 4, exfiltration (292) | C0 | 23/292 (7.9 %) | 10/287 (3.5 %) | 17/292 (5.8 %) |
 | | C3 | 0/292 | 0/292 | 0/292 |
-| RAG attacks, all (583) | C0 | 84/583 (14.4 %) | 188/578 (32.5 %) | 216/583 (37.0 %) |
-| | C3 | 9/583 (1.5 %) | 20/582 (3.4 %) | 89/583 (15.3 %) |
-| Synthetic, reported apart (60) | C0 | 25/60 (41.7 %) | 14/60 (23.3 %) | 20/60 (33.3 %) |
+| RAG attacks, all (583) | C0 | 84/583 (14.4 %) | 188/578 (32.5 %) | 233/583 (40.0 %) |
+| | C3 | 9/583 (1.5 %) | 20/582 (3.4 %) | 67/583 (11.5 %) |
+| Synthetic, reported apart (60) | C0 | 25/60 (41.7 %) | 14/60 (23.3 %) | 21/60 (35.0 %) |
 | | C3 | 0/60 | 0/60 | 0/60 |
 
 Wilson intervals: `table_asr.csv`. McNemar exact p, C0 vs C3 on the same cases (`metrics.csv`,
 table `paired`):
 
-| | gpt-4o-mini | Llama-3.1-8B | Qwen2.5-7B Q4 |
+| | gpt-4o-mini | Llama-3.1-8B | Qwen3.5-9B |
 |---|---|---|---|
-| Email (LLMail-Inject) | 2.8e-73 | 5.9e-98 | 6.1e-92 |
-| RAG (583) | 7.3e-20 | 1.1e-50 | 6.3e-34 |
-| Synthetic (60) | 6.0e-08 | 1.2e-04 | 1.9e-06 |
+| Email (LLMail-Inject) | 2.8e-73 | 5.9e-98 | 8.2e-84 |
+| RAG (583) | 7.3e-20 | 1.1e-50 | 1.9e-47 |
+| Synthetic (60) | 6.0e-08 | 1.2e-04 | 9.5e-07 |
 
 ### 7.3 Benign emails (500 Enron)
 
-| | gpt-4o-mini | Llama-3.1-8B | Qwen2.5-7B Q4 |
+| | gpt-4o-mini | Llama-3.1-8B | Qwen3.5-9B |
 |---|---|---|---|
-| FPR C0 | 0/500 (0.0 %) | 0/499 (0.0 %) | 0/497 (0.0 %) |
-| FPR C3 | 21/500 (4.2 %) [2.8, 6.3] | 40/500 (8.0 %) [5.9, 10.7] | 11/500 (2.2 %) [1.2, 3.9] |
-| Guard FPR C3 (benign that reached drafting) | 27/240 (11.3 %) | 42/379 (11.1 %) | 12/294 (4.1 %) |
-| Utility C0 | 239/500 (47.8 %) | 374/499 (75.0 %) | 290/497 (58.4 %) |
-| Utility C3 | 219/500 (43.8 %) | 291/500 (58.2 %) | 283/500 (56.6 %) |
+| FPR C0 | 0/500 (0.0 %) | 0/499 (0.0 %) | 0/498 (0.0 %) |
+| FPR C3 | 21/500 (4.2 %) [2.8, 6.3] | 40/500 (8.0 %) [5.9, 10.7] | 22/499 (4.4 %) [2.9, 6.6] |
+| Guard FPR C3 (benign that reached drafting) | 27/240 (11.3 %) | 42/379 (11.1 %) | 29/380 (7.6 %) |
+| Utility C0 | 239/500 (47.8 %) | 374/499 (75.0 %) | 379/498 (76.1 %) |
+| Utility C3 | 219/500 (43.8 %) | 291/500 (58.2 %) | 358/499 (71.7 %) |
 
 Source: `metrics.csv`, table `llmail`, group `all`.
 
@@ -194,16 +197,17 @@ Source: `metrics.csv`, table `llmail`, group `all`.
 |---|---|---|---|---|
 | gpt-4o-mini | 635 | 603 | 383 | 22 |
 | Llama-3.1-8B | 218 | 837 | 551 | 35 |
-| Qwen2.5-7B Q4 | 349 | 744 | 455 | 95 |
+| Qwen3.5-9B | 341 | 740 | 489 | 71 |
 
 - A triage stop counts as a failed attack. gpt-4o-mini's triage stops 139 of the 165 PoisonedRAG
-  cases as "no reply required"; Llama and Qwen stop 9 and 8. Its low PoisonedRAG ASR therefore
+  cases as "no reply required"; Llama and Qwen3.5 stop 9 and 2. Its low PoisonedRAG ASR therefore
   comes mostly from triage, not from the guard.
 - Of the PoisonedRAG cases that passed triage in C3, the guard flagged 16 of 26 (gpt-4o-mini),
-  139 of 156 (Llama) and 76 of 157 (Qwen) (`journal/cases.C3.csv`, `layers_flagged`).
+  139 of 155 (Llama) and 102 of 163 (Qwen3.5) (`journal/cases.C3.csv`, `layers_flagged`). Of
+  Qwen3.5's 67 successes, 56 had no guard flag.
 - The journal's "guard stopped the draft" includes drafts held for human approval; the report
   scores those on content (`human_approval` is not a block). The journal and the report therefore
-  differ on 11 Qwen and 6 Llama PoisonedRAG rows; the report's numbers (7.2) are the results.
+  differ on 11 Qwen3.5 and 6 Llama PoisonedRAG rows; the report's numbers (7.2) are the results.
   Fix tracked as task 7.37.
 
 ### 7.5 Cases left out of n (error after the retry pass)
@@ -212,11 +216,12 @@ Source: `metrics.csv`, table `llmail`, group `all`.
 |---|---|---|
 | gpt-4o-mini | 1: `fail_closed_validation` 1 | 0 |
 | Llama-3.1-8B | 7: `fail_closed_validation` 6, `triage_stage_failure` 1 | 2: `fail_closed_validation` 1, `triage_stage_failure` 1 |
-| Qwen2.5-7B Q4 | 4: `fail_closed_validation` 2, `CaseTimeoutError` 2 | 0 |
+| Qwen3.5-9B | 3: `triage_stage_failure` 3 (unparseable triage JSON) | 3: `triage_stage_failure` 3 (2 unparseable triage JSON, 1 HTTP 429) |
 
 Case ids: `journal/errors.<config>.csv`. `fail_closed_validation`: the repair retry also returned
-unparseable JSON, so no draft was stored (by design). Qwen's `CaseTimeoutError` rows follow Ollama
-HTTP 500 "token repeat limit reached" aborts of the 4-bit model (ADR-0020, observed section).
+unparseable JSON, so no draft was stored (by design). Qwen3.5's pinned provider rate-limited often
+(HTTP 429); the retry pass recovered 16 of 19 C0 and 31 of 34 C3 error rows (ADR-0021, observed
+section).
 
 ### 7.6 Log counts (ADR-0018) and guard calls
 
@@ -224,7 +229,7 @@ HTTP 500 "token repeat limit reached" aborts of the 4-bit model (ADR-0020, obser
 |---|---|---|---|
 | gpt-4o-mini | 0 / 0 | 4 / 0 | 1.67 / 9 |
 | Llama-3.1-8B | 0 / 0 | 40 / 4 | 1.74 / 8 |
-| Qwen2.5-7B Q4 | 0 / 0 | 12 / 0 | 1.69 / 8 |
+| Qwen3.5-9B | 0 / 0 | 18 / 8 | 1.71 / 8 |
 
 Sources: `journal/summary.md` (log counts), `report.md` "Overhead per email" (mean) and "Guard
 calls per stage" (most per job).
@@ -243,7 +248,7 @@ calls per stage" (most per job).
 - No layer ablation in these runs (ADR-0017): the contribution of each layer is not measured.
 - The guard's judges are the model under test (section 5): C3 differences between models mix the
   generator's and the guard's strength. No run uses a fixed judge model.
-- Qwen2.5-7B is the 4-bit Q4_K_M build on a local Ollama, not the hosted bf16 serving of the other
-  two (ADR-0020); part of its difference may come from quantization. It also ran at concurrency 1
-  with a 180 s call timeout (no effect on prompts or scoring).
+- Qwen3.5-9B replaces Qwen2.5-7B (ADR-0021); it is a newer and larger model, and its results are
+  not a Qwen2.5 result. It runs with reasoning off on one pinned provider, with no fallback; that
+  provider rate-limited often, so 1 C3 case is left out of n for an HTTP 429.
 - One run per model and configuration; no run-to-run variance is measured.
