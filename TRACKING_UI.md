@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** ⏸ UI-0 xong, ADR-0018 Accepted. **Chờ chủ dự án xác nhận trước khi code task 9.1.**
+**Trạng thái chung:** UI-0 xong, task 9.1 xong. Bước kế: task 9.2 (run options trên job).
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -45,9 +45,10 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 - [x] UI-0.3 ADR-0018 "Demo console" (Accepted) + cập nhật `specs/design.md` §5.9
 - [x] UI-0.4 Thêm nhóm R25 (R25.1–R25.12) vào `specs/requirements.md`
 - [x] UI-0.5 Thêm Phase 9 (task 9.0–9.15) vào `specs/tasks.md`; task 9.0 `[x]`
-- [ ] UI-0.6 ⛔ **Hỏi chủ dự án trước khi bắt đầu code**
+- [x] UI-0.6 Chủ dự án yêu cầu bắt đầu code (2026-11-16)
 
 ### UI-1 Backend demo
+- [x] UI-1.0 Task 9.1 Step-data audit: thêm field vào payload (triage, gate, context_built, DRAFTED), bảng ở `docs/demo-step-data.md`, test `tests/unit/test_step_data_audit.py`
 - [ ] UI-1.1 B2 Danh mục scenario (file config + `GET /v1/demo/scenarios`)
 - [ ] UI-1.2 B1 Demo ingest qua `SyncOrchestrator` (+ `DEMO__ENABLED`)
 - [ ] UI-1.3 B7 Nút chuyển model fake ⇄ live (theo C1, C2)
@@ -108,7 +109,9 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Chốt C1, C3–C6; commit kế hoạch | C2 chưa có đề xuất trong bản trước, đã bổ sung đề xuất E2 |
 | 2026-11-16 | Soạn ADR-0018 (Proposed), R25, design §5.9, Phase 9 | Phát hiện thêm: ngân sách lời gọi LLM (C7), thứ tự phase (C8), image Docker chưa chứa `agentmailguard/`, task 8.10 (token Gmail dùng chung) nên adapter demo không được gửi mail thật |
 | 2026-11-16 | Chủ dự án duyệt mọi đề xuất; ADR-0018 Accepted; task 9.0 xong; sửa số đếm trong AGENTS.md, CLAUDE.md | Bước kế: task 9.1, chờ xác nhận trước khi code |
+| 2026-11-16 | Bắt đầu task 9.1 | Thêm field payload; chưa chạy được test trên máy này |
 | 2026-11-16 | Tạm ngưng trên máy 1 (ổ C đầy khi `docker compose up --build`); push nhánh để làm tiếp trên máy khác | Task 9.1 chưa bắt đầu code. Ghi chú môi trường: chạy unit test trên Windows trực tiếp có 191 test fail sẵn (khác biệt đường dẫn/công cụ); trong container Linux (`uv:python3.12-bookworm-slim` + git + make) chỉ 1 test fail sẵn: `tests/unit/test_kit_docs.py::test_the_stated_run_times_follow_from_the_smoke_measurements` (1800 vs 550). Chưa có `.env` (copy từ `.env.example`). Build stack cần nhiều dung lượng, nên để trống ≥25 GB. Classifier L1 riêng tư không có trong git (ADR-0012) |
+| 2026-11-16 | Xong task 9.1 | Sửa `test_one_event_records_the_retrieved_chunks_and_a_skipped_summary` theo 5 field điểm mới của chunk. Unit test trong container Linux: chỉ còn 1 test fail sẵn (`test_kit_docs.py`, 1800 vs 550). Ghi chú: shell của agent trên máy này chập chờn; `uv sync` có lúc lỗi tải `torch` do mạng, chạy lại là được |
 
 ---
 

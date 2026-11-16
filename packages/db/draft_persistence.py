@@ -53,6 +53,11 @@ def drafted_event_payload(draft: GeneratedDraft) -> dict[str, Any]:
         "output_tokens": draft.output_tokens,
         "cost_estimate": draft.cost_estimate,
         "citation_mismatch": draft.citation_mismatch,
+        # Which chunks the draft cites, for the demo console (task 9.1, R25.7).
+        "citations_count": len(draft.citations),
+        "cited_chunk_ids": [
+            str(c["chunk_id"]) for c in draft.citations if c.get("chunk_id") is not None
+        ],
     }
 
 

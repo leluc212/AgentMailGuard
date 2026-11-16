@@ -1075,7 +1075,7 @@
   - Closed 2026-11-16: C2 = real `text-embedding-3-small` in both profiles plus a separate offline profile; C3a = `gpt-4o-mini` for every role; C7 = guard judge calls counted outside the job budget, `C3` only; C8 = Phase 9 may start before the Phase 7 and 8 gates; C9 = AGENTS.md and CLAUDE.md counts updated.
   - _Requirements: R24.6_
 
-- [ ] **9.1 Step-data audit**
+- [x] **9.1 Step-data audit**
   - For each pipeline step the console shows (triage, gate, retrieval, summarization, routing, generation, guard, dispatch), list which data the existing endpoints and `processing_event` payloads already give, and add the missing payload fields at the step that emits the event. No new endpoint.
   - _Requirements: R25.7, R23.5_
 
