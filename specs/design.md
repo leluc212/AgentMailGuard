@@ -92,6 +92,7 @@ Twelve logical components. This matches `enterprise-rag-email.architecture.json`
 | `knowledge-worker` | Knowledge Ingestion | document ingestion volume |
 | `dispatch-worker` | Draft Store & Dispatcher (send side) | dispatch queue depth |
 | `frontend` | Review UI | — |
+| `demo-ui` | Demo Console (§5.9, ADR-0018) | — |
 
 Context Builder, Hybrid RAG, and Reply Agent co-locate in `ai-worker` to avoid three network hops on the hot path. They remain **separate modules with separate interfaces** so they can be split into their own processes later without refactoring callers.
 
@@ -739,6 +740,39 @@ The outbound message is written back into `email_message` with `direction='outbo
 
 **Review UI (R23.4, R23.5, R23.7):** server-rendered pages (FastAPI + Jinja2 + htmx) in the `frontend` service, calling the `/v1` API only: the pending-draft queue (original email, thread summary, citations shown next to the sentences they support, business facts highlighted, edit / approve / reject), a job timeline per message from `processing_event`, and knowledge upload with per-document ingestion status. Local use only, with no login (ADR-0009): compose binds the `frontend` and `api` ports to `127.0.0.1`. The UI reads `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID` and sends the organization as the `X-Organization-Id` header the API already requires (R23.6). Meets the WCAG 2.2 AA basics: visible focus, 24 px targets, status changes announced through a live region.
 
+### 5.9 Demo Console — *R25* (ADR-0018)
+
+For the thesis defence: start any scenario on the running stack and watch it, with or without AgentMailGuard, with the fake or the live model.
+
+```
+demo-ui (React SPA, nginx, 127.0.0.1:3002) ──/v1 (reverse proxy)──▶ api
+   POST /v1/demo/messages | /v1/demo/scenarios/{id}/run      (only when DEMO__ENABLED=true)
+        │ 202 demo_request_id
+        ▼
+   api ── mail.demo.inject ──▶ mail-connector: SyncOrchestrator.sync_mailbox(mailbox, adapter=InlineMessageAdapter)
+                                 (archive · idempotency key · processing_job + run_options · publish email.normalize)
+        ▼ the normal pipeline: email-worker → triage-worker → ai-worker (→ guarded drafting when guard_mode=C3) → draft
+   demo-ui polls GET /v1/demo/requests/{id} → job_id, then GET /v1/jobs/{id}/timeline (~500 ms) until terminal;
+   reads messages, threads, drafts, search/debug, GET /v1/jobs/{id}/guard, GET /v1/metrics/summary
+```
+
+| Part | Where | Notes |
+|---|---|---|
+| Console | `services/demo_ui/` | React + Vite + TypeScript + Tailwind + shadcn/ui, React Flow, Recharts, react-i18next (vi, en). Static build; nginx proxies `/v1` to `api`, so no CORS change. Calls only `/v1`. Screens: Live Pipeline, Scenario Runner, Guard Inspector (C0 ⇄ C3), Review & Dispatch, Timeline, Observability, Knowledge, Benchmark Explorer. |
+| Demo router | `services/api/routers/demo.py` | `capabilities`, `scenarios`, `messages`, `scenarios/{id}/run`, `requests/{id}`. Mounted only when `DEMO__ENABLED=true`. Validates run options; `live` without a configured live provider → 422 (R25.4). |
+| Inline adapter | `packages/adapters/` | Holds the one demo message; the provider name stays inside `packages/adapters/` (AGENTS.md §4). One demo mailbox per seeded tenant (`make seed`). |
+| Run options | `processing_job.run_options` (JSONB, nullable), envelope field `run_options` (§7.3) | `{model_profile: fake\|live, guard_mode: C0\|C3}`. Absent = today's behaviour. |
+| Provider per job | triage-worker, ai-worker | Two `LLMProvider`s built at start-up (`fake`, `live` from `LLM__*`), chosen per job. The embedding never switches (R5.10). |
+| Guarded drafting | `services/ai_worker/guarded_drafting.py` | Calls `mailguard.pipeline.MailGuardPipeline` (`GuardConfig.preset("C3")`) and `mailguard.integration.adapters` only (ADR-0010). Outcome mapping equals the benchmark's; a parity test keeps them equal. The benchmark code and the guard pin are unchanged. |
+| Guard report | table `guard_report` (migration `0006`); `GET /v1/jobs/{id}/guard` | Written in the `persist_drafted` transaction. Display only: dispatch mode and review are unchanged. |
+| Metrics summary | `GET /v1/metrics/summary` | Reads Prometheus (`OBSERVABILITY__PROMETHEUS_URL`); filtered by the request's organization where a metric has the `organization` label, each panel marked `scope: "organization"` or `scope: "stack"`. |
+| Benchmark results | `scripts/export_bench_for_demo.py` → console static assets | Committed v3 1,800-case results of the three models, read-only. |
+| Fault markers | `packages/llm/fake.py` | `[[demo-fault:timeout]]`, `[[demo-fault:invalid-json]]`, only with `DEMO__FAULT_MARKERS_ENABLED=true`. |
+
+Settings (all default off): `DEMO__ENABLED`, `DEMO__FAULT_MARKERS_ENABLED`, `GUARD__ENABLED`, `GUARD__DEFAULT_MODE` (`C0`), `GUARD__L1_MODEL_PATH` (host path of the private classifier, mounted read-only), `OBSERVABILITY__PROMETHEUS_URL`.
+
+Models: the live profile is `gpt-4o-mini` for every role, including the guard's five judges; both profiles embed with a real `text-embedding-3-small` (1536 dimensions), and a separate offline profile (`LLM__PROVIDER=fake`, `EMBEDDING__MOCK=true`) is the no-network fallback, started before a demo. A `C3` job's guard judge calls (at most five) are counted in `guard_llm_calls_total` and the guard report, outside the job's `CallBudgetTracker` (ADR-0018 decision 6).
+
 ---
 
 ## 6. Data model
@@ -949,6 +983,7 @@ Failed job → publish to `email.retry.<delay>` with original routing key in hea
   "enqueued_at": "ISO-8601"
 }
 ```
+Added by ADR-0018 (§5.9): an optional `"run_options": {"model_profile": "fake|live", "guard_mode": "C0|C3"}`, copied from `processing_job.run_options` into every envelope of the job, so retries and replays keep it (R25.3).
 
 ### 7.4 Micro-batching (R3.6, R3.7)
 
@@ -1148,6 +1183,7 @@ evaluation/
 | 0013 | A category retrieval floor in the triage gate, and a benchmark switch for the retrieval category filter | case documents are filed under the case's own category while live triage picks another; tenant isolation is kept |
 | 0014 | Full-cloud route for the benchmark, the guard pin it needs and the runner's embedding | the owner's decision 2026-10-01: no local GPU run; one pinned provider per OpenRouter model |
 | 0015 | AgentMailGuard v3: four named layers, no outbound gate, fail-closed judges, `schema_version` 3 | the inbound decision must precede generation and see the documents; isolation builds the prompt and decides nothing; accepted pending Task 16 live acceptance |
+| 0018 | A demo console for the thesis defence: React app, demo ingest door through the connector, per-job model and guard options, AgentMailGuard in the live ai-worker | the defence needs a live, visual run of every scenario, C0 and C3 side by side, fake or live model; the queue and ADR-0010's boundary are kept |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 
@@ -1227,6 +1263,7 @@ One validated settings object per service, loaded from environment, failing fast
 | 5.6 Knowledge Ingestion | R9.1–R9.11 |
 | 5.7 Reply Agent & Cascade | R14.1–R14.7, R15.1–R15.6, R16.1–R16.5 |
 | 5.8 Draft & Dispatch | R16.6–R16.8, R17.1–R17.7 |
+| 5.9 Demo Console | R25.1–R25.12 |
 | 6 Data model | R5.1–R5.10, R13.1 |
 | 7 Messaging | R3.1–R3.9, R7.1–R7.6 |
 | 8 State machine | R18.1–R18.7 |

@@ -31,6 +31,7 @@
 | 6 | Mail dispatch & review UI | Real email → pipeline → reply in provider mailbox |
 | 7 | Observability & evaluation | Quantitative evidence for H1–H5 |
 | 8 | Hardening & scale | Burst absorption, recovery, migration path documented |
+| 9 | Demo console (thesis defence) | Every scenario runs and is visible from the console, C0 ⇄ C3, fake or live model |
 
 ---
 
@@ -1064,6 +1065,81 @@
 
 ---
 
+# Phase 9 — Demo Console (thesis defence)
+*Deliverable: from the console alone, every demo scenario runs on the live stack and its result is visible, C0 and C3 side by side, with the fake or the live model.*
+
+> **Decision:** ADR-0018 (accepted 2026-11-16). Plan and progress: `PLAN_UI.md`, `TRACKING_UI.md`. Design: `design.md` §5.9. Phase 9 depends on Phases 0–6 only (not on 6.10's live Gmail gate); by ADR-0018 decision 12 its tasks may start before the Phase 7 and 8 gates. No task here starts before 9.0 is done.
+
+- [x] **9.0 Accept ADR-0018 (owner)**
+  - The owner decides the open points: embedding in both model profiles (C2), the exact live GPT model (C3a), the guard's judge calls outside the job's call budget (C7); then sets ADR-0018 to Accepted and updates the criterion count in AGENTS.md §1.
+  - Closed 2026-11-16: C2 = real `text-embedding-3-small` in both profiles plus a separate offline profile; C3a = `gpt-4o-mini` for every role; C7 = guard judge calls counted outside the job budget, `C3` only; C8 = Phase 9 may start before the Phase 7 and 8 gates; C9 = AGENTS.md and CLAUDE.md counts updated.
+  - _Requirements: R24.6_
+
+- [ ] **9.1 Step-data audit**
+  - For each pipeline step the console shows (triage, gate, retrieval, summarization, routing, generation, guard, dispatch), list which data the existing endpoints and `processing_event` payloads already give, and add the missing payload fields at the step that emits the event. No new endpoint.
+  - _Requirements: R25.7, R23.5_
+
+- [ ] **9.2 Run options on the job**
+  - Migration `0006`: `processing_job.run_options` (JSONB, nullable). Envelope field `run_options`, copied into every envelope of the job, kept on retry and on `POST /v1/jobs/{id}/replay`. A job without it behaves as before.
+  - _Requirements: R25.3, R18.1, R19.1_
+
+- [ ] **9.3 Demo ingest door**
+  - Inline one-message adapter in `packages/adapters/` (its dispatch side records the outbound message and sends nothing, so an approved demo draft never reaches a real mailbox; see 8.10). `mail.demo.inject` consumer in the mail-connector calling `SyncOrchestrator.sync_mailbox`. `/v1/demo` router: `capabilities`, `messages`, `requests/{id}`, mounted only when `DEMO__ENABLED=true`. One demo mailbox per seeded tenant in `make seed`.
+  - Integration test with ≥3 tenants and fake providers: a demo email reaches `DRAFTED` through the broker; `DEMO__ENABLED=false` gives 404.
+  - _Requirements: R25.1, R25.4, R23.1, R23.6, R3.1_
+
+- [ ] **9.4 Model provider per job**
+  - The triage-worker and the ai-worker build `fake` and `live` providers at start-up and pick one per job from `run_options.model_profile`. The embedding never switches. R21 cost counters gain a `model_profile` label.
+  - _Requirements: R25.3, R25.4, R14.7, R21.4_
+
+- [ ] **9.5 Scenario catalog**
+  - `config/demo_scenarios.yaml` with S01–S14 and G01–G06 (`PLAN_UI.md` §4) and their expected outcomes; `GET /v1/demo/scenarios`, `POST /v1/demo/scenarios/{id}/run` (a comparison scenario makes one request per guard mode, as independent jobs that do not share a thread). Copied guard case texts keep their case id and source (ADR-0018 decision 5).
+  - _Requirements: R25.2, R25.8_
+
+- [ ] **9.6 Demo fault markers**
+  - `FakeLLMProvider` fails on `[[demo-fault:timeout]]` and `[[demo-fault:invalid-json]]` only with `DEMO__FAULT_MARKERS_ENABLED=true`; live providers never read markers. Drives S10 (retry, replay) and G06 (fail-closed judge).
+  - _Requirements: R25.11_
+
+- [ ] **9.7 AgentMailGuard in the live ai-worker**
+  - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0006`) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
+  - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
+  - _Requirements: R25.5, R25.6_
+
+- [ ] **9.8 Metrics summary endpoint**
+  - `GET /v1/metrics/summary?window=` from Prometheus (`OBSERVABILITY__PROMETHEUS_URL`): early-exit funnel, p50/p95 latency, queue depths, cost increase; filtered by organization where the metric has the `organization` label, each panel stating `scope: "organization"` or `scope: "stack"`.
+  - _Requirements: R25.9, R21.8_
+
+- [ ] **9.9 Console scaffold**
+  - `services/demo_ui/`: React + Vite + TypeScript + Tailwind + shadcn/ui; nginx serving the build and proxying `/v1`; compose service on `127.0.0.1:3002`; design system with dark and light themes; react-i18next with `vi` and `en`; tenant picker; model switch (disabled when `capabilities` reports no live model); API client typed from the OpenAPI document; CI job (lint, type-check, unit tests, build).
+  - _Requirements: R25.7, R25.12, R24.2_
+
+- [ ] **9.10 Live Pipeline screen**
+  - Animated pipeline diagram (React Flow) driven by polling `GET /v1/jobs/{id}/timeline`; inbox of demo runs; detail panel per step (triage and confidence, retrieved chunks with scores, prompt budget, draft, tokens, cost, latency).
+  - _Requirements: R25.7_
+
+- [ ] **9.11 Scenario Runner screen**
+  - Scenario cards, run one or the whole set, expected vs actual with pass/fail, free email composer. Every S01–S14 runs from the console with the fake profile.
+  - _Requirements: R25.2, R25.7_
+
+- [ ] **9.12 Guard Inspector and C0 ⇄ C3 comparison**
+  - Per-layer verdicts, chunk trust, the prompt after channel isolation, inbound and final decision; two columns for the same email under C0 and C3. Every G01–G06 runs from the console.
+  - _Requirements: R25.6, R25.8_
+
+- [ ] **9.13 Review, timeline and knowledge in the console**
+  - Draft queue with approve / edit / reject, message timeline with replay, knowledge upload with ingestion status. The Jinja2 review UI keeps running beside it.
+  - _Requirements: R23.4, R23.5, R23.7_
+
+- [ ] **9.14 Observability and Benchmark Explorer screens**
+  - Recharts panels from 9.8. `scripts/export_bench_for_demo.py` copies the committed v3 1,800-case results of the three models into the console's static assets; the explorer reads them only.
+  - _Requirements: R25.9, R25.10_
+
+- [ ] **9.15 Hardening and demo script**
+  - Playwright end-to-end test against the stack with fake providers; visual check at 1440×900 in both themes and both languages; `docs/demo-ui.md`; new keys in `.env.example` and `docs/configuration.md`; `docs/demo-runbook.md` §6 rewritten around the console; `make ci` green.
+  - _Requirements: R24.5, R24.7, R25.7_
+
+> **Phase 9 gate:** with the fake profile, every S01–S14 and G01–G06 meets its expected outcome from the console alone; one C0 ⇄ C3 comparison and one live-model run are shown end to end; the review UI and the benchmark still pass their checks; `make ci` is green.
+---
+
 ## Requirement coverage index
 
 Use this to confirm nothing was dropped. Every requirement ID in `requirements.md` appears in at least one task.
@@ -1072,7 +1148,7 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 |---|---|
 | R1 Provider abstraction | 1.1, 1.2, 1.3, 1.4, 1.7, 6.3a, 8.10 |
 | R2 Ingestion & sync | 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
-| R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5 |
+| R3 Async distribution | 0.7, 2.11, 2.12, 4.13a, 4.13b, 8.3, 8.5, 9.3 |
 | R4 Normalization | 1.9, 1.10, 1.11, 1.12, 1.13, 7.20 |
 | R5 Data platform | 0.4, 0.5, 0.12, 1.12, 3.4, 5.1, 7.20, 7.29 |
 | R6 Triage | 2.2–2.8, 2.9, 7.20, 7.26, 7.28 |
@@ -1083,17 +1159,18 @@ Use this to confirm nothing was dropped. Every requirement ID in `requirements.m
 | R11 Rerank & packing | 3.11, 3.12, 3.14, 4.12, 4.13b, 7.20, 7.21, 7.25 |
 | R12 Query construction | 3.13, 7.18, 7.28 |
 | R13 Business data | 5.1–5.6, 8.4 |
-| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27, 7.29, 7.31 |
+| R14 Agent & LLM abstraction | 4.4, 4.5, 4.6, 4.7, 4.12, 5.0, 7.27, 7.29, 7.31, 9.4 |
 | R15 Model cascade | 4.8, 4.13a, 4.13b, 7.21 |
 | R16 Structured output & drafts | 4.9, 4.10, 4.11, 4.13a, 6.1, 6.2, 6.4, 7.27 |
 | R17 Dispatch | 6.3, 6.3a, 6.4–6.7, 6.10 |
-| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5 |
-| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4 |
+| R18 State machine | 0.6, 2.1, 2.12, 2.14, 4.4, 4.11, 4.13a, 6.5, 9.2 |
+| R19 Idempotency & recovery | 0.8, 2.1, 2.12, 2.13, 4.13a, 4.13b, 6.5, 7.13, 8.4, 9.2 |
 | R20 Deployment & scale | 0.2, 0.3, 0.9, 4.13b, 5.0, 5.4, 7.12, 7.20, 8.1, 8.2, 8.6, 8.8, 8.9 |
-| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29, 7.30, 7.31 |
+| R21 Observability | 0.9, 2.8, 2.15, 3.14, 4.12, 5.0, 5.4, 6.2, 7.1–7.4, 7.19, 7.20, 7.28, 7.29, 7.30, 7.31, 9.4, 9.8 |
 | R22 Evaluation | 0.13, 4.13b, 7.5–7.17, 7.19, 7.20, 7.22, 7.23, 7.24, 7.25, 7.26, 7.28, 7.29, 7.30, 7.31 |
-| R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8, 7.32 |
-| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29, 7.30, 7.31 |
+| R23 API & UI | 0.10, 1.8, 1.14, 2.14, 3.6, 3.15, 6.1, 6.8, 7.32, 9.1, 9.3, 9.13 |
+| R24 Engineering baseline | 0.1, 0.6, 0.11, 1.2, 4.5, 4.13b, 5.0, 6.9, 8.6, 8.7, 7.19, 7.20, 7.24, 7.29, 7.30, 7.31, 9.0, 9.9, 9.15 |
+| R25 Demo console | 9.1–9.15 |
 | NFR1–NFR14 | 2.3, 3.14, 4.12, 7.2, 7.4, 7.12 |
 | SC1–SC10 | 7.7, 7.8, 7.12, 7.13, 7.16, 7.17, 7.19, 7.20, 7.31 |
 | H1–H5 | 7.8 (H1), 7.7 (H2), 7.10 (H3), 7.11 (H4), 7.12 (H5) |

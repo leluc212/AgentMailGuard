@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** 📝 Đang làm UI-0 (chỉ tài liệu). Còn chờ C2, C3a. **Chưa bắt đầu code.**
+**Trạng thái chung:** ⏸ UI-0 xong, ADR-0018 Accepted. **Chờ chủ dự án xác nhận trước khi code task 9.1.**
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -23,12 +23,15 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | Q9 | Ngôn ngữ giao diện | Song ngữ Việt / Anh | 2026-11-16 |
 | Q10 | Nhánh git | Nhánh mới `feat/demo-ui`, không worktree | 2026-11-16 |
 | C1 | Cơ chế nút chuyển model | M1: theo từng job | 2026-11-16 |
-| C2 | Embedding khi chuyển model | _chờ_ (đề xuất E2 + profile offline dự phòng, PLAN §8.2) | |
+| C2 | Embedding khi chuyển model | E2: `text-embedding-3-small` thật cho cả hai chế độ + profile offline dự phòng | 2026-11-16 |
 | C3 | Model thật cho chế độ live | GPT (OpenAI) | 2026-11-16 |
-| C3a | Model cụ thể | _chờ_ (đề xuất `gpt-4o-mini` cho mọi vai trò) | |
+| C3a | Model cụ thể | `gpt-4o-mini` cho mọi vai trò, kể cả 5 judge | 2026-11-16 |
 | C4 | Benchmark Explorer lên P1 | Có | 2026-11-16 |
 | C5 | Guard config live chỉ C0, C3 | Có | 2026-11-16 |
 | C6 | Bước kế: viết ADR-0018 + specs (chỉ tài liệu) | Đồng ý | 2026-11-16 |
+| C7 | Lời gọi judge của guard ngoài ngân sách job (ngoại lệ AGENTS.md §4) | Đếm riêng, chỉ job C3 | 2026-11-16 |
+| C8 | Phase 9 làm trước gate Phase 7, 8 | Cho phép | 2026-11-16 |
+| C9 | Nhóm requirement mới R25; cập nhật số đếm trong AGENTS.md | R25; đã sửa AGENTS.md và CLAUDE.md | 2026-11-16 |
 
 ---
 
@@ -38,10 +41,10 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 - [x] UI-0.1 Khảo sát hiện trạng, viết PLAN_UI.md và TRACKING_UI.md
 - [x] UI-0.2 Chốt Q1–Q10
 - [x] UI-0.2a Tạo nhánh `feat/demo-ui`
-- [~] UI-0.2b Chốt C1–C6 — còn lại: C2, C3a
-- [ ] UI-0.3 ADR-0018 "Demo console" + cập nhật `specs/design.md`
-- [ ] UI-0.4 Thêm requirement mới (R23.8+) vào `specs/requirements.md`
-- [ ] UI-0.5 Thêm task UI vào `specs/tasks.md`
+- [x] UI-0.2b Chốt C1–C9
+- [x] UI-0.3 ADR-0018 "Demo console" (Accepted) + cập nhật `specs/design.md` §5.9
+- [x] UI-0.4 Thêm nhóm R25 (R25.1–R25.12) vào `specs/requirements.md`
+- [x] UI-0.5 Thêm Phase 9 (task 9.0–9.15) vào `specs/tasks.md`; task 9.0 `[x]`
 - [ ] UI-0.6 ⛔ **Hỏi chủ dự án trước khi bắt đầu code**
 
 ### UI-1 Backend demo
@@ -103,6 +106,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Tạo PLAN_UI.md, TRACKING_UI.md | Khảo sát nhánh `refactor/guard-v4` @ `4957774`. Phát hiện: chưa có endpoint bơm email từ UI; guard chưa nằm trong đường chạy live (chỉ benchmark). |
 | 2026-11-16 | Chốt Q1–Q10, tạo nhánh `feat/demo-ui`, cập nhật PLAN_UI.md | Còn C1–C6 cần xác nhận |
 | 2026-11-16 | Chốt C1, C3–C6; commit kế hoạch | C2 chưa có đề xuất trong bản trước, đã bổ sung đề xuất E2 |
+| 2026-11-16 | Soạn ADR-0018 (Proposed), R25, design §5.9, Phase 9 | Phát hiện thêm: ngân sách lời gọi LLM (C7), thứ tự phase (C8), image Docker chưa chứa `agentmailguard/`, task 8.10 (token Gmail dùng chung) nên adapter demo không được gửi mail thật |
+| 2026-11-16 | Chủ dự án duyệt mọi đề xuất; ADR-0018 Accepted; task 9.0 xong; sửa số đếm trong AGENTS.md, CLAUDE.md | Bước kế: task 9.1, chờ xác nhận trước khi code |
 
 ---
 
@@ -110,6 +115,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 
 | # | Vấn đề | Trạng thái |
 |---|---|---|
-| I1 | Endpoint demo và guard-trong-ai-worker là thay đổi spec (AGENTS.md §7): cần ADR và chủ dự án duyệt | Mở, xử lý ở UI-0.3 |
-| I2 | Nút chuyển model: env đọc lúc khởi động container nên không đổi được giữa chừng; embedding không được đổi theo (R5.10) | Mở, chờ C1, C2 |
-| I3 | `GuardedDraftingService` nằm trong `evaluation/`; service không nên import từ đó, cần chuyển phần dùng chung | Mở, xử lý trong ADR-0018 |
+| I1 | Endpoint demo và guard-trong-ai-worker là thay đổi spec (AGENTS.md §7): cần ADR và chủ dự án duyệt | Xong: ADR-0018 Accepted |
+| I2 | Nút chuyển model: env đọc lúc khởi động container nên không đổi được giữa chừng; embedding không được đổi theo (R5.10) | Xong: M1 (theo job) + E2 |
+| I3 | `GuardedDraftingService` nằm trong `evaluation/`; service không nên import từ đó | ADR-0018 đề xuất: wrapper mới trong ai-worker + parity test, không sửa benchmark |
+| I4 | Image Docker loại `agentmailguard/` (`.dockerignore`); classifier L1 là file riêng tư | ADR-0018 đề xuất: cài guard vào image, mount classifier read-only |
+| I5 | Task 8.10: `GMAIL_ACCESS_TOKEN` dùng chung cho mọi mailbox Gmail | Adapter demo ghi lại mail gửi đi, không gửi thật (task 9.3) |

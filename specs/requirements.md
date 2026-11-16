@@ -440,6 +440,27 @@ Any task that appears to require one of the above SHALL be stopped and raised ra
 | R24.6 | THE SYSTEM SHALL record every significant technology decision as a short ADR in `docs/adr/`. |
 | R24.7 | THE SYSTEM SHALL keep an end-to-end smoke test that drives a fixture email from ingestion to draft. |
 
+## R25 — Demo Console (thesis defence)
+
+**User story:** As the presenter at the thesis defence, I want to send any scenario's email into the running stack and watch every step, with or without AgentMailGuard and with the fake or a live model, so that the committee sees the cost gates and the guard work on the real pipeline.
+
+Decision record: ADR-0018 (accepted 2026-11-16).
+
+| ID | Criterion |
+|---|---|
+| R25.1 | WHILE `DEMO__ENABLED=true`, THE SYSTEM SHALL accept a demo email for an organization through `/v1/demo` and ingest it through the mail-connector's sync path and the broker, never by writing message or job rows from the API. IF `DEMO__ENABLED=false`, THEN every `/v1/demo` path SHALL answer 404. |
+| R25.2 | THE SYSTEM SHALL serve a catalog of demo scenarios read from configuration, each with its input email or thread, organization, run options and expected outcome. |
+| R25.3 | WHEN a demo email is accepted, THE SYSTEM SHALL store its run options (`model_profile` `fake`\|`live`, `guard_mode` `C0`\|`C3`) on the job, and every worker SHALL apply them on every attempt, including retries and replays. A job without run options SHALL behave as before R25. |
+| R25.4 | IF a demo request asks for `model_profile=live` and no live LLM provider is configured, THEN THE SYSTEM SHALL reject it with HTTP 422 before anything is published. |
+| R25.5 | WHEN a job's `guard_mode` is `C3` and `GUARD__ENABLED=true`, THE SYSTEM SHALL run the job's generation step through AgentMailGuard's public API only (ADR-0010) and SHALL persist the guard report in the same transaction as the draft. |
+| R25.6 | THE SYSTEM SHALL expose a job's guard report at `GET /v1/jobs/{id}/guard`, scoped by `organization_id`, answering 404 for a job that ran without the guard. |
+| R25.7 | THE SYSTEM SHALL provide a demo console UI, in Vietnamese and English, that shows a demo job's progress through the pipeline states, updated by polling, and the data each step produced (triage, retrieval, generation, guard, cost, latency). |
+| R25.8 | THE SYSTEM SHALL let the demo console run the same email under `C0` and `C3` as two independent jobs and show both outcomes side by side. |
+| R25.9 | THE SYSTEM SHALL provide `GET /v1/metrics/summary` returning, over a requested window, the early-exit funnel, p50/p95 end-to-end latency, queue depths and the cost increase, read from the R21 metrics, and stating their scope. |
+| R25.10 | THE SYSTEM SHALL show committed benchmark results in the demo console read-only, without running any benchmark case. |
+| R25.11 | WHILE `DEMO__FAULT_MARKERS_ENABLED=true`, THE SYSTEM's fake LLM provider SHALL fail on a demo fault marker in the prompt; live providers SHALL never read markers. |
+| R25.12 | THE SYSTEM SHALL bind the demo console's port to `127.0.0.1` and SHALL add no authentication (ADR-0009, ADR-0018). |
+
 ---
 
 ## Non-functional requirements (SLO targets)
@@ -510,3 +531,4 @@ Report measured values as measured. Do not tune the dataset to hit a target.
 | R17 Dispatch | Phase 6 |
 | R21, R22 Observability & evaluation | Phase 7 |
 | R20, R23 Deployment & UI | Phase 0, 6, 8 |
+| R25 Demo console | Phase 9 |

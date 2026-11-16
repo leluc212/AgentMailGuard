@@ -13,9 +13,9 @@ The specification is the source of truth. Code serves the spec, not the other wa
 
 | File | Role | When you read it |
 |---|---|---|
-| `specs/requirements.md` | The acceptance contract — 208 numbered criteria (`R1.1`…`R24.7`), NFRs, success criteria | Before starting any task; re-read the specific IDs your task cites |
+| `specs/requirements.md` | The acceptance contract — 220 numbered criteria (`R1.1`…`R25.12`), NFRs, success criteria | Before starting any task; re-read the specific IDs your task cites |
 | `specs/design.md` | The blueprint — architecture, interfaces, schema, contracts | Before writing code in an area you haven't touched |
-| `specs/tasks.md` | The work queue — 110 tasks across Phases 0–8 | Every session; it is your working file |
+| `specs/tasks.md` | The work queue — 163 tasks across Phases 0–9 | Every session; it is your working file |
 
 **If code and spec disagree, the spec wins until a human says otherwise.**
 

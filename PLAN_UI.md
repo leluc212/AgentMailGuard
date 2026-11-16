@@ -1,6 +1,6 @@
 # PLAN_UI — Demo Console cho rag-email + AgentMailGuard
 
-> Trạng thái: **Q1–Q10, C1, C3–C6 đã chốt (§8). Còn C2 và C3a (§8.2).** Chưa viết dòng code UI nào.
+> Trạng thái: **Mọi quyết định đã chốt. ADR-0018 Accepted. Chờ chủ dự án xác nhận trước khi code task 9.1.** Chưa viết dòng code UI nào.
 > Nhánh: `feat/demo-ui` (tạo từ `refactor/guard-v4` @ `4957774`).
 > Theo dõi tiến độ: [TRACKING_UI.md](TRACKING_UI.md).
 >
@@ -193,18 +193,33 @@ Mỗi task đi đúng vòng lặp của AGENTS.md §2: một task một lần, t
 | # | Điểm | Quyết định |
 |---|---|---|
 | C1 | Cơ chế nút chuyển model (§6.2) | M1: chọn theo từng job |
-| C2 | Embedding khi chuyển model (§6.2) | **Còn mở**: chủ dự án trả lời "theo đề xuất" nhưng bản kế hoạch chưa có đề xuất. Đề xuất mới ở §8.2, chờ xác nhận |
-| C3 | Model thật cho chế độ live | GPT (OpenAI). Giả định: `gpt-4o-mini` cho mọi vai trò, giống benchmark; chờ xác nhận ở §8.2 |
+| C2 | Embedding khi chuyển model (§6.2) | E2, xem §8.2 |
+| C3 | Model thật cho chế độ live | GPT (OpenAI); model cụ thể ở C3a §8.2 |
 | C4 | Ưu tiên Benchmark Explorer (V8) | P1 |
 | C5 | Guard config ở chế độ live | Chỉ C0 và C3 (ADR-0017) |
 | C6 | Bước kế tiếp | UI-0: viết ADR-0018 và cập nhật `specs/` (chỉ tài liệu). Hỏi chủ dự án trước khi code |
 
-### 8.2 Còn chờ xác nhận
+### 8.2 Chốt theo đề xuất (2026-11-16)
 
-| # | Điểm | Đề xuất |
+| # | Điểm | Quyết định (chủ dự án: "làm theo đề xuất") |
 |---|---|---|
 | C2 | Embedding | **E2**: embedding thật `text-embedding-3-small` (OpenAI, 1536 chiều, cùng tài khoản với GPT) cho cả hai chế độ, để retrieval đúng khi hội đồng xem. Phương án dự phòng khi mất mạng: một profile offline riêng (`EMBEDDING__MOCK=true` + `LLM__PROVIDER=fake`), bật bằng `make up` + `make seed` **trước** buổi bảo vệ, không phải nút trên UI |
 | C3a | Model cụ thể | `gpt-4o-mini` cho triage, summarizer, reply writer, tier escalated và 5 judge của guard (một model, giống benchmark), thay vì mặc định `gpt-4o` cho tier escalated |
+| C7 | Lời gọi LLM của guard ngoài ngân sách job | AGENTS.md §4 giới hạn mỗi job ≤1 triage + ≤1 summarization + 1 generation + ≤1 repair. Job C3 có thêm tối đa 5 lời gọi judge của guard. Đề xuất (giống benchmark): đếm và tính tiền riêng trong guard report và counter `guard_llm_calls_total`, không tính vào `CallBudgetTracker`; chỉ job C3 mới có. Đây là ngoại lệ của AGENTS.md §4, chỉ cho job C3 |
+| C8 | Thứ tự làm việc | Phase 9 (demo console) chỉ cần Phase 0–6. Đề xuất cho phép làm trước khi qua gate Phase 7 và 8 (AGENTS.md §2 yêu cầu làm theo thứ tự) |
+| C9 | Nhóm requirement mới | Đề xuất nhóm mới **R25 Demo Console** (R25.1–R25.12) thay vì nhét vào R23. AGENTS.md §1 đang ghi "208 criteria (R1.1…R24.7)": đã cập nhật AGENTS.md và CLAUDE.md thành 220 criteria (R1.1…R25.12), 163 task, Phase 0–9 |
+
+### 8.3 Tài liệu spec (ADR-0018 Accepted, đã commit)
+
+- `docs/adr/0018-thesis-demo-console.md` (status **Accepted**)
+- `specs/requirements.md`: nhóm R25
+- `specs/design.md`: §5.9 Demo Console, §3.2, §7.3 (`run_options`), §12.2, §15
+- `specs/tasks.md`: Phase 9 (task 9.0–9.15), phase map, coverage index
+
+Ánh xạ phase của kế hoạch sang task: UI-0 = 9.0 · UI-1 = 9.1–9.6 · UI-5 backend = 9.7 · B5 = 9.8 · UI-2 = 9.9 · UI-3 = 9.10 · UI-4 = 9.11 · UI-5 màn hình = 9.12 · UI-6 = 9.13 · UI-7 = 9.14 · UI-8 = 9.15.
+
+---
+
 ## 9. Rủi ro
 
 | Rủi ro | Giảm thiểu |
