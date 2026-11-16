@@ -1083,7 +1083,7 @@
   - Migration `0006`: `processing_job.run_options` (JSONB, nullable). Envelope field `run_options`, copied into every envelope of the job, kept on retry and on `POST /v1/jobs/{id}/replay`. A job without it behaves as before.
   - _Requirements: R25.3, R18.1, R19.1_
 
-- [ ] **9.3 Demo ingest door**
+- [x] **9.3 Demo ingest door**
   - Migration `0007`: `demo` added to the `mailbox.provider` check (owner decision 2026-11-16).
   - Inline one-message adapter in `packages/adapters/demo.py`, provider `demo` (its dispatch side records the outbound message and sends nothing, so an approved demo draft never reaches a real mailbox; see 8.10). `mail.demo.inject` consumer in the mail-connector calling `SyncOrchestrator.sync_mailbox`. `/v1/demo` router: `capabilities`, `messages`, `requests/{id}`, mounted only when `DEMO__ENABLED=true`. One demo mailbox per seeded tenant in `make seed`.
   - Integration test with ≥3 tenants and fake providers: a demo email reaches `DRAFTED` through the broker; `DEMO__ENABLED=false` gives 404.
