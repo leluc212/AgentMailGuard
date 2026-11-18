@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** task 9.0–9.6 và 9.8 xong (commit tới `c323f60`); 9.7 còn thiếu parity test đầy đủ. Bước kế: hoàn tất parity test 9.7, rồi task 9.9 (console React).
+**Trạng thái chung:** task 9.0–9.6 và 9.8 xong (commit tới `c323f60`); 9.7 còn thiếu parity test đầy đủ. Task 9.7, 9.9–9.15 đã viết, chờ test gộp.
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -126,6 +126,7 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Chốt C13–C15; viết task 9.7, 9.8; chạy unit test | Lần 1: lỗi import vì tôi ghi đè `packages/llm/profile.py` (R14) → khôi phục từ git, chuyển sang `packages/llm/model_profile.py`. Lần 2: 4 test cũ cần cập nhật theo thay đổi có chủ đích (label `model_profile`, quy tắc `.dockerignore`/Dockerfile của task 7.24 mà ADR-0018 quyết định 6 sửa đổi, provider triage là `ProfileRoutedLLMProvider`) → đã sửa test; còn test fail sẵn `test_kit_docs.py` |
 | 2026-11-16 | Lần chạy 3 (sau khi sửa) | Unit test xanh (chỉ còn test fail sẵn `test_kit_docs.py`), `ruff check` sạch, `mypy` sạch (218 file), formatter sửa 2 file. Test cần thư viện guard bị skip (`mailguard` không cài trong container). Task 9.4–9.8 vẫn `[~]`: chưa build image mới, chưa `make mailguard-unit`, chưa chạy stack với migration `0008` |
 | 2026-11-16 | Kiểm tra 9.4–9.8 | `make mailguard-unit` (container, có cài guard): xanh, chỉ còn `test_kit_docs.py` fail sẵn; 2 test guard mới của 9.7 chạy và pass. Image mới build được, 13 service healthy, migration `0008` áp dụng, ai-worker import được `/opt/agentmailguard/mailguard`. 9.4, 9.5, 9.6, 9.8 → `[x]`; 9.7 giữ `[~]` (parity test mới so ánh xạ kết quả) |
+| 2026-11-16 | Viết task 9.7 (parity test đầy đủ) và 9.9–9.15, chưa chạy test | `tests/unit/test_live_guard_parity.py`; wrapper live dựng lại query retrieval như benchmark. Console `services/demo_ui/` (React + Vite + TS + Tailwind, primitive kiểu shadcn, React Flow, Recharts, react-i18next vi/en), 8 màn, nginx proxy `/v1`, compose `demo-ui` ở `127.0.0.1:3003`, job CI `demo-ui`; `scripts/export_bench_for_demo.py`; `docs/demo-ui.md`; runbook §6.1; e2e `tests/e2e/test_demo_console.py` (Playwright Python, cần `DEMO_CONSOLE_URL`). Chưa có `package-lock.json` (Docker dùng `npm install`) |
 | 2026-11-16 | Dựng stack trên máy này | Không có `make` trên Windows: dùng `docker compose up -d --build`. RabbitMQ lỗi `.erlang.cookie: eacces` do volume cũ hỏng; đã xóa `agentmailguard_rabbitmq_data` (chủ dự án đồng ý), RabbitMQ healthy. Service `init` thoát mã 1 lần đầu vì RabbitMQ báo healthy trước khi mở cổng 5672 (I6); chạy lại `docker compose up -d` thì 13 service healthy, migration `0006` áp dụng. Task 9.2 xong. Grafana đang dùng cổng 3002, trùng với cổng định cho console (task 9.9) |
 
 ---

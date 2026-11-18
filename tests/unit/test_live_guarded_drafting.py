@@ -107,7 +107,7 @@ async def _service(
         job_store=jobs,
         persistence=persistence,
         price_table={},
-        guard_settings=GuardSettings(enabled=enabled, default_mode=default_mode),  # type: ignore[arg-type]
+        guard_settings=GuardSettings(enabled=enabled, default_mode=default_mode),
     )
     return service, provider, persistence
 

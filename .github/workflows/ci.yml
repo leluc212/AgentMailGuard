@@ -114,6 +114,36 @@ jobs:
           GMAIL_CLIENT_SECRET: ""
           MS_GRAPH_CLIENT_SECRET: ""
 
+  demo-ui:
+    name: Demo console (lint, type-check, unit tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/demo_ui
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   integration-tests:
     name: Integration Tests (Ephemeral Containers)
     runs-on: ubuntu-latest

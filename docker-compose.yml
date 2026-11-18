@@ -397,6 +397,24 @@ services:
       retries: 5
       start_period: 10s
 
+  # Demo console (task 9.9, ADR-0018): static React build behind nginx, /v1 proxied to the api.
+  # Local only, no login (R25.12); 3003 because Grafana holds 3002 (owner decision C15).
+  demo-ui:
+    build:
+      context: ./services/demo_ui
+    container_name: rag-email-demo-ui
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3003:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
   rabbitmq_data:

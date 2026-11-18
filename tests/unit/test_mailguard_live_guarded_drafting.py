@@ -847,9 +847,9 @@ async def test_the_audit_line_is_written_before_the_draft_is_committed(tmp_path:
     seen: list[int] = []
     persist = persistence.persist_drafted
 
-    async def persist_after_checking(draft: Any) -> Any:
+    async def persist_after_checking(draft: Any, *args: Any, **kwargs: Any) -> Any:
         seen.append(len(rig.audit_lines()))  # what a crash right here would leave behind
-        return await persist(draft)
+        return await persist(draft, *args, **kwargs)
 
     persistence.persist_drafted = persist_after_checking  # type: ignore[method-assign]
 

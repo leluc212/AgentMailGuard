@@ -107,12 +107,10 @@ def queries(org_id: UUID, window: str) -> dict[str, str]:
         "funnel": f"sum by (outcome) (increase(triage_funnel_outcomes_total{{{org}}}[{window}]))",
         "received": f"sum(increase(emails_received_total{{{org}}}[{window}]))",
         "p50": (
-            "histogram_quantile(0.5, sum by (le) "
-            f"(rate(end_to_end_latency_ms_bucket[{window}])))"
+            f"histogram_quantile(0.5, sum by (le) (rate(end_to_end_latency_ms_bucket[{window}])))"
         ),
         "p95": (
-            "histogram_quantile(0.95, sum by (le) "
-            f"(rate(end_to_end_latency_ms_bucket[{window}])))"
+            f"histogram_quantile(0.95, sum by (le) (rate(end_to_end_latency_ms_bucket[{window}])))"
         ),
         "queues": "max by (queue) (queue_depth)",
         "cost": f"sum by (model_profile) (increase(estimated_ai_cost_total[{window}]))",

@@ -163,6 +163,10 @@ def build_consumers(
         make_drafting = functools.partial(
             LiveGuardedDraftingService,
             guard_settings=settings.guard,
+            # the ContextBuilder's own query configuration, so L2's echo check sees its query
+            query_builder=RetrievalQueryBuilder(
+                QueryBuilderConfig.from_settings(settings.retrieval)
+            ),
             live_judge_provider=provider.live
             if isinstance(provider, ProfileRoutedLLMProvider)
             else None,

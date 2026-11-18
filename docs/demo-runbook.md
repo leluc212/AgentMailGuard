@@ -244,6 +244,21 @@ If it prints `FAIL …`, the message names the check. `FAIL Gmail: … 401` mean
 
 ## 6. Demo script (what to show, in order)
 
+### 6.1 With the demo console (thesis defence, task 9.15)
+
+Start the stack with the console on: `DEMO__ENABLED=true`, `GUARD__ENABLED=true` (and `DEMO__FAULT_MARKERS_ENABLED=true` for S10) in `.env`, then `docker compose up -d --build` and `make seed`. Open `http://localhost:3003`. Setup and screens: `docs/demo-ui.md`. About 15 minutes:
+
+1. **Cost gates (3 min).** Scenarios → run S01 (no-reply: 0 AI calls) and S02 (calendar: no reply). Live Pipeline shows the AI steps greyed out. Then S03: exactly one generation call.
+2. **RAG (3 min).** S04: open the Context step; show BM25, vector, RRF and rerank scores per chunk. S05: the business fact beside the knowledge citation. S06: one summary on a long thread.
+3. **Resilience (2 min).** S10: the job climbs the retry ladder to `DEAD_LETTER`; replay it from Timeline. S09: the isolation check answers 404 for another tenant.
+4. **AgentMailGuard, C0 ⇄ C3 (5 min).** G01, G03, G05: Guard Inspector shows the two columns. C0 drafts whatever the email or the poisoned chunk asks; C3 escalates without calling the model (G01), marks the poisoned chunk (G03) or asks for approval (G05). G04: C3 does not block a benign email.
+5. **Review and dispatch (1 min).** S11: approve in Review & Dispatch; the demo mailbox records the reply, a second approve sends nothing.
+6. **Numbers (1 min).** Observability (funnel, latency, queues, cost by model profile) and Benchmark (the committed 1,800-case results of the three models).
+
+The model switch in the top bar runs any scenario on the live model (`gpt-4o-mini`); keep the fake profile as the default so the demo does not depend on the network. G06 runs on the live model only.
+
+### 6.2 Without the console (Gmail, Phase 6)
+
 About 10 minutes. Steps 4–7 need Phase 6 (see the check at the top) and a connected mailbox (§3.4).
 
 1. **The problem (1 min).** One email: "What is the status of order 82915?" A plain retrieval system would answer from documents, but the right answer is live data.

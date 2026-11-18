@@ -124,7 +124,7 @@ async def test_the_consumer_applies_the_envelopes_run_options(profile: str | Non
     async def no_prepare(_: JobEnvelope) -> None:
         return None
 
-    consumer.prepare_delivery = no_prepare  # type: ignore[method-assign]
+    consumer.prepare_delivery = no_prepare  # type: ignore[method-assign,assignment]
     await consumer._handle_message(message)
 
     assert consumer.profiles == [profile]

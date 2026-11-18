@@ -41,7 +41,7 @@ from packages.core.settings import GuardSettings, ModelPricing
 from packages.db.draft_persistence import DraftPersistence
 from packages.db.guard_report import GuardReportRecord
 from packages.db.job import JobStore
-from packages.domain.entities import ContextPackage, GeneratedDraft, Job
+from packages.domain.entities import Classification, ContextPackage, GeneratedDraft, Job
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.llm.budget import CallBudgetTracker
 from packages.llm.drafts import (
@@ -53,6 +53,7 @@ from packages.llm.drafts import (
 from packages.llm.generator import GenerationResult, SinglePassGenerator
 from packages.llm.protocol import ChatMessage, LLMProvider, ModelTier
 from packages.llm.reply_format import render_reply_format_rules
+from packages.retrieval.query_builder import RetrievalQueryBuilder
 from services.ai_worker.drafting import DraftingOutcome, DraftingService
 
 if TYPE_CHECKING:
@@ -188,6 +189,7 @@ class LiveGuardedDraftingService(DraftingService):
         guard_settings: GuardSettings,
         live_judge_provider: LLMProvider | None = None,
         max_tokens: int = 1000,
+        query_builder: RetrievalQueryBuilder | None = None,
     ) -> None:
         super().__init__(
             generator=generator,
@@ -199,6 +201,7 @@ class LiveGuardedDraftingService(DraftingService):
         self.guard_settings = guard_settings
         self.live_judge_provider = live_judge_provider
         self.max_tokens = max_tokens
+        self.query_builder = query_builder or RetrievalQueryBuilder()
 
     def job_guard_mode(self) -> str:
         """The job's guard mode; C0 whenever the guard is not enabled."""
@@ -293,6 +296,7 @@ class LiveGuardedDraftingService(DraftingService):
             report_json,
         )
 
+        query = await self._retrieval_query(current, context, category)
         started = time.perf_counter()
         report, guarded, _bundle = await pipeline.run(
             guarded_email_from_context(context),
@@ -304,6 +308,7 @@ class LiveGuardedDraftingService(DraftingService):
             recent_messages=recent_messages_from_context(context),
             business_data=None,
             category=category,
+            query=query or None,
         )
         total_ms = int((time.perf_counter() - started) * 1000)
 
@@ -378,6 +383,28 @@ class LiveGuardedDraftingService(DraftingService):
                 },
             )
         return DraftingOutcome(draft=outcome.draft, job=outcome.job, created=outcome.created)
+
+    async def _retrieval_query(
+        self, job: Job, context: ContextPackage, category: str | None
+    ) -> str:
+        """The query retrieval ran, rebuilt as the benchmark's wrapper does (L2's echo check).
+
+        The intent is the one triage recorded on the job's QUEUED transition (organization- and
+        job-scoped events), None when there is none.
+        """
+        intent: str | None = None
+        events = await self.job_store.list_events_for_job(job.organization_id, job.id)
+        for event in reversed(events):
+            payload = event.payload or {}
+            if event.state_to == JobState.QUEUED.value and "intent" in payload:
+                intent = payload["intent"] if isinstance(payload["intent"], str) else None
+                break
+        query = self.query_builder.build(
+            message=context.current_message,
+            classification=Classification(category=category or "", intent=intent),
+            thread_summary=context.thread_summary,
+        )
+        return str(query.semantic_text)
 
     @staticmethod
     def _record(report: Any, pipeline: Any) -> dict[str, Any]:
