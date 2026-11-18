@@ -1101,7 +1101,7 @@
   - `FakeLLMProvider` fails on `[[demo-fault:timeout]]` and `[[demo-fault:invalid-json]]` only with `DEMO__FAULT_MARKERS_ENABLED=true`; live providers never read markers. Drives S10 (retry, replay) and G06 (fail-closed judge).
   - _Requirements: R25.11_
 
-- [~] **9.7 AgentMailGuard in the live ai-worker** _(unit tests green with the guard installed, image built, migration 0008 applied. Full parity test `tests/unit/test_live_guard_parity.py` written, not yet run)_
+- [x] **9.7 AgentMailGuard in the live ai-worker**
   - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0008`; `0006` is task 9.2's `run_options`, `0007` task 9.3's `demo` provider) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
   - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
   - _Requirements: R25.5, R25.6_
@@ -1110,7 +1110,7 @@
   - `GET /v1/metrics/summary?window=` from Prometheus (`OBSERVABILITY__PROMETHEUS_URL`): early-exit funnel, p50/p95 latency, queue depths, cost increase; filtered by organization where the metric has the `organization` label, each panel stating `scope: "organization"` or `scope: "stack"`.
   - _Requirements: R25.9, R21.8_
 
-- [~] **9.9 Console scaffold**
+- [x] **9.9 Console scaffold**
   - `services/demo_ui/`: React + Vite + TypeScript + Tailwind + shadcn/ui; nginx serving the build and proxying `/v1`; compose service on `127.0.0.1:3003` (3002 is Grafana's; owner decision C15); design system with dark and light themes; react-i18next with `vi` and `en`; tenant picker; model switch (disabled when `capabilities` reports no live model); API client typed from the OpenAPI document; CI job (lint, type-check, unit tests, build).
   - _Requirements: R25.7, R25.12, R24.2_
 
@@ -1134,7 +1134,7 @@
   - Recharts panels from 9.8. `scripts/export_bench_for_demo.py` copies the committed v3 1,800-case results of the three models into the console's static assets; the explorer reads them only.
   - _Requirements: R25.9, R25.10_
 
-- [~] **9.15 Hardening and demo script**
+- [~] **9.15 Hardening and demo script** _(Playwright e2e 3/3 green against the fake stack; screens checked at 1440×900 in dark theme and `vi` only. Left: light theme and `en` check, S02–S14 and G01–G06 from the console (G needs the L1 classifier mounted via `MAILGUARD_L1_HOST_DIR`), `make ci`)_
   - Playwright end-to-end test against the stack with fake providers; visual check at 1440×900 in both themes and both languages; `docs/demo-ui.md`; new keys in `.env.example` and `docs/configuration.md`; `docs/demo-runbook.md` §6 rewritten around the console; `make ci` green.
   - _Requirements: R24.5, R24.7, R25.7_
 

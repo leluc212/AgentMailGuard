@@ -30,8 +30,11 @@ def page():  # type: ignore[no-untyped-def]
 def test_the_console_loads_in_both_languages(page) -> None:  # type: ignore[no-untyped-def]
     page.goto(f"{URL}/scenarios")
     page.get_by_text("S01").first.wait_for()
-    page.get_by_role("button", name=re.compile("^(EN|VI)$")).click()
+    nav = page.locator("aside nav")
+    before = nav.inner_text()
+    page.locator("header button", has_text=re.compile("^(EN|VI)$")).click()
     page.get_by_text("S01").first.wait_for()
+    assert nav.inner_text() != before  # the menu is now in the other language
 
 
 def test_s01_runs_to_an_early_exit_and_passes(page) -> None:  # type: ignore[no-untyped-def]

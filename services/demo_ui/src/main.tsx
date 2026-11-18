@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./i18n";
 import "./index.css";
 import { Layout } from "./components/Layout";
@@ -25,6 +25,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="knowledge" element={<Knowledge />} />
             <Route path="observability" element={<Observability />} />
             <Route path="benchmark" element={<BenchmarkExplorer />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>

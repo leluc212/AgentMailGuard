@@ -1,5 +1,5 @@
 // Animated pipeline diagram (task 9.10): one node per step, edges animate into the active step.
-import { Background, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { Background, Position, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useTranslation } from "react-i18next";
 import type { StepId, StepView } from "@/lib/pipeline";
@@ -22,9 +22,16 @@ export function PipelineDiagram({
   onSelect: (id: StepId) => void;
 }) {
   const { t } = useTranslation();
-  const nodes: Node[] = steps.map((s, i) => ({
+  const nodes: Node[] = steps.map((s, i) => {
+    const row = Math.floor(i / 5);
+    const col = row % 2 === 0 ? i % 5 : 4 - (i % 5); // snake: row 2 runs right-to-left
+    const lastInRow = i % 5 === 4;
+    const rtl = row % 2 === 1;
+    return {
     id: s.id,
-    position: { x: (i % 5) * 190, y: Math.floor(i / 5) * 110 },
+    position: { x: col * 190, y: row * 110 },
+    sourcePosition: lastInRow ? Position.Bottom : rtl ? Position.Left : Position.Right,
+    targetPosition: i % 5 === 0 && row > 0 ? Position.Top : rtl ? Position.Right : Position.Left,
     data: { label: `${t(`pipeline.steps.${s.id}`)}${s.status === "skipped" ? " ⤼" : ""}` },
     draggable: false,
     style: {
@@ -37,11 +44,13 @@ export function PipelineDiagram({
       boxShadow: selected === s.id ? `0 0 0 3px ${TONE.active}` : undefined,
       fontSize: 13,
     },
-  }));
+    };
+  });
   const edges: Edge[] = steps.slice(1).map((s, i) => ({
     id: `${steps[i].id}-${s.id}`,
     source: steps[i].id,
     target: s.id,
+    type: "smoothstep",
     animated: s.status === "active",
     style: { stroke: TONE[s.status === "idle" ? "idle" : steps[i].status], strokeWidth: 2 },
   }));
