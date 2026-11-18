@@ -89,9 +89,7 @@ async def test_a_retry_keeps_run_options() -> None:
 async def test_the_job_store_keeps_run_options() -> None:
     store = InMemoryJobStore()
     org = uuid4()
-    job, _ = await store.create_job(
-        Job(organization_id=org, idempotency_key="k", run_options=DEMO)
-    )
+    job, _ = await store.create_job(Job(organization_id=org, idempotency_key="k", run_options=DEMO))
     plain, _ = await store.create_job(Job(organization_id=org, idempotency_key="k2"))
 
     stored = await store.get_job(org, job.id)

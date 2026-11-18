@@ -745,7 +745,7 @@ The outbound message is written back into `email_message` with `direction='outbo
 For the thesis defence: start any scenario on the running stack and watch it, with or without AgentMailGuard, with the fake or the live model.
 
 ```
-demo-ui (React SPA, nginx, 127.0.0.1:3002) ──/v1 (reverse proxy)──▶ api
+demo-ui (React SPA, nginx, 127.0.0.1:3003) ──/v1 (reverse proxy)──▶ api
    POST /v1/demo/messages | /v1/demo/scenarios/{id}/run      (only when DEMO__ENABLED=true)
         │ 202 demo_request_id
         ▼

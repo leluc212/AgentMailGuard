@@ -78,6 +78,11 @@ x-app-env: &app-env
   TRIAGE__CATEGORY_RETRIEVAL_FLOOR:
   # Demo console ingest door (R25.1, ADR-0018): /v1/demo on the API, mail.demo.inject consumer.
   DEMO__ENABLED: ${DEMO__ENABLED:-false}
+  # Demo fault markers in the fake LLM (R25.11): S10 retry/replay, G06 fail-closed judge.
+  DEMO__FAULT_MARKERS_ENABLED: ${DEMO__FAULT_MARKERS_ENABLED:-false}
+  # AgentMailGuard in the live ai-worker for C3 jobs (R25.5, ADR-0018 decision 6).
+  GUARD__ENABLED: ${GUARD__ENABLED:-false}
+  GUARD__DEFAULT_MODE: ${GUARD__DEFAULT_MODE:-C0}
 
 # The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
 # Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).
@@ -232,6 +237,9 @@ services:
       <<: *app-env
       SERVICE_NAME: api
       PORT: "8000"
+    volumes:
+      # Read only so GET /v1/demo/capabilities can say whether the L1 classifier is there.
+      - ${MAILGUARD_L1_HOST_DIR:-./evaluation/mailguard_bench/pinned}:/opt/agentmailguard-models:ro
     depends_on: *after-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/readyz"]
@@ -334,6 +342,10 @@ services:
       <<: *app-env
       SERVICE_NAME: ai_worker
       PORT: "8004"
+    volumes:
+      # The private L1 classifier, read-only, never baked in (ADR-0012, ADR-0018 decision 6).
+      # Missing on the host: Docker mounts an empty folder and L1's classifier stage is off.
+      - ${MAILGUARD_L1_HOST_DIR:-./evaluation/mailguard_bench/pinned}:/opt/agentmailguard-models:ro
     depends_on: *after-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/readyz"]

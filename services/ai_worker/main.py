@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import os
 from collections.abc import Callable
 from typing import Any
@@ -36,8 +37,8 @@ from packages.knowledge.embedder import Embedder, get_embedder
 from packages.knowledge.token_counter import TokenCounter
 from packages.llm import AgentProfileRegistry, InstrumentedLLMProvider, SinglePassGenerator
 from packages.llm.budget import CallKind
-from packages.llm.factory import create_llm_provider
 from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.llm.model_profile import ProfileRoutedLLMProvider, build_profile_provider
 from packages.llm.protocol import LLMProvider
 from packages.llm.router import ComplexityRouter
 from packages.retrieval.postgres import PostgresSearchBackend
@@ -46,6 +47,7 @@ from packages.retrieval.rerank import RerankService, build_rerank_service
 from packages.retrieval.retriever import HybridRetriever
 from services.ai_worker.consumer import AIWorkerConsumer
 from services.ai_worker.drafting import DraftingService
+from services.ai_worker.guarded_drafting import LiveGuardedDraftingService
 
 SERVICE_NAME = "ai_worker"
 DEFAULT_PORT = 8004
@@ -101,7 +103,10 @@ def build_consumers(
     # cross-encoder of the default one loads on the first rerank (R11.1, R11.5).
     reranking = rerank_service or build_rerank_service(settings.retrieval, metrics=res.metrics)
     counter = token_counter or TokenCounter()
-    provider = llm_provider or create_llm_provider(settings.llm)
+    # fake and live, picked per job by run_options.model_profile (ADR-0018 decision 4, R25.3)
+    provider = llm_provider or build_profile_provider(
+        settings.llm, fault_markers=settings.demo.fault_markers_active
+    )
     jobs = PostgresJobStore(res.db_pool)
     messages = PostgresMessageStore(res.db_pool)
     states = PostgresThreadStateStore(res.db_pool)
@@ -152,6 +157,16 @@ def build_consumers(
         rerank_service=reranking,
     )
     make_drafting: Callable[..., Any] = drafting_factory or DraftingService
+    if drafting_factory is None and settings.guard.enabled:
+        # AgentMailGuard for C3 jobs (ADR-0018 decision 6, R25.5); C0 jobs keep DraftingService.
+        # Live judges use rag-email's live provider (owner decision C14); fake jobs build none.
+        make_drafting = functools.partial(
+            LiveGuardedDraftingService,
+            guard_settings=settings.guard,
+            live_judge_provider=provider.live
+            if isinstance(provider, ProfileRoutedLLMProvider)
+            else None,
+        )
     drafting = make_drafting(
         # The plain provider: SinglePassGenerator wraps it per job with its own budget and
         # telemetry; a pre-built BudgetedLLMProvider would keep its own metrics/price table.

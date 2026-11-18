@@ -647,8 +647,16 @@ def test_docker_context_leaves_out_the_subtree_and_the_pinned_joblib() -> None:
         for line in (REPO_ROOT / ".dockerignore").read_text("utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     }
-    assert "agentmailguard" in lines
+    # ADR-0018 decision 6 (amending task 7.24): the image ships the guard's library and configs
+    # only; the rest of the subtree (its services/, evaluation/, training/, models) stays out.
+    assert "agentmailguard/*" in lines
+    assert {"!agentmailguard/mailguard", "!agentmailguard/configs"} <= lines
+    assert not any(line.startswith("!agentmailguard/") for line in lines - GUARD_IN_IMAGE)
     assert "evaluation" in lines or "evaluation/mailguard_bench/pinned" in lines
+
+
+GUARD_IN_IMAGE = {"!agentmailguard/mailguard", "!agentmailguard/configs"}
+"""What ADR-0018 decision 6 lets into the image from the subtree."""
 
 
 def test_the_runtime_image_copies_no_benchmark_or_guard_directory() -> None:
@@ -657,7 +665,10 @@ def test_the_runtime_image_copies_no_benchmark_or_guard_directory() -> None:
     )
     assert copied, "the Dockerfile has no COPY lines"
     for source in copied:
-        assert not source.startswith(("agentmailguard", "evaluation")), source
+        assert not source.startswith("evaluation"), source
+        if source.startswith("agentmailguard"):
+            # ADR-0018 decision 6: only the library and its configs, never a trained model
+            assert source in ("agentmailguard/mailguard/", "agentmailguard/configs/"), source
 
 
 def test_the_runbook_explains_both_layouts_and_the_tree_pin() -> None:

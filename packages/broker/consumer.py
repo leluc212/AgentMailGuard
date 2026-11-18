@@ -30,6 +30,7 @@ from packages.broker.retry import (
     handle_job_transient_failure,
     is_valid_uuid,
 )
+from packages.core.run_context import run_options_scope
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
 from packages.observability.metrics import PipelineMetrics, get_metrics
@@ -336,8 +337,9 @@ class BaseConsumer(ABC):
                 # 3.5 / 3.6 Redelivery recovery and claim lease (R19.5, R19.8), overridable
                 await self.prepare_delivery(envelope)
 
-                # 4. Execute consumer processing
-                await self.process_job(envelope, message)
+                # 4. Execute consumer processing under the job's run options (R25.3)
+                with run_options_scope(envelope.run_options):
+                    await self.process_job(envelope, message)
             except Exception as exc:
                 should_retry = self.is_transient_error(exc) and (
                     envelope.attempt < self.retry_settings.max_retries

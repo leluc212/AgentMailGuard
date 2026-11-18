@@ -403,6 +403,28 @@ With `DEMO__ENABLED=true` the API mounts `/v1/demo` (`capabilities`, `messages`,
 | Variable | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `DEMO__ENABLED` | `boolean` | `false` | Boolean | Mount `/v1/demo` and run the demo ingest consumer (R25.1) |
+| `DEMO__FAULT_MARKERS_ENABLED` | `boolean` | `false` | Boolean; has effect only with `DEMO__ENABLED=true` | The fake LLM provider fails on `[[demo-fault:timeout]]` (a timeout, so the retry ladder runs) and `[[demo-fault:invalid-json]]` (a reply that matches no schema) in a prompt; scenarios S10 and G06. Live providers never read markers (R25.11) |
+| `DEMO__SCENARIOS_PATH` | `string` | `config/demo_scenarios.yaml` | Readable YAML file; validated at API start-up when the demo is enabled | Scenario catalog served by `GET /v1/demo/scenarios` and run by `POST /v1/demo/scenarios/{id}/run` (R25.2) |
+
+### 2.21b AgentMailGuard in the ai-worker (`GUARD__*`)
+*The guard around the one generation call of a `C3` job (R25.5, R25.6, ADR-0018 decisions 6–7). Off by default.*
+
+The image ships AgentMailGuard's library and configs under `/opt/agentmailguard`; the private L1 classifier is mounted read-only from the host folder `MAILGUARD_L1_HOST_DIR` (compose only, default `./evaluation/mailguard_bench/pinned`) into the api and the ai-worker. Without it L1's classifier stage is off and `GET /v1/demo/capabilities` says so. A `fake` job builds no judge; a `live` job's five judges use the live LLM provider, and their calls are counted in `guard_llm_calls_total` and the job's `guard_report`, outside its call budget (ADR-0018 decision 6). The guard's decision is display only: dispatch mode and review are unchanged.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `GUARD__ENABLED` | `boolean` | `false` | Boolean | Make the guard available; a job runs it when its `guard_mode` is `C3` |
+| `GUARD__DEFAULT_MODE` | `string` | `C0` | `C0` or `C3` | `guard_mode` of a job without run options |
+| `GUARD__L1_MODEL_PATH` | `string` | `/opt/agentmailguard-models/l1_injection_clf_v1.joblib` | Container path | Where the guard looks for the mounted L1 classifier |
+| `GUARD__AUDIT_LOG_PATH` | `string` | `/tmp/mailguard_audit.jsonl` | Writable path | The guard's own policy audit log inside the container |
+
+### 2.21c Metrics summary (`OBSERVABILITY__*`)
+*Where the API reads the R21 metrics back for `GET /v1/metrics/summary` (R25.9, ADR-0018 decision 9).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `OBSERVABILITY__PROMETHEUS_URL` | `string` | `http://prometheus:9090` | `http://` or `https://` URL | Prometheus the API queries; panels with the `organization` label are filtered by the request's tenant, the others are marked `scope: "stack"` |
+| `OBSERVABILITY__QUERY_TIMEOUT_S` | `float` | `5.0` | 0.5–60 | Timeout of each Prometheus query; a failure answers 503 |
 
 ### 2.22 Live benchmark stack environment (`.env.stack`)
 *Per-model container settings of the live benchmark (task 7.20, ADR-0011, `docs/demo-runbook.md` §9.9). Not part of the application's own settings: a generated file, read only by `docker compose`.*

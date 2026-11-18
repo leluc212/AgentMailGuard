@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -29,6 +30,7 @@ from packages.adapters.demo import (
 from packages.broker.envelope import JobEnvelope
 from packages.core.idempotency import derive_idempotency_key
 from packages.domain.entities import Mailbox
+from services.api.demo_catalog import Scenario, ScenarioCatalog
 from services.api.dependencies import (
     JobStoreDep,
     MailboxStoreDep,
@@ -42,6 +44,8 @@ from services.api.schemas.demo import (
     DemoRequestStatus,
     DemoRunOptions,
     DemoThreadMessage,
+    ScenarioRunAccepted,
+    ScenarioRunRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,8 +145,9 @@ async def get_capabilities(
     return DemoCapabilities(
         live_model_available=live,
         live_model=settings.llm.fast_model if live else None,
-        guard_available=False,  # task 9.7 wires AgentMailGuard into the ai-worker
-        l1_classifier_loaded=False,
+        guard_available=bool(settings.guard.enabled),
+        # The classifier is mounted into the api container as into the ai-worker (compose)
+        l1_classifier_loaded=Path(settings.guard.l1_model_path).is_file(),
         demo_mailbox_id=UUID(str(mailbox.id)) if mailbox else None,
     )
 
@@ -167,7 +172,16 @@ async def post_demo_message(
             mailbox, 503 when the broker is unavailable. Nothing is published in any of them.
     """
     settings = _settings(request)
-    if body.run_options.model_profile == "live" and not live_model_available(settings):
+    _check_live(settings, body.run_options)
+    mailbox = await _demo_mailbox(mailbox_store, org_id)
+    if publisher is None:
+        raise _unavailable("Message broker publisher is not available.", "PUBLISHER_UNAVAILABLE")
+    return await _queue(settings, publisher, org_id, mailbox, body)
+
+
+def _check_live(settings: Any, run_options: DemoRunOptions) -> None:
+    """R25.4: `live` without a live provider is refused before anything is published."""
+    if run_options.model_profile == "live" and not live_model_available(settings):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
@@ -175,10 +189,12 @@ async def post_demo_message(
                 "code": "LIVE_MODEL_UNAVAILABLE",
             },
         )
-    mailbox = await _demo_mailbox(mailbox_store, org_id)
-    if publisher is None:
-        raise _unavailable("Message broker publisher is not available.", "PUBLISHER_UNAVAILABLE")
 
+
+async def _queue(
+    settings: Any, publisher: Any, org_id: UUID, mailbox: Mailbox, body: DemoMessageRequest
+) -> DemoMessageAccepted:
+    """Build the request's emails and publish one ``mail.demo.inject`` envelope."""
     demo_request_id = uuid4()
     messages = build_messages(
         body, demo_request_id=demo_request_id, recipient=mailbox.address, now=datetime.now(UTC)
@@ -215,6 +231,79 @@ async def post_demo_message(
     return DemoMessageAccepted(
         demo_request_id=demo_request_id, messages=len(messages), run_options=body.run_options
     )
+
+
+def _catalog(request: Request) -> ScenarioCatalog:
+    catalog: ScenarioCatalog = request.app.state.demo_catalog
+    return catalog
+
+
+@demo_router.get(
+    "/scenarios",
+    summary="Demo scenario catalog",
+    response_model=list[Scenario],
+)
+async def list_scenarios(request: Request) -> list[Scenario]:
+    """S01-S14 and G01-G06 with their emails, run options and expected outcomes (R25.2)."""
+    return _catalog(request).scenarios
+
+
+@demo_router.post(
+    "/scenarios/{scenario_id}/run",
+    summary="Run a demo scenario",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ScenarioRunAccepted,
+)
+async def run_scenario(
+    request: Request,
+    scenario_id: str,
+    org_id: OrgIdDep,
+    mailbox_store: MailboxStoreDep,
+    publisher: PublisherDep,
+    body: ScenarioRunRequest | None = None,
+) -> ScenarioRunAccepted:
+    """Queue the scenario's email once per run: twice for a comparison (C0, C3), as independent
+    jobs in two threads (R25.8), N times for a burst.
+
+    Raises:
+        HTTPException: 404 for an unknown id, 422 for a scenario that sends no email (S14) or for
+            `live` without a live provider, plus the errors of POST /v1/demo/messages.
+    """
+    scenario = _catalog(request).get(scenario_id)
+    if scenario is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": f"Unknown scenario '{scenario_id}'.", "code": "SCENARIO_NOT_FOUND"},
+        )
+    if not scenario.runnable or scenario.email is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": f"Scenario {scenario.id} sends no email; the console drives it.",
+                "code": "SCENARIO_NOT_RUNNABLE",
+            },
+        )
+    settings = _settings(request)
+    profile = body.model_profile if body and body.model_profile else None
+    if scenario.requires_live:
+        profile = "live"  # decision C13: the model switch cannot make G06 fake
+    runs = [
+        run.model_copy(update={"model_profile": profile}) if profile else run
+        for run in scenario.runs()
+    ]
+    for run in runs:
+        _check_live(settings, run)
+    mailbox = await _demo_mailbox(mailbox_store, org_id)
+    if publisher is None:
+        raise _unavailable("Message broker publisher is not available.", "PUBLISHER_UNAVAILABLE")
+
+    accepted = []
+    for run in runs:
+        message = DemoMessageRequest(
+            **scenario.email.model_dump(), thread=scenario.thread, run_options=run
+        )
+        accepted.append(await _queue(settings, publisher, org_id, mailbox, message))
+    return ScenarioRunAccepted(scenario_id=scenario.id, requests=accepted)
 
 
 @demo_router.get(

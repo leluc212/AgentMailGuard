@@ -254,6 +254,22 @@ def get_retrieval_query_builder(request: Request) -> Any:
     return RetrievalQueryBuilder()
 
 
+def get_guard_report_store(request: Request) -> Any:
+    """Retrieve the GuardReportStore from app.state or create it from db_pool (task 9.7)."""
+    store = getattr(request.app.state, "guard_report_store", None)
+    if store is not None:
+        return store
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None:
+        from packages.db.guard_report import PostgresGuardReportStore
+
+        return PostgresGuardReportStore(db_pool)
+    from packages.db.guard_report import InMemoryGuardReportStore
+
+    return InMemoryGuardReportStore()
+
+
+GuardReportStoreDep = Annotated[Any, Depends(get_guard_report_store)]
 SearchBackendDep = Annotated[Any, Depends(get_search_backend)]
 EmbedderDep = Annotated[Any, Depends(get_embedder)]
 RerankServiceDep = Annotated[Any, Depends(get_rerank_service)]

@@ -15,10 +15,26 @@ from packages.llm.protocol import (
     ChatMessage,
     LLMProvider,
     LLMResult,
+    LLMTimeoutError,
     ModelTier,
 )
 
 ResponderFunc = Callable[[list[ChatMessage], dict[str, Any] | None, ModelTier], dict[str, Any]]
+
+DEMO_FAULT_TIMEOUT = "[[demo-fault:timeout]]"
+DEMO_FAULT_INVALID_JSON = "[[demo-fault:invalid-json]]"
+"""Demo fault markers (task 9.6, R25.11, ADR-0018 decision 11). Only a FakeLLMProvider built
+with ``fault_markers=True`` reads them; a live provider never does."""
+
+
+def demo_fault(messages: list[ChatMessage]) -> str | None:
+    """``timeout`` or ``invalid-json`` when a prompt message carries that marker, else None."""
+    text = "\n".join(m.content for m in messages)
+    if DEMO_FAULT_TIMEOUT in text:
+        return "timeout"
+    if DEMO_FAULT_INVALID_JSON in text:
+        return "invalid-json"
+    return None
 
 
 FAKE_REPLY: dict[str, Any] = {
@@ -63,7 +79,10 @@ class FakeLLMProvider(LLMProvider):
         responder: ResponderFunc | None = None,
         simulate_latency_ms: int = 1,
         error_to_raise: Exception | None = None,
+        fault_markers: bool = False,
     ) -> None:
+        # Demo fault markers (task 9.6, R25.11): off unless DEMO__FAULT_MARKERS_ENABLED=true
+        self._fault_markers = fault_markers
         self._explicit_default = default_response is not None
         self._default_response = default_response or {
             "category": "support",
@@ -125,8 +144,15 @@ class FakeLLMProvider(LLMProvider):
         if self._error_to_raise is not None:
             raise self._error_to_raise
 
+        fault = demo_fault(messages) if self._fault_markers else None
+        if fault == "timeout":
+            raise LLMTimeoutError(f"demo fault marker {DEMO_FAULT_TIMEOUT} (R25.11)")
+
         # Determine response content
-        if self._responder is not None:
+        if fault == "invalid-json":
+            # A reply that matches no schema, as a model's broken JSON would after parsing
+            content: dict[str, Any] = {"demo_fault": "invalid-json"}
+        elif self._responder is not None:
             content = self._responder(messages, schema, tier)
         elif self._canned_responses:
             content = self._canned_responses.pop(0)

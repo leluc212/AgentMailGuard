@@ -18,6 +18,11 @@ from packages.db.draft import (
     fetch_draft_for_job,
     insert_draft,
 )
+from packages.db.guard_report import (
+    GuardReportRecord,
+    InMemoryGuardReportStore,
+    insert_guard_report,
+)
 from packages.db.job import InMemoryJobStore, PostgresJobStore
 from packages.domain.entities import GeneratedDraft, Job, ProcessingEvent
 from packages.domain.state_machine import JobState
@@ -71,8 +76,12 @@ def _require_job_id(draft: GeneratedDraft) -> UUID:
 class DraftPersistence(Protocol):
     """Unit of work persisting a draft and transitioning its job to DRAFTED."""
 
-    async def persist_drafted(self, draft: GeneratedDraft) -> DraftPersistOutcome:
+    async def persist_drafted(
+        self, draft: GeneratedDraft, *, guard_report: GuardReportRecord | None = None
+    ) -> DraftPersistOutcome:
         """Insert ``draft`` and move its job GENERATING -> DRAFTED atomically.
+
+        ``guard_report`` (a C3 job, task 9.7) is written in the same transaction (R25.5).
 
         Raises:
             ValueError: If the draft has no ``job_id``.
@@ -96,7 +105,9 @@ class PostgresDraftPersistence:
         self._pool = pool
         self._jobs = PostgresJobStore(pool)
 
-    async def persist_drafted(self, draft: GeneratedDraft) -> DraftPersistOutcome:
+    async def persist_drafted(
+        self, draft: GeneratedDraft, *, guard_report: GuardReportRecord | None = None
+    ) -> DraftPersistOutcome:
         job_id = _require_job_id(draft)
         org_id = _to_uuid(draft.organization_id)
         async with self._pool.acquire() as conn, conn.transaction():
@@ -144,6 +155,8 @@ class PostgresDraftPersistence:
                 org_id,
             )
             job.lease_expires_at = None
+            if guard_report is not None:
+                await insert_guard_report(conn, guard_report)
             return DraftPersistOutcome(draft=stored, job=job, event=event, created=True)
 
     async def find_draft_for_job(
@@ -156,11 +169,19 @@ class PostgresDraftPersistence:
 class InMemoryDraftPersistence:
     """In-memory unit of work for unit tests; validates the transition before storing."""
 
-    def __init__(self, job_store: InMemoryJobStore, draft_store: InMemoryDraftStore) -> None:
+    def __init__(
+        self,
+        job_store: InMemoryJobStore,
+        draft_store: InMemoryDraftStore,
+        guard_reports: InMemoryGuardReportStore | None = None,
+    ) -> None:
         self._jobs = job_store
         self._drafts = draft_store
+        self.guard_reports = guard_reports or InMemoryGuardReportStore()
 
-    async def persist_drafted(self, draft: GeneratedDraft) -> DraftPersistOutcome:
+    async def persist_drafted(
+        self, draft: GeneratedDraft, *, guard_report: GuardReportRecord | None = None
+    ) -> DraftPersistOutcome:
         job_id = _require_job_id(draft)
         org_id = _to_uuid(draft.organization_id)
         job = await self._jobs.get_job(org_id, job_id)
@@ -182,6 +203,8 @@ class InMemoryDraftPersistence:
         )
         job.lease_expires_at = None  # the claim lease ends with the draft (4.13b)
         stored = await self._drafts.create_draft(draft)
+        if guard_report is not None:
+            self.guard_reports.add(guard_report)
         return DraftPersistOutcome(draft=stored, job=job, event=event, created=True)
 
     async def find_draft_for_job(

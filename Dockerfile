@@ -42,6 +42,12 @@ COPY prompts/ prompts/
 COPY schemas/ schemas/
 COPY migrations/ migrations/
 COPY artifacts/models/ artifacts/models/
+# AgentMailGuard's library and configs (ADR-0018 decision 6), outside /app: the subtree also ships
+# top-level `services`/`evaluation` packages, which must never shadow rag-email's. The guard
+# resolves configs/ against the directory that holds mailguard/, so the two stay side by side.
+# Its dependencies (pydantic, httpx, pyyaml, scikit-learn, joblib, numpy) are already in uv.lock.
+COPY agentmailguard/mailguard/ /opt/agentmailguard/mailguard/
+COPY agentmailguard/configs/ /opt/agentmailguard/configs/
 
 # Layer 3: install the project itself (editable, into /app/.venv).
 RUN uv sync --locked --no-dev
@@ -59,7 +65,7 @@ ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.revision=$GIT_COMMIT
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app:/opt/agentmailguard \
     PYTHONUNBUFFERED=1 \
     PORT=8000 \
     SERVICE_NAME=service

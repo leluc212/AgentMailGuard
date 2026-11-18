@@ -78,7 +78,8 @@ def test_successful_request_records_context_tokens_and_cost(
     tok = {"model": "model-a", "tier": "routine"}
     assert _sample(m, "input_tokens_total", tok) == 1_200
     assert _sample(m, "output_tokens_total", tok) == 300
-    assert _sample(m, "estimated_ai_cost_total", tok) == pytest.approx(0.00036)
+    cost = {**tok, "model_profile": "default"}  # no run options: the configured provider
+    assert _sample(m, "estimated_ai_cost_total", cost) == pytest.approx(0.00036)
     fields = _inference_fields(caplog)
     assert fields["kind"] == "generate"
     assert fields["context_tokens"] == 812
@@ -233,6 +234,7 @@ def test_new_and_changed_collectors_use_low_cardinality_labels() -> None:
         "kind",
         "tier",
         "model",
+        "model_profile",  # fake | live | default (task 9.4, R25.3)
     }
     for collector in (m.llm_context_tokens, m.generated_draft_cost_total, m.emails_generated_total):
         assert set(collector._labelnames) <= allowed

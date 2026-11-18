@@ -168,9 +168,9 @@ async def test_summary_tokens_cost_and_log_are_booked_under_the_configured_model
     booked = {"model": OVERRIDE, "tier": "fast"}
     assert metrics.registry.get_sample_value("input_tokens_total", booked) == 50
     assert metrics.registry.get_sample_value("output_tokens_total", booked) == 30
-    assert metrics.registry.get_sample_value("estimated_ai_cost_total", booked) == pytest.approx(
-        (50 * 0.10 + 30 * 0.20) / 1e6, abs=1e-9
-    )
+    assert metrics.registry.get_sample_value(
+        "estimated_ai_cost_total", {**booked, "model_profile": "default"}
+    ) == pytest.approx((50 * 0.10 + 30 * 0.20) / 1e6, abs=1e-9)
     tier_booked = {"model": TIER_MODEL, "tier": "fast"}
     assert metrics.registry.get_sample_value("input_tokens_total", tier_booked) is None
     assert metrics.registry.get_sample_value("estimated_ai_cost_total", tier_booked) is None

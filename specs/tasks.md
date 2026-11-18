@@ -1089,29 +1089,29 @@
   - Integration test with ≥3 tenants and fake providers: a demo email reaches `DRAFTED` through the broker; `DEMO__ENABLED=false` gives 404.
   - _Requirements: R25.1, R25.4, R23.1, R23.6, R3.1_
 
-- [ ] **9.4 Model provider per job**
+- [~] **9.4 Model provider per job** _(code and unit tests written; not yet run, owner asked to test after the remaining tasks)_
   - The triage-worker and the ai-worker build `fake` and `live` providers at start-up and pick one per job from `run_options.model_profile`. The embedding never switches. R21 cost counters gain a `model_profile` label.
   - _Requirements: R25.3, R25.4, R14.7, R21.4_
 
-- [ ] **9.5 Scenario catalog**
+- [~] **9.5 Scenario catalog** _(code and unit tests written; not yet run)_
   - `config/demo_scenarios.yaml` with S01–S14 and G01–G06 (`PLAN_UI.md` §4) and their expected outcomes; `GET /v1/demo/scenarios`, `POST /v1/demo/scenarios/{id}/run` (a comparison scenario makes one request per guard mode, as independent jobs that do not share a thread). Copied guard case texts keep their case id and source (ADR-0018 decision 5).
   - _Requirements: R25.2, R25.8_
 
-- [ ] **9.6 Demo fault markers**
+- [~] **9.6 Demo fault markers** _(code and unit tests written; not yet run)_
   - `FakeLLMProvider` fails on `[[demo-fault:timeout]]` and `[[demo-fault:invalid-json]]` only with `DEMO__FAULT_MARKERS_ENABLED=true`; live providers never read markers. Drives S10 (retry, replay) and G06 (fail-closed judge).
   - _Requirements: R25.11_
 
-- [ ] **9.7 AgentMailGuard in the live ai-worker**
+- [~] **9.7 AgentMailGuard in the live ai-worker** _(code and unit tests written; not yet run; image change not yet built. Parity test compares the outcome mapping, not a full fixture run)_
   - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0008`; `0006` is task 9.2's `run_options`, `0007` task 9.3's `demo` provider) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
   - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
   - _Requirements: R25.5, R25.6_
 
-- [ ] **9.8 Metrics summary endpoint**
+- [~] **9.8 Metrics summary endpoint** _(code and unit tests written; not yet run)_
   - `GET /v1/metrics/summary?window=` from Prometheus (`OBSERVABILITY__PROMETHEUS_URL`): early-exit funnel, p50/p95 latency, queue depths, cost increase; filtered by organization where the metric has the `organization` label, each panel stating `scope: "organization"` or `scope: "stack"`.
   - _Requirements: R25.9, R21.8_
 
 - [ ] **9.9 Console scaffold**
-  - `services/demo_ui/`: React + Vite + TypeScript + Tailwind + shadcn/ui; nginx serving the build and proxying `/v1`; compose service on `127.0.0.1:3002`; design system with dark and light themes; react-i18next with `vi` and `en`; tenant picker; model switch (disabled when `capabilities` reports no live model); API client typed from the OpenAPI document; CI job (lint, type-check, unit tests, build).
+  - `services/demo_ui/`: React + Vite + TypeScript + Tailwind + shadcn/ui; nginx serving the build and proxying `/v1`; compose service on `127.0.0.1:3003` (3002 is Grafana's; owner decision C15); design system with dark and light themes; react-i18next with `vi` and `en`; tenant picker; model switch (disabled when `capabilities` reports no live model); API client typed from the OpenAPI document; CI job (lint, type-check, unit tests, build).
   - _Requirements: R25.7, R25.12, R24.2_
 
 - [ ] **9.10 Live Pipeline screen**

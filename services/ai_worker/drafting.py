@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from packages.core.run_context import model_profile_label
 from packages.core.settings import ModelPricing
 from packages.db.draft_persistence import DraftPersistence
 from packages.db.job import JobStore
@@ -155,8 +156,8 @@ class DraftingService:
                 organization=str(draft.organization_id), category=label, model_tier=tier
             ).inc()
             if draft.cost_estimate is not None:
-                metrics.generated_draft_cost_total.labels(category=label, model_tier=tier).inc(
-                    draft.cost_estimate
-                )
+                metrics.generated_draft_cost_total.labels(
+                    category=label, model_tier=tier, model_profile=model_profile_label()
+                ).inc(draft.cost_estimate)
         except Exception:
             logger.warning("Generated-email metrics emission failed", exc_info=True)

@@ -9,7 +9,7 @@ Implements requirements:
 
 import os
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -736,9 +736,36 @@ class ObservabilitySettings(BaseModel):
     )
 
 
+class GuardSettings(BaseModel):
+    """AgentMailGuard in the live ai-worker (ADR-0018 decision 6, R25.5, R25.6)."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Make the guard available; a job runs it when its guard_mode is C3 (R25.5)",
+    )
+    default_mode: Literal["C0", "C3"] = Field(
+        default="C0", description="guard_mode of a job without run options (C0 or C3 only)"
+    )
+    l1_model_path: str = Field(
+        default="/opt/agentmailguard-models/l1_injection_clf_v1.joblib",
+        description=(
+            "Container path of the private L1 classifier, mounted read-only from the host "
+            "(never baked into the image, ADR-0012); missing: L1's classifier stage is off"
+        ),
+    )
+    audit_log_path: str = Field(
+        default="/tmp/mailguard_audit.jsonl",
+        description="The guard's own policy audit log inside the container",
+    )
+
+
 class DemoSettings(BaseModel):
     """Demo console switches for the thesis defence (ADR-0018, design.md §5.9, R25)."""
 
+    scenarios_path: str = Field(
+        default="config/demo_scenarios.yaml",
+        description="Scenario catalog served by GET /v1/demo/scenarios (R25.2)",
+    )
     enabled: bool = Field(
         default=False,
         description=(
@@ -746,6 +773,28 @@ class DemoSettings(BaseModel):
             "false answers 404 on every /v1/demo path (R25.1)"
         ),
     )
+    fault_markers_enabled: bool = Field(
+        default=False,
+        description=(
+            "The fake LLM provider fails on [[demo-fault:timeout]] and [[demo-fault:invalid-json]] "
+            "in a prompt; needs DEMO__ENABLED; live providers never read markers (R25.11)"
+        ),
+    )
+
+    @property
+    def fault_markers_active(self) -> bool:
+        """Markers apply only with the demo enabled too (ADR-0018 decision 11)."""
+        return self.enabled and self.fault_markers_enabled
+
+
+class PrometheusQuerySettings(BaseModel):
+    """Where the API reads the R21 metrics back for GET /v1/metrics/summary (R25.9)."""
+
+    prometheus_url: str = Field(
+        default="http://prometheus:9090",
+        description="Prometheus base URL the API queries (OBSERVABILITY__PROMETHEUS_URL)",
+    )
+    query_timeout_s: float = Field(default=5.0, ge=0.5, le=60.0, description="Per-query timeout")
 
 
 class SubscriptionRenewalSettings(BaseModel):
@@ -926,6 +975,8 @@ class AppSettings(BaseSettings):
     business_data: BusinessDataSettings = Field(default_factory=BusinessDataSettings)
     frontend: FrontendSettings = Field(default_factory=FrontendSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
+    guard: GuardSettings = Field(default_factory=GuardSettings)
+    observability: PrometheusQuerySettings = Field(default_factory=PrometheusQuerySettings)
     complexity_router: ComplexityRouterSettings = Field(
         default_factory=ComplexityRouterSettings,
         validation_alias=AliasChoices("complexity_router", "router"),

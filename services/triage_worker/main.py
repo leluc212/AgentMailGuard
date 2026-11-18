@@ -26,8 +26,8 @@ from packages.db.message import MessageStore, PostgresMessageStore
 from packages.domain.templates import TemplateRegistry
 from packages.llm import InstrumentedLLMProvider
 from packages.llm.budget import CallKind
-from packages.llm.factory import create_llm_provider
 from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.llm.model_profile import build_profile_provider
 from packages.observability.metrics import PipelineMetrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from services.triage_worker.cascade import CascadingTriageEngine
@@ -129,7 +129,8 @@ def build_triage_consumer(
         )
     llm_classifier = LLMTriageClassifier(
         provider=InstrumentedLLMProvider(
-            create_llm_provider(settings.llm),
+            # fake and live, picked per job by run_options.model_profile (ADR-0018, R25.3)
+            build_profile_provider(settings.llm, fault_markers=settings.demo.fault_markers_active),
             kind=CallKind.TRIAGE,
             metrics=metrics,
             price_table=settings.llm.price_table,

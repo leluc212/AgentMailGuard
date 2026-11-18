@@ -99,10 +99,10 @@ ratio is the share of drafts containing at least one ungrounded citation.
 | `classification_latency_ms` | Histogram | `stage` | Triage latency per stage (`rule`, `ml`, `llm`, `default`). |
 | `input_tokens_total` | Counter | `model, tier` | Cumulative LLM prompt tokens consumed. |
 | `output_tokens_total` | Counter | `model, tier` | Cumulative LLM completion tokens generated. |
-| `estimated_ai_cost_total` | Counter | `model, tier` | Monotonic cumulative AI cost in USD. |
+| `estimated_ai_cost_total` | Counter | `model, tier, model_profile` | Monotonic cumulative AI cost in USD. `model_profile` is the job's `run_options.model_profile` (`fake`, `live`), or `default` for a job without run options (task 9.4, R25.3). |
 | `failed_jobs_total` | Counter | `queue, job_type, error_type` | Terminal job failures routed to dead-letter queue. |
 | `llm_context_tokens` | Histogram | `kind`, `tier` | Final assembled context size per inference request, counted before the call (R11.7). |
-| `generated_draft_cost_total` | Counter | `category`, `model_tier` | Estimated USD cost of persisted AI drafts; unpriced models add nothing (R21.6). |
+| `generated_draft_cost_total` | Counter | `category`, `model_tier`, `model_profile` | Estimated USD cost of persisted AI drafts; unpriced models add nothing (R21.6). `model_profile` as for `estimated_ai_cost_total`. |
 | `business_lookups_total` | Counter | `entity`, `status` | One increment per business fact the business step produced: `entity` is `order`, `ticket` or `invoice`; `status` is `FOUND`, `NOT_FOUND`, `NOT_LOOKED_UP` or `UNAVAILABLE`. Customer resolution is not counted here (R13.6, R13.7). |
 | `business_lookup_latency_ms` | Histogram | — | Duration of one bounded business-data provider call, timeouts included (R13.7). |
 | `draft_decisions_total` | Counter | `decision`, `category` | One increment per draft's first reviewer decision: `accepted` (approved unchanged), `edited` (approved after edits) or `rejected`. A repeated approve or reject does not count again; `category` is the email's latest triage category, `unknown` if none (R16.7, R21.4, SC3). |

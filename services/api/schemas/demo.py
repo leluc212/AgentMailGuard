@@ -67,6 +67,19 @@ class DemoRequestStatus(BaseModel):
     run_options: DemoRunOptions | None = None
 
 
+class ScenarioRunRequest(BaseModel):
+    """Optional override of a scenario run: the console's model switch."""
+
+    model_profile: Literal["fake", "live"] | None = None
+
+
+class ScenarioRunAccepted(BaseModel):
+    """202 answer of a scenario run: one demo request per email sent (two for a comparison)."""
+
+    scenario_id: str
+    requests: list[DemoMessageAccepted]
+
+
 class DemoCapabilities(BaseModel):
     """What the console can offer on this stack."""
 

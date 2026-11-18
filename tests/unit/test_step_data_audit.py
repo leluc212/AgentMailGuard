@@ -1,4 +1,4 @@
-﻿"""Task 9.1 (R25.7, R23.5): each pipeline step's event carries what the demo console shows."""
+"""Task 9.1 (R25.7, R23.5): each pipeline step's event carries what the demo console shows."""
 
 from __future__ import annotations
 
