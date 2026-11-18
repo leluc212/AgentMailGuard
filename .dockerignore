@@ -33,6 +33,11 @@ docs
 tests
 scripts
 e2e_demo
+# The demo console builds from its own context (services/demo_ui, own .dockerignore); its
+# node_modules holds symlinks the API build context cannot send.
+services/demo_ui
+z*.txt
+z_shots
 files.zip
 .agent
 .agents

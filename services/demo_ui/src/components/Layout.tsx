@@ -28,8 +28,10 @@ const NAV = [
 
 export function Layout() {
   const { t, i18n } = useTranslation();
-  const { tenant, setTenant, profile, setProfile, theme, toggleTheme, capabilities } = useConsole();
+  const { tenant, setTenant, profile, setProfile, liveModel, setLiveModel, theme, toggleTheme, capabilities } =
+    useConsole();
   const liveOk = capabilities?.live_model_available ?? false;
+  const liveModels = capabilities?.live_models ?? [];
 
   return (
     <div className="grid min-h-screen grid-cols-[220px_1fr]">
@@ -88,9 +90,31 @@ export function Layout() {
                 onClick={() => setProfile(p)}
               >
                 {t(`top.${p}`)}
-                {p === "live" && capabilities?.live_model ? ` · ${capabilities.live_model}` : ""}
               </Button>
             ))}
+            {/* The live model (ADR-0019): the catalog's models, greyed out without their key */}
+            {(liveModels.length > 0 || capabilities?.live_model) && (
+              <select
+                aria-label={t("top.liveModel")}
+                className="min-h-9 max-w-72 rounded-md border bg-background px-2 text-sm disabled:opacity-50"
+                title={liveOk ? t("top.liveModelHint") : t("top.liveOff")}
+                value={liveModel ?? ""}
+                onChange={(e) => {
+                  setLiveModel(e.target.value || null);
+                  setProfile("live"); // picking a model is choosing the live profile
+                }}
+              >
+                {capabilities?.live_model && (
+                  <option value="">{`${t("top.stackModel")} · ${capabilities.live_model}`}</option>
+                )}
+                {!capabilities?.live_model && !liveModel && <option value="">{t("top.noLiveModel")}</option>}
+                {liveModels.map((m) => (
+                  <option key={m.name} value={m.name} disabled={!m.available}>
+                    {m.available ? m.label : `${m.label} · ${t("top.noKey")}`}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="ml-auto flex items-center gap-2">

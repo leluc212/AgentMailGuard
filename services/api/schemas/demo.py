@@ -19,6 +19,23 @@ class DemoRunOptions(BaseModel):
     guard_mode: Literal["C0", "C3"] = Field(
         default="C0", description="`C0`: rag-email alone; `C3`: with AgentMailGuard (task 9.7)."
     )
+    live_model: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "With `live`: a model of config/live_models.yaml (ADR-0019); None: the LLM__* "
+            "provider. Ignored with `fake`."
+        ),
+    )
+
+
+class LiveModelOption(BaseModel):
+    """A live model of the catalog and whether this stack has its key."""
+
+    name: str
+    label: str
+    model: str
+    available: bool = Field(description="False: its key variable is not set; picking it is 422.")
 
 
 class DemoThreadMessage(BaseModel):
@@ -71,6 +88,7 @@ class ScenarioRunRequest(BaseModel):
     """Optional override of a scenario run: the console's model switch."""
 
     model_profile: Literal["fake", "live"] | None = None
+    live_model: str | None = Field(default=None, max_length=100)
 
 
 class ScenarioRunAccepted(BaseModel):
@@ -84,7 +102,12 @@ class DemoCapabilities(BaseModel):
     """What the console can offer on this stack."""
 
     live_model_available: bool = Field(description="False: `model_profile=live` answers 422.")
-    live_model: str | None = Field(default=None, description="The live fast-tier model name.")
+    live_model: str | None = Field(
+        default=None, description="The LLM__* fast-tier model name, when LLM__PROVIDER is live."
+    )
+    live_models: list[LiveModelOption] = Field(
+        default_factory=list, description="The catalog's live models (ADR-0019)."
+    )
     guard_available: bool = Field(description="AgentMailGuard in the ai-worker (task 9.7).")
     l1_classifier_loaded: bool = Field(description="The guard's private L1 classifier is mounted.")
     demo_mailbox_id: UUID | None = Field(

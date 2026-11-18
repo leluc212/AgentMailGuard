@@ -83,6 +83,10 @@ x-app-env: &app-env
   # AgentMailGuard in the live ai-worker for C3 jobs (R25.5, ADR-0018 decision 6).
   GUARD__ENABLED: ${GUARD__ENABLED:-false}
   GUARD__DEFAULT_MODE: ${GUARD__DEFAULT_MODE:-C0}
+  # Keys of the console's live models (config/live_models.yaml, ADR-0019, task 9.16). Empty: the
+  # model is shown greyed out. Only the api (presence check), triage-worker and ai-worker read them.
+  DEMO_OPENAI_API_KEY: ${DEMO_OPENAI_API_KEY:-}
+  DEMO_OPENROUTER_API_KEY: ${DEMO_OPENROUTER_API_KEY:-}
 
 # The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
 # Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).

@@ -38,6 +38,7 @@ from packages.knowledge.token_counter import TokenCounter
 from packages.llm import AgentProfileRegistry, InstrumentedLLMProvider, SinglePassGenerator
 from packages.llm.budget import CallKind
 from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.llm.live_models import LiveModelCatalog, load_live_models
 from packages.llm.model_profile import ProfileRoutedLLMProvider, build_profile_provider
 from packages.llm.protocol import LLMProvider
 from packages.llm.router import ComplexityRouter
@@ -104,9 +105,20 @@ def build_consumers(
     reranking = rerank_service or build_rerank_service(settings.retrieval, metrics=res.metrics)
     counter = token_counter or TokenCounter()
     # fake and live, picked per job by run_options.model_profile (ADR-0018 decision 4, R25.3)
-    provider = llm_provider or build_profile_provider(
-        settings.llm, fault_markers=settings.demo.fault_markers_active
+    # plus one live provider per catalog model with its key set (ADR-0019, task 9.16)
+    # (an injected provider is a test's or the guard-worker's: no catalog then)
+    live_models = (
+        load_live_models(settings.demo.live_models_path)
+        if llm_provider is None
+        else LiveModelCatalog(models=())
     )
+    provider = llm_provider or build_profile_provider(
+        settings.llm,
+        fault_markers=settings.demo.fault_markers_active,
+        live_models=live_models,
+    )
+    # catalog prices first, so an LLM__PRICE_TABLE entry for the same model wins (R21.6)
+    price_table = live_models.with_prices(settings.llm.price_table)
     jobs = PostgresJobStore(res.db_pool)
     messages = PostgresMessageStore(res.db_pool)
     states = PostgresThreadStateStore(res.db_pool)
@@ -119,7 +131,7 @@ def build_consumers(
             provider,
             kind=CallKind.SUMMARIZE,
             metrics=res.metrics,
-            price_table=settings.llm.price_table,
+            price_table=price_table,
         ),
         store=states,
         settings=settings.summarization,
@@ -167,7 +179,7 @@ def build_consumers(
             query_builder=RetrievalQueryBuilder(
                 QueryBuilderConfig.from_settings(settings.retrieval)
             ),
-            live_judge_provider=provider.live
+            live_judge_provider=provider.live_view()
             if isinstance(provider, ProfileRoutedLLMProvider)
             else None,
         )
@@ -178,11 +190,11 @@ def build_consumers(
             llm_provider=provider,
             profile_registry=profile_registry,
             metrics=res.metrics,
-            price_table=settings.llm.price_table,
+            price_table=price_table,
         ),
         job_store=jobs,
         persistence=PostgresDraftPersistence(res.db_pool),
-        price_table=settings.llm.price_table,
+        price_table=price_table,
         metrics=res.metrics,
     )
     router = ComplexityRouter(

@@ -781,6 +781,14 @@ class DemoSettings(BaseModel):
         ),
     )
 
+    live_models_path: str = Field(
+        default="config/live_models.yaml",
+        description=(
+            "Live models a demo job can pick by run_options.live_model; each is offered when "
+            "its api_key_env variable is set (task 9.16, ADR-0019)"
+        ),
+    )
+
     @property
     def fault_markers_active(self) -> bool:
         """Markers apply only with the demo enabled too (ADR-0018 decision 11)."""

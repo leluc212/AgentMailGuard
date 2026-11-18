@@ -14,6 +14,9 @@ interface ConsoleState {
   setTenant: (id: string) => void;
   profile: ModelProfile;
   setProfile: (p: ModelProfile) => void;
+  /** Catalog name of the live model (ADR-0019); null: the stack's LLM__* provider. */
+  liveModel: string | null;
+  setLiveModel: (name: string | null) => void;
   theme: "light" | "dark";
   toggleTheme: () => void;
   api: ApiClient;
@@ -30,6 +33,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation();
   const [tenant, setTenant] = useState(() => stored("tenant", TENANTS[0].id));
   const [profile, setProfile] = useState<ModelProfile>(() => stored("profile", "fake"));
+  const [liveModel, setLiveModel] = useState<string | null>(() => localStorage.getItem("liveModel"));
   const [theme, setTheme] = useState<"light" | "dark">(() => stored("theme", "dark"));
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const api = useMemo(() => new ApiClient(tenant), [tenant]);
@@ -38,10 +42,12 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("tenant", tenant);
     localStorage.setItem("profile", profile);
     localStorage.setItem("theme", theme);
+    if (liveModel) localStorage.setItem("liveModel", liveModel);
+    else localStorage.removeItem("liveModel");
     localStorage.setItem("lang", i18n.language);
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.lang = i18n.language;
-  }, [tenant, profile, theme, i18n.language]);
+  }, [tenant, profile, liveModel, theme, i18n.language]);
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +57,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
         if (!alive) return;
         setCapabilities(c);
         if (!c.live_model_available) setProfile("fake"); // the switch is off without a live model
+        // keep the picked model only while its key is set; else the first available one
+        const usable = (c.live_models ?? []).filter((m) => m.available).map((m) => m.name);
+        setLiveModel((current) =>
+          current && usable.includes(current) ? current : c.live_model ? null : usable[0] ?? null,
+        );
       })
       .catch(() => alive && setCapabilities(null));
     return () => {
@@ -63,6 +74,8 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     setTenant,
     profile,
     setProfile,
+    liveModel,
+    setLiveModel,
     theme,
     toggleTheme: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
     api,

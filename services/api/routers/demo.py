@@ -30,6 +30,7 @@ from packages.adapters.demo import (
 from packages.broker.envelope import JobEnvelope
 from packages.core.idempotency import derive_idempotency_key
 from packages.domain.entities import Mailbox
+from packages.llm.live_models import LiveModelCatalog, load_live_models
 from services.api.demo_catalog import Scenario, ScenarioCatalog
 from services.api.dependencies import (
     JobStoreDep,
@@ -44,6 +45,7 @@ from services.api.schemas.demo import (
     DemoRequestStatus,
     DemoRunOptions,
     DemoThreadMessage,
+    LiveModelOption,
     ScenarioRunAccepted,
     ScenarioRunRequest,
 )
@@ -63,9 +65,25 @@ def _settings(request: Request) -> Any:
     return request.app.state.settings
 
 
-def live_model_available(settings: Any) -> bool:
-    """A live LLM provider is configured (anything but the offline fake, R25.4)."""
+def llm_provider_is_live(settings: Any) -> bool:
+    """The LLM__* provider is a live one (anything but the offline fake, R25.4)."""
     return str(settings.llm.provider).strip().lower() != "fake"
+
+
+def live_catalog(request: Request) -> LiveModelCatalog:
+    """The live model catalog (ADR-0019), read once per process with its keys' presence."""
+    catalog: LiveModelCatalog | None = getattr(request.app.state, "live_models", None)
+    if catalog is None:
+        catalog = load_live_models(_settings(request).demo.live_models_path)
+        request.app.state.live_models = catalog
+    return catalog
+
+
+def live_model_available(settings: Any, catalog: LiveModelCatalog | None = None) -> bool:
+    """Some live model can run: the LLM__* provider or a catalog model with its key."""
+    if llm_provider_is_live(settings):
+        return True
+    return catalog is not None and any(catalog.available(m.name) for m in catalog.models)
 
 
 def request_message_id(demo_request_id: UUID) -> str:
@@ -141,10 +159,16 @@ async def get_capabilities(
     """Whether the live model and the guard are available, and the tenant's demo mailbox."""
     settings = _settings(request)
     mailbox = await find_demo_mailbox(mailbox_store, org_id)
-    live = live_model_available(settings)
+    catalog = live_catalog(request)
     return DemoCapabilities(
-        live_model_available=live,
-        live_model=settings.llm.fast_model if live else None,
+        live_model_available=live_model_available(settings, catalog),
+        live_model=settings.llm.fast_model if llm_provider_is_live(settings) else None,
+        live_models=[
+            LiveModelOption(
+                name=m.name, label=m.label, model=m.model, available=catalog.available(m.name)
+            )
+            for m in catalog.models
+        ],
         guard_available=bool(settings.guard.enabled),
         # The classifier is mounted into the api container as into the ai-worker (compose)
         l1_classifier_loaded=Path(settings.guard.l1_model_path).is_file(),
@@ -172,23 +196,46 @@ async def post_demo_message(
             mailbox, 503 when the broker is unavailable. Nothing is published in any of them.
     """
     settings = _settings(request)
-    _check_live(settings, body.run_options)
+    _check_live(settings, body.run_options, live_catalog(request))
     mailbox = await _demo_mailbox(mailbox_store, org_id)
     if publisher is None:
         raise _unavailable("Message broker publisher is not available.", "PUBLISHER_UNAVAILABLE")
     return await _queue(settings, publisher, org_id, mailbox, body)
 
 
-def _check_live(settings: Any, run_options: DemoRunOptions) -> None:
-    """R25.4: `live` without a live provider is refused before anything is published."""
-    if run_options.model_profile == "live" and not live_model_available(settings):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "error": "model_profile=live needs a live LLM provider (LLM__PROVIDER is fake).",
-                "code": "LIVE_MODEL_UNAVAILABLE",
-            },
+def _check_live(
+    settings: Any, run_options: DemoRunOptions, catalog: LiveModelCatalog | None = None
+) -> None:
+    """R25.4: `live` without a matching live provider is refused before anything is published.
+
+    A named ``live_model`` must be a catalog model whose key is set; without a name the LLM__*
+    provider runs, or the catalog's only available model (what the workers pick, ADR-0019).
+    """
+    if run_options.model_profile != "live":
+        return
+    name = run_options.live_model
+    if name:
+        if catalog is None or catalog.get(name) is None:
+            raise _live_refused(f"Unknown live model '{name}' (config/live_models.yaml).")
+        if not catalog.available(name):
+            env = catalog.get(name).api_key_env  # type: ignore[union-attr]
+            raise _live_refused(f"Live model '{name}' has no key: set {env} in .env.")
+        return
+    if llm_provider_is_live(settings):
+        return
+    available = [m.name for m in catalog.models if catalog.available(m.name)] if catalog else []
+    if len(available) != 1:
+        raise _live_refused(
+            "model_profile=live needs a live model: pick one of config/live_models.yaml "
+            "(live_model) or set LLM__PROVIDER."
         )
+
+
+def _live_refused(error: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={"error": error, "code": "LIVE_MODEL_UNAVAILABLE"},
+    )
 
 
 async def _queue(
@@ -206,7 +253,8 @@ async def _queue(
         organization_id=str(org_id),
         mailbox_id=str(mailbox.id),
         payload=inject_payload(mailbox.id, messages),
-        run_options=body.run_options.model_dump(),
+        # no `live_model: null`: a run that names none keeps the run options of before ADR-0019
+        run_options=body.run_options.model_dump(exclude_none=True),
     )
     broker = settings.broker
     try:
@@ -287,12 +335,15 @@ async def run_scenario(
     profile = body.model_profile if body and body.model_profile else None
     if scenario.requires_live:
         profile = "live"  # decision C13: the model switch cannot make G06 fake
+    live_model = body.live_model if body else None
     runs = [
         run.model_copy(update={"model_profile": profile}) if profile else run
         for run in scenario.runs()
     ]
+    if live_model:  # the console's model picker (ADR-0019); only a live run reads it
+        runs = [run.model_copy(update={"live_model": live_model}) for run in runs]
     for run in runs:
-        _check_live(settings, run)
+        _check_live(settings, run, live_catalog(request))
     mailbox = await _demo_mailbox(mailbox_store, org_id)
     if publisher is None:
         raise _unavailable("Message broker publisher is not available.", "PUBLISHER_UNAVAILABLE")

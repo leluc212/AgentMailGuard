@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ApiClient, type GuardMode, type Scenario } from "@/api/client";
 import { Badge, Button, Card, CardTitle, Empty } from "@/components/ui";
-import { actualOf, compare } from "@/lib/pipeline";
+import { STOP_POLLING, actualOf, compare } from "@/lib/pipeline";
 import { addRuns, useRunState, useRuns, type Run } from "@/lib/runs";
 import { TENANTS, useConsole } from "@/state";
 import { stateTone } from "./LivePipeline";
@@ -51,7 +51,12 @@ function ResultRow({ run, scenario }: { run: Run; scenario?: Scenario }) {
       .catch((e: { status?: number }) => setIsolation(e.status === 404));
   }, [scenario?.flow, run.jobId, run.tenant, isolation]);
 
-  const verdict = rows.length === 0 ? null : rows.every((r) => r.ok !== false);
+  // A flow scenario (S11) waits at DRAFTED for the presenter to approve it in Review & Dispatch.
+  const awaitingReview =
+    scenario?.kind === "flow" && timeline?.current_state === "DRAFTED" && expected.final_state !== "DRAFTED";
+  // Judge only a job that has stopped moving: S10 passes through RETRY_PENDING on its way to DEAD_LETTER.
+  const stopped = !!timeline && STOP_POLLING.has(timeline.current_state);
+  const verdict = rows.length === 0 || awaitingReview || !stopped ? null : rows.every((r) => r.ok !== false);
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -61,7 +66,10 @@ function ResultRow({ run, scenario }: { run: Run; scenario?: Scenario }) {
         <Badge>{run.guardMode}</Badge>
         {timeline && <Badge tone={stateTone(timeline.current_state)}>{timeline.current_state}</Badge>}
         {verdict === null ? (
-          <Badge tone="info">{t("scenarios.pending")}</Badge>
+          // nothing to check (no expected keys) once the job has stopped: show only its state
+          rows.length === 0 && stopped ? null : (
+            <Badge tone="info">{awaitingReview ? t("top.awaitingReview") : t("scenarios.pending")}</Badge>
+          )
         ) : (
           <Badge tone={verdict ? "success" : "danger"}>{t(verdict ? "scenarios.pass" : "scenarios.fail")}</Badge>
         )}
@@ -120,14 +128,21 @@ function SearchDebugResult({ query }: { query: string }) {
 
 function Composer() {
   const { t } = useTranslation();
-  const { api, tenant, profile } = useConsole();
+  const { api, tenant, profile, liveModel } = useConsole();
   const [form, setForm] = useState({ sender_email: "you@example.com", subject: "", body: "" });
   const [mode, setMode] = useState<GuardMode>("C0");
   const [error, setError] = useState<string | null>(null);
   const send = async () => {
     setError(null);
     try {
-      const accepted = await api.sendEmail({ ...form, run_options: { model_profile: profile, guard_mode: mode } });
+      const accepted = await api.sendEmail({
+        ...form,
+        run_options: {
+          model_profile: profile,
+          guard_mode: mode,
+          live_model: profile === "live" ? liveModel : null,
+        },
+      });
       addRuns(tenant, [accepted], form.subject || "(free email)");
     } catch (e) {
       setError(String(e));
@@ -160,7 +175,7 @@ function Composer() {
 
 export function ScenarioRunner() {
   const { t, i18n } = useTranslation();
-  const { api, tenant, profile, capabilities } = useConsole();
+  const { api, tenant, profile, liveModel, capabilities } = useConsole();
   const runs = useRuns(tenant);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -181,8 +196,9 @@ export function ScenarioRunner() {
         return;
       }
       if (s.knowledge.length) await uploadKnowledge(api, s);
-      const res = await api.runScenario(s.id, s.requires_live ? undefined : profile);
-      addRuns(tenant, res.requests, `${s.id} · ${s.title[lang]}`, s.id);
+      const live = s.requires_live || profile === "live";
+      const res = await api.runScenario(s.id, s.requires_live ? undefined : profile, live ? liveModel : null);
+      addRuns(tenant, res.requests, `${s.id} · ${s.title[lang]}${live && liveModel ? ` · ${liveModel}` : ""}`, s.id);
     } catch (e) {
       setError(`${s.id}: ${String(e)}`);
     } finally {

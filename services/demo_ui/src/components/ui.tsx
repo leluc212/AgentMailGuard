@@ -77,11 +77,11 @@ export function Badge({
 
 export function KeyValue({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+    <dl className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-muted-foreground">{k}</dt>
-          <dd className="break-words font-mono text-xs leading-5">{v ?? "—"}</dd>
+          <dd className="min-w-0 break-all font-mono text-xs leading-5">{v ?? "—"}</dd>
         </div>
       ))}
     </dl>

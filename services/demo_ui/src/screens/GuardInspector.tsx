@@ -55,7 +55,7 @@ export function GuardReportView({ report }: { report: GuardReport }) {
           {LAYERS.map(([key, label]) => {
             const layer = asObj(r[key]);
             return (
-              <div key={key} className="rounded-md border p-3">
+              <div key={key} className="min-w-0 rounded-md border p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-sm font-medium">{label}</span>
                   {layer ? (
@@ -162,16 +162,20 @@ export function GuardInspector() {
     const out: { key: string; label: string; c0?: Run; c3?: Run }[] = [];
     for (const r of runs) {
       if (!r.scenarioId?.startsWith("G")) continue;
-      const key = `${r.scenarioId}-${r.startedAt.slice(0, 19)}`;
+      const key = r.batch ?? `${r.scenarioId}-${r.startedAt.slice(0, 19)}`;
       let pair = out.find((p) => p.key === key);
-      if (!pair) out.push((pair = { key, label: r.label }));
+      if (!pair) {
+        const time = new Date(r.startedAt).toLocaleTimeString();
+        out.push((pair = { key, label: `${r.label} · ${time}` }));
+      }
       if (r.guardMode === "C0") pair.c0 = r;
       else pair.c3 = r;
     }
     return out;
   }, [runs]);
   const pairKey = params.get("pair") ?? pairs[0]?.key;
-  const pair = pairs.find((p) => p.key === pairKey);
+  // a stale ?pair= (another tenant, cleared runs) falls back to the newest comparison
+  const pair = pairs.find((p) => p.key === pairKey) ?? pairs[0];
 
   const jobId = params.get("job");
   const [report, setReport] = useState<GuardReport | null | "none">(null);
@@ -193,12 +197,12 @@ export function GuardInspector() {
           extra={
             <select
               className="min-h-9 rounded-md border bg-background px-2 text-sm"
-              value={pairKey ?? ""}
+              value={pair?.key ?? ""}
               onChange={(e) => setParams({ pair: e.target.value })}
             >
               {pairs.map((p) => (
                 <option key={p.key} value={p.key}>
-                  {p.label} · {p.key.slice(-8)}
+                  {p.label}
                 </option>
               ))}
             </select>

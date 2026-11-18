@@ -211,6 +211,46 @@ async def test_live_with_a_live_provider_is_accepted(
     assert caps.json()["live_model_available"] is True
 
 
+async def test_a_catalog_live_model_runs_only_with_its_key(
+    mailboxes: list[Mailbox], publisher: MagicMock
+) -> None:
+    from packages.llm.live_models import load_live_models
+
+    app = _app(enabled=True, mailboxes=mailboxes, publisher=publisher)
+    app.state.live_models = load_live_models(
+        "config/live_models.yaml", environ={"DEMO_OPENROUTER_API_KEY": "k"}
+    )
+
+    def live(model: str | None) -> dict[str, Any]:
+        options = {"model_profile": "live", "guard_mode": "C0", "live_model": model}
+        return {**EMAIL, "run_options": options}
+
+    async for client in _client(app):
+        caps = (await client.get("/v1/demo/capabilities", headers=_headers(ORGS[0]))).json()
+        keyed = await client.post(
+            "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("qwen2.5-7b-openrouter")
+        )
+        keyless = await client.post(
+            "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("gpt-4o-mini")
+        )
+        unnamed = await client.post("/v1/demo/messages", headers=_headers(ORGS[0]), json=live(None))
+
+    assert caps["live_model_available"] is True
+    assert {m["name"]: m["available"] for m in caps["live_models"]} == {
+        "gpt-4o-mini": False,
+        "qwen2.5-7b-openrouter": True,
+        "llama-3.1-8b-openrouter": True,
+    }
+    assert keyed.status_code == status.HTTP_202_ACCEPTED
+    envelope = publisher.publish.await_args_list[0].kwargs["envelope"]
+    assert envelope.run_options["live_model"] == "qwen2.5-7b-openrouter"
+    assert keyless.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "DEMO_OPENAI_API_KEY" in keyless.json()["error"]
+    # two keyed models and no LLM__* provider: a live run has to name one
+    assert unnamed.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert publisher.publish.await_count == 1
+
+
 async def test_an_organization_without_a_demo_mailbox_gets_409(
     client: AsyncClient, publisher: MagicMock
 ) -> None:
@@ -263,7 +303,11 @@ async def test_a_request_is_pending_until_its_job_exists(
     assert pending.json()["status"] == "pending"
     assert ingested.json()["status"] == "ingested"
     assert ingested.json()["job_id"] == str(job.id)
-    assert ingested.json()["run_options"] == {"model_profile": "fake", "guard_mode": "C0"}
+    assert ingested.json()["run_options"] == {
+        "model_profile": "fake",
+        "guard_mode": "C0",
+        "live_model": None,  # ADR-0019: the job named no catalog model
+    }
     assert other_tenant.json()["status"] == "pending"
 
 

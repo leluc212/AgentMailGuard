@@ -50,6 +50,13 @@ def current_guard_mode() -> str | None:
     return mode if mode in GUARD_MODES else None
 
 
+def current_live_model() -> str | None:
+    """The catalog name of the live model the job chose (ADR-0019), else None (LLM__*)."""
+    options = _RUN_OPTIONS.get()
+    name = options.get("live_model") if options else None
+    return name if isinstance(name, str) and name else None
+
+
 def model_profile_label() -> str:
     """The ``model_profile`` label of the R21 cost counters for the job in progress."""
     return current_model_profile() or DEFAULT_PROFILE_LABEL

@@ -8,11 +8,21 @@ export type GuardMode = "C0" | "C3";
 export interface RunOptions {
   model_profile: ModelProfile;
   guard_mode: GuardMode;
+  /** With `live`: a model of config/live_models.yaml (ADR-0019); null: the LLM__* provider. */
+  live_model?: string | null;
+}
+
+export interface LiveModelOption {
+  name: string;
+  label: string;
+  model: string;
+  available: boolean;
 }
 
 export interface Capabilities {
   live_model_available: boolean;
   live_model: string | null;
+  live_models: LiveModelOption[];
   guard_available: boolean;
   l1_classifier_loaded: boolean;
   demo_mailbox_id: string | null;
@@ -155,10 +165,13 @@ export class ApiClient {
 
   capabilities = () => this.call<Capabilities>("/demo/capabilities");
   scenarios = () => this.call<Scenario[]>("/demo/scenarios");
-  runScenario = (id: string, model_profile?: ModelProfile) =>
+  runScenario = (id: string, model_profile?: ModelProfile, live_model?: string | null) =>
     this.call<{ scenario_id: string; requests: DemoAccepted[] }>(`/demo/scenarios/${id}/run`, {
       method: "POST",
-      body: JSON.stringify(model_profile ? { model_profile } : {}),
+      body: JSON.stringify({
+        ...(model_profile ? { model_profile } : {}),
+        ...(live_model ? { live_model } : {}),
+      }),
     });
   sendEmail = (email: ScenarioEmail & { thread?: ScenarioEmail[]; run_options: RunOptions }) =>
     this.call<DemoAccepted>("/demo/messages", { method: "POST", body: JSON.stringify(email) });

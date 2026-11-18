@@ -405,6 +405,9 @@ With `DEMO__ENABLED=true` the API mounts `/v1/demo` (`capabilities`, `messages`,
 | `DEMO__ENABLED` | `boolean` | `false` | Boolean | Mount `/v1/demo` and run the demo ingest consumer (R25.1) |
 | `DEMO__FAULT_MARKERS_ENABLED` | `boolean` | `false` | Boolean; has effect only with `DEMO__ENABLED=true` | The fake LLM provider fails on `[[demo-fault:timeout]]` (a timeout, so the retry ladder runs) and `[[demo-fault:invalid-json]]` (a reply that matches no schema) in a prompt; scenarios S10 and G06. Live providers never read markers (R25.11) |
 | `DEMO__SCENARIOS_PATH` | `string` | `config/demo_scenarios.yaml` | Readable YAML file; validated at API start-up when the demo is enabled | Scenario catalog served by `GET /v1/demo/scenarios` and run by `POST /v1/demo/scenarios/{id}/run` (R25.2) |
+| `DEMO__LIVE_MODELS_PATH` | `string` | `config/live_models.yaml` | YAML file; absent means an empty catalog | Live models a demo job can name in `run_options.live_model` and the console's model picker lists (task 9.16, ADR-0019). Each entry names its endpoint, model id, provider pin, prices and the environment variable that holds its key |
+| `DEMO_OPENAI_API_KEY` | `string` (secret) | empty | Read by the api, triage-worker and ai-worker; never logged or returned | Key of the catalog's `gpt-4o-mini`. Empty: the model is listed greyed out |
+| `DEMO_OPENROUTER_API_KEY` | `string` (secret) | empty | As above | Key of the catalog's two OpenRouter models (Qwen2.5-7B, Llama-3.1-8B) |
 
 ### 2.21b AgentMailGuard in the ai-worker (`GUARD__*`)
 *The guard around the one generation call of a `C3` job (R25.5, R25.6, ADR-0018 decisions 6–7). Off by default.*

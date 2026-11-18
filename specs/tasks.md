@@ -1122,7 +1122,7 @@
   - Scenario cards, run one or the whole set, expected vs actual with pass/fail, free email composer. Every S01–S14 runs from the console with the fake profile.
   - _Requirements: R25.2, R25.7_
 
-- [~] **9.12 Guard Inspector and C0 ⇄ C3 comparison**
+- [~] **9.12 Guard Inspector and C0 ⇄ C3 comparison** _(owner, Phase 9: no L1 classifier on the demo machine. G01–G05 C0 and G01, G04, G05 C3 carry expected outcomes; G02 and G03 under C3 are shown without a verdict until the classifier is mounted via `MAILGUARD_L1_HOST_DIR`; G06 needs a live model)_
   - Per-layer verdicts, chunk trust, the prompt after channel isolation, inbound and final decision; two columns for the same email under C0 and C3. Every G01–G06 runs from the console.
   - _Requirements: R25.6, R25.8_
 
@@ -1137,6 +1137,10 @@
 - [~] **9.15 Hardening and demo script** _(Playwright e2e 3/3 green against the fake stack; screens checked at 1440×900 in dark theme and `vi` only. Left: light theme and `en` check, S02–S14 and G01–G06 from the console (G needs the L1 classifier mounted via `MAILGUARD_L1_HOST_DIR`), `make ci`)_
   - Playwright end-to-end test against the stack with fake providers; visual check at 1440×900 in both themes and both languages; `docs/demo-ui.md`; new keys in `.env.example` and `docs/configuration.md`; `docs/demo-runbook.md` §6 rewritten around the console; `make ci` green.
   - _Requirements: R24.5, R24.7, R25.7_
+
+- [x] **9.16 Live model picker** _(owner decision, Phase 9; ADR-0019. Offline-verified; the first keyed live run waits for the owner's OpenRouter key)_
+  - `config/live_models.yaml` (`DEMO__LIVE_MODELS_PATH`): the benchmark's three v3 models with their endpoints, provider pins, prices and key variables (`DEMO_OPENAI_API_KEY`, `DEMO_OPENROUTER_API_KEY`); a test keeps it equal to `model_profiles.py`. `run_options.live_model`; the triage-worker and ai-worker build a provider per keyed model; the API refuses an unknown or keyless model (422); capabilities list the catalog; the console's model picker greys out keyless models.
+  - _Requirements: R25.3, R25.4, R21.6_
 
 > **Phase 9 gate:** with the fake profile, every S01–S14 and G01–G06 meets its expected outcome from the console alone; one C0 ⇄ C3 comparison and one live-model run are shown end to end; the review UI and the benchmark still pass their checks; `make ci` is green.
 ---

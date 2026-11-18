@@ -45,7 +45,9 @@ export function Review() {
     setMessage(null);
     try {
       const out = await fn();
-      setMessage(JSON.stringify(out));
+      const status = pick(out, "draft_status", "status");
+      const job = pick(out, "job_state");
+      setMessage(`✓ draft: ${s(status)}${job ? ` · job: ${s(job)}` : ""}`);
       load();
     } catch (e) {
       setMessage(String(e));
@@ -53,11 +55,11 @@ export function Review() {
   };
 
   return (
-    <div className="grid grid-cols-[360px_1fr] gap-4">
+    <div className="grid grid-cols-[minmax(240px,360px)_minmax(0,1fr)] gap-4">
       <Card>
         <CardTitle extra={<Button size="sm" variant="ghost" onClick={load}>{t("common.refresh")}</Button>}>{t("review.queue")}</CardTitle>
         {items.length === 0 && <Empty>{t("review.empty")}</Empty>}
-        <ul className="flex flex-col gap-1">
+        <ul className="flex max-h-[70vh] flex-col gap-1 overflow-auto pr-1">
           {items.map((d) => {
             const id = s(pick(d, "id", "draft_id"));
             return (
@@ -93,7 +95,7 @@ export function Review() {
               <Button onClick={() => void act(() => api.approve(selected!))}>{t("review.approve")}</Button>
               <Button variant="danger" onClick={() => void act(() => api.reject(selected!))}>{t("review.reject")}</Button>
             </div>
-            {message && <pre className="overflow-auto text-xs text-muted-foreground">{message}</pre>}
+            {message && <p className="break-all text-sm text-muted-foreground">{message}</p>}
           </div>
         )}
       </Card>

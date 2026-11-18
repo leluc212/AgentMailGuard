@@ -2,7 +2,8 @@
 
 The same fixture emails go through ``GuardedDraftingService`` (evaluation/mailguard_bench,
 unchanged) and ``LiveGuardedDraftingService`` (services/ai_worker) on one C3 pipeline with fake
-providers and no judge. Both must reach the same decision and persist the same draft (action, body, reason).
+providers and no judge. Both must reach the same decision and persist the same draft (action,
+body, reason).
 Runs only with AgentMailGuard importable (``make mailguard-unit``).
 """
 
