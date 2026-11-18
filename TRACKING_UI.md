@@ -3,7 +3,7 @@
 Kế hoạch: [PLAN_UI.md](PLAN_UI.md).
 Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn lại) · `[x]` xong (đạt Definition of Done) · `[-]` bỏ.
 
-**Trạng thái chung:** task 9.0–9.6 và 9.8 xong (commit tới `c323f60`); 9.7 còn thiếu parity test đầy đủ. Task 9.7, 9.9–9.15 đã viết, chờ test gộp.
+**Trạng thái chung (2026-11-18):** task 9.0–9.9 và 9.16 xong. 9.10–9.15 chạy được trên stack fake (e2e Playwright 3/3 xanh, "Chạy tất cả" đạt S01–S09, S12, S14, G01, G04, G05 cả C0 lẫn C3, G02/G03 C0), còn `[~]` vì: S10 chưa chờ tới `DEAD_LETTER`, S11 chưa duyệt từ console, S13 chưa chạy, G02/G03 C3 cần classifier L1, G06 cần model live, `make ci` chưa chạy.
 **Nhánh:** `feat/demo-ui` (từ `refactor/guard-v4` @ `4957774`).
 
 ---
@@ -37,6 +37,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | C13 | G06 với profile `fake` (job fake không dựng judge) | (a) G06 chỉ chạy với `live`; console tắt nút G06 khi chưa có model thật | 2026-11-16 |
 | C14 | Judge của guard khi `live` | (a) truyền provider `live` của rag-email (bọc chuyển kiểu) vào `inbound_judge=`… của `MailGuardPipeline` | 2026-11-16 |
 | C15 | Cổng console trùng Grafana (3002) | (a) console ở `127.0.0.1:3003`; Grafana giữ 3002 | 2026-11-16 |
+| C16 | Kỳ vọng cho G01–G05 khi máy demo không có L1 | Thêm kỳ vọng chắc chắn không cần L1: G01–G05 C0 `DRAFTED`; G05 C3 `final_action: human_approval` (L4); G02, G03 C3 chỉ hiển thị, không chấm. Ghi chú vào task 9.12 | 2026-11-18 |
+| C17 | Chọn model live ngay trên console | Catalog `config/live_models.yaml` gồm 3 model benchmark v3 (gpt-4o-mini, Qwen2.5-7B, Llama-3.1-8B qua OpenRouter), `run_options.live_model`, key `DEMO_OPENAI_API_KEY`/`DEMO_OPENROUTER_API_KEY`. ADR-0019, task 9.16 | 2026-11-18 |
 | C12 | Provider của demo mailbox (CHECK chỉ cho `gmail`, `graph`, `imap`) | A: migration `0007` thêm `demo`; adapter `demo` ghi lại mail gửi đi, không gửi thật; `guard_report` lùi sang `0008`. Đã sửa design §5.9, ADR-0018, tasks 9.3, 9.7 | 2026-11-16 |
 
 ---
@@ -63,6 +65,8 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 - [ ] UI-1.5 B8 Chạy cùng email qua C0 và C3 (hai job)
 - [ ] UI-1.6 Test integration ≥3 tenant, fake LLM
 
+> Từ UI-2 trở đi, trạng thái chính xác theo task 9.9–9.16 trong `specs/tasks.md` và mục Nhật ký bên dưới; các ô dưới đây là danh sách việc ban đầu. Đã làm: UI-2.1–2.4, UI-3.1–3.3, UI-4.1–4.3, UI-5.3–5.4, UI-6.1–6.3, UI-7.1–7.2, UI-8.1–8.4. Còn lại: UI-4.4 (S10, S11, S13), UI-5.5 (G02/G03 C3, G06), UI-8.5 (`make ci`).
+
 ### UI-2 Khung UI + design system
 - [ ] UI-2.1 Scaffold React + Vite + TS + Tailwind + shadcn/ui + service Docker + `make up` healthy
 - [ ] UI-2.2 Design system: màu, typography, dark/light, component cơ bản
@@ -82,7 +86,7 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 - [ ] UI-4.4 S01–S14 chạy được từ UI
 
 ### UI-5 Guard (B4 + V3)
-- [~] UI-5.1 Task 9.7 Guard trong ai-worker theo setting: `services/ai_worker/guarded_drafting.py` (`LiveGuardedDraftingService`, chỉ dùng `MailGuardPipeline`, `GuardConfig.preset("C3")`, `mailguard.integration.adapters`; job fake không có judge, job live dùng provider live qua `JudgeAdapter`), `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`, `GUARD__L1_MODEL_PATH`, `GUARD__AUDIT_LOG_PATH`, counter `guard_llm_calls_total`; image chép `agentmailguard/mailguard` + `configs` vào `/opt/agentmailguard` (không đè `services` của rag-email), compose mount classifier L1 chỉ đọc từ `MAILGUARD_L1_HOST_DIR`. **Còn lại:** chạy test, build image, chạy `make mailguard-unit`; parity hiện chỉ so phần ánh xạ kết quả
+- [x] UI-5.1 Task 9.7 Guard trong ai-worker theo setting: `services/ai_worker/guarded_drafting.py` (`LiveGuardedDraftingService`, chỉ dùng `MailGuardPipeline`, `GuardConfig.preset("C3")`, `mailguard.integration.adapters`; job fake không có judge, job live dùng provider live qua `JudgeAdapter`), `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`, `GUARD__L1_MODEL_PATH`, `GUARD__AUDIT_LOG_PATH`, counter `guard_llm_calls_total`; image chép `agentmailguard/mailguard` + `configs` vào `/opt/agentmailguard` (không đè `services` của rag-email), compose mount classifier L1 chỉ đọc từ `MAILGUARD_L1_HOST_DIR`. **Còn lại:** chạy test, build image, chạy `make mailguard-unit`; parity hiện chỉ so phần ánh xạ kết quả
 - [x] UI-5.2 API trả verdict guard của job: migration `0008_guard_report`, `packages/db/guard_report.py`, ghi trong transaction `persist_drafted`, `GET /v1/jobs/{id}/guard` (404 cho job C0 hoặc tenant khác), `run_options` trong `GET /v1/jobs/{id}`. Test `tests/unit/test_live_guarded_drafting.py`. **Còn lại:** chạy test
 - [ ] UI-5.3 Màn Guard Inspector (4 layer, trust từng chunk, prompt sau isolation)
 - [ ] UI-5.4 So sánh C0 ⇄ C3
@@ -127,6 +131,10 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | 2026-11-16 | Lần chạy 3 (sau khi sửa) | Unit test xanh (chỉ còn test fail sẵn `test_kit_docs.py`), `ruff check` sạch, `mypy` sạch (218 file), formatter sửa 2 file. Test cần thư viện guard bị skip (`mailguard` không cài trong container). Task 9.4–9.8 vẫn `[~]`: chưa build image mới, chưa `make mailguard-unit`, chưa chạy stack với migration `0008` |
 | 2026-11-16 | Kiểm tra 9.4–9.8 | `make mailguard-unit` (container, có cài guard): xanh, chỉ còn `test_kit_docs.py` fail sẵn; 2 test guard mới của 9.7 chạy và pass. Image mới build được, 13 service healthy, migration `0008` áp dụng, ai-worker import được `/opt/agentmailguard/mailguard`. 9.4, 9.5, 9.6, 9.8 → `[x]`; 9.7 giữ `[~]` (parity test mới so ánh xạ kết quả) |
 | 2026-11-16 | Viết task 9.7 (parity test đầy đủ) và 9.9–9.15, chưa chạy test | `tests/unit/test_live_guard_parity.py`; wrapper live dựng lại query retrieval như benchmark. Console `services/demo_ui/` (React + Vite + TS + Tailwind, primitive kiểu shadcn, React Flow, Recharts, react-i18next vi/en), 8 màn, nginx proxy `/v1`, compose `demo-ui` ở `127.0.0.1:3003`, job CI `demo-ui`; `scripts/export_bench_for_demo.py`; `docs/demo-ui.md`; runbook §6.1; e2e `tests/e2e/test_demo_console.py` (Playwright Python, cần `DEMO_CONSOLE_URL`). Chưa có `package-lock.json` (Docker dùng `npm install`) |
+| 2026-11-17 | Test gộp 9.7, 9.9–9.15 | Sửa: healthcheck demo-ui dùng `127.0.0.1` (nginx alpine không nghe IPv6), cổng 3003 vào bảng cổng của `docs/BENCHMARK.md`, 6 lỗi mypy, docstring dài, `vite.config.ts` ra khỏi `include` của tsconfig, bỏ `baseUrl` (TS 6). 100 lỗi ruff và phần lớn lỗi mypy còn lại nằm ở `paper/` và `test_mailguard_expanded_cases.py`, có từ trước, không thuộc Phase 9. Unit test: chỉ còn `test_kit_docs.py` fail sẵn. 9.7, 9.9 → `[x]`. Commit `fix(demo-ui): per-request api DNS…` |
+| 2026-11-17 | Chạy console trên stack thật | "Bad Gateway": nginx giữ IP cũ của `api` sau khi tạo lại container → `resolver 127.0.0.11` + `proxy_pass` qua biến. "Cửa demo đang tắt": `.env` thiếu `DEMO__ENABLED`/`GUARD__ENABLED`. Route `*` về trang chính; sơ đồ pipeline xếp hình rắn, cạnh `smoothstep`. Test đổi ngôn ngữ tìm nút theo chữ (nút có `aria-label`). Playwright e2e 3/3 xanh |
+| 2026-11-18 | "Chạy tất cả" từ console | Sửa console: gộp payload `CLASSIFIED` + `QUEUED` (cột `reply_required` hiện "…"), chỉ chấm khi job đã dừng (S10 qua `RETRY_PENDING`), S11 hiện "Chờ duyệt", lượt không có kỳ vọng chỉ hiện trạng thái. Kỳ vọng G theo C16. `.dockerignore` loại `services/demo_ui` (symlink `node_modules/.bin` làm hỏng build `api`) và file nháp `z*`. Màn Duyệt & Gửi: kết quả gọn một dòng, danh sách cuộn trong khung |
+| 2026-11-18 | Task 9.16 chọn model live (C17, ADR-0019) | `packages/llm/live_models.py`, `ProfileRoutedLLMProvider` chọn theo `live_model` (judge của guard theo cùng model qua `live_view()`), API 422 khi model lạ hoặc chưa có key, `capabilities.live_models`, hộp chọn trên thanh trên cùng (mờ khi chưa có key), giá model vào bảng giá chỉ khi có key. Guard Inspector ghép C0/C3 theo lần chạy kịch bản; `KeyValue` xuống dòng giá trị dài. Unit test mới `test_live_models.py` (8) + 1 test API; ruff sạch; lượt UI qua 8 màn: 0 lỗi JS/console/HTTP. Chưa chạy live thật (chờ key OpenRouter) |
 | 2026-11-16 | Dựng stack trên máy này | Không có `make` trên Windows: dùng `docker compose up -d --build`. RabbitMQ lỗi `.erlang.cookie: eacces` do volume cũ hỏng; đã xóa `agentmailguard_rabbitmq_data` (chủ dự án đồng ý), RabbitMQ healthy. Service `init` thoát mã 1 lần đầu vì RabbitMQ báo healthy trước khi mở cổng 5672 (I6); chạy lại `docker compose up -d` thì 13 service healthy, migration `0006` áp dụng. Task 9.2 xong. Grafana đang dùng cổng 3002, trùng với cổng định cho console (task 9.9) |
 
 ---
@@ -144,3 +152,6 @@ Ký hiệu: `[ ]` chưa làm · `[~]` đang làm / làm dở (ghi phần còn l�
 | I7 | Grafana dùng cổng 3002, trùng cổng console định trong task 9.9 | Xong: C15 |
 | I8 | G06 (judge lỗi, fail-closed) với profile `fake`: job `fake` không dựng judge | Xong: C13 |
 | I9 | Judge của guard khi `live` | Xong: C14 |
+| I10 | Máy demo không có classifier L1 (`MAILGUARD_L1_HOST_DIR` trỏ tới `evaluation/mailguard_bench/pinned` nhưng banner vẫn báo thiếu) | Mở: G02, G03 C3 chưa chấm được (C16). Kiểm tra file `l1_injection_clf_v1.joblib` có trong thư mục đó không |
+| I11 | Gate Phase 9 ghi "mọi G01–G06 đạt kỳ vọng" | Mở: chưa đạt khi thiếu L1 và model live; nếu đóng Phase 9 mà không có chúng thì cần sửa câu gate + ADR |
+| I12 | Shell của agent trên máy này chập chờn | Cách làm: chạy lệnh trong container (`z_run.sh`, `z_ui.sh`) và ghi kết quả ra file `z*.txt` để đọc; các file `z*` không được commit |
