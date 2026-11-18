@@ -1089,24 +1089,24 @@
   - Integration test with ≥3 tenants and fake providers: a demo email reaches `DRAFTED` through the broker; `DEMO__ENABLED=false` gives 404.
   - _Requirements: R25.1, R25.4, R23.1, R23.6, R3.1_
 
-- [~] **9.4 Model provider per job** _(code and unit tests written; not yet run, owner asked to test after the remaining tasks)_
+- [x] **9.4 Model provider per job**
   - The triage-worker and the ai-worker build `fake` and `live` providers at start-up and pick one per job from `run_options.model_profile`. The embedding never switches. R21 cost counters gain a `model_profile` label.
   - _Requirements: R25.3, R25.4, R14.7, R21.4_
 
-- [~] **9.5 Scenario catalog** _(code and unit tests written; not yet run)_
+- [x] **9.5 Scenario catalog**
   - `config/demo_scenarios.yaml` with S01–S14 and G01–G06 (`PLAN_UI.md` §4) and their expected outcomes; `GET /v1/demo/scenarios`, `POST /v1/demo/scenarios/{id}/run` (a comparison scenario makes one request per guard mode, as independent jobs that do not share a thread). Copied guard case texts keep their case id and source (ADR-0018 decision 5).
   - _Requirements: R25.2, R25.8_
 
-- [~] **9.6 Demo fault markers** _(code and unit tests written; not yet run)_
+- [x] **9.6 Demo fault markers**
   - `FakeLLMProvider` fails on `[[demo-fault:timeout]]` and `[[demo-fault:invalid-json]]` only with `DEMO__FAULT_MARKERS_ENABLED=true`; live providers never read markers. Drives S10 (retry, replay) and G06 (fail-closed judge).
   - _Requirements: R25.11_
 
-- [~] **9.7 AgentMailGuard in the live ai-worker** _(code and unit tests written; not yet run; image change not yet built. Parity test compares the outcome mapping, not a full fixture run)_
+- [~] **9.7 AgentMailGuard in the live ai-worker** _(unit tests green with the guard installed, image built, migration 0008 applied, `mailguard` imports in the ai-worker. Left: the parity test compares only the outcome mapping; the task asks for the same fixture emails through both wrappers)_
   - `services/ai_worker/guarded_drafting.py` through the guard's public API only (ADR-0010); `GUARD__ENABLED`, `GUARD__DEFAULT_MODE`; `agentmailguard/` installed in the image, the private L1 classifier mounted read-only from `GUARD__L1_MODEL_PATH`. Table `guard_report` (migration `0008`; `0006` is task 9.2's `run_options`, `0007` task 9.3's `demo` provider) written in the `persist_drafted` transaction; `GET /v1/jobs/{id}/guard`.
   - Parity test against the benchmark's `GuardedDraftingService` on the same fixtures with fake providers. The benchmark code and the guard pin are not changed; `make mailguard-unit` stays green.
   - _Requirements: R25.5, R25.6_
 
-- [~] **9.8 Metrics summary endpoint** _(code and unit tests written; not yet run)_
+- [x] **9.8 Metrics summary endpoint**
   - `GET /v1/metrics/summary?window=` from Prometheus (`OBSERVABILITY__PROMETHEUS_URL`): early-exit funnel, p50/p95 latency, queue depths, cost increase; filtered by organization where the metric has the `organization` label, each panel stating `scope: "organization"` or `scope: "stack"`.
   - _Requirements: R25.9, R21.8_
 
