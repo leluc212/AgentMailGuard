@@ -1142,6 +1142,10 @@
   - `config/live_models.yaml` (`DEMO__LIVE_MODELS_PATH`): the benchmark's three v3 models with their endpoints, provider pins, prices and key variables (`DEMO_OPENAI_API_KEY`, `DEMO_OPENROUTER_API_KEY`); a test keeps it equal to `model_profiles.py`. `run_options.live_model`; the triage-worker and ai-worker build a provider per keyed model; the API refuses an unknown or keyless model (422); capabilities list the catalog; the console's model picker greys out keyless models.
   - _Requirements: R25.3, R25.4, R21.6_
 
+- [ ] **9.17 Benchmark guide run times for v3** _(found when merging Phase 9: CI red on main)_
+  - `docs/BENCHMARK.md` states the v2 run times (9 configs × 550 cases: "4 to 6 hours", "12 to 15 hours"); the pinned set is v3 (1,800 cases). Re-measure a v3 smoke per profile, restate the hours, update `SMOKE_SECONDS_PER_CASE`/`STATED_HOURS` and remove the `xfail` on `test_the_stated_run_times_follow_from_the_smoke_measurements`.
+  - _Requirements: R22, R24.7_
+
 > **Phase 9 gate:** with the fake profile, every S01–S14 and G01–G06 meets its expected outcome from the console alone; one C0 ⇄ C3 comparison and one live-model run are shown end to end; the review UI and the benchmark still pass their checks; `make ci` is green.
 ---
 

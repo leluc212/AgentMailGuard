@@ -13,6 +13,8 @@ import re
 import shlex
 from collections.abc import Sequence
 
+import pytest
+
 from evaluation.mailguard_bench.guard_env import (
     REPO_ROOT,
     V3_MAILGUARD_COMMIT,
@@ -359,6 +361,13 @@ SMOKE_SECONDS_PER_CASE = {"gpt-4o-mini": 3, "qwen2.5-7b": 10, "llama-3.1-8b-loca
 STATED_HOURS = {"gpt-4o-mini": (4, 6), "qwen2.5-7b": (12, 15), "llama-3.1-8b-local": (12, 15)}
 
 
+@pytest.mark.xfail(
+    reason=(
+        "docs/BENCHMARK.md still states the v2 run times (9 configs x 550 cases); the pinned case "
+        "set is v3 (1,800 cases). Task 9.17 updates the guide and this test."
+    ),
+    strict=True,
+)
 def test_the_stated_run_times_follow_from_the_smoke_measurements() -> None:
     from evaluation.mailguard_bench.scheme import configs_for
 

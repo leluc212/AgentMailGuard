@@ -195,9 +195,7 @@ def select_cases(
     validate_pool(
         "llmail_attack", pools.llmail_attack, kind="attack", vector="email", source="llmail_inject"
     )
-    validate_pool(
-        "llmail_benign", pools.llmail_benign, kind="benign", vector="email"
-    )
+    validate_pool("llmail_benign", pools.llmail_benign, kind="benign", vector="email")
     validate_pool("rag_attack", pools.rag_attack, kind="attack", vector="rag")
     if n_ablation > n_attack:
         raise CaseManifestError(f"ablation subset {n_ablation} > LLMail sample {n_attack}")

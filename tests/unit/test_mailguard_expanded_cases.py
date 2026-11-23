@@ -6,7 +6,7 @@ from evaluation.mailguard_bench.cases import load_case_set
 from evaluation.mailguard_bench.synthetic_poison import synthetic_poison_cases
 
 
-def test_synthetic_poison_is_reproducible_and_scoring_targets_are_isolated():
+def test_synthetic_poison_is_reproducible_and_scoring_targets_are_isolated() -> None:
     cases = synthetic_poison_cases()
     assert cases == synthetic_poison_cases()
     assert len({c["case_id"] for c in cases}) == 60
@@ -22,7 +22,7 @@ def test_synthetic_poison_is_reproducible_and_scoring_targets_are_isolated():
         assert c["chunks"][1]["poisoned"] is False
 
 
-def test_pinned_expanded_source_counts():
+def test_pinned_expanded_source_counts() -> None:
     loaded = load_case_set()
     assert loaded.manifest["counts"] == {
         "llmail_attack": 1000,
@@ -49,7 +49,7 @@ def test_pinned_expanded_source_counts():
     }
 
 
-def test_every_v3_config_selects_all_1800_cases():
+def test_every_v3_config_selects_all_1800_cases() -> None:
     from evaluation.mailguard_bench.runner import config_case_ids
     from evaluation.mailguard_bench.scheme import V3_CONFIGS
 
