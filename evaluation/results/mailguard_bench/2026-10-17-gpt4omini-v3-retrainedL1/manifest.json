@@ -1,0 +1,3036 @@
+{
+  "experiment": "mailguard_bench",
+  "task": "7.20",
+  "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+  "timestamp": "2026-10-18T06:35:14.383913+00:00",
+  "git": {
+    "rag_email": {
+      "sha": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "runs": {
+        "C0": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C0T": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C1": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C2": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L1": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L2": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L3": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L4": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-ISO": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "at_report_time": {
+        "sha": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dirty": false
+      }
+    },
+    "agentmailguard": {
+      "sha": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "runs": {
+        "C0": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C0T": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C1": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C2": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L1": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L2": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L3": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L4": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-ISO": "d95e542c616ca9ef4fee067a0862816004fffac3"
+      },
+      "layout": "subtree",
+      "at_report_time": {
+        "sha": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "dirty": false
+      }
+    }
+  },
+  "config_hash": "99940639c9857a407e7ec83d97a1092e5bfd880f25339d1f56d383e479d1075c",
+  "case_manifest_sha256": "5cedca0020c7a2c63137d917cda4e8e25df1081bc7ff6734e53ba75fc16013d4",
+  "models": {
+    "C0": {
+      "generation": "gpt-4o-mini",
+      "guard": null,
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": null,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C0T": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C0T",
+        "active_layers": [],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C1": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C2": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L1": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L2": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L3": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L4": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-ISO": {
+      "generation": "gpt-4o-mini",
+      "guard": "gpt-4o-mini",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    }
+  },
+  "runs": {
+    "C0": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C0",
+      "scheme": "v3",
+      "preset": "C0",
+      "guard_preset": null,
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": null,
+      "live_layers": null,
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0",
+        "preset": null,
+        "active_layers": [],
+        "guard_model": null,
+        "live_stages": {},
+        "missing_live_stages": [],
+        "live_layers": null,
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": null
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {},
+      "service_images": {
+        "ai-worker": "sha256:fba2033339505a296dc0d33cadf48990eb2ba4ba497147b68d2e00e35cb2f3bf",
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "ai-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C0",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": null,
+        "live_layers": null,
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {},
+        "service_images": {
+          "ai-worker": "sha256:fba2033339505a296dc0d33cadf48990eb2ba4ba497147b68d2e00e35cb2f3bf",
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "ai-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T02:22:14.084942+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T02:38:57.010523+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 549,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        },
+        {
+          "started_at": "2026-10-18T05:18:50.354946+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T05:19:13.364107+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 549,
+            "ok": 0,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C0T": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C0T",
+      "scheme": "v3",
+      "preset": "C0T",
+      "guard_preset": "C0",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C0T",
+        "active_layers": [],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0T",
+        "scheme": "v3",
+        "preset": "C0",
+        "active_layers": [],
+        "channel_isolation": false,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C0T",
+          "active_layers": [],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C0T.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C0T",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C0T",
+          "active_layers": [],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T05:20:29.350631+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T05:37:58.303293+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 549,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        },
+        {
+          "started_at": "2026-10-18T05:38:26.119601+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T05:38:32.902386+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 549,
+            "ok": 1,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C1",
+      "scheme": "v3",
+      "preset": "C1",
+      "guard_preset": "C1",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C1",
+        "scheme": "v3",
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "channel_isolation": false,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C1.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C1",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T02:39:07.908540+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T02:57:11.269252+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C2",
+      "scheme": "v3",
+      "preset": "C2",
+      "guard_preset": "C2",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C2",
+        "scheme": "v3",
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C2.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C2",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T02:57:41.463397+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T03:19:56.008617+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3",
+      "scheme": "v3",
+      "preset": "C3",
+      "guard_preset": "C3",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3",
+        "scheme": "v3",
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T03:20:52.474925+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T03:39:19.625494+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3-L1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3-L1",
+      "scheme": "v3",
+      "preset": "C3-L1",
+      "guard_preset": "C3-L1",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L1",
+        "scheme": "v3",
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3-L1.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L1",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T03:39:35.981729+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T03:56:51.678684+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3-L2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3-L2",
+      "scheme": "v3",
+      "preset": "C3-L2",
+      "guard_preset": "C3-L2",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L2",
+        "scheme": "v3",
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3-L2.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L2",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T03:57:31.239973+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T04:19:39.543688+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3-L3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3-L3",
+      "scheme": "v3",
+      "preset": "C3-L3",
+      "guard_preset": "C3-L3",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L3",
+        "scheme": "v3",
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3-L3.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L3",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T04:20:10.308946+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T04:41:36.357581+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3-L4": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3-L4",
+      "scheme": "v3",
+      "preset": "C3-L4",
+      "guard_preset": "C3-L4",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L4",
+        "scheme": "v3",
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3-L4.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L4",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T04:41:49.113652+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T04:59:41.237894+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C3-ISO": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-17-gpt4omini-v3-retrainedL1",
+      "config": "C3-ISO",
+      "scheme": "v3",
+      "preset": "C3-ISO",
+      "guard_preset": "C3-ISO",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "gpt-4o-mini",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "model_map": {
+          "fast": "gpt-4o-mini",
+          "routine": "gpt-4o-mini",
+          "strong": "gpt-4o-mini",
+          "fallback": "gpt-4o-mini"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0
+      },
+      "prices": {
+        "gpt-4o-mini": {
+          "input_per_m": 0.15,
+          "output_per_m": 0.6
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "gpt-4o-mini",
+      "live_layers": {
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:gpt-4o-mini",
+        "inbound_extractor": "CountingProvider:gpt-4o-mini",
+        "doc_judge": "CountingProvider:gpt-4o-mini",
+        "doc_set_judge": "CountingProvider:gpt-4o-mini",
+        "output_judge": "CountingProvider:gpt-4o-mini"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-ISO",
+        "scheme": "v3",
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "channel_isolation": false,
+        "guard_model": "gpt-4o-mini",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-ISO",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-17-gpt4omini-v3-retrainedL1\\raw\\guard_l5__C3-ISO.jsonl"
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-ISO",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "gpt-4o-mini",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://api.openai.com/v1",
+          "model": "gpt-4o-mini",
+          "model_map": {
+            "fast": "gpt-4o-mini",
+            "routine": "gpt-4o-mini",
+            "strong": "gpt-4o-mini",
+            "fallback": "gpt-4o-mini"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0
+        },
+        "guard_models": "gpt-4o-mini",
+        "live_layers": {
+          "preset": "C3-ISO",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:gpt-4o-mini",
+          "inbound_extractor": "CountingProvider:gpt-4o-mini",
+          "doc_judge": "CountingProvider:gpt-4o-mini",
+          "doc_set_judge": "CountingProvider:gpt-4o-mini",
+          "output_judge": "CountingProvider:gpt-4o-mini"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T04:59:55.308375+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T05:18:33.651464+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    }
+  },
+  "counts": {
+    "C0": {
+      "records": 550,
+      "scored": 549,
+      "errors": 1
+    },
+    "C0T": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C1": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C2": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L1": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L2": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L4": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-ISO": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    }
+  },
+  "meaning": {
+    "rubric": "meaning-rubric.v1",
+    "prompt_sha256": "2e909d38db36841a282847d029e224058804c8a3c7b86ebc5d9b8a77c39246bc",
+    "reader_models": [
+      "gpt-4.1-mini"
+    ],
+    "files": {
+      "C0": "49ab8604c4d482bceb77d06669d553b1dd60b635036207fa71d37742c90ab06c",
+      "C0T": "ad0e1dfe768aebd7f6c8da3f77c01d2b1fcef92af1156e2bfd95de6940182424",
+      "C1": "dea2f35a532fcf8f2a7cacb6c916c9f52a2fea0b94aff25b5f10f3e869ca1b2d",
+      "C2": "9f70f0e1977c9395cf5515df1d035209af92d157cd698c600840c6717a0e4022",
+      "C3": "58bb1ed638a5f83c51e30182e69f240e2bf67ae93bd4ba0959d49c4f4afc5ade",
+      "C3-L1": "f74c2b7cbbf7a2a44a7356ec980ccc0cf81918eacb702debd25f98fc35f76e0d",
+      "C3-L2": "607faef34fff6a2df2b7c4448c0db091a72d3452e4d3708940166ee191861260",
+      "C3-L3": "4b124f1bd06082a2e4d8c8b289a414063fff0d50a2f14f68e37afdeeddc1ceed",
+      "C3-L4": "b7f57b75b287d03d7367707cafc210a53eda516446b956dc835ec7ce45866979",
+      "C3-ISO": "b038989c66a2794d646326e655c891123f7d30514f6778a7d50c6695e7e7ee1d"
+    }
+  },
+  "scheme": "v3"
+}

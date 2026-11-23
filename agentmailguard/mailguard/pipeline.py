@@ -1,80 +1,126 @@
-"""MailGuardPipeline - orchestrates the six guard layers around the core reply agent.
+"""MailGuardPipeline - orchestrates the guard around the core reply agent.
 
-    inbound:   email  -> L1 scanner -> L2 extractor -> L5 (inbound gate)
-    prompt:    chunks -> L3b document scanner -> L3 channel isolation -> SecurePrompt
-    outbound:  draft  -> L4 output scanner -> L5 (outbound gate)
+    inbound:   email -> L1 Inbound Guard -> L3 gate pass 1 -> L2 Doc Scanner -> L3 gate pass 2
+    prompt:    kept chunks + intent -> channel isolation -> SecurePrompt
+    outbound:  draft -> L4 Output Guard (scan + policy stage outbound + inbound floor)
 
-``GuardConfig`` switches individual layers on and off so the same code path
-serves the paper's ablation configurations (C0 none, C1 L1-only, C2 L1+L2+L3,
-C3 full, and "C3 minus one layer").
+The report is schema 3 (``inbound_guard``, ``doc_scanner``, ``isolation``, ``output_guard``)
+and ``GuardConfig`` uses the v3 switches.
+
+Provider arguments: ``doc_set_judge`` has an effect only when
+``settings.doc_scanner.set_judge_llm_enabled`` is true (the set judge needs the flag and a
+provider). A provider argument is ignored for a layer passed ready-made: ``inbound_guard=``
+replaces ``inbound_judge`` and ``inbound_extractor``, ``doc_scanner=`` replaces ``doc_judge`` and
+``doc_set_judge``, ``output_guard=`` replaces ``output_judge``. A ready-made ``DocScanner`` given
+both ``set_judge`` and ``set_judge_llm`` uses ``set_judge`` (see ``DocScanner``).
 """
 
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, ClassVar
 
 from mailguard.config.settings import MailGuardSettings, get_settings
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision
-from mailguard.contracts.verdict import LayerName, LayerVerdict, Severity
-from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
-from mailguard.layers.inbound_guard.extract import UserIntentExtractor
-from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
+from mailguard.contracts.verdict import InboundVerdict, LayerVerdict, Severity
+from mailguard.layers.doc_scanner.scanner import DocScanner
+from mailguard.layers.inbound_gate.gate import InboundGate
+from mailguard.layers.inbound_guard.guard import InboundGuard
+from mailguard.layers.output_guard.guard import OutputGuard
 from mailguard.layers.output_guard.scanner import OutputScanner
+from mailguard.llm.judge_calls import (
+    MAX_GUARD_CALLS_PER_JOB,
+    counting_guard_calls,
+    merge_guard_calls,
+)
 from mailguard.llm.protocol import ChatMessage, LLMProvider
 from mailguard.llm.registry import ModelRegistry
 from mailguard.policy.engine import PolicyEngine
 from mailguard.prompting.channel_isolation import ChannelIsolation, SecurePrompt
+from mailguard.prompting.questions import question_sentences
 
 logger = logging.getLogger(__name__)
+
+ESCALATED_BODY = (
+    "Thank you for your message. It needs a review by our team before we can reply; "
+    "we will get back to you."
+)
+"""Fixed body of ``build_escalated_draft`` (never generated, never quotes the email)."""
 
 DraftFactory = Callable[[list[ChatMessage]], Awaitable[DraftCandidate | dict[str, Any] | str]]
 
 
 @dataclass(frozen=True)
 class GuardConfig:
-    """Which layers are active. Presets reproduce the paper's Table IV / VI."""
+    """Which guard layers are active (ADR-0015, schema 3).
+
+    The four layers, in pipeline order: ``inbound_guard`` (L1), ``doc_scanner`` (L2),
+    ``inbound_gate`` (L3), ``output_guard`` (L4). ``channel_isolation`` is a separate switch,
+    not a layer (R-d): off, the prompt is plain concatenation (the no-defence baseline).
+
+    Presets: ``C0`` nothing; ``C1`` L1 + L3; ``C2`` C1 + L2 + isolation; ``C3`` everything;
+    ablations ``C3-L1`` .. ``C3-L4`` (C3 minus one layer) and ``C3-ISO`` (C3 without isolation).
+    The v2 names ``C3-L3B`` and ``C3-L5`` no longer exist.
+
+    ``inbound_gate`` makes the decision before generation; ``output_guard`` makes the one
+    after it (outbound policy merged with the inbound floor). Off, the Output Guard leaves
+    ``report.decision`` at the inbound gate's decision.
+    """
 
     name: str = "C3"
-    l1: bool = True
-    l2: bool = True
-    l3: bool = True
-    l3b: bool = True
-    l4: bool = True
-    l5: bool = True
+    inbound_guard: bool = True
+    doc_scanner: bool = True
+    inbound_gate: bool = True
+    output_guard: bool = True
+    channel_isolation: bool = True
 
-    PRESETS = ("C0", "C1", "C2", "C3")
+    LAYERS: ClassVar[tuple[str, ...]] = (
+        "inbound_guard",
+        "doc_scanner",
+        "inbound_gate",
+        "output_guard",
+    )
+    PRESETS: ClassVar[tuple[str, ...]] = ("C0", "C1", "C2", "C3")
+    ABLATIONS: ClassVar[dict[str, str]] = {
+        "C3-L1": "inbound_guard",
+        "C3-L2": "doc_scanner",
+        "C3-L3": "inbound_gate",
+        "C3-L4": "output_guard",
+        "C3-ISO": "channel_isolation",
+    }
 
     @classmethod
     def preset(cls, name: str) -> GuardConfig:
         key = name.upper().replace(" ", "")
         if key == "C0":
-            return cls("C0", False, False, False, False, False, False)
+            return cls("C0", False, False, False, False, False)
         if key == "C1":
-            return cls("C1", True, False, False, False, False, True)
+            return cls("C1", inbound_guard=True, doc_scanner=False, inbound_gate=True,
+                       output_guard=False, channel_isolation=False)  # fmt: skip
         if key == "C2":
-            return cls("C2", True, True, True, False, False, True)
+            return cls("C2", inbound_guard=True, doc_scanner=True, inbound_gate=True,
+                       output_guard=False, channel_isolation=True)  # fmt: skip
         if key == "C3":
             return cls("C3")
-        if key.startswith("C3-"):  # ablation: C3-L1, C3-L2, C3-L3, C3-L3B, C3-L4, C3-L5
-            layer = key[3:].lower()
-            if layer not in {"l1", "l2", "l3", "l3b", "l4", "l5"}:
-                raise ValueError(f"unknown ablation layer {layer}")
-            return replace(cls("C3"), name=key, **{layer: False})
-        raise ValueError(f"unknown preset {name}")
+        if key in cls.ABLATIONS:
+            return replace(cls("C3"), name=key, **{cls.ABLATIONS[key]: False})
+        known = ", ".join((*cls.PRESETS, *cls.ABLATIONS))
+        raise ValueError(f"unknown preset {name!r}; the v3 presets are {known}")
 
     @property
     def active_layers(self) -> list[str]:
-        return [k for k in ("l1", "l2", "l3", "l3b", "l4", "l5") if getattr(self, k)]
+        """The active layers among the four, in pipeline order (isolation is not one)."""
+        return [layer for layer in self.LAYERS if getattr(self, layer)]
 
 
 @dataclass
 class PromptBundle:
     prompt: SecurePrompt
-    kept_chunks: list[RetrievedChunk]
+    kept_chunks: list[SourceDocument]
     report: GuardReport
 
     @property
@@ -89,45 +135,59 @@ class MailGuardPipeline:
         config: GuardConfig | None = None,
         *,
         registry: ModelRegistry | None = None,
-        judge: LLMProvider | None = None,
-        extractor_llm: LLMProvider | None = None,
-        doc_llm: LLMProvider | None = None,
-        output_llm: LLMProvider | None = None,
-        l1: EmailInjectionScanner | None = None,
-        l2: UserIntentExtractor | None = None,
-        l3: ChannelIsolation | None = None,
-        l3b: RetrievedDocumentScanner | None = None,
-        l4: OutputScanner | None = None,
-        l5: PolicyEngine | None = None,
+        inbound_judge: LLMProvider | None = None,
+        inbound_extractor: LLMProvider | None = None,
+        doc_judge: LLMProvider | None = None,
+        doc_set_judge: LLMProvider | None = None,
+        output_judge: LLMProvider | None = None,
+        inbound_guard: InboundGuard | None = None,
+        channel_isolation: ChannelIsolation | None = None,
+        doc_scanner: DocScanner | None = None,
+        output_guard: OutputGuard | None = None,
+        policy: PolicyEngine | None = None,
         audit: bool = True,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or GuardConfig()
         self.registry = registry
         gm = self.settings.guard_models
-        self.l1 = l1 or EmailInjectionScanner(
-            self.settings, judge=judge or self._provider(gm.judge), judge_name=gm.judge
-        )
-        self.l2 = l2 or UserIntentExtractor(
+        self.inbound_guard = inbound_guard or InboundGuard(
             self.settings,
-            rules=self.l1.rules,
-            classifier=self.l1.classifier,
-            llm=extractor_llm or self._provider(gm.extractor),
+            judge=inbound_judge or self._provider(gm.inbound_judge),
+            judge_name=gm.inbound_judge,
+            extractor_llm=inbound_extractor or self._provider(gm.inbound_extractor),
         )
-        self.l3 = l3 or ChannelIsolation(self.settings, enabled=self.config.l3)
-        self.l3b = l3b or RetrievedDocumentScanner(
+        self.channel_isolation = channel_isolation or ChannelIsolation(
+            self.settings, enabled=self.config.channel_isolation
+        )
+        self.doc_scanner = doc_scanner or DocScanner(
             self.settings,
-            rules=self.l1.rules,
-            classifier=self.l1.classifier,
-            llm=doc_llm
-            or (self._provider(gm.doc_scanner) if self.settings.l3b.llm_enabled else None),
+            rules=self.inbound_guard.rules,
+            classifier=self.inbound_guard.classifier,
+            llm=doc_judge
+            or (self._provider(gm.doc_judge) if self.settings.doc_scanner.llm_enabled else None),
+            set_judge_llm=doc_set_judge
+            or (
+                self._provider(gm.doc_set_judge)
+                if self.settings.doc_scanner.set_judge_llm_enabled
+                else None
+            ),
         )
-        self.l4 = l4 or OutputScanner(
+        self.policy = policy or PolicyEngine(self.settings, audit=audit)
+        self.inbound_gate = InboundGate(self.policy)
+        self.output_guard = output_guard or OutputGuard(
             self.settings,
-            llm=output_llm
-            or (self._provider(gm.output_judge) if self.settings.l4.llm_enabled else None),
+            scanner=OutputScanner(
+                self.settings,
+                llm=output_judge
+                or (
+                    self._provider(gm.output_judge)
+                    if self.settings.output_guard.llm_enabled
+                    else None
+                ),
+            ),
+            policy=self.policy,
         )
-        self.l5 = l5 or PolicyEngine(self.settings, audit=audit)
 
     def _provider(self, name: str) -> LLMProvider | None:
         if name in ("", "none", "fake") and self.registry is None:
@@ -140,20 +200,115 @@ class MailGuardPipeline:
             return None
 
     # ------------------------------------------------------------------ inbound
-    async def inspect_inbound(self, email_like: Any, *, category: str | None = None) -> GuardReport:
+    async def inspect_inbound(
+        self,
+        email_like: Any,
+        chunks: Sequence[Any] = (),
+        *,
+        category: str | None = None,
+        query: str | None = None,
+    ) -> GuardReport:
+        """L1 Inbound Guard -> L3 gate pass 1 -> L2 Doc Scanner -> L3 gate pass 2.
+
+        Pass 1 sees the Inbound Guard's facts only. A block or quarantine there stops the job:
+        no document is scanned and no doc judge is called (``report.doc_scanner`` stays None).
+        Otherwise the Doc Scanner scans ``chunks`` (echo reference: the email's question
+        sentences, else ``query`` or subject + sanitized body) and pass 2 decides on every
+        fact. ``report.inbound_decision`` is the final pass; ``metadata["gate_passes"]`` says
+        which. Only the final pass is audited. ``report.metadata["guard_calls"]`` counts the
+        judge calls per stage (decision 12).
+        """
+        with counting_guard_calls() as calls:
+            report = await self._inspect_inbound(email_like, chunks, category=category, query=query)
+        _record_guard_calls(report, calls)
+        return report
+
+    async def _inspect_inbound(
+        self,
+        email_like: Any,
+        chunks: Sequence[Any],
+        *,
+        category: str | None,
+        query: str | None,
+    ) -> GuardReport:
         email = GuardedEmail.from_any(email_like)
         report = GuardReport(message_id=email.message_id, organization_id=email.organization_id)
-        if self.config.l1:
-            report.l1 = await self.l1.inspect(email)
-        if self.config.l2:
-            report.l2 = await self.l2.extract(email)
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
-        if self.config.l5:
-            report.inbound_decision = self.l5.decide(
-                report, stage="inbound", category=category or email.category
+        category = category or email.category
+        if self.config.inbound_guard:
+            report.inbound_guard = await self.inbound_guard.inspect(email)
+        self._record_questions(report, email)
+        docs = [SourceDocument.from_any(c) for c in chunks]
+        scan = self.config.doc_scanner and bool(docs)
+        if self.config.inbound_gate:
+            first = self.inbound_gate.decide(report, category=category, gate_pass=1, final=not scan)
+            if not scan or self.inbound_gate.stops(first):
+                if scan:  # the provisional pass stopped the job: it is the final decision now
+                    first = self.inbound_gate.decide(
+                        report, category=category, gate_pass=1, final=True
+                    )
+                report.inbound_decision = report.decision = first
+                report.total_latency_ms = _latency(report)
+                return report
+        if scan:
+            report.doc_scanner = await self.doc_scanner.scan(
+                docs,
+                question_sentences=self.question_sentences_of(report),
+                query=self._echo_query(report, email, query),
             )
-            report.decision = report.inbound_decision
+        if self.config.inbound_gate:
+            report.inbound_decision = report.decision = self.inbound_gate.decide(
+                report, category=category, gate_pass=2, final=True
+            )
+        report.total_latency_ms = _latency(report)
         return report
+
+    def _echo_query(self, report: GuardReport, email: GuardedEmail, query: str | None) -> str:
+        """The caller's retrieval query, else the customer's own words (never the paraphrase)."""
+        intent = self._intent(report)
+        body = intent.sanitized_body if (intent and intent.sanitized_body) else email.text
+        return query or f"{email.subject}\n{body}"[:1500]
+
+    def build_escalated_draft(self, report: GuardReport) -> DraftCandidate:
+        """The holding draft a host files when the inbound gate stopped the job (no model call).
+
+        ``action="escalate"``; the body never quotes the email; the subject names the rule and
+        the reason that stopped it. ``run()`` does not return it.
+        """
+        decision = report.inbound_decision
+        reason = decision.reasons[0] if decision is not None and decision.reasons else ""
+        rule = decision.matched_rule_id if decision is not None else "none"
+        return DraftCandidate(
+            message_id=report.message_id,
+            organization_id=report.organization_id,
+            action="escalate",
+            subject=f"[needs review] {rule}: {reason}"[:200],
+            body=ESCALATED_BODY,
+            category=decision.metadata.get("category") if decision is not None else None,
+        )
+
+    @staticmethod
+    def _record_questions(report: GuardReport, email: GuardedEmail) -> None:
+        """Always extract the email's questions (pure function, not part of L1; decision 8).
+
+        On the sanitized body when the extract sub-stage produced one, else on the raw body.
+        Stored on the Inbound Guard verdict when L1 ran, else in ``report.metadata``, so the
+        Doc Scanner (Task 7) gets the same input with L1 on and off.
+        """
+        inbound = report.inbound_guard
+        extracted = inbound is not None and inbound.stage("extract") is not None
+        body = inbound.sanitized_body if (inbound is not None and extracted) else email.text
+        questions = question_sentences(body)
+        if inbound is not None:
+            inbound.question_sentences = questions
+        else:
+            report.metadata["question_sentences"] = questions
+
+    @staticmethod
+    def question_sentences_of(report: GuardReport) -> list[str]:
+        """The questions ``inspect_inbound`` recorded, wherever they were stored."""
+        if report.inbound_guard is not None:
+            return list(report.inbound_guard.question_sentences)
+        return list(report.metadata.get("question_sentences") or [])
 
     @staticmethod
     def blocked(decision: PolicyDecision | None) -> bool:
@@ -177,35 +332,43 @@ class MailGuardPipeline:
         task_instructions: str | None = None,
         query: str | None = None,
     ) -> PromptBundle:
+        """Assemble the guarded prompt from the chunks the Doc Scanner kept (it scans nothing).
+
+        ``chunks`` are the retrieved chunks passed to ``inspect_inbound``; each kept chunk is
+        rendered with its trust. ``query`` is accepted for backward compatibility and unused.
+        """
+        del query
         email = GuardedEmail.from_any(email_like)
-        retrieved = [RetrievedChunk.from_any(c) for c in chunks]
-        kept = retrieved
-        if self.config.l3b:
-            # The retrieval query is what PoisonedRAG bait echoes: use the caller's query
-            # (core query builder) or fall back to the customer's own words, never the
-            # L2 paraphrase (its extra tokens dilute the echo measurement).
-            body = (
-                report.l2.sanitized_body if (report.l2 and report.l2.sanitized_body) else email.text
-            )
-            scan_query = query or f"{email.subject}\n{body}"[:1500]
-            kept, verdicts = await self.l3b.scan(retrieved, scan_query)
-            report.l3b = verdicts
-        prompt, l3_verdict = self.l3.build(
+        retrieved = [SourceDocument.from_any(c) for c in chunks]
+        docs = report.doc_scanner
+        if docs is not None:
+            keep = set(docs.kept_chunk_ids)
+            kept = [c for c in retrieved if c.chunk_id in keep]
+            trust = {c.chunk_id: c.trust for c in docs.chunks}
+        else:
+            kept, trust = retrieved, {}
+        prompt, isolation = self.channel_isolation.build(
             system_instructions=system_instructions,
             email=email,
-            intent=report.l2 if self.config.l2 else None,
+            intent=self._intent(report),
             chunks=kept,
+            chunk_trust=trust,
             category_instructions=category_instructions,
             thread_summary=thread_summary,
             recent_messages=recent_messages,
             business_data=business_data,
             task_instructions=task_instructions,
-            use_sanitized_body=self.config.l2,
+            use_sanitized_body=self.config.inbound_guard,
         )
-        if self.config.l3:
-            report.l3 = l3_verdict
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
+        if self.config.channel_isolation:
+            isolation.chunks_in = len(retrieved)
+            report.isolation = isolation
+        report.total_latency_ms = _latency(report)
         return PromptBundle(prompt=prompt, kept_chunks=kept, report=report)
+
+    def _intent(self, report: GuardReport) -> InboundVerdict | None:
+        """The Inbound Guard verdict carries the intent and sanitized body (None when off)."""
+        return report.inbound_guard if self.config.inbound_guard else None
 
     # ------------------------------------------------------------------ outbound
     async def inspect_outbound(
@@ -214,52 +377,30 @@ class MailGuardPipeline:
         draft_like: Any,
         *,
         email_like: Any,
-        kept_chunks: Sequence[RetrievedChunk] = (),
+        kept_chunks: Sequence[SourceDocument] = (),
         protected_texts: Sequence[str] = (),
         category: str | None = None,
     ) -> GuardReport:
+        """L4 Output Guard: scan the draft, decide outbound, carry the inbound floor.
+
+        ``report.decision`` becomes the merged decision. With the Output Guard off there is no
+        decision after generation: ``report.decision`` stays the inbound gate's (or None).
+        """
         email = GuardedEmail.from_any(email_like)
         draft = DraftCandidate.from_any(draft_like)
-        if self.config.l4:
-            indicators: dict[str, list[str]] = {"emails": [], "urls": []}
-            instructions: list[str] = []
-            if report.l1 is not None:
-                ind = report.l1.metadata.get("indicators") or {}
-                indicators = {
-                    "emails": list(ind.get("emails", [])),
-                    "urls": list(ind.get("urls", [])),
-                }
-                instructions += list(report.l1.metadata.get("injected_instructions", []))
-                for f in report.l1.findings:
-                    instructions += list(f.metadata.get("injected_instructions", []))
-            if report.l2 is not None:
-                instructions += [s.text for s in report.l2.stripped_segments]
-                instructions += list(report.l2.metadata.get("instructions_to_assistant", []))
-            # payload found inside quarantined knowledge must not surface either
-            for cv in report.l3b:
-                if cv.quarantined:
-                    for f in cv.findings:
-                        if f.excerpt:
-                            instructions.append(f.excerpt)
-            report.l4 = await self.l4.inspect(
-                draft,
-                email=email,
-                intent=report.l2,
-                allowed_citations={c.citation_id for c in kept_chunks}
-                | {c.chunk_id for c in kept_chunks},
-                protected_texts=protected_texts,
-                trusted_texts=[c.content for c in kept_chunks],
-                injected_indicators=indicators,
-                injected_instructions=list(dict.fromkeys(i for i in instructions if i))[:20],
-            )
-        report.total_latency_ms = sum(v.latency_ms for v in report.verdicts())
-        if self.config.l5:
-            report.decision = self.l5.decide(
-                report,
-                stage="outbound",
-                category=category or draft.category or email.category,
-                draft_action=draft.action,
-            )
+        if self.config.output_guard:
+            with counting_guard_calls() as calls:
+                report.output_guard, report.decision = await self.output_guard.inspect(
+                    report,
+                    draft,
+                    email=email,
+                    intent=self._intent(report),
+                    kept_chunks=kept_chunks,
+                    protected_texts=protected_texts,
+                    category=category or draft.category or email.category,
+                )
+            _record_guard_calls(report, calls)
+        report.total_latency_ms = _latency(report)
         return report
 
     # ------------------------------------------------------------------ end to end
@@ -281,11 +422,11 @@ class MailGuardPipeline:
     ) -> tuple[GuardReport, DraftCandidate | None, PromptBundle | None]:
         """Full path. Returns (report, guarded draft or None, prompt bundle or None).
 
-        ``query`` is the retrieval query the core used to fetch ``chunks`` (L3b echo check);
+        ``query`` is the retrieval query the core used to fetch ``chunks`` (doc-scanner echo check);
         when omitted the customer's own subject + body is used.
         """
         email = GuardedEmail.from_any(email_like)
-        report = await self.inspect_inbound(email, category=category)
+        report = await self.inspect_inbound(email, chunks, category=category, query=query)
         if stop_on_inbound_block and self.blocked(report.inbound_decision):
             return report, None, None
         bundle = await self.build_prompt(
@@ -318,8 +459,8 @@ class MailGuardPipeline:
             protected_texts=[system_instructions, category_instructions],
             category=category,
         )
-        if report.l4 is not None and report.l4.redacted_text != draft.body:
-            draft = draft.model_copy(update={"body": report.l4.redacted_text})
+        if report.output_guard is not None and report.output_guard.redacted_text != draft.body:
+            draft = draft.model_copy(update={"body": report.output_guard.redacted_text})
         return report, draft, bundle
 
     # ------------------------------------------------------------------ helpers
@@ -327,6 +468,7 @@ class MailGuardPipeline:
         d = report.decision
         return {
             "config": self.config.name,
+            "schema_version": report.schema_version,
             "message_id": report.message_id,
             "max_severity": str(report.max_severity),
             "action": str(d.action) if d else None,
@@ -339,19 +481,28 @@ class MailGuardPipeline:
                     "latency_ms": v.latency_ms,
                 }
                 for v in report.verdicts()
-                if v.layer is not LayerName.L3B_DOCUMENT_SCANNER
             },
-            "l3b_quarantined": [c.chunk_id for c in report.l3b if c.quarantined],
+            "doc_scanner_quarantined": report.quarantined_chunk_ids,
             "total_latency_ms": report.total_latency_ms,
         }
 
 
-def severity_of(report: GuardReport) -> Severity:
-    return report.max_severity
+def _latency(report: GuardReport) -> int:
+    isolation = report.isolation.latency_ms if report.isolation is not None else 0
+    return sum(v.latency_ms for v in report.verdicts()) + isolation
 
 
-def verdict_or_none(v: LayerVerdict | None) -> LayerVerdict | None:
-    return v
+def _record_guard_calls(report: GuardReport, calls: Counter[str]) -> None:
+    """Add one step's judge calls to ``report.metadata["guard_calls"]`` ({stage: count})."""
+    report.metadata["guard_calls"] = merge_guard_calls(report.metadata.get("guard_calls"), calls)
+    total = sum(report.metadata["guard_calls"].values())
+    if total > MAX_GUARD_CALLS_PER_JOB:
+        logger.warning(
+            "guard used %d model calls on %s, above the budget of %d",
+            total,
+            report.message_id or "a job",
+            MAX_GUARD_CALLS_PER_JOB,
+        )
 
 
 __all__ = ["DraftFactory", "GuardConfig", "MailGuardPipeline", "PromptBundle"]

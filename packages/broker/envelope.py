@@ -44,6 +44,13 @@ class JobEnvelope(BaseModel):
         default_factory=dict,
         description="Arbitrary job payload/signal metadata",
     )
+    run_options: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Demo run options {model_profile, guard_mode}, copied from processing_job.run_options "
+            "into every envelope of the job; None behaves as before R25 (R25.3, design §7.3)"
+        ),
+    )
     enqueued_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="UTC timestamp when job was enqueued",

@@ -90,7 +90,8 @@ async def test_generation_tokens_are_counted_once_per_request() -> None:
     assert _tokens(m, "input_tokens_total", result.model, tier) == result.input_tokens
     assert _tokens(m, "output_tokens_total", result.model, tier) == result.output_tokens
     assert m.registry.get_sample_value(
-        "estimated_ai_cost_total", {"model": result.model, "tier": tier}
+        "estimated_ai_cost_total",
+        {"model": result.model, "tier": tier, "model_profile": "default"},
     ) == pytest.approx((result.input_tokens * 0.15 + result.output_tokens * 0.60) / 1e6, abs=1e-6)
 
 

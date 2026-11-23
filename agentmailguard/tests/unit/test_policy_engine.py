@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from mailguard.contracts.policy import GuardReport, PolicyAction, RiskTier
+from mailguard.contracts.policy import PolicyAction, RiskTier
 from mailguard.contracts.verdict import (
     ChunkVerdict,
     Finding,
@@ -15,6 +15,7 @@ from mailguard.contracts.verdict import (
     ThreatType,
 )
 from mailguard.policy import PolicyEngine
+from tests.reports import v3_report
 
 
 def finding(layer, tt, score):
@@ -36,7 +37,7 @@ def test_policy_loads(settings):
 
 def test_clean_report_defaults_to_draft_only(settings):
     engine = PolicyEngine(settings)
-    report = GuardReport(message_id="m", l1=LayerVerdict(layer=LayerName.L1_INJECTION_SCANNER))
+    report = v3_report(message_id="m", scan=LayerVerdict(layer=LayerName.INBOUND_GUARD))
     d = engine.decide(report, stage="inbound", category="support")
     assert d.action is PolicyAction.DRAFT_ONLY
     assert d.risk_tier is RiskTier.T0_CLEAN
@@ -47,12 +48,12 @@ def test_clean_report_defaults_to_draft_only(settings):
 def test_critical_quarantines_and_is_idempotent(settings):
     engine = PolicyEngine(settings)
     l1 = LayerVerdict(
-        layer=LayerName.L1_INJECTION_SCANNER,
+        layer=LayerName.INBOUND_GUARD,
         severity=Severity.CRITICAL,
         score=0.97,
-        findings=[finding(LayerName.L1_INJECTION_SCANNER, ThreatType.INSTRUCTION_OVERRIDE, 0.97)],
+        findings=[finding(LayerName.INBOUND_GUARD, ThreatType.INSTRUCTION_OVERRIDE, 0.97)],
     )
-    report = GuardReport(message_id="m", organization_id="o", l1=l1)
+    report = v3_report(message_id="m", organization_id="o", scan=l1)
     d1 = engine.decide(report, stage="inbound")
     d2 = engine.decide(report, stage="inbound")
     assert d1.action is PolicyAction.QUARANTINE and d1.requires_human
@@ -63,12 +64,12 @@ def test_critical_quarantines_and_is_idempotent(settings):
 def test_exfiltration_high_blocks(settings):
     engine = PolicyEngine(settings)
     l1 = LayerVerdict(
-        layer=LayerName.L1_INJECTION_SCANNER,
+        layer=LayerName.INBOUND_GUARD,
         severity=Severity.HIGH,
         score=0.93,
-        findings=[finding(LayerName.L1_INJECTION_SCANNER, ThreatType.DATA_EXFILTRATION, 0.93)],
+        findings=[finding(LayerName.INBOUND_GUARD, ThreatType.DATA_EXFILTRATION, 0.93)],
     )
-    d = engine.decide(GuardReport(l1=l1), stage="inbound")
+    d = engine.decide(v3_report(scan=l1), stage="inbound")
     assert d.action is PolicyAction.BLOCK
     assert d.matched_rule_id == "P02-exfiltration-or-tool-abuse-block"
 
@@ -76,7 +77,7 @@ def test_exfiltration_high_blocks(settings):
 def test_outbound_compliance_blocks_and_ratio_escalates(settings):
     engine = PolicyEngine(settings)
     l4 = OutputVerdict(severity=Severity.HIGH, score=0.95, complied_with_injected_goal=True)
-    d = engine.decide(GuardReport(l4=l4), stage="outbound")
+    d = engine.decide(v3_report(output=l4), stage="outbound")
     assert (
         d.action is PolicyAction.BLOCK and d.matched_rule_id == "P03-injected-goal-compliance-block"
     )
@@ -85,7 +86,7 @@ def test_outbound_compliance_blocks_and_ratio_escalates(settings):
         ChunkVerdict(chunk_id=f"c{i}", quarantined=i < 2, severity=Severity.MEDIUM, score=0.6)
         for i in range(3)
     ]
-    d2 = engine.decide(GuardReport(l3b=chunks), stage="outbound")
+    d2 = engine.decide(v3_report(chunks=chunks), stage="outbound")
     assert d2.action is PolicyAction.HUMAN_APPROVAL
     assert d2.matched_rule_id == "P04-rag-poisoning-escalate"
     assert d2.quarantined_chunk_ids == ["c0", "c1"]
@@ -95,16 +96,16 @@ def test_outbound_compliance_blocks_and_ratio_escalates(settings):
 def test_layer_error_fail_closed(settings):
     engine = PolicyEngine(settings)
     l1 = LayerVerdict(
-        layer=LayerName.L1_INJECTION_SCANNER, severity=Severity.HIGH, score=0.9, error="boom"
+        layer=LayerName.INBOUND_GUARD, severity=Severity.HIGH, score=0.9, error="boom"
     )
-    d = engine.decide(GuardReport(l1=l1), stage="inbound")
+    d = engine.decide(v3_report(scan=l1), stage="inbound")
     assert d.matched_rule_id == "P00-internal-error-fail-closed"
     assert d.action is PolicyAction.HUMAN_APPROVAL
 
 
 def test_auto_send_only_for_allowed_categories(settings):
     engine = PolicyEngine(settings)
-    clean = GuardReport(l4=OutputVerdict(severity=Severity.NONE))
+    clean = v3_report(output=OutputVerdict(severity=Severity.NONE))
     d = engine.decide(clean, stage="outbound", category="acknowledgement", draft_action="reply")
     assert d.action is PolicyAction.AUTO_SEND
     d2 = engine.decide(clean, stage="outbound", category="support", draft_action="reply")
@@ -121,7 +122,7 @@ def test_heavy_sanitization_and_audit_log(settings, tmp_path):
             StrippedSegment(text="x" * 40, reason="rule:r", score=0.5, span_start=0, span_end=40)
         ],
     )
-    d = engine.decide(GuardReport(message_id="m1", l2=l2), stage="inbound")
+    d = engine.decide(v3_report(message_id="m1", extract=l2), stage="inbound")
     assert d.matched_rule_id == "P09-heavy-sanitization-draft-only"
     lines = (tmp_path / "audit.jsonl").read_text(encoding="utf-8").strip().splitlines()
     rec = json.loads(lines[-1])

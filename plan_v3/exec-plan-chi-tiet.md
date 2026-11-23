@@ -2,6 +2,8 @@
 
 Review amendments (plan_v3 Q1=b', R-h, R-i, Q7–Q10, design decisions 8–14) touch Tasks 4, 5, 7, 10,
 11, 13, 15c and add Task 16 below; they are marked **[review]**. Tasks 1–2 (done) are unchanged.
+Second review (2026-10-14, plan_v3 F1–F9) touches Tasks 4, 5, 7, 8, 15, 16 and sections (b), (d);
+marked **[review 10-14]**.
 
 Source of truth, in order: the owner's messages, `plan_v3/plan_v3.md` (decisions R-a…R-g, Q1–Q6,
 D1, design decisions 1–8, task list 1–15), `docs/adr/0015-guard-architecture-v3.md` (Proposed),
@@ -82,8 +84,9 @@ never open a PR, never merge into `main`, never force-push.
 Commit message: `refactor(guard): <what changed, present tense> [task v3.N]` (docs task may use
 `docs(guard): …`, the pin commit `chore(bench): …`, always ending `[task v3.N]`). Stage files by name
 (`git add <paths>`), never `git add -A`; `.agents/` is git-ignored and must stay out of commits.
-Every commit also ticks its line in `plan_v3/plan_v3.md` "Execution log" (`- [x] Task N — <sha
-of previous> …`).
+Every commit also ticks its line in `plan_v3/plan_v3.md` "Execution log" (`- [x] Task N — on <sha
+of previous> …`), and replaces Task N-1's base sha with Task N-1's real commit sha (a commit cannot
+contain its own hash; plan_v3 F6).
 
 Cross-cutting rules for every task 3–13:
 - **Root consumer in the same commit.** Q1=b is a hard rename with no aliases, so whenever a task
@@ -106,7 +109,7 @@ Cross-cutting rules for every task 3–13:
   regression → fix code, or stop and ask (divergence protocol §7). **[review, design decision 14]**
   Each entry also carries `test: "<pytest node id>"` of a unit test that proves the new behaviour
   without the golden; `test_guard_parity.py` asserts that node id exists (collect-only). Maximum deltas
-  per task: Task 4 ≤ 3, Task 5 ≤ 6, Task 7 ≤ 20, Task 8 ≤ 6, Task 11 ≤ 5; exceeding a cap means stop
+  per task: Task 4 ≤ 10 (owner decision 2026-10-14, plan_v3 F10; was 3), Task 5 ≤ 11 and Task 6 ≤ 52 (F11, F12; were 6 and 0), Task 7 ≤ 21 (F13; was 20), Task 8 ≤ 26 (F14; was 6), Task 11 ≤ 5; exceeding a cap means stop
   and ask, not raise the cap.
 
 ### Task 0 — Docker re-baseline on main (no commit)
@@ -183,8 +186,10 @@ Commit: `refactor(guard): v3 settings sections and LegacyConfigError for v2 env 
   "quarantined"]`, `cluster_id: str|None`, `signals: dict[str, float]` (defaults keep the parity golden
   readable). **[review, Q7]** `RetrievedChunk` → `SourceDocument` (`from_any` kept); every reader in the
   subtree and the root bench renamed in this commit (grep `RetrievedChunk`).
-  `IsolationInfo` (`mode`, `nonce`, `chunks_in`, `chunks_kept`, `markers_scrubbed`, `truncated`,
-  `error: str|None`, `latency_ms`). Decision: `merge`/`from_chunks` live in contracts now so the
+  `IsolationInfo` (`mode`, `nonce`, `chunks_in`, `chunks_kept`, `markers_scrubbed` (count),
+  `forged_markers: list[Finding]` (default `[]`; one `forged_channel_marker` finding, `metadata["stage"]=
+  "isolation"`, per marker scrubbed from thread history — plan_v3 F3), `truncated`,
+  `error: str|None`, `latency_ms`). Nothing writes to `report.inbound_guard.findings` after the gate. Decision: `merge`/`from_chunks` live in contracts now so the
   pipeline stays buildable; Tasks 5/7 move the call sites into the facades.
 - `mailguard/contracts/policy.py` `GuardReport`: `schema_version: Literal[3] = 3`, `message_id`,
   `organization_id`, `inbound_guard: InboundVerdict|None`, `doc_scanner: DocumentVerdict|None`,
@@ -213,7 +218,8 @@ Commit: `refactor(guard): v3 settings sections and LegacyConfigError for v2 env 
 - Forged markers (ADR decision 8): after removing the isolation verdict, run parity. If `x-forged`
   cases change, add a forged-channel-marker finding to the inbound scan (`rules.py`
   `obfuscation_findings`) and the chunk scanner so the email/document outcome matches the golden. Only
-  thread-history-only forgeries may become intended deltas (ADR bullet 2).
+  thread-history-only forgeries may become intended deltas (ADR bullet 2); those are recorded in
+  `IsolationInfo.forged_markers`, never in `report.inbound_guard.findings`.
 Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 and audit v3 [task v3.4]`.
 
 ### Task 5 — L1 Inbound Guard facade
@@ -229,6 +235,10 @@ Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 
 - **[review, R-i]** `extract.py`: the extractor no longer calls `max(severity, 0.6)` (or any severity
   bump) when `contains_assistant_instructions` is true; it emits a finding
   (`detector="extract"`, `rule_id="assistant_instructions"`) instead.
+- **[review 10-14, F4]** The extract sub-stage always runs its deterministic part (quoted-history
+  strip, sanitized body, `removed_ratio`, intent heuristic); only its LLM call is optional
+  (`INBOUND_GUARD__EXTRACT_LLM_ENABLED`). Test: with the extract LLM off, `InboundVerdict` still has a
+  sanitized body and `removed_ratio`, and zero extractor calls are recorded.
 - **[review, design decision 8]** New `mailguard/prompting/questions.py` with the pure function
   `question_sentences(body: str) -> list[str]` (sentences ending in `?` or starting with a request
   verb, after quoted-history strip; max 8, each ≤ 40 tokens; a ≤ 3-token question is kept). It is
@@ -244,6 +254,10 @@ Commit: `refactor(guard): v3 contracts, GuardReport schema 3, policy 2026.10-v3 
 Commit: `refactor(guard): L1 Inbound Guard facade returns InboundVerdict [task v3.5]`.
 
 ### Task 6 — GuardConfig + presets v3
+- **[F11]** Remove the transitional rule in `InboundVerdict.merge` (extract grades when no scan ran)
+  and `InboundGuard.inspect(run_scan=, run_extract=)`; the Inbound Guard is one switch. Expected
+  parity: the 26 `C3-L1` cases change (cap 26), each delta citing a test that `C3-L1` runs no
+  Inbound Guard sub-stage.
 - `GuardConfig(name, inbound_guard, doc_scanner, inbound_gate, output_guard, channel_isolation)`;
   presets `C0` (all off), `C1` = inbound_guard+inbound_gate, `C2` = C1+doc_scanner+channel_isolation,
   `C3` = all, ablations `C3-L1` (no inbound_guard), `C3-L2` (no doc_scanner), `C3-L3` (no inbound_gate),
@@ -289,7 +303,11 @@ Commit: `refactor(guard): GuardConfig v3 identifiers and presets [task v3.6]`.
   return without any doc call → otherwise doc_scanner (echo reference = the question sentences above,
   falling back to the caller's query or subject + sanitized body only when the list is empty) →
   inbound_gate **pass 2** with every fact; `report.inbound_decision` is pass 2 (or pass 1 when it
-  stopped) and `metadata.gate_passes` records 1 or 2. `chunks=()` → `DocScanner.scan` returns an
+  stopped) and `report.inbound_decision.metadata["gate_passes"]` records 1 or 2. **[review 10-14, F2]**
+  Audit: exactly one record, for the final decision; the `audit_id` sha256 seed includes `gate_pass`
+  (deterministic across identical runs, distinct from other runs' records). A pass-1 that passes is
+  provisional and is not audited. Tests: one audit record per job in both paths; `audit_id` equal across
+  two identical runs. `chunks=()` → `DocScanner.scan` returns an
   empty `DocumentVerdict` without touching any judge (test: a recording FakeLLMProvider sees zero
   calls). Test: an email L1 blocks never reaches the doc judge even with `doc_judge` configured.
   `build_prompt`
@@ -314,7 +332,8 @@ Commit: `refactor(guard): doc scanner runs before the inbound gate; escalated dr
   `async inspect(report, draft, …) -> tuple[OutputVerdict, PolicyDecision]`: scan, then
   `policy.decide(stage="outbound")`, then the floor exactly as plan_v3 design decision 1
   (`CATCH_ALL` = ids of rules whose `when` is empty — today `P99-default` — computed from the loaded
-  policy, not hard-coded; strictest action; OR of `requires_human`; max risk tier; winner tie →
+  policy, not hard-coded; **[review 10-14, F1]** a floor exists only when `rank(inbound.action) >
+  rank(AUTO_SEND)`; strictest action; OR of `requires_human`; max risk tier; winner tie →
   outbound; `matched_rule_ids` union with `inbound:` prefix; `metadata.decided_by`,
   `metadata.carried_from_inbound`; reason `"carried from inbound_gate: <rule> (<action>)"`; auto_send
   allowlist after the merge). Not configurable.
@@ -322,7 +341,13 @@ Commit: `refactor(guard): doc scanner runs before the inbound gate; escalated dr
   "outbound gate" from code/comments.
 - New `tests/unit/test_output_guard_floor.py`: parametrized table (inbound action × outbound action ×
   inbound rule catch-all/specific × allowlist) asserting the 4 invariants; audit_id equal across two
-  identical runs. Parity deltas under ADR bullet 1 (floor carried).
+  identical runs. Required row: specific inbound rule returning `auto_send` × outbound `auto_send` +
+  allowlist ⇒ final `auto_send`, `carried_from_inbound = false`. Parity deltas under ADR bullet 1
+  (floor carried).
+- **[review 10-14, F3]** `policy/engine.py` `facts()` for `stage="outbound"` adds
+  `isolation_forged_markers = len(report.isolation.forged_markers)` (0 when isolation is off). No rule in
+  `policy.yaml` uses it by default (no parity delta); test: the fact equals the scrubbed thread-history
+  marker count on a fixture.
 Commit: `refactor(guard): L4 Output Guard merges the inbound floor; outbound gate removed [task v3.8]`.
 
 ### Task 9 — Host review queue contract (additive)
@@ -366,6 +391,8 @@ Commit: `refactor(guard): optional LLM set judge for the doc scanner, off by def
 Commit: `refactor(guard): invalid judge answers fail closed behind a flag; no tool calls [task v3.11]`.
 
 ### Task 12 — Bench scheme v3, configuration (root)
+- **[F12]** Remove every `V3_CANNOT` strict-xfail mark in `tests/unit/test_mailguard_bench_{layer,scheme}_guard.py` and the v2-to-v3 shim in `guard_factory.py` (`v3_guard_config`,
+  `v1_preset_config`, `realized_layers`): scheme v3 names the guard's own layers.
 - `evaluation/mailguard_bench/scheme.py` scheme `v3` with the v3 presets incl. `C3-ISO`;
   `guard_build.py`, `guard_factory.py` (`LiveLayers` fields renamed to v3 labels, e.g.
   `inbound_judge`, `inbound_extractor`, `doc_judge`, `doc_set_judge`, `output_judge`), `guard_models.yaml`,
@@ -384,15 +411,38 @@ Commit: `refactor(guard): bench scheme v3 configs and guard wiring [task v3.12]`
   with a clear message (Q1=b). Committed `evaluation/results/mailguard_bench/*` stay as historical data
   (not rewritten). **[review, Q1=b' / design decision 11]** New `evaluation/mailguard_bench/legacy_reader.py`:
   read-only loader for the committed v1/v2 run folders (run meta + per-case reports, old layer names
-  kept as-is, no conversion to schema 3) used only by the report path (`make mailguard-report` /
-  `scheme_report.py --legacy <run_dir>`); it raises on any attempt to run, score or ablate. Test:
-  the Review 1 GPT-4o-mini and Qwen2.5-7B tables regenerate byte-identical from the committed folders;
+  kept as-is, no conversion to schema 3) used only by the report path (`make mailguard-report LEGACY=1` /
+  `report.py --legacy <run_dir>`, F15 R2); it raises on any attempt to run, score or ablate. **[F15 R1]**
+  The raw inputs of the Review 1 runs are gitignored on purpose (attack text), so byte-identical
+  regeneration is impossible on a clean clone: the legacy reader loads the *committed outputs*
+  (`summary.json`, `metrics.csv`, `manifest.json`, `case_manifest.json`, `analysis/first_layer.csv`) and
+  `l2_recount.py` moves into it (R4). Test: for the Review 1 GPT-4o-mini and Qwen2.5-7B folders the
+  rendered "Security and usefulness" and "ASR by vector" tables carry, row for row, the numbers of the
+  committed `metrics.csv` and every rendered table row appears verbatim in the committed `report.md`;
   a v3 folder passed to the legacy reader is refused, a v2 folder passed to the v3 reader is refused.
   `runmeta.py` records `guarded_prompt_version`. **[review, design decision 12/13]** `overhead.py`
   reports, per config, guard calls per job (from `guard_calls`), guard latency p50/p95 and end-to-end
   p50/p95; `scheme_report.py` prints that table next to the ASR table.
-- Root tests `test_mailguard_bench_{scoring,report,report_v2,report_v2_build,scheme_report,artifacts,
-  analyses,first_layer,l2_recount,overhead}.py`. Clear `expires: Task 13` entries.
+- Root tests `test_mailguard_bench_{scoring,report,report_v2,report_v3_build,scheme_report,artifacts,
+  analyses,first_layer,legacy_reader,protocol,overhead}.py`. There are no `expires: Task 13` entries
+  (F15 R5): the two stale markers (`scoring.py` docstring, `guarded_reply.py` comment) are removed.
+- **[review 10-15, protocol visibility]** The v3 report must show *where each job stopped and why*, not
+  only the final action. Per-case record (`guarded_reply.py`, from the guard report, no new guard
+  field): `exit_point` ∈ {`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`} derived from
+  `decision.metadata.decided_by`, `inbound_decision.metadata.gate_passes` and `generation_called`
+  (F15 R6: no model call and an inbound block → the gate pass that decided; a model call and a final
+  action stricter than `draft_only` → `output_guard`; else `delivered`; missing keys read as None/False);
+  `carried_from_inbound` (inbound floor won); `guard_calls` per stage (`inbound_scan`,
+  `inbound_extract`, `doc_chunk`, `doc_set`, `output`); `judge_invalid` stages (fail-closed events);
+  `doc_quarantined_chunk_ids` (rename of `l3b_quarantined`; the 15a ratchet rejects the old name).
+  Per-config tables in `scheme_report.py` / `summary.json`: (1) exit-point counts (4 columns + total);
+  (2) inbound-floor count; (3) guard calls per stage, mean and max per job, set-judge column separate
+  so the "≤1 doc-set call, only when a chunk is in the band" claim is visible; (4) fail-closed events
+  per stage — a quarantine caused by `judge_invalid` is reported in its own column and **not** counted
+  as a detection; (5) the F8 per-route ablation metrics: inbound catch rate (stopped at pass 1 or 2
+  ÷ attacks) and "every poisoned chunk caught". ASR and poisoned-chunk catch keep their v1 definitions
+  so tables stay comparable with Review 1. Tests: a fixed set of synthetic per-case records covers all
+  four exit points and one `judge_invalid` case; the tables are asserted exactly.
 Commit: `refactor(guard): bench scheme v3 scoring and reports; pre-v3 runs refused [task v3.13]`.
 
 ### Task 14 — Docs, paper, specs, ADR → Accepted
@@ -411,8 +461,9 @@ Commit: `docs(guard): v3 architecture in docs, paper, specs; ADR-0015 accepted [
 - 15a: `agentmailguard/tests/unit/test_no_legacy_identifiers.py` scans `mailguard/ services/
   evaluation/ training/ configs/ tests/` for `l1_injection_scanner|l2_intent_extractor|
   l3_channel_isolation|l3b_document_scanner|l4_output_scanner|l5_policy_engine|\bL[1-5]B?__|
-  GUARD_MODELS__(JUDGE|EXTRACTOR|DOC_SCANNER)\b|report\.l3b|\.l[1-5]\b attribute access`; whitelist:
-  the ratchet itself, `tests/golden/`, `tests/parity.py` docstring, `LEGACY_ENV_KEYS`, the artifact
+  GUARD_MODELS__(JUDGE|EXTRACTOR|DOC_SCANNER)\b|report\.l3b|\.l[1-5]\b attribute access`; whitelist
+  (plan_v3 F5): the ratchet itself, `evaluation/mailguard_bench/legacy_reader.py`, `tests/golden/`,
+  `tests/parity.py` (docstring and the `GOLDEN_PROMPT_KEY` map), `LEGACY_ENV_KEYS`, the artifact
   name `l1_injection_clf_v1`, `train_l1_classifier`/`build_l1_corpus`. Root twin
   `tests/unit/test_mailguard_v3_identifiers.py` over `evaluation/mailguard_bench` (excluding
   `evaluation/results/`). Remove dead helpers (`pipeline.severity_of`, `verdict_or_none` if unused).
@@ -427,7 +478,9 @@ Commit: `docs(guard): v3 architecture in docs, paper, specs; ADR-0015 accepted [
 - 15c: full acceptance (all of section (c), incl. Docker stack healthy and integration tests); tick
   Task 15 in plan_v3; report final state. **[review]** Push, then ask the owner to run `make ci` on a
   Linux checkout; Task 15 is complete only when that run is green, because the Windows baseline of 63
-  environment failures cannot prove the make/bash recipes still work.
+  environment failures cannot prove the make/bash recipes still work. **[review 10-14, F9]** The
+  authoritative baseline is GitHub CI (green at `c98cdfe`: unit, overlay, quality, UI, integration);
+  the Windows 63-failure list is only for local regression comparison.
 
 ### Task 16 — Live benchmark v3 (acceptance of the refactor) **[review, Q10 / ADR decision 13]**
 Runs on the Windows machine with Docker Desktop (compose stack) and the OpenRouter/GPT-4o-mini profile
@@ -443,6 +496,8 @@ from task 7.19; it never touches `agentmailguard/` (the pin from 15b is what is 
   progress** (`rag_email_commit` is fingerprinted). Results zipped into
   `evaluation/results/mailguard_bench/<run_id>/` and committed afterwards:
   `chore(bench): v3 benchmark run <run_id> [task v3.16]`.
+  **Superseded by ADR-0017 (2026-11-05, task 7.33):** scheme v3 runs `C0` and `C3` only; the other
+  configs listed above no longer exist in the benchmark.
 - 16c — acceptance, written into the run's `README.md` and the paper's results section, each criterion
   with its measured value and pass/fail:
   (a) C3 ASR ≤ 5% on LLMail-Inject;
@@ -450,8 +505,14 @@ from task 7.19; it never touches `agentmailguard/` (the pin from 15b is what is 
   (c) benign: ≤ 5% of question emails and ≤ 2% of clean documents quarantined/escalated;
   (d) overhead table present: guard calls per job ≤ 5 for every config, p95 end-to-end reported
   (SC5 p95 < 10 s stays a target, not a fail condition of this task);
-  (e) ablations: `C3-L1` worse than C3 on LLMail-Inject, `C3-L2` worse than C3 on the poisoned-document
-  route (otherwise the layer is not earning its place and the ADR must say so).
+  (e) ablations, measured per route **[review 10-14, F8]**: `C3-L1` — inbound catch rate (attacks
+  blocked/quarantined before generation ÷ all attacks, LLMail-Inject) clearly lower than C3; `C3-L2` —
+  "every poisoned chunk caught" on the 100 poisoned-document cases lower than C3 (otherwise the layer
+  is not earning its place and the ADR must say so). Final ASR is reported for every config but is not
+  criterion (e), since L4 can still catch injections with L1 off. `scoring.py`/`overhead.py` (Task 13)
+  must compute the inbound catch rate per config.
+  **Superseded by ADR-0017 (2026-11-05):** without the ablation configs (e) cannot be measured by a
+  run of scheme v3; the owner accepted that consequence.
   Any of (a)–(c) failing reopens Task 5 or 7 through the divergence protocol with the measured numbers
   in ADR-0015; thresholds are never re-tuned on the pinned cases. ADR-0015 moves to Accepted only after
   16c; Task 14 leaves it at "Accepted pending Task 16".
@@ -490,9 +551,10 @@ After EVERY task, `agentmailguard/tests/unit/test_guard_parity.py` (part of the 
 pass: each of the 87 matrix cases (`tests.parity.cases()`) equals `tests/golden/guard_v2_baseline.json` updated only by
 `tests/parity.INTENDED_DELTAS`. Rules: the golden file is never regenerated or edited; each delta
 entry lists only the changed fields plus `why` citing an ADR-0015 "Intended behaviour changes" bullet;
-expected delta sources are Task 7 (doc scanner before the gate), Task 8 (inbound floor), Task 11
-(fail-closed judge, only if a fake judge answer is invalid) and Task 4 (thread-history-only forged
-markers). Tasks 2, 3, 5, 6, 9, 10 must add no delta. The reviewer of each loop checks every new delta
+expected delta sources are Task 4 (thread-history-only forged markers, ≤ 3), Task 5 (extractor no
+longer raises severity, R-i, ≤ 6), Task 7 (doc scanner before the gate and new cheap-stage signals,
+≤ 20), Task 8 (inbound floor, ≤ 6) and Task 11 (fail-closed judge, only if a fake judge answer is
+invalid, ≤ 5). **[review 10-14, F7]** Tasks 2, 3, 6, 9, 10, 12, 13 must add no delta. The reviewer of each loop checks every new delta
 against the ADR list and that ADR-0015's list matches `INTENDED_DELTAS` by Task 14.
 
 ## Open points / assumptions

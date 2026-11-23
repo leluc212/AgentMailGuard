@@ -1,20 +1,19 @@
 """AgentMailGuard — multi-layer prompt-injection defence for RAG-based email assistants.
 
-Layer map (see docs/architecture.md):
+Layer map, schema 3 (ADR-0015; see docs/architecture.md):
 
-    L1  Email Injection Scanner      inbound email  -> LayerVerdict (injection)
-    L2  User Intent Extractor        inbound email  -> SanitizedIntent
-    L3  Channel Isolation Layer      prompt build   -> SecurePrompt (spotlighting)
-    L3b Retrieved Document Scanner   RAG chunks     -> ChunkVerdict[] (quarantine)
-    L4  Output Scanner               LLM draft      -> OutputVerdict (redaction)
-    L5  Email Policy Engine          all verdicts   -> PolicyDecision (gating)
+    L1  Inbound Guard (scan + extract)   inbound email   -> InboundVerdict
+    L2  Doc Scanner                      retrieved docs  -> DocumentVerdict (ChunkVerdict each)
+    L3  Inbound Gate                     L1 + L2 facts   -> PolicyDecision (before generation)
+    --  Channel Isolation (not a layer)  prompt build    -> SecurePrompt + IsolationInfo
+    L4  Output Guard                     LLM draft       -> OutputVerdict + PolicyDecision
 
 The package is a *cross-cutting subsystem*: it never imports the rag-email core.
 Integration with the core happens only through duck-typed adapters in
-``mailguard.integration`` and the ``GuardedLLMProvider`` wrapper (L3).
+``mailguard.integration`` and the ``GuardedLLMProvider`` wrapper (channel isolation).
 """
 
-from mailguard.contracts.email import GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import GuardedEmail, SourceDocument
 from mailguard.contracts.policy import GuardReport, PolicyAction, PolicyDecision, RiskTier
 from mailguard.contracts.verdict import Finding, LayerName, LayerVerdict, Severity, ThreatType
 
@@ -28,9 +27,9 @@ __all__ = [
     "LayerVerdict",
     "PolicyAction",
     "PolicyDecision",
-    "RetrievedChunk",
     "RiskTier",
     "Severity",
+    "SourceDocument",
     "ThreatType",
     "__version__",
 ]

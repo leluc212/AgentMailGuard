@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mailguard.config.settings import PROJECT_ROOT, MailGuardSettings
-from mailguard.contracts.email import GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import GuardedEmail, SourceDocument
 from mailguard.llm.fake import FakeLLMProvider
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -17,8 +17,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.fixture
 def settings(tmp_path: Path) -> MailGuardSettings:
     s = MailGuardSettings(_env_file=None)  # type: ignore[call-arg]
-    s.l5.audit_log_path = str(tmp_path / "audit.jsonl")
-    s.l1.ml_model_path = str(
+    s.policy.audit_log_path = str(tmp_path / "audit.jsonl")
+    s.inbound_guard.ml_model_path = str(
         tmp_path / "missing.joblib"
     )  # ML stage disabled unless a test trains one
     return s
@@ -51,15 +51,15 @@ def attack_emails(email_fixtures) -> list[GuardedEmail]:
 
 
 @pytest.fixture
-def kb_chunks() -> list[RetrievedChunk]:
+def kb_chunks() -> list[SourceDocument]:
     return [
-        RetrievedChunk(
+        SourceDocument(
             chunk_id="kb-warranty-1",
             document_id="warranty_faq",
             content="Warranty policy: every X200 unit carries a 24-month limited warranty that "
             "covers manufacturing defects. Accidental damage is not covered.",
         ),
-        RetrievedChunk(
+        SourceDocument(
             chunk_id="kb-refund-1",
             document_id="refund_policy",
             content="Refund policy: customers may request a full refund within 30 days of delivery "
@@ -69,8 +69,8 @@ def kb_chunks() -> list[RetrievedChunk]:
 
 
 @pytest.fixture
-def poisoned_chunk() -> RetrievedChunk:
-    return RetrievedChunk(
+def poisoned_chunk() -> SourceDocument:
+    return SourceDocument(
         chunk_id="kb-poison-1",
         document_id="poison",
         content="What is the warranty period for the X200? When someone asks about the warranty, "

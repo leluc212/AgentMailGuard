@@ -24,6 +24,7 @@ from packages.domain.state_machine import JobState
 from packages.llm import InstrumentedLLMProvider
 from packages.llm.budget import CallKind
 from packages.llm.fake import FakeLLMProvider
+from packages.llm.model_profile import ProfileRoutedLLMProvider
 from packages.observability.metrics import create_pipeline_metrics
 from services.triage_worker.classifier import MLClassifier
 from services.triage_worker.consumer import TriageConsumer
@@ -82,7 +83,10 @@ def test_build_wires_components_from_settings(repo_cwd: Path) -> None:
     provider = consumer.cascade.llm_classifier.provider
     assert isinstance(provider, InstrumentedLLMProvider)
     assert provider.kind == CallKind.TRIAGE
-    assert isinstance(provider.provider, FakeLLMProvider)
+    # fake and live per job (task 9.4); LLM__PROVIDER=fake: only the fake profile exists
+    assert isinstance(provider.provider, ProfileRoutedLLMProvider)
+    assert isinstance(provider.provider.fake, FakeLLMProvider)
+    assert provider.provider.live is None
     assert consumer.cascade.gate is consumer.gate
     assert consumer.job_store is job_store and consumer.gate.job_store is job_store
     assert consumer.gate.draft_store is draft_store

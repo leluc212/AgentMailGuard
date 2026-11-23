@@ -3,6 +3,8 @@
 Mọi thứ tự động được đã chạy trong repo. Những việc dưới đây cần tài khoản, máy có GPU hoặc cài đặt phần mềm,
 nên phải làm tay. Làm xong bước nào thì Claude (hoặc bạn) chạy lệnh tương ứng ở cột "Sau đó chạy".
 
+> **Ghi chú guard v3 (ADR-0015).** Guard giờ có 4 lớp (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) và channel isolation là một công tắc, không phải lớp. Các biến môi trường `GUARD_MODELS__*` là `INBOUND_JUDGE`, `INBOUND_EXTRACTOR`, `DOC_JUDGE`, `DOC_SET_JUDGE`, `OUTPUT_JUDGE`; khóa v2 (`L1__`…`L5__`, `GUARD_MODELS__JUDGE|EXTRACTOR|DOC_SCANNER`) bị từ chối khi khởi động. Judge lỗi mặc định **fail-closed** (`MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR=true`, email chuyển sang người duyệt). Lưới của harness này gồm 9 config (`C0 C1 C2 C3 C3-L1 C3-L2 C3-L3 C3-L4 C3-ISO`), thay cho lưới 10 config của v2, nên ước lượng "toàn bộ lưới" bên dưới (tính cho lưới v2) cần tính lại. Các bảng đang có trong `paper/tables` là **kết quả v2**; số liệu v3 lấy từ benchmark live ở repo gốc (`evaluation/mailguard_bench`, `make mailguard-*`, plan_v3 Task 16), không phải từ các bước dưới đây.
+
 ## A. Chạy GPT-4o-mini (nhanh nhất, ~6–8 USD cho toàn bộ lưới, 2–3 giờ)
 
 | Bước | Làm gì | Sau đó chạy |
@@ -34,7 +36,7 @@ Khuyến nghị: pilot 200–300 case trên laptop qua đêm, hoặc chạy full
 | C2 | (Chỉ cho Llama) Vào https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct bấm "Agree", tạo token tại https://huggingface.co/settings/tokens, dán vào ô `HF_TOKEN` của cell 3. Qwen không cần token. |
 | C3 | Chạy các cell từ trên xuống. Cell 5: đặt `MAX_STEPS = 60` để thử nhanh (~10 phút), `0` để train đủ 1 epoch (~2 giờ). Cell 6 in ra P/R/F1 của judge sau fine-tune. |
 | C4 | Cell 7 lưu adapter + file GGUF `q4_k_m` + `Modelfile` vào Google Drive (`MyDrive/AgentMailGuard/…`). Tải thư mục `gguf` về máy. |
-| C5 | Trên máy: `cd <thư mục gguf>` → `ollama create mailguard-qwen2.5-7b:v1 -f Modelfile`. Thêm vào `configs/models.yaml`: `mailguard-qwen2.5-7b: {backend: ollama, tag: mailguard-qwen2.5-7b:v1, num_ctx: 8192}`, đặt `GUARD_MODELS__JUDGE=mailguard-qwen2.5-7b` trong `.env`. |
+| C5 | Trên máy: `cd <thư mục gguf>` → `ollama create mailguard-qwen2.5-7b:v1 -f Modelfile`. Thêm vào `configs/models.yaml`: `mailguard-qwen2.5-7b: {backend: ollama, tag: mailguard-qwen2.5-7b:v1, num_ctx: 8192}`, đặt `GUARD_MODELS__INBOUND_JUDGE=mailguard-qwen2.5-7b` trong `.env`. |
 | C6 | Chạy lại B4/B5 với `--guard-model mailguard-qwen2.5-7b` để có hàng "fine-tuned judge" trong paper. |
 
 Ghi chú: `training/finetune_llm_judge.py` (HF transformers + peft, không Unsloth) làm cùng việc nếu có máy GPU riêng;
@@ -48,6 +50,6 @@ Model `meta-llama/Llama-Prompt-Guard-2-86M` bị gated: bấm "Agree" trên Hugg
 ## E. Sau khi có kết quả
 
 1. `python -m evaluation.report <các thư mục results> --out paper/tables` → copy `table_v_security_utility.tex`,
-   `table_vi_ablation.tex` vào `paper/KLTN` (Table V, VI).
+   `table_vi_ablation.tex` vào `paper/KLTN` (Table V, VI). Các file hiện có là kết quả v2; chỉ thay bằng bảng v3 sau khi có run live.
 2. Điền số F1 judge (`evaluation/results/llm_judge/*.json`) và baseline (`evaluation/results/baselines/*.json`) vào mục VII.
 3. Commit các file `summary.json`, `paper/tables/*` (đã cho phép trong `.gitignore`); KHÔNG commit `.env`, model, dữ liệu raw.

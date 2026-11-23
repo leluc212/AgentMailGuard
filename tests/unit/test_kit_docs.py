@@ -15,8 +15,8 @@ from collections.abc import Sequence
 
 from evaluation.mailguard_bench.guard_env import (
     REPO_ROOT,
-    V2_MAILGUARD_COMMIT,
-    V2_MAILGUARD_TREE,
+    V3_MAILGUARD_COMMIT,
+    V3_MAILGUARD_TREE,
     GuardEnvError,
 )
 from evaluation.mailguard_bench.kit import doctor, pinned
@@ -191,9 +191,9 @@ def test_the_doctor_sends_local_model_problems_to_appendix_l_not_to_the_openrout
     assert "### L1. The GPU driver" in GUIDE and "### L5. Pull the models" in GUIDE
 
 
-def test_the_native_guide_pins_the_v2_guard_commit() -> None:
-    assert V2_MAILGUARD_COMMIT in NATIVE
-    assert V2_MAILGUARD_COMMIT in GUIDE
+def test_the_native_guide_pins_the_v3_guard_commit() -> None:
+    assert V3_MAILGUARD_COMMIT in NATIVE
+    assert V3_MAILGUARD_COMMIT in GUIDE
 
 
 def test_every_repository_path_the_guides_name_exists() -> None:
@@ -252,7 +252,7 @@ def test_the_guards_fix_is_in_the_guide_before_the_first_doctor_run() -> None:
     # against the pin before the doctor, as `make mailguard-worktree` does in the subtree layout.
     native_fix = _first_block_with(NATIVE, ["git rev-parse HEAD:agentmailguard"])
     assert native_fix < _first_block_with(NATIVE, ["kit.doctor"])
-    assert V2_MAILGUARD_TREE in _blocks(NATIVE)[native_fix]
+    assert V3_MAILGUARD_TREE in _blocks(NATIVE)[native_fix]
 
 
 def test_the_guide_places_the_classifier_before_the_first_doctor_run() -> None:

@@ -2,7 +2,7 @@
 
     python -m evaluation.run_benchmark --agent naive --config C0 C1 C2 C3           # offline sanity
     python -m evaluation.run_benchmark --agent qwen2.5-7b-instruct --guard-model qwen2.5-7b-instruct \
-        --config C0 C1 C2 C3 C3-L1 C3-L2 C3-L3 C3-L3b C3-L4 C3-L5 --concurrency 2
+        --config C0 C1 C2 C3 C3-L1 C3-L2 C3-L3 C3-L4 C3-ISO --concurrency 2
     python -m evaluation.run_benchmark --agent gpt-4o-mini --guard-model gpt-4o-mini --config C3 --limit 200
 
 Writes ``evaluation/results/<run>/<agent>__<config>.jsonl`` (one CaseResult per line) and
@@ -29,7 +29,7 @@ logger = logging.getLogger("evaluation.run")
 DEFAULT_CASES = PROJECT_ROOT / "datasets" / "processed" / "email_bench" / "cases.jsonl"
 RESULTS_DIR = PROJECT_ROOT / "evaluation" / "results"
 
-ALL_CONFIGS = ["C0", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L3b", "C3-L4", "C3-L5"]
+ALL_CONFIGS = ["C0", "C1", "C2", "C3", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"]
 
 
 def select_cases(

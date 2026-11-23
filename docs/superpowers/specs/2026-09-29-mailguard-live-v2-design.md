@@ -1,5 +1,7 @@
 # AgentMailGuard benchmark v2: every service live (design, 2026-09-29 evening)
 
+> **Historic pre-registration (scheme v1/v2), kept as written.** It is superseded for runs at HEAD by ADR-0015 and config scheme v3: a run at HEAD takes scheme v3 only (the runner refuses `--scheme v1` and `--scheme v2`, naming the guard commit those runs need), a run folder never mixes schemes, committed v1/v2 folders are read with `make mailguard-report RUN=<id> LEGACY=1`, and `make mailguard-analyses` now runs the no-API analyses for a v3 folder (it only prints a note for v1/v2). Statements below such as "a new run is v2", "`make mailguard-analyses` refuses a v2 folder" and the C0 to C7 definitions describe the v2 scheme. The procedure at HEAD is `docs/demo-runbook.md` §9.9 (step numbers unchanged).
+
 - **Owner decisions (grilling, 2026-09-29):** "live" means production-faithful; every AI step and
   every service of rag-email runs for real; one benchmarked model per run in every LLM role;
   Gemini `gemini-embedding-001` at 1536 dims shared by all runs; triage live, with two ASRs

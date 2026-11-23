@@ -187,6 +187,8 @@ async def test_one_event_records_the_retrieved_chunks_and_a_skipped_summary() ->
     assert built.state_from == built.state_to == JobState.CONTEXT_READY.value
     assert set(built.payload) == {
         "retrieved",
+        "thread_summary_used",
+        "recent_messages_count",
         "retrieval_degraded",
         "retrieval_underfilled",
         "retrieval_vector_error",
@@ -194,7 +196,23 @@ async def test_one_event_records_the_retrieved_chunks_and_a_skipped_summary() ->
         "summary_triggered",
         "summary_model",
     }
-    assert built.payload["retrieved"] == [{**CHUNK, "rank": 1, "rerank_score": None}]
+    (entry,) = built.payload["retrieved"]
+    assert {k: entry[k] for k in (*CHUNK, "rank", "rerank_score")} == {
+        **CHUNK,
+        "rank": 1,
+        "rerank_score": None,
+    }
+    # Task 9.1 (R25.7): each chunk also carries its branch evidence for the console.
+    assert set(entry) == {
+        *CHUNK,
+        "rank",
+        "rerank_score",
+        "lexical_rank",
+        "lexical_score",
+        "vector_rank",
+        "vector_score",
+        "fused_score",
+    }
     assert built.payload["retrieval_degraded"] is False  # retrieval ran, neither branch failed
     assert built.payload["retrieval_vector_error"] is None
     assert built.payload["retrieval_underfilled"] is None  # the fake backend cannot tell
@@ -353,7 +371,58 @@ def test_payload_builder_reads_chunks_in_context_order() -> None:
 
     payload = context_built_payload(context, None)
 
+    unscored = {
+        "lexical_rank": None,
+        "lexical_score": None,
+        "vector_rank": None,
+        "vector_score": None,
+        "fused_score": None,
+    }
     assert payload["retrieved"] == [
-        {"chunk_id": "c-x", "document_id": "d-x", "rank": 1, "rerank_score": 0.9},
-        {"chunk_id": "c-y", "document_id": "d-y", "rank": 2, "rerank_score": None},
+        {"chunk_id": "c-x", "document_id": "d-x", "rank": 1, "rerank_score": 0.9, **unscored},
+        {"chunk_id": "c-y", "document_id": "d-y", "rank": 2, "rerank_score": None, **unscored},
     ]
+    assert payload["thread_summary_used"] is False
+    assert payload["recent_messages_count"] == 0
+
+
+def test_payload_carries_each_branch_score_for_the_console() -> None:
+    """Task 9.1 (R25.7): BM25, vector and RRF evidence of each chunk reach the timeline."""
+    message = NormalizedMessage(
+        message_id=uuid4(),
+        thread_id=uuid4(),
+        mailbox_id=uuid4(),
+        organization_id=uuid4(),
+        provider="mock",
+        provider_message_id="p",
+        sender=EmailAddress(email="a@example.com"),
+        received_at=datetime.now(UTC),
+    )
+    chunk = Candidate(
+        chunk_id="c",
+        document_id="d",
+        content="x",
+        lexical_rank=2,
+        lexical_score=3.5,
+        vector_rank=1,
+        vector_score=0.81,
+        fused_score=0.032,
+        rerank_score=0.7,
+    )
+    context = ContextPackage(
+        agent_instructions="a",
+        category_instructions="b",
+        current_message=message,
+        thread_summary="summary",
+        recent_messages=[message],
+        retrieved_chunks=[chunk],
+    )
+
+    payload = context_built_payload(context, None)
+
+    entry = payload["retrieved"][0]
+    assert (entry["lexical_rank"], entry["lexical_score"]) == (2, 3.5)
+    assert (entry["vector_rank"], entry["vector_score"]) == (1, 0.81)
+    assert entry["fused_score"] == 0.032
+    assert payload["thread_summary_used"] is True
+    assert payload["recent_messages_count"] == 1

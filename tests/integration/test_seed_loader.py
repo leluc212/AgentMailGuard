@@ -53,7 +53,7 @@ async def test_seed_database_live_lifecycle(
     expected_chunks = sum(len(d.chunks) for d in KNOWLEDGE_DOCS)
 
     assert summary.tenants_count == 3
-    assert summary.mailboxes_count == 4
+    assert summary.mailboxes_count == 7  # 4 provider mailboxes + one demo mailbox per tenant
     assert summary.customers_count == 4
     assert summary.products_count == 3
     assert summary.orders_count == 3
@@ -78,13 +78,13 @@ async def test_seed_database_live_lifecycle(
             "SELECT count(*) FROM mailbox WHERE organization_id = ANY($1::uuid[])",
             [DEMO_ORG_ID, BETA_ORG_ID, GAMMA_ORG_ID],
         )
-        assert mbx_count == 4
+        assert mbx_count == 7  # 4 provider mailboxes + one demo mailbox per tenant
 
         ckpt_count = await conn.fetchval(
             "SELECT count(*) FROM mailbox_checkpoint WHERE organization_id = ANY($1::uuid[])",
             [DEMO_ORG_ID, BETA_ORG_ID, GAMMA_ORG_ID],
         )
-        assert ckpt_count == 4
+        assert ckpt_count == 7
 
         cust_count = await conn.fetchval(
             "SELECT count(*) FROM customer WHERE organization_id = $1",

@@ -93,6 +93,7 @@ class SyncOrchestrator:
         adapter: MailProviderAdapter | None = None,
         *,
         full_resync: bool = False,
+        run_options: dict[str, Any] | None = None,
     ) -> SyncOutcome:
         """Execute synchronization for a mailbox.
 
@@ -113,6 +114,8 @@ class SyncOrchestrator:
         7. On AuthExpired: mark mailbox needs_reauth, set error state, and halt (R1.5, R2.10).
 
         full_resync=True resets the provider cursor before syncing (R2.11).
+        ``run_options`` (demo ingest, R25.3) is stored on every job this sync creates and copied
+        into its envelope; None keeps today's behaviour.
         """
         # 1. In-flight check & coalescing (R2.9)
         acquired = await self.checkpoint_store.try_acquire_lock(mailbox.id, mailbox.organization_id)
@@ -263,6 +266,7 @@ class SyncOrchestrator:
                                 job_type="email_pipeline",
                                 state=JobState.RECEIVED.value,
                                 idempotency_key=idem_key,
+                                run_options=run_options,
                             )
                             persisted_job, _ = await self.job_store.create_job(
                                 job=ingest_job,
@@ -274,6 +278,10 @@ class SyncOrchestrator:
                                 },
                             )
                             job_id_val = str(persisted_job.id)
+                            # A re-synced message keeps the run options its job was created with.
+                            job_run_options = persisted_job.run_options
+                        else:
+                            job_run_options = run_options
 
                         # 4. Publish persistent JobEnvelope to email.normalize (R3.1, R7.3, §7.3)
                         envelope = JobEnvelope(
@@ -286,6 +294,7 @@ class SyncOrchestrator:
                             job_type="normalize_email",
                             attempt=0,
                             classification={},
+                            run_options=job_run_options,
                             payload={
                                 "job_id": job_id_val,
                                 "raw_object_key": archived_ref.object_key,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import PolicyAction, RiskTier
 from mailguard.contracts.verdict import Severity
 
@@ -52,7 +52,7 @@ def test_guarded_email_from_dict_and_object():
 
 
 def test_chunk_and_draft_duck_typing():
-    c = RetrievedChunk.from_any({"id": "c1", "text": "content", "external_id": "DOC-1"})
+    c = SourceDocument.from_any({"id": "c1", "text": "content", "external_id": "DOC-1"})
     assert c.chunk_id == "c1" and c.citation_id == "DOC-1"
     d = DraftCandidate.from_any({"draft": "body", "knowledge_chunks": [{"chunk_id": "c1"}, "c2"]})
     assert d.body == "body"

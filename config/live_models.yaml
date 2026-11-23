@@ -1,0 +1,38 @@
+# Live models the demo console can pick from (task 9.16, ADR-0019, R25.4).
+#
+# The benchmark's three v3 models, with the endpoint, pin and prices of
+# evaluation/mailguard_bench/model_profiles.py (that module stays the benchmark's; a test checks
+# the two agree). A model is offered when its key variable is set in the container's environment;
+# without it the console shows the model greyed out. Keys are never written here.
+#
+# The LLM__* provider (if LLM__PROVIDER is not fake) stays the default live model of jobs that
+# name none, as before ADR-0019.
+version: 1
+
+models:
+  - name: gpt-4o-mini
+    label: "GPT-4o mini (OpenAI)"
+    model: gpt-4o-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: DEMO_OPENAI_API_KEY
+    input_per_m: 0.15
+    output_per_m: 0.60
+
+  - name: qwen2.5-7b-openrouter
+    label: "Qwen2.5-7B (OpenRouter · Phala)"
+    model: qwen/qwen-2.5-7b-instruct
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: DEMO_OPENROUTER_API_KEY
+    input_per_m: 0.10
+    output_per_m: 0.20
+    provider_routing: {order: [phala], allow_fallbacks: false, require_parameters: true}
+
+  - name: llama-3.1-8b-openrouter
+    label: "Llama-3.1-8B (OpenRouter · CoreWeave bf16)"
+    model: meta-llama/llama-3.1-8b-instruct
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: DEMO_OPENROUTER_API_KEY
+    input_per_m: 0.22
+    output_per_m: 0.22
+    provider_routing:
+      {order: [coreweave], allow_fallbacks: false, require_parameters: true, quantizations: [bf16]}

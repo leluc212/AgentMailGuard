@@ -25,7 +25,7 @@ import pytest
 from evaluation.mailguard_bench.guard_env import REPO_ROOT
 from evaluation.mailguard_bench.kit import campaign
 from evaluation.mailguard_bench.kit.campaign import (
-    DEFAULT_V2_CONFIGS,
+    DEFAULT_CONFIGS,
     KitContext,
     RunOptions,
     run_campaign,
@@ -55,15 +55,15 @@ from tests.unit.mailguard_kit_fixtures import (  # noqa: F401  (bench_fixture is
 # --- the default list, the commands, the order ------------------------------------------------
 
 
-def test_the_default_config_list_is_one_constant_with_friday_s_nine_configs() -> None:
-    assert DEFAULT_V2_CONFIGS == ("C0", "C0T", "C1", "C2", "C3", "C4", "C5", "C6", "C7")
+def test_the_default_config_list_is_the_v3_benchmark() -> None:
+    assert DEFAULT_CONFIGS == ("C0", "C3")  # ADR-0017: rag-email alone, then the full guard
 
 
-def test_the_default_config_list_is_the_scheme_s_own_v2_list() -> None:
-    """One source for Friday's configs: the kit reuses scheme.configs_for("v2"), never a copy."""
-    from evaluation.mailguard_bench.scheme import SCHEME_V2, configs_for
+def test_the_default_config_list_is_the_scheme_s_own_v3_list() -> None:
+    """One source for the v3 benchmark's configs (plan_v3 Task 16): the scheme's, never a copy."""
+    from evaluation.mailguard_bench.scheme import V3_DEFAULT_CAMPAIGN
 
-    assert DEFAULT_V2_CONFIGS is configs_for(SCHEME_V2)
+    assert DEFAULT_CONFIGS is V3_DEFAULT_CAMPAIGN
 
 
 def test_the_exact_command_sequence_per_config(bench: Bench) -> None:
@@ -243,9 +243,10 @@ def test_a_guard_worker_that_exits_before_it_is_ready_fails_the_config_at_once(
 def test_a_dead_guard_worker_aborts_the_campaign_so_the_next_config_is_not_tried(
     bench: Bench,
 ) -> None:
-    bench.host.modes["C0T"] = WorkerMode(start="crash")
-    assert run_campaign(bench.ctx, opts(configs=("C0T", "C3"))) == 1
-    assert not [s for s in sequence(bench.host) if s.startswith("spawn guard_worker C3")]
+    # ADR-0017 leaves one guarded config, so the crashed C3 goes first and C0 must not follow.
+    bench.host.modes["C3"] = WorkerMode(start="crash")
+    assert run_campaign(bench.ctx, opts(configs=("C3", "C0"))) == 1
+    assert "live.run C0" not in sequence(bench.host)
     assert any("make bench-run" in line for line in bench.out + bench.err)  # how to resume
 
 
@@ -858,12 +859,22 @@ def test_an_empty_or_repeated_config_list_is_refused(bench: Bench) -> None:
     assert bench.host.events == []
 
 
-def test_config_names_are_not_validated_by_the_kit(bench: Bench) -> None:
-    # live.run and guard_worker validate them (scheme.configs_for("v2") is the integrator's);
-    # the kit drafts with the ai-worker for C0 and the guard-worker for every other name.
+@pytest.mark.parametrize("configs", [("C0", "C1"), ("C3-L2",), ("C0T", "C3"), ("C4",)])
+def test_a_config_scheme_v3_does_not_have_is_refused_before_anything_runs(
+    bench: Bench, configs: tuple[str, ...]
+) -> None:
+    # ADR-0017: C0 and C3 only. Refused up front, so C0 never runs (and is never billed) ahead
+    # of a config whose guard-worker would refuse it later.
+    assert run_campaign(bench.ctx, opts(configs=configs)) == 2
+    assert bench.host.events == []
+    message = "\n".join(bench.err)
+    assert "its configs are C0, C3" in message
+
+
+def test_the_v3_configs_are_accepted_in_either_order(bench: Bench) -> None:
     bench.runner_outcomes({})
-    run_campaign(bench.ctx, opts(configs=("C4",)))
-    assert "spawn guard_worker C4" in sequence(bench.host)
+    run_campaign(bench.ctx, opts(configs=("C3", "C0")))
+    assert "spawn guard_worker C3" in sequence(bench.host)
 
 
 # --- dry run ----------------------------------------------------------------------------------
@@ -928,9 +939,9 @@ def test_dry_run_lists_finished_configs_as_skipped(bench: Bench) -> None:
 # --- the command line -------------------------------------------------------------------------
 
 
-def test_the_command_line_defaults_to_the_v2_configs_and_one_worker() -> None:
+def test_the_command_line_defaults_to_the_v3_configs_and_one_worker() -> None:
     args = campaign.parse_args(["run", "--model-profile", "gpt-4o-mini", "--run", "x"])
-    assert tuple(args.configs) == DEFAULT_V2_CONFIGS
+    assert tuple(args.configs) == DEFAULT_CONFIGS
     assert (args.concurrency, args.gw_wait_s, args.limit, args.dry_run) == (
         1,
         300.0,

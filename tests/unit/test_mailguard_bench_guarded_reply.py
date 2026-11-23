@@ -155,15 +155,23 @@ def test_build_guard_wires_one_counted_registry_model_into_the_llm_stages(
     )
     assert guard.pipeline.config.name == "C3"
     assert (guard.preset, guard.config) == ("C3", "C3")
-    assert guard.pipeline.l1.judge is guard.guard_llm
-    assert guard.pipeline.l2.llm is guard.guard_llm
-    assert guard.pipeline.settings.l5.audit_log_path == str((tmp_path / "audit.jsonl").resolve())
-    assert guard.describe()["active_layers"] == ["l1", "l2", "l3", "l3b", "l4", "l5"]
+    assert guard.pipeline.inbound_guard.judge is guard.guard_llm
+    assert guard.pipeline.inbound_guard.extract.llm is guard.guard_llm
+    assert guard.pipeline.settings.policy.audit_log_path == str(
+        (tmp_path / "audit.jsonl").resolve()
+    )
+    assert guard.describe()["active_layers"] == [
+        "inbound_guard",
+        "doc_scanner",
+        "inbound_gate",
+        "output_guard",
+        "channel_isolation",
+    ]
 
 
 def test_unknown_preset_and_unknown_guard_model_fail_loudly(tmp_path: Path) -> None:
     clf = tmp_path / "clf.joblib"
-    with pytest.raises(ValueError, match="preset"):
+    with pytest.raises(ValueError, match="does not exist in scheme v3"):
         build_guard("C9", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf)
     # C0 is rag-email's native path: it has no guard to build (owner decision 2026-09-29).
     with pytest.raises(ValueError, match="native"):
@@ -174,39 +182,14 @@ def test_unknown_preset_and_unknown_guard_model_fail_loudly(tmp_path: Path) -> N
         )
 
 
-def test_missing_l1_classifier_is_reported_for_guarded_presets_only(tmp_path: Path) -> None:
+def test_a_missing_l1_classifier_is_reported(tmp_path: Path) -> None:
+    # C3 is the only guarded v3 config since ADR-0017 (C0T, which needed no classifier, is gone).
     clf = tmp_path / "clf.joblib"
     guard = build_guard(
         "C3", model_name="fake", audit_log_path=tmp_path / "a.jsonl", l1_model_path=clf
     )
-    guard.pipeline.l1.classifier.pipeline = None  # what a missing joblib leaves behind
-    assert "l1.classifier" in guard.missing_live_stages()
-    c0t = build_guard(
-        "C0T", model_name="fake", audit_log_path=tmp_path / "b.jsonl", l1_model_path=clf
-    )
-    assert c0t.preset == "C0" and c0t.config == "C0T"
-    assert c0t.missing_live_stages() == []
-
-
-async def test_c0t_sends_the_guard_prompt_through_one_generation_call(tmp_path: Path) -> None:
-    # C0T (optional): AgentMailGuard's template with preset("C0"), no layer active.
-    executor, fake, _ = _executor("C0T", tmp_path)
-
-    execution = await executor.execute(_prepared(BENIGN))
-
-    assert len(fake.recorded_calls) == 1
-    sent = fake.recorded_calls[0]["messages"]
-    assert [m.role for m in sent] == ["system", "user"]
-    assert "[TASK]" in sent[1].content
-    record = execution.record
-    assert record["prompt_mode"] == "none"
-    assert record["blocked"] is False
-    assert record["generation"]["called"] is True
-    assert record["generation"]["calls"] == 1
-    assert record["generation"]["reply_v1"] == REPLY
-    assert record["final_draft"] == {"action": "reply", "body": REPLY["draft"]}
-    assert record["guard_llm"]["calls"] == 0
-    assert execution.guard_errors == ()
+    guard.pipeline.inbound_guard.classifier.pipeline = None  # what a missing joblib leaves behind
+    assert "classifier" in guard.missing_live_stages()
 
 
 async def test_c3_spotlights_a_benign_email_and_lets_it_through(tmp_path: Path) -> None:
@@ -222,7 +205,7 @@ async def test_c3_spotlights_a_benign_email_and_lets_it_through(tmp_path: Path) 
     assert execution.guard_errors == ()
 
 
-@pytest.mark.parametrize("preset", ["C0T", "C1", "C2", "C3"])
+@pytest.mark.parametrize("preset", ["C3"])  # the only guarded v3 config (ADR-0017)
 async def test_the_trusted_system_message_carries_the_reply_format_rules(
     preset: str, tmp_path: Path
 ) -> None:
@@ -237,7 +220,7 @@ async def test_the_trusted_system_message_carries_the_reply_format_rules(
     for rule in REPLY_FORMAT_RULES:
         assert system.content.count(rule) == 1
         assert rule not in user.content
-    assert execution.record["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v2"
+    assert execution.record["guarded_prompt_version"] == GUARDED_PROMPT_VERSION == "guarded.v3"
 
 
 async def test_untrusted_email_text_never_reaches_the_trusted_system_message(
@@ -283,10 +266,46 @@ async def test_c3_stops_an_injection_before_any_generation_call(tmp_path: Path) 
     record = execution.record
     assert record["blocked_inbound"] is True
     assert record["decision_stage"] == "inbound"
-    assert "l1_injection_scanner" in record["detected_layers"]
+    assert "inbound_guard" in record["detected_layers"]
     assert record["generation"]["called"] is False
     assert record["final_draft"] is None
     assert record["job_result"]["draft"] is None
+
+
+async def test_the_record_says_where_an_injection_stopped_and_what_it_cost(
+    tmp_path: Path,
+) -> None:
+    executor, _, _ = _executor("C3", tmp_path)
+
+    record = (await executor.execute(_prepared(INJECTION))).record
+
+    assert record["exit_point"] in ("gate_pass_1", "gate_pass_2")  # before any model call
+    assert record["generation"]["called"] is False
+    assert record["carried_from_inbound"] is False  # the gate stopped it: no Output Guard merge
+    assert list(record["guard_calls"]) == [
+        "inbound_scan",
+        "inbound_extract",
+        "doc_chunk",
+        "doc_set",
+        "output",
+    ]
+    assert record["guard_calls"]["output"] == 0 and record["guard_calls"]["doc_set"] == 0
+    assert record["judge_invalid"] == []
+    assert record["doc_quarantined_chunk_ids"] == []
+
+
+async def test_the_record_of_a_delivered_draft_carries_the_guards_own_call_count(
+    tmp_path: Path,
+) -> None:
+    executor, _, _ = _executor("C3", tmp_path)
+
+    record = (await executor.execute(_prepared(BENIGN))).record
+
+    assert record["exit_point"] == "delivered"
+    assert record["generation"]["called"] is True
+    assert record["guard_calls"]["doc_chunk"] == 0  # a case with no retrieved chunk scans none
+    assert sum(record["guard_calls"].values()) <= 5  # the job ceiling (ADR-0015 decision 12)
+    assert record["report"]["metadata"]["guard_calls"] == record["guard_calls"]
 
 
 async def test_a_rate_limited_guard_stage_raises_instead_of_degrading(tmp_path: Path) -> None:
@@ -357,7 +376,9 @@ async def test_a_429_seen_only_in_llm_error_metadata_is_rate_limited(tmp_path: P
 
     async def run_then_mark(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.metadata["llm_error"] = "OpenAI HTTP 429: RESOURCE_EXHAUSTED"
+        report.inbound_guard.stage("scan")["metadata"]["llm_error"] = (
+            "OpenAI HTTP 429: RESOURCE_EXHAUSTED"
+        )
         return report, draft, bundle
 
     executor.pipeline.run = run_then_mark  # pipeline is typed Any: no ignore needed
@@ -376,7 +397,7 @@ async def test_a_layer_crash_whose_text_says_429_is_retried_not_an_error_row(
 
     async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.error = "HTTPStatusError: HTTP 429 Too Many Requests"
+        report.inbound_guard.stage("scan")["error"] = "HTTPStatusError: HTTP 429 Too Many Requests"
         return report, draft, bundle
 
     executor.pipeline.run = run_then_crash
@@ -391,14 +412,14 @@ async def test_a_layer_crash_without_429_stays_a_guard_error(tmp_path: Path) -> 
 
     async def run_then_crash(*args: Any, **kwargs: Any) -> Any:
         report, draft, bundle = await report_hook(*args, **kwargs)
-        report.l1.error = "ValueError: boom"
+        report.inbound_guard.stage("scan")["error"] = "ValueError: boom"
         return report, draft, bundle
 
     executor.pipeline.run = run_then_crash
 
     execution = await executor.execute(_prepared(BENIGN))
 
-    assert any(e.startswith("l1_injection_scanner: ValueError") for e in execution.guard_errors)
+    assert any(e.startswith("inbound_scan: ValueError") for e in execution.guard_errors)
 
 
 @V1_GUARD_ONLY
@@ -408,7 +429,7 @@ async def test_the_v1_guard_leaves_no_fallback_facts_in_the_record(tmp_path: Pat
     execution = await executor.execute(_prepared(BENIGN))
 
     assert "guard_fallbacks" not in execution.record
-    assert "l2_llm_schema_fallback" not in execution.record
+    assert "extract_llm_schema_fallback" not in execution.record
 
 
 @MARKING_GUARD_ONLY
@@ -418,7 +439,7 @@ async def test_a_healthy_guard_records_an_empty_fallback_list(tmp_path: Path) ->
     execution = await executor.execute(_prepared(BENIGN))
 
     assert execution.record["guard_fallbacks"] == []
-    assert execution.record["l2_llm_schema_fallback"] is False
+    assert execution.record["extract_llm_schema_fallback"] is False
     assert execution.guard_errors == ()
 
 
@@ -433,14 +454,16 @@ async def test_an_answer_that_fails_its_schema_is_a_recorded_fallback_not_an_err
 
     assert execution.guard_errors == ()
     fallbacks = execution.record["guard_fallbacks"]
-    assert [f["layer"] for f in fallbacks] == ["l2_intent_extractor"]
+    assert [f["layer"] for f in fallbacks] == ["inbound_extract"]
     assert fallbacks[0]["reason"] == "invalid_fields"
-    assert execution.record["l2_llm_schema_fallback"] is False  # fields were there, mistyped
+    assert execution.record["extract_llm_schema_fallback"] is False  # fields were there, mistyped
     assert execution.record["final_draft"] is not None  # the case is scored like any other
 
 
 @MARKING_GUARD_ONLY
-async def test_a_prose_answer_from_l2_is_flagged_as_an_l2_schema_fallback(tmp_path: Path) -> None:
+async def test_a_prose_answer_from_l2_is_flagged_as_an_extract_schema_fallback(
+    tmp_path: Path,
+) -> None:
     executor, _, guard = _executor("C3", tmp_path)
     guard.guard_llm.inner = GuardFakeLLM(
         default_response={"raw_text": "I cannot help with that."}, model_name="fake:fake"
@@ -450,8 +473,8 @@ async def test_a_prose_answer_from_l2_is_flagged_as_an_l2_schema_fallback(tmp_pa
 
     assert execution.guard_errors == ()
     reasons = {f["layer"]: f["reason"] for f in execution.record["guard_fallbacks"]}
-    assert reasons["l2_intent_extractor"] == "non_json"
-    assert execution.record["l2_llm_schema_fallback"] is True
+    assert reasons["inbound_extract"] == "non_json"
+    assert execution.record["extract_llm_schema_fallback"] is True
 
 
 @MARKING_GUARD_ONLY
@@ -487,7 +510,7 @@ async def test_a_schema_failure_row_is_scored_ok_when_the_guard_marks_it(tmp_pat
 
     row = store.latest_records()[prepared.case.case_id]
     assert row["status"] == "ok"
-    assert row["result"]["guard_fallbacks"][0]["layer"] == "l2_intent_extractor"
+    assert row["result"]["guard_fallbacks"][0]["layer"] == "inbound_extract"
 
 
 @MARKING_GUARD_ONLY
@@ -577,3 +600,91 @@ async def test_a_per_minute_429_of_a_judge_call_is_still_backed_off(tmp_path: Pa
 
     with pytest.raises(RateLimitedError):
         await executor.execute(_prepared(BENIGN))
+
+
+# --- guard v3 Task 11/12: a judge that fails closed is the guard deciding, not a crash
+
+
+def _executor_with(
+    preset: str, tmp_path: Path, **build: Any
+) -> tuple[GuardedCaseExecutor, FakeLLMProvider, Any]:
+    guard = build_guard(
+        preset,
+        model_name="fake",
+        audit_log_path=tmp_path / "audit.jsonl",
+        l1_model_path=tmp_path / "clf.joblib",
+        **build,
+    )
+    guard.guard_llm.inner = GuardFakeLLM(default_response=GUARD_INVALID, model_name="fake:fake")
+    fake = FakeLLMProvider(default_response=REPLY)
+    generator = SinglePassGenerator(
+        llm_provider=fake,
+        profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
+    )
+    executor = GuardedCaseExecutor(
+        pipeline=guard.pipeline, generator=generator, guard_llm=guard.guard_llm
+    )
+    return executor, fake, guard
+
+
+@MARKING_GUARD_ONLY
+async def test_an_invalid_judge_answer_fails_closed_and_the_case_is_scored(tmp_path: Path) -> None:
+    executor, fake, _ = _executor_with("C3", tmp_path)  # judges fail closed: the v3 default
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()  # scored, never an error row
+    assert "inbound_extract" in execution.record["guard_judge_invalid"]
+    assert execution.record["guard_fallbacks"]  # still counted per layer and reason
+    report = execution.record["report"]
+    assert report["inbound_decision"]["matched_rule_id"] == "P00-internal-error-fail-closed"
+    assert execution.record["final_action"] == "human_approval"
+    assert execution.record["blocked"] is False and len(fake.recorded_calls) == 1
+
+
+@MARKING_GUARD_ONLY
+async def test_the_judge_fallback_mode_scores_the_v2_way(tmp_path: Path) -> None:
+    executor, _, _ = _executor_with("C3", tmp_path, judge_fail_closed=False)
+
+    execution = await executor.execute(_prepared(BENIGN))
+
+    assert execution.guard_errors == ()
+    assert execution.record["guard_judge_invalid"] == []
+    assert execution.record["guard_fallbacks"]
+    assert execution.record["final_action"] != "human_approval"
+
+
+def test_judge_invalid_stages_reads_only_fail_closed_errors() -> None:
+    from evaluation.mailguard_bench.guarded_reply import judge_invalid_stages
+
+    assert judge_invalid_stages("judge_invalid:inbound_scan") == ("inbound_scan",)
+    assert judge_invalid_stages("extract: judge_invalid:inbound_extract") == ("inbound_extract",)
+    assert judge_invalid_stages("set: judge_invalid:doc_set") == ("doc_set",)
+    assert judge_invalid_stages("judge_invalid:doc_chunk; set: judge_invalid:doc_set") == (
+        "doc_chunk",
+        "doc_set",
+    )
+    for crash in (None, "", "ValueError: boom", "judge_invalid:doc_chunk; ValueError: boom"):
+        assert judge_invalid_stages(crash) is None, crash
+
+
+def test_a_set_judge_that_failed_closed_is_scored_and_a_chunk_crash_is_not() -> None:
+    from mailguard.contracts.policy import GuardReport
+    from mailguard.contracts.verdict import ChunkVerdict, DocumentVerdict
+
+    from evaluation.mailguard_bench.guarded_reply import (
+        bench_verdict_views,
+        classify_ai_step_failures,
+    )
+
+    crashed = ChunkVerdict(chunk_id="kb-1", error="ValueError: boom")
+    docs = DocumentVerdict.from_chunks([crashed, ChunkVerdict(chunk_id="kb-2")])
+    docs.error = f"{docs.error}; set: judge_invalid:doc_set"
+    docs.metadata.update(
+        {"llm_fallback": True, "llm_fallback_reason": "non_json", "llm_error": "prose"}
+    )
+    failures = classify_ai_step_failures(bench_verdict_views(GuardReport(doc_scanner=docs)))
+
+    assert failures.judge_invalid == ("doc_set",)
+    assert failures.crashes == ("doc_chunk: ValueError: boom",)  # the chunk's, once
+    assert [f.reason for f in failures.fallbacks] == ["non_json"]

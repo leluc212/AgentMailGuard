@@ -1,6 +1,6 @@
-"""The report of a v2 run: guard AI-step fallbacks, the two benign-utility rules, the fail-closed
-sensitivity line and the template-path successes (ADR-0012 decisions 2(e) and 4; Amendment 1,
-E.1; R22.12). The pieces are pure: no guard install, no model, no network.
+"""The report's live-run parts: guard AI-step fallbacks per judge stage, the two benign-utility
+rules, the fail-closed sensitivity line and the template-path successes (ADR-0012 decisions 2(e)
+and 4; Amendment 1, E.1; R22.12). The pieces are pure: no guard install, no model, no network.
 """
 
 from __future__ import annotations
@@ -35,10 +35,10 @@ from tests.unit.test_mailguard_bench_artifacts import (
     summary,
 )
 
-L1 = "l1_injection_scanner"
-L2 = "l2_intent_extractor"
-L3B = "l3b_document_scanner"
-L4 = "l4_output_scanner"
+L1 = "inbound_scan"
+L2 = "inbound_extract"
+L3B = "doc_chunk"
+L4 = "output"
 
 
 class FakeProportion:
@@ -92,9 +92,12 @@ def test_fallbacks_are_counted_per_layer_with_their_reasons() -> None:
     assert l2.reasons == {"non_json": 2, "timeout": 1}
     assert (table.layers[L1].events, table.layers[L1].rows.successes) == (1, 1)
     assert table.layers[L1].reasons == {"invalid_fields": 1}
-    assert (table.layers[L3B].events, table.layers[L4].events) == (0, 0)  # every AI layer is listed
+    assert (table.layers[L3B].events, table.layers[L4].events) == (
+        0,
+        0,
+    )  # every judge stage is listed
     assert (table.any_fallback.successes, table.any_fallback.total) == (3, 4)
-    assert table.l2_schema == 2  # a and b carried a prose answer; c's L1 fallback is not L2
+    assert table.extract_schema == 2  # a and b carried a prose answer; c is the scan judge's
 
 
 def test_error_rows_and_rows_that_did_not_record_are_not_in_the_denominator() -> None:
@@ -110,11 +113,11 @@ def test_error_rows_and_rows_that_did_not_record_are_not_in_the_denominator() ->
     assert table.layers[L2].events == 1
 
 
-def test_an_unknown_layer_in_a_row_is_listed_after_the_four_ai_layers() -> None:
+def test_an_unknown_stage_in_a_row_is_listed_after_the_five_judge_stages() -> None:
     table = summarize_fallbacks([record("a", [fb("l9_new_layer", "error")])], metrics=METRICS)
 
     assert table is not None
-    assert list(table.layers) == [L1, L2, L3B, L4, "l9_new_layer"]
+    assert list(table.layers) == [L1, L2, L3B, "doc_set", L4, "l9_new_layer"]
 
 
 # --- the report section -------------------------------------------------------------------------
@@ -133,7 +136,7 @@ def fallback_table(**over: Any) -> FallbackTable:
             L4: layer(L4, 0, 0, {}),
         },
         "any_fallback": RateCI(10, 300, 0.0, 1.0),
-        "l2_schema": 9,
+        "extract_schema": 9,
     }
     fields.update(over)
     return FallbackTable(**fields)
@@ -143,14 +146,14 @@ def test_the_report_states_fallback_count_rate_and_reasons_per_config_and_layer(
     text = render_report(live_inputs(fallbacks={"C3": fallback_table()}))
 
     assert "## Guard AI-step fallbacks" in text
-    assert "| Config | Layer | Emails | Fallbacks | Rate | Reasons |" in text
+    assert "| Config | Stage | Emails | Fallbacks | Rate | Reasons |" in text
     assert (
         f"| C3 | {L2} | 300 | 12 | 3.3 % [0.0, 100.0] (10/300) | non_json: 9; timeout: 3 |" in text
     )
     assert f"| C3 | {L1} | 300 | 0 | 0.0 % [0.0, 100.0] (0/300) | none |" in text
     assert (
-        "C3: 10 of 300 scored emails had at least one AI-step fallback; L2 schema fallbacks "
-        "(the model's answer carried no schema): 9."
+        "C3: 10 of 300 scored emails had at least one AI-step fallback; extractor schema "
+        "fallbacks (the model's answer carried no schema): 9."
     ) in text
 
 
@@ -169,7 +172,7 @@ def test_the_fallbacks_reach_metrics_csv_as_counts_rates_and_reasons() -> None:
     rate = by_metric[(f"{L2}_fallback_emails", "all")]
     assert (rate["successes"], rate["total"]) == (10, 300)
     assert by_metric[(f"{L2}_fallback_reason", "non_json")]["value"] == 9
-    assert by_metric[("l2_schema_fallbacks", "")]["value"] == 9
+    assert by_metric[("extract_schema_fallbacks", "")]["value"] == 9
     assert (by_metric[("any_fallback_emails", "all")]["successes"]) == 10
 
 

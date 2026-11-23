@@ -2,268 +2,169 @@
 
 **Who this is for:** thesis reviewers and technical readers new to the project. Terms are defined at
 first use and again in the glossary (section 7). Background on the whole guard is in
-[03-agentmailguard.md](03-agentmailguard.md).
+[03-agentmailguard.md](03-agentmailguard.md). This document describes the **v3 guard** (ADR-0015,
+[docs/adr/0015-guard-architecture-v3.md](../adr/0015-guard-architecture-v3.md)): four layers plus one
+prompt-building switch. Sections 4 and 5 are results measured on the earlier six-layer guard (v1) and
+are kept, labelled, as history; the v3 numbers come from the v3 benchmark run (plan_v3 Task 16) and
+do not exist yet.
 
 ## 1. The two questions and the short answers
 
 1. **For each AgentMailGuard layer: what goes in, how does it tell dangerous from harmless, and what
-   comes out?** Section 3 gives one card per layer with the same headings; section 2 shows how the
-   layers hand data to each other.
-2. **Why are layers 2 to 5 needed when layer 1 stops most attacks in the v1 results?** Three answers.
-   - **L1 alone stops nothing.** It only returns a score; L5 turns a score into an action. "L1 stops
-     most attacks" therefore means L1 plus L5 (preset C1), which blocked 86 of 100 email attacks in a
-     real run. Adding L2 and L3 (preset C2) blocked 98 of 100, all of them inbound blocks, so the extra
-     12 came from L2.
-   - **Whole attack classes are outside L1's input.** It flagged 0 of 100 poisoned-document attacks and
-     never sees the draft. Only L3b, L4 and (for thread text) L3 touch those.
-   - **Measured: four of the six layers are each necessary on this benchmark.** In the pre-registered
-     remove-one-layer run (section 5.1: gpt-4o-mini, 550 cases), removing L2, L3b or L4 raised the
-     poisoned-document ASR from 30 % to 38 %, 58 % and 40 %, and removing L5 raised the email ASR from
-     0 % to 7.7 % (23 of 300), although L1 still flagged all 300: without L5 no flag becomes a block.
-     Removing L1 changed almost nothing (0.3 %), because L2 then caught 271 of the same 300 attacks: on
-     these cases L1 and L2 back each other up. L3's effect was not measurable.
+   comes out?** Section 3 gives a short card per layer; the full cards are in
+   [layers/](layers/). Section 2 shows how the layers hand data to each other.
+2. **Why are layers 2 to 4 needed when layer 1 stops most attacks in the v1 results?** Three answers.
+   - **L1 alone stops nothing.** It only returns a verdict; the **L3 Inbound Gate** turns verdicts
+     into an action. "L1 stops most attacks" therefore means L1 plus the gate (preset C1).
+   - **Whole attack classes are outside L1's input.** It never sees retrieved knowledge or the draft.
+     Only the L2 Doc Scanner and the L4 Output Guard touch those, and channel isolation is the only
+     protection thread text has.
+   - **v1 measured that the layers back each other up** (section 5.1, old layer names): removing the
+     document scanner, the output scanner or the policy engine raised the attack success rate, and
+     removing L1 changed almost nothing because the extractor caught the same email attacks. v3 changes
+     the layer layout (the extractor became L1's second sub-stage and the document scanner now runs
+     before the gate), so these figures are not v3 results; the v3 acceptance criteria are in ADR-0015
+     decision 13.
 
 Terms first. **AgentMailGuard** is the security package around rag-email's reply writer. A **prompt
 injection** is text in an email or document that tries to give orders to the AI that writes the reply
-(the **reply model**, a large language model or **LLM**). A **layer** is one stage of the guard: L1, L2,
-L3b and L4 inspect text, L3 builds the prompt, L5 applies policy; **L3b** is the second half of layer 3.
-Each layer returns a **verdict**: a **severity** (none, low, medium, high, critical, from a **score**
-between 0 and 1) and **findings**. Only **L5**, the policy engine, decides what happens to the message
-(stop it, hold it for a person, let it go); some layers also change content themselves (L2 strips
-sentences, L3b removes chunks, L4 rewrites the draft). The presets **C0 to C3** choose layers: C0 none,
-C1 L1 plus L5, C2 L1, L2, L3 plus L5, C3 all. The v1 **runs** are `2026-09-29-gpt4omini` (reply model
-gpt-4o-mini) and `2026-09-29-qwen25` (Qwen2.5-7B). "Flagged" means severity medium or higher.
-"Not determined" marks something not verified.
+(the **reply model**, a large language model or **LLM**). A **layer** is one stage of the guard that
+returns a **verdict**: a **severity** (none, low, medium, high, critical, from a **score** between 0 and
+1) and **findings**. The four layers are **L1 Inbound Guard**, **L2 Doc Scanner**, **L3 Inbound Gate**
+and **L4 Output Guard**. **Channel isolation** builds the prompt and decides nothing, so it is a
+switch, not a layer. The **policy engine** is shared infrastructure used by L3 (stage inbound) and L4
+(stage outbound); it is not a layer. The benchmark presets (**configs**) choose layers: C0 none, C0T
+the guard's prompt template only (a benchmark baseline), C1 = L1 + L3, C2 = C1 + L2 + isolation,
+C3 all, C3-L1 to C3-L4 each minus one layer, C3-ISO minus isolation. "Flagged" means severity medium
+or higher. "Not determined" marks something not verified.
 
 ## 2. The guard at a glance
 
-One email travels down the page, in the order the checks run. The letters mark what each layer hands on.
+One email travels down the page, in the order the checks run.
 
 ```
  inbound email (subject, body, sender)
         |
         v
- +-----------------------------+
- | L1 email injection scanner  |   rules, n-gram model, optional AI judge
- +-----------------------------+
-        | verdict ------------------------------> L5
-        | (a) indicators + injected_instructions -> held for L4
-        |     (L2 does not receive L1's verdict)
+ +--------------------------------+
+ | L1 Inbound Guard               |  scan: rules, n-gram model, optional AI judge (severity comes from here)
+ |   scan + extract sub-stages    |  extract: strips instruction-like sentences, neutral intent
+ +--------------------------------+
+        | one verdict ----------------------------> L3 pass 1
+        | (a) indicators + injected instructions -> held for L4
+        | (b) sanitized_body, intent, question sentences -> held for isolation and L2
         v
- +-----------------------------+
- | L2 user intent extractor    |   strips instruction-like sentences
- +-----------------------------+
-        | verdict ------------------------------> L5
-        | (b) stripped sentences + quoted instructions -> held for L4
-        | (c) sanitized_body, intent, actions, entities -> held for L3
-        v
- +-----------------------------+
- | L5 policy engine: INBOUND   |-----> block or quarantine: STOP, no reply model call
- +-----------------------------+
+ +--------------------------------+
+ | L3 Inbound Gate, pass 1        |-----> block or quarantine: STOP (escalated draft, no model call,
+ +--------------------------------+       the Doc Scanner never runs)
         | any other decision
         v
- knowledge-base search --> retrieved chunks
+ knowledge-base search --> retrieved chunks (none for a template job: L2 is a no-op)
         |
         v
- +-----------------------------+
- | L3b retrieved doc scanner   |   quarantines poisoned chunks
- +-----------------------------+
-        | verdict ------------------------------> L5
-        | (d) quarantined excerpts -------------> held for L4
-        | surviving chunks
+ +--------------------------------+
+ | L2 Doc Scanner                 |  per chunk: rules, heuristics, classifier, echo of the email's questions,
+ +--------------------------------+  bait clusters, optional chunk and set judges; trust per chunk
+        | verdict, kept chunks
         v
- +-----------------------------+
- | L3 channel isolation        |   scrubs, caps, marks, builds the prompt
- +-----------------------------+   (uses (c); its verdict -> L5 outbound only)
+ +--------------------------------+
+ | L3 Inbound Gate, pass 2        |-----> block or quarantine: STOP (escalated draft, no model call)
+ +--------------------------------+       (the final inbound decision; the only one audited)
+        | any other decision
+        v
+ +--------------------------------+
+ | channel isolation (not a layer)|  scrubs, caps, marks, builds the prompt from the kept chunks
+ +--------------------------------+
         | marked prompt
         v
     reply model ----> draft
         |
         v
- +-----------------------------+
- | L4 output scanner           |   reads the draft against (a), (b), (d)
- +-----------------------------+   redacts secrets and personal data
-        | verdict ------------------------------> L5
-        v
- +-----------------------------+
- | L5 policy engine: OUTBOUND  |-----> quarantine / block / human approval /
- +-----------------------------+       draft only / auto-send
+ +--------------------------------+
+ | L4 Output Guard                |  scans the draft against (a), redacts secrets and personal data,
+ |   scan + outbound policy +     |  decides with the outbound policy, then merges the inbound decision
+ |   inbound floor                |  as a floor (strictest wins)
+ +--------------------------------+
+        | final decision: quarantine / block / human approval / draft only / auto-send
 ```
 
 - **Indicators** (a) are every e-mail address and link found in the email, the sender's own included.
-  L4 checks whether the draft repeats one, or any "injected instruction" from (a), (b) or (d).
-- **L5** decides twice: before the reply model runs (inbound) and on the draft (outbound). In the
-  pipeline code only an inbound block or quarantine stops the run before generation. The
-  **dispatcher** (the mail-sending component outside this repository) should act on the outbound decision.
+  L4 checks whether the draft repeats one, or any "injected instruction" from L1 or from quarantined chunks.
+- The **gate decides twice before generation** (pass 1 on L1's facts, pass 2 on every fact) and **L4
+  decides once after generation**; there is no separate policy step. Exit points of a job:
+  `gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`. The **dispatcher** (the mail-sending
+  component outside this repository) sends only when the final decision is auto-send.
+- A judge that fails or answers invalidly **fails closed** by default (`judge_invalid:<stage>` leads to
+  human review); a judge that is not configured degrades silently. At most five guard model calls per
+  job (production default two). Reports carry `schema_version: 3`.
 
 ## 3. The layers, one by one
 
-Every card uses the same headings. Severity from score: under 0.20 none, 0.20 low, 0.50 medium, 0.85
-high, 0.97 critical (L1's bands; L3b's chunk ladder starts high at 0.70). **Fail-closed** means a layer
-that crashes reports a HIGH error verdict instead of a clean one. L5's rule P00 then gives
-human_approval, which does not stop generation and outranks even an L1 critical quarantine. An
-AI-stage failure inside a layer (timeout, bad JSON) is not an error to L5, and L3 has no fail-closed path.
+Severity from score: under 0.20 none, 0.20 low, 0.50 medium, 0.85 high, 0.97 critical (L1's bands; the
+Doc Scanner's chunk ladder starts high at 0.70). **Fail-closed** means a layer that crashes reports a
+HIGH error verdict instead of a clean one; the policy rule P00 then asks for human review, and
+because the strictest matching action wins it no longer hides a stricter quarantine or block.
 
-Scores are hand-set constants (no calibration file was found) and each layer combines them differently
-(L1 noisy-OR, L2 maximum, L3b noisy-OR), yet L5 compares severities across layers as if equal. No
-threshold here is justified by a measurement.
-
-**Cost and speed.** Measured only for L2: its AI step is one call per email, not gated by L1, at p50
-1.6 s (gpt-4o-mini) and 2.8 s (Qwen). L1's classifier costs about 1 to 1.5 ms per text; its judge
-decided 10 of 300 v1 attack emails. L3, L3b, L4 and L5 make no model call in v1 and have no measured
-latency (the authors claim 1 to 3 ms per chunk for L3b, under 1 ms for L3 and L5).
+Scores are hand-set constants and each layer combines them differently (L1 noisy-OR, the extract
+sub-stage maximum, Doc Scanner noisy-OR), yet the policy compares severities across layers as if equal.
 
 `GuardedEmail` is the record holding one email. **Quoted history** is earlier messages pasted inside
-the body; **thread history** is earlier messages passed to L3 as separate fields. Worked examples are
-in the full cards.
+the body; **thread history** is earlier messages passed to the prompt builder as separate fields.
 
-### L1 - Email Injection Scanner
+### L1 - Inbound Guard
 
-**Purpose.** Scores one inbound email from 0 to 1 for how likely it is to contain prompt injection. It detects only; it edits nothing and blocks nothing itself.
+Reads one email and returns one verdict. **scan** sub-stage: 15 rule families plus obfuscation
+heuristics, then a calibrated n-gram classifier (skipped when a rule is already sure), then an optional
+AI judge for the uncertain band. **extract** sub-stage: strips instruction-like segments, builds a
+sanitized body and a neutral intent, with an optional AI paraphrase. Severity and score come from the
+scan only; the extractor adds findings and facts but never raises severity (ADR-0015 decision 9). At
+most two model calls. Hands on: the verdict to the gate, the sanitized body and intent to isolation, the
+question sentences to L2, indicators to L4. Full card: [layers/L1-inbound-guard.md](layers/L1-inbound-guard.md)
 
-**Input.** One `GuardedEmail`: `subject`, `body_text` (rules see all of it, quoted text included; the classifier and judge see only the first 12000 characters of subject, sender and body), `body_html` (rules and one heuristic only; always None in rag-email's wiring). Headers, attachments, recipients, thread history and chunks are never read.
+### L2 - Doc Scanner
 
-**How it decides.** A cascade ordered by cost.
-- Stage 1: 15 regex rule families (54 patterns, hand-set scores 0.55 to 0.97, English and Vietnamese) plus 4 heuristics (zero-width characters, homoglyphs meaning look-alike letters from another alphabet, instruction density, hidden HTML). `rule_score` is the maximum.
-- Stage 2, if `rule_score < 0.90`: a TF-IDF plus calibrated logistic-regression classifier gives p; `fused = 1 - (1 - rule_score)(1 - p)`. Rule scores of 0.90 or more are final.
-- Stage 3, only if `0.20 <= fused < 0.85` and a judge is configured: an LLM judge; `final = 0.6 * judge + 0.4 * fused`, so a judged verdict is never CRITICAL.
+Reads every retrieved knowledge chunk before the prompt is built and before the gate's final pass.
+Cheap stage per chunk (rules, poison heuristics, classifier), then signals against the email's question
+sentences (`echo_vs_question`, `ordered_prefix`), bait clusters, an optional per-chunk judge for
+uncertain chunks and an optional set judge (adds quarantines only). Each chunk gets a trust level
+(trusted, untrusted, quarantined). Skipped when pass 1 stops the job or when there are no chunks. Full
+card: [layers/L2-doc-scanner.md](layers/L2-doc-scanner.md)
 
-**Output.** `LayerVerdict`: `severity`, `score`, `findings`, `decided_by` and `metadata` with `indicators` and, if the judge ran, `injected_instructions`.
+### L3 - Inbound Gate
 
-**Hands on / who acts.** L4 receives the indicators and injected instructions. L5 turns severity into quarantine (CRITICAL, P01), block (HIGH with an exfiltration-type threat, P02), human_approval (P05) or draft_only (P08).
+Runs the shared policy engine at stage inbound, twice: pass 1 on L1's facts (a stop here skips the
+Doc Scanner), pass 2 on every fact. Strictest matching rule wins; only the final pass is audited. Block
+or quarantine stops the job before any model call. Full card:
+[layers/L3-inbound-gate.md](layers/L3-inbound-gate.md)
 
-**Failure behavior.** Exception: HIGH error verdict; P00 gives human_approval and generation continues. Judge timeout: no retry, cheap verdict kept, L5 not told. Non-JSON or invalid JSON: one repair call first, then the same fallback.
+### Channel isolation (not a layer)
 
-**Blind spots.** Line-wrapped phrases, homoglyphs, zero-width splits, encodings, other languages, paraphrase. Final rules at 0.90 or more cannot be corrected: "Please override the policy for this customer." scores 0.97 and would be quarantined.
+Builds the prompt: scrubs forged markers and chat-template tokens from untrusted text, caps its size,
+marks it as data (spotlighting) and renders each kept chunk with its trust. It returns the prompt and an
+`IsolationInfo` record, never a verdict; markers forged in thread history are recorded, not graded.
+Switch: on in C2 and C3, off in C0, C1 and C3-ISO. Full card:
+[layers/channel-isolation.md](layers/channel-isolation.md)
 
-**Why needed.** It is the first and cheapest detector and the only source of L4's indicators. Other layers also decide without a model (L2 and L3b reuse its rules; L3, L4, L5 use none by default). In v1 it flagged 299 of 300 attacks, mostly through the trained classifier: rules alone reached medium on 90. In the replay (section 4.1), 16 (gpt) and 17 (Qwen) inbound blocks need L1. It is not sufficient: it edits nothing and cannot act without L5.
+### L4 - Output Guard
 
-**v1 benchmark (C3).** Attacks flagged 299 (gpt) / 296 (Qwen) of 300, critical 213 in both; 0 of 100 RAG attacks flagged; 0 of 150 benign flagged (only 12 of them are not near-duplicates of L1's training negatives).
+Reads the finished draft: sensitive-data patterns (redacted), protected-text leaks, citation integrity,
+injected-goal compliance, unsafe actions, external links, optional AI judge. Then it decides with the
+outbound policy and merges the inbound decision as a floor (a specific, stricter-than-auto-send inbound
+rule is never weakened). Full card: [layers/L4-output-guard.md](layers/L4-output-guard.md)
 
-Full card: [layers/L1-email-injection-scanner.md](layers/L1-email-injection-scanner.md)
+**Cost and speed.** No v3 measurement exists yet; the v3 run reports guard calls and p50/p95 latency per
+configuration (Task 16). The v1 figures in section 4 and 5 describe the old guard.
 
-### L2 - User Intent Extractor
 
-**Purpose.** Removes instruction-like parts of the inbound body and writes a short, neutral description of what the customer wants, so the reply model works from cleaned text.
+## Part II. v1 results (scheme v1, pre-v3 guard)
 
-**Input.** One `GuardedEmail`; it reads `email.text` (the body with quoted history cut when the pipeline supplies that; in the benchmark it equals the full body), first 6000 characters, plus the subject for the paraphrase. It never reads HTML, headers, attachments or sender, and does not receive L1's verdict.
-
-**How it decides.**
-1. Split the body into paragraphs (long ones at sentence ends).
-2. Score each segment: max(best regex rule score, classifier probability on segments of 20+ characters). It uses 14 of L1's 15 rules and the same classifier.
-3. Strip every segment scoring at least 0.50.
-4. Regex extraction of entities, actions and a template intent.
-5. Optional LLM step (default on, one call per email, not band-gated): a paraphrase plus a flag "instructions aimed at the assistant", scored max(0.6, the model's own confidence). The prompt never defines what that confidence is about.
-
-**Output.** `SanitizedIntent`: `severity` (never low), `score`, `findings` (always `prompt_injection`), `sanitized_body`, `user_intent`, `requested_actions`, `entities`, `stripped_segments`.
-
-**Hands on / who acts.** L3 puts `sanitized_body` in the untrusted channel and the intent, actions and entities in an unmarked "semi-trusted" section. L4 gets stripped text and the model's quoted instructions. L5 turns critical into quarantine, high into human_approval, medium into draft_only. L2 never blocks; its findings are all `prompt_injection`, so alone it cannot trigger the P02 block, though L5 pools threat types across layers.
-
-**Failure behavior.** Exception: HIGH error verdict with an empty `sanitized_body`, so L3 falls back to the raw body; P00 gives human_approval. LLM timeout: regex result kept. Non-JSON answer: silently an empty result, no repair, no error. Schema-invalid JSON: one repair call.
-
-**Blind spots.** Subject never scanned (and copied verbatim into the unmarked intent on the heuristic path); HTML ignored; nothing past 6000 characters; paraphrase; over-stripping.
-
-**Why needed.** L1 only labels, so on non-block outcomes the raw body reaches the reply model unless L2's `sanitized_body` is used; that cleaned text's effect is unmeasured, since only 15 (gpt) and 14 (Qwen) email attacks reached generation. What v1 measures is L2's severity scoring: per-segment scores give 267 (gpt) and 268 (Qwen) criticals against L1's 213. Whether re-tuning L1's thresholds would do the same is not tested. Its AI step flagged no attack L1 missed. It also gives L4 payload evidence.
-
-**v1 benchmark (C3).** L2 flagged 298 (gpt) / 297 (Qwen) of 300 attacks (L1: 299 / 296) and caught only 1 and 3 that L1 missed. It flagged 3 of 150 benign emails (draft_only) and, for gpt-4o-mini only, 89 of 100 RAG emails (section 4.4).
-
-Full card: [layers/L2-user-intent-extractor.md](layers/L2-user-intent-extractor.md)
-
-### L3 - Channel Isolation
-
-**Purpose.** Builds the final prompt so outside text (email, thread history, chunks) is scrubbed of fake markers, capped, marked as "data, never obey" (spotlighting) and kept apart from the operator's trusted instructions. A prompt-assembly layer, not a classifier.
-
-**Input.** Trusted `system_instructions`, `category_instructions`, `business_data`; semi-trusted L2 intent (unscrubbed, unmarked); untrusted email (L2's `sanitized_body`, else raw text), `thread_summary`, `recent_messages` and the chunks that survived L3b. HTML, headers and attachment names are never read.
-
-**How it decides.** No model. (1) A random nonce; (2) scrub untrusted text with two regexes: forged `<<<WORD[:alnum]>>>` markers and 12 chat-template tokens such as `<|im_start|>`; (3) truncate to a shared 6000-token budget; (4) mark the text (default: `datamark`, whitespace becomes `^`); (5) wrap it in nonce-tagged channel markers; (6) add a 6-rule SECURITY RULES preamble. Score from n = markers plus tokens removed: 0 gives none, else `min(0.9, 0.55 + 0.1n)`, so medium or high, never low or critical.
-
-**Output.** The finished prompt (`SecurePrompt`) and a heuristic `LayerVerdict`.
-
-**Hands on / who acts.** Messages go to the reply model. The verdict goes only to the outbound L5 gate (medium gives draft_only, high gives human_approval). L3 blocks nothing; L4 ignores it.
-
-**Failure behavior.** No AI step, no try/except and no fail-closed: an exception reaches the caller.
-
-**Blind spots.** Plain-word injections score 0. The intent block is unmarked, and forged `<<<...>>>` markers are detected by neither L1 nor L2, so they can reach it. The model's obedience is never checked, and preamble rule 6 asks the model to report suspicious text in a `security_notes` field that rag-email's `reply.v1` (the fixed JSON format of the reply) lacks, so that rule cannot be followed in the benchmark. With L3 off, scrubbing and truncation still run.
-
-**Why needed.** Argued by construction only. Nothing else touches thread text; it alone tells the model which regions are data when a detector misses; and it removes forgeries of its own delimiters, which no L1 rule targets. It mitigates and cannot detect semantic attacks.
-
-**v1 benchmark (C3).** L3 ran on 15 (gpt) and 14 (Qwen) email attacks and flagged 1 in each (2 template tokens), 0 of 100 RAG attacks and 0 of 150 benign. No case contains thread-history injection. Its effect is not determined.
-
-Full card: [layers/L3-channel-isolation.md](layers/L3-channel-isolation.md)
-
-### L3b - Retrieved Document Scanner
-
-**Purpose.** Reads each knowledge-base passage (chunk) retrieval returned and removes ("quarantines") those that look like planted RAG poisoning: text meant to steer the reply model's answer.
-
-**Input.** `scan(chunks, query)`: each chunk's content and ids, plus the retrieval query (or the customer's subject and body, 1500 characters). No provenance. Runs only in preset C3 and its ablations.
-
-**How it decides.** Per chunk, independently. (A) The 14 applicable L1 rules. (B) L1's obfuscation checks. (C) English-only heuristics: `answer_forcing` ("always answer that ..."), `instruction_override`, `link_insertion` (an attacker link or contact) and `query_echo` (the chunk begins by repeating the customer's question; 0.75 at 90% word overlap, 0.55 at 70%). `query_echo` targets **PoisonedRAG**, a published attack that prepends the target question to the bad passage so search ranks it first. (D) L1's classifier, if its model file is present. `fused = noisy-OR(highest rule score, classifier)`; quarantine at `fused >= 0.70`, so any single finding of 0.70 or more quarantines. (E) An AI judge, default off, only for 0.30 to under 0.70.
-
-**Output.** Kept chunks plus one verdict per chunk (`quarantined`, `severity`, `score`, `findings`).
-
-**Hands on / who acts.** L3 gets kept chunks only. L4 gets kept chunks as trusted and quarantined excerpts as "injected instructions". L5 gets severities and the quarantine ratio. L3b removes chunks but does not block.
-
-**Failure behavior.** Cheap-stage exception: chunk quarantined, HIGH error verdict; P00 gives human_approval. AI-stage timeout: no retry, cheap verdict kept (fails open). Non-JSON or invalid JSON: one repair call first.
-
-**Blind spots.** Chunk text only, so plainly worded false facts pass. One chunk at a time. `query_echo` is effectively off for accented Vietnamese queries; FAQ chunks that begin with the customer's question are false positives.
-
-**Why needed.** L1 and L2 never see chunks, L3 marks but does not remove poison, and L4 works after generation. Only L3b has answer-steering heuristics and drops whole passages. Limit: it reuses L1's rules and classifier, and one heuristic does almost all the work.
-
-**v1 benchmark** (C3, RAG group, both runs identical, AI stage off). 148 of 382 poisoned chunks quarantined (38.7%), 0 of 96 clean, though the clean chunks may also be classifier negatives (overlap not checked). 141 of 148 rest on `query_echo`. Goal reached in 1 of 46 quarantine cases (gpt) and 3 of 46 (Qwen), against 31 of 54 and 36 of 54 without.
-
-Full card: [layers/L3b-retrieved-document-scanner.md](layers/L3b-retrieved-document-scanner.md)
-
-### L4 - Output Scanner
-
-**Purpose.** Reads the finished draft for leaked secrets or personal data, leaked instructions, invented citations, an attacker's payload echoed back, forwarding to outsiders and odd links. It masks secrets and personal data and reports the rest to L5.
-
-**Input.** The draft body (`reply.v1` has no subject or recipients), the inbound email, L2's intent, ids of chunks kept by L3b, the system and category prompts, L1's indicators, and injected instructions collected from L1's judge, L2 and L3b.
-
-**How it decides.** Six deterministic stages, all always run; score = maximum finding score.
-1. 16 sensitive-pattern regexes: critical (API keys, private key, Luhn-valid card), high (JWT, password, OTP, SSN, IBAN), medium (phone, email, internal markers). Personal data the customer wrote is exempt; secrets never are.
-2. Protected-text leak: 8-word overlap with the system or category prompt, high.
-3. Citation integrity: chunk id not among kept chunks, medium.
-4. Injected goal: an indicator address or link in the draft, or a 6-word overlap with an injected instruction, high. No exemption for the customer's own address.
-5. Unsafe action: forward or outside recipient, high.
-6. External link: URL not in chunks, the email or an allowed domain, medium.
-
-An optional AI judge (off) can only raise the score.
-
-**Output.** `OutputVerdict`: `severity`, `score`, `findings`, `redacted_text`, `citation_mismatch`, `complied_with_injected_goal`.
-
-**Hands on / who acts.** L5: P01 quarantine on critical, P02 block on high secret or prompt leak, P03 block on goal compliance, P05 or P07 human approval, P08 draft only. L4 blocks nothing itself, but `run()` swaps in `redacted_text`.
-
-**Failure behavior.** Exception: HIGH error verdict and an emptied draft; P00 gives human_approval. AI-stage timeout: no retry, cheap verdict kept. Non-JSON or invalid JSON: one repair call first.
-
-**Blind spots.** Literal matching: paraphrases pass, accented text breaks the tokenizer, text-only attacks with no address, link or extracted instruction are invisible. Stage 4 flags any echo of an inbound address or link, so a benign reply repeating one is blocked by P03.
-
-**Why needed.** No earlier layer sees the draft, and a high L1 score does not always stop generation (11 gpt and 10 Qwen high-L1 emails were still generated). Only L4 sees model-time failures and rewrites text. Limit: it depends on L1 and L2 for its injected-goal inputs.
-
-**v1 benchmark (C3, AI stage off).** 0 secret leaks, 0 prompt leaks and 0 unsafe actions, so those checks are unexercised. It flagged 2 of the 15 (gpt) and 6 of the 14 (Qwen) email-attack drafts (true-catch status not determined) and 0 of 150 benign emails, but those retrieve no chunks and none contains a link or an address besides the sender's, so the stage-4 false-positive risk is untested. RAG blocks: section 4.3.
-
-Full card: [layers/L4-output-scanner.md](layers/L4-output-scanner.md)
-
-### L5 - Policy Engine
-
-**Purpose.** Turns the other layers' verdicts into one action (`quarantine`, `block`, `human_approval`, `draft_only`, `auto_send`) using an ordered YAML rule list. It detects nothing.
-
-**Input.** `decide(report, stage, category, draft_action)`. From the L1 to L4 verdicts it derives only summary facts: max severity, threat-type union, layer error, quarantine ratio, removed ratio, L4 flags. These are pooled across layers, so a "high with an exfiltration type" need not be one finding or one layer. It never reads text. Stage is `inbound` (after L1 and L2) or `outbound` (after L4).
-
-**How it decides.** No model, no score formula. The rule with the lowest priority number whose conditions all match wins (policy `2026.09-v1`, 12 rules): P00 layer error gives human_approval; P01 critical gives quarantine; P02 high plus exfiltration, tool-abuse, secret or prompt-leak type gives block; P03 outbound goal compliance gives block; P04 to P09 escalate to human_approval or draft_only; P10 is the only auto_send path (outbound, severity at most low, category acknowledgement or scheduling); P99 default draft_only. The **risk tier** follows max severity (T0 clean to T4 critical). Order is by priority, not strictness, so P00 pre-empts P01.
-
-**Output.** `PolicyDecision`: `audit_id` (a fingerprint of the decision inputs), `action`, `risk_tier`, `matched_rule_id`, `reasons`, `requires_human`, `quarantined_chunk_ids`.
-
-**Hands on / who acts.** The pipeline stops before L3b, L3 and generation only on an inbound block or quarantine (the guard worker's path for a job that already carries a draft does not stop even then). Everything else is left to the dispatcher (not determined): `human_approval` and `draft_only` are only labels, and the benchmark scores them as delivered drafts.
-
-**Failure behavior.** `decide` has no try/except; the **guard worker** (the service that runs the guard per queued job) turns an exception into an error message. A missing policy file makes every decision draft_only. A crashed layer triggers P00.
-
-**Blind spots.** It trusts other layers and uses maximum severity only. Other high findings get human approval and generation still runs. `auto_send` depends on the triage category label; its share of mail and miss rate are not given. P06 cannot fire (P05 pre-empts it), P04 duplicates P05 and P09 never decides alone.
-
-**Why needed.** Every other layer scores or filters; none decides. With L5 off, nothing ever stops the pipeline. L5 also acts on signals L1 never sees (RAG quarantine ratio, L4 goal compliance, citation mismatch), handles crashed layers and grades responses. It adds no detection.
-
-**v1 benchmark (C3).** Blocks: 317 (gpt) and 316 (Qwen) of 400 attacks (inbound quarantine 281 and 282, inbound block 4 and 4, outbound P03 32 and 30); 0 of 150 benign blocked. No LLMail attack achieved its goal (0 of 300) against 162 and 155 unguarded; on RAG, 32 and 39 of 100 still did (79 and 91 unguarded).
-
-Full card: [layers/L5-policy-engine.md](layers/L5-policy-engine.md)
+**Everything in sections 4 and 5 was measured on the six-layer v1 guard (guard commit 81df5d07) and uses
+its layer names.** Mapping to v3: v1 L1 scanner and L2 extractor = the two sub-stages of the v3 L1 Inbound
+Guard; v1 L3b document scanner = the v3 L2 Doc Scanner (which now also runs before the gate); v1 L5 =
+the shared policy engine, used by the v3 L3 Inbound Gate (inbound) and L4 Output Guard (outbound); v1 L3
+channel isolation = the v3 channel isolation switch (ablation C3-ISO); v1 L4 = the v3 L4 Output Guard.
+These results are not v3 results and are not comparable with them; the committed run folders are
+re-read with `make mailguard-report RUN=<id> LEGACY=1`.
 
 ## 4. Why one layer is not enough
 
@@ -523,17 +424,21 @@ thresholds of 0.0056 and 0.005). One sample per case and one reply model. The re
 stopped each attack" table counts blocks only, so a chunk that L3b quarantined without a block shows
 up as "the model did not follow the injection". Qwen2.5-7B may repeat the run under the same design.
 
+
 ## 6. Scope and assumptions
 
 - **What "dangerous" means.** Text that looks like prompt injection into the reply model, plus what
   follows in the draft or from poisoned documents. AgentMailGuard is not spam, phishing or malware
   filtering, access control, encryption or general data-leak prevention (03-agentmailguard.md); L1's
   `phishing_lure` rule only adds to a score. Business e-mail compromise is not addressed.
-- **Attacker assumed.** Can send email and plant knowledge-base documents (the L3b premise). Not
-  tested: an attacker who adapts to this guard; the attack set is fixed public data.
-- **The guard's own AI stages can be attacked.** L1's judge can lower a verdict, and L2's paraphrase
-  enters the prompt unmarked. In each run the reply model and the guard AI stages are the same model,
+- **Attacker assumed.** Can send email and plant knowledge-base documents (the Doc Scanner premise).
+  Not tested: an attacker who adapts to this guard; the attack set is fixed public data.
+- **The guard's own AI stages can be attacked.** L1's judge can lower a verdict, and the extractor's
+  paraphrase enters the prompt unmarked as a semi-trusted fact; the set judge's reason text is model
+  output and untrusted. In a benchmark run the reply model and the guard AI stages are the same model,
   so a model that obeys an injection may also miss it. Not measured.
+- **Host hooks are out of scope here.** The host-side consumers of chunk `trust` are the separate
+  ADR-0016 and are not built.
 
 ## 7. Glossary
 
@@ -541,8 +446,8 @@ up as "the model did not follow the injection". Qwen2.5-7B may repeat the run un
 |---|---|
 | Ablation | Removing one part at a time to measure what it contributes |
 | ASR | Attack success rate: the share of attacks that reached their goal, by the benchmark's string-match rule |
-| Audit id | A fingerprint of an L5 decision's inputs, for tracing |
-| Block, quarantine, human approval, draft only, auto-send | L5's actions: stop with a reason; set aside; a person must approve; keep as a draft for review; send without review |
+| Audit id | A fingerprint of a gate decision's inputs, for tracing |
+| Block, quarantine, human approval, draft only, auto-send | The policy engine's actions: stop with a reason; set aside; a person must approve; keep as a draft for review; send without review |
 | Chunk | A short piece of a knowledge-base document returned by the search |
 | Classifier, TF-IDF | A program that learned from labeled examples to sort text (here a logistic-regression model) and the word-weighting scheme it reads |
 | Dispatcher, guard worker | The mail-sending component outside this repository; the service that runs the guard per queued job |
@@ -552,10 +457,13 @@ up as "the model did not follow the injection". Qwen2.5-7B may repeat the run un
 | Near-duplicate | A text whose cosine similarity (0 to 1, how alike two texts are) to another is 0.9 or more |
 | Noisy-OR | Combining scores as 1 - (1 - a)(1 - b) so either can raise the result |
 | n-gram, regex | A run of n consecutive words or characters; a text pattern such as "ignore ... instructions" |
-| P00 to P99 | The rows of L5's rule table; the lowest-numbered matching row decides |
+| P00 to P99 | The rows of the policy rule table; every matching row is collected and the strictest action wins |
 | PoisonedRAG, seed_rag | A published attack that plants question-first passages in a knowledge base; the benchmark's other 11 RAG attack cases |
 | RAG | Retrieval-augmented generation: the AI answers using passages the search found |
 | reply.v1 | The fixed JSON format rag-email requires of the reply model; it has no subject, recipients or `security_notes` field |
-| Risk tier T0 to T4 | L5's label from max severity: clean, low, medium, high, critical |
+| Risk tier T0 to T4 | The policy's label from max severity: clean, low, medium, high, critical |
 | Spotlighting, datamarking | Marking untrusted text (here replacing spaces with `^`) so the model can tell data from orders |
 | Wilson interval | A 95% range around a percentage that stays valid for small counts and zero |
+| Inbound floor | The inbound gate's decision carried into L4's final decision so that the strictest action wins across both |
+| Gate pass | One evaluation of the inbound policy: pass 1 on L1's facts, pass 2 on every fact |
+| Trust (of a chunk) | The Doc Scanner's label: trusted, untrusted or quarantined |

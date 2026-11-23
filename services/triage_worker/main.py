@@ -26,8 +26,9 @@ from packages.db.message import MessageStore, PostgresMessageStore
 from packages.domain.templates import TemplateRegistry
 from packages.llm import InstrumentedLLMProvider
 from packages.llm.budget import CallKind
-from packages.llm.factory import create_llm_provider
 from packages.llm.inference_metrics import start_token_counter_warmup
+from packages.llm.live_models import load_live_models
+from packages.llm.model_profile import build_profile_provider
 from packages.observability.metrics import PipelineMetrics
 from packages.observability.shutdown import GracefulShutdownCoordinator
 from services.triage_worker.cascade import CascadingTriageEngine
@@ -127,12 +128,19 @@ def build_triage_consumer(
             "LLM provider is 'fake': Stage 3 triage returns FakeLLMProvider's canned "
             "classification. Set LLM__PROVIDER for real classification."
         )
+    live_models = load_live_models(settings.demo.live_models_path)
     llm_classifier = LLMTriageClassifier(
         provider=InstrumentedLLMProvider(
-            create_llm_provider(settings.llm),
+            # fake and live, picked per job by run_options.model_profile (ADR-0018, R25.3)
+            # plus the catalog's live models with a key set (ADR-0019, task 9.16)
+            build_profile_provider(
+                settings.llm,
+                fault_markers=settings.demo.fault_markers_active,
+                live_models=live_models,
+            ),
             kind=CallKind.TRIAGE,
             metrics=metrics,
-            price_table=settings.llm.price_table,
+            price_table=live_models.with_prices(settings.llm.price_table),
         )
     )
 

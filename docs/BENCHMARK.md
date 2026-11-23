@@ -1,6 +1,27 @@
-# Running the v2 benchmark on your laptop
+# Running the v3 benchmark on your laptop
 
-This guide is for the teammate who runs the benchmark on a Windows 11 laptop. You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
+## Expanded v3 pinned dataset (2026-10-18)
+
+Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
+emails (all 203 LLMail FP emails plus 297 seeded Enron ham emails), and 300
+poisoned-document cases (222 valid PoisonedRAG questions, 18 seed cases, and
+60 explicitly labeled `synthetic_poison_v1` cases). Synthetic cases use six
+fictional policies and ten instruction payload templates; they are not independent
+real-world observations. Source labels remain available for separate reporting.
+The historical manifest key `llmail_benign` now includes both benign sources.
+The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
+
+The two v3 configs (C0 and C3, ADR-0017) give 3,600 case runs per model (until
+ADR-0017 there were nine default configs, 16,200 case runs). Earlier 550-case
+timing/cost estimates below describe the old dataset
+and should not be used for this expansion. Existing run folders keep their own pins;
+use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
+
+Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
+`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
+Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
+
+This guide is for the teammate who runs the benchmark on a Windows 11 laptop. The benchmark is **scheme v3** (ADR-0015): the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) and a channel-isolation switch, and since ADR-0017 the configs are `C0` (rag-email alone) and `C3` (the full guard) only (meanings in D5). The run times, request counts and costs below were estimated for the earlier v2 stage list and for nine configs, and have **not been re-measured for v3** or for the two configs of ADR-0017 (the v3 run, plan_v3 Task 16, does that). The guard pin that `make mailguard-worktree` checks is the v3 guard (`d95e542`). You run three models, one after the other, through the same pipeline the owner built. **All three are cloud models** (owner decision 2026-10-01, ADR-0014): `gpt-4o-mini` through the OpenAI API, and Qwen2.5-7B and Llama-3.1-8B through OpenRouter, each pinned to one provider. Nothing runs on your GPU. Everything below is typed in an **Ubuntu window inside Windows** (WSL2), except the few steps marked "in PowerShell".
 
 ```
   Windows 11 Home laptop
@@ -30,8 +51,8 @@ This guide is for the teammate who runs the benchmark on a Windows 11 laptop. Yo
 - **Time, an estimate:** a full model is 9 configs x 550 cases = 4,950 case runs. For `gpt-4o-mini`, about 3 s per case and config at concurrency 2 (the owner's 7-case smoke run), so roughly **4 to 6 hours**. The two OpenRouter models were **not measured**: plan 4 to 8 hours each. The meaning column (D7) reads up to about 3,600 drafts per model, about 1 to 3 hours each. That is about 15 to 25 hours for everything: **plan an overnight window**, not a working day. The kit writes `evaluation/results/mailguard_bench/<RUN>/kit-log.jsonl`, one JSON line per finished step with its times: after your first model, its lines are the real estimate for the next two; please send it back with the results (part F). A stopped run resumes where it stopped (D5), so the hours do not need to be in one sitting.
 - **A schedule.** The steps between two models need you at the keyboard; they cannot run unattended overnight. **The day before (Thursday):** the keys, OpenRouter credit (it can take up to an hour to show, E1), billing on the Google project if your embedding or your reader is a Gemini model (part C), and that your accounts cover "What one model run needs" (below). Also update your clone (part B). **Friday morning:** parts A to D3, then the doctor and the small trial for `gpt-4o-mini` (D2, D4), then its run, while you are there to watch its first configs. **After it:** the credit check, canary, probe and trial for Qwen2.5-7B (E2, E3, D4), then its run; then the same for Llama-3.1-8B, whose run can go overnight once its first configs look right. The meaning column of a finished model (`make bench-report`, D7, no Docker) may run while the next model runs: it reads another run folder. The one exception: a Gemini reader together with a Gemini embedding share one Google project's quota, so then build the meaning columns after the last run.
 - **Cost, an estimate** (ADR-0014): about $1.5 to $2 per full `gpt-4o-mini` run, about $1 for Qwen2.5-7B and $2 for Llama-3.1-8B (E1). The embedding and the reader come on top, at their providers' prices. Leave room for the trials and the retry passes.
-- **What one model run needs** (owner decision 2026-10-01, ADR-0014): check that your accounts cover it. Estimates from the code's calls per case and the owner's v1 run's measured tokens per call; none of the three Friday models has been measured on the full v2 run:
-  - `gpt-4o-mini` (OpenAI): **about 8,000 to 11,000 requests** per run (9 configs x 550 cases: at most one reply per case, the triage model when the rules and the classifier are unsure, and the guard's model calls in `C1`, `C2`, `C4`, `C5` and `C7`), about 4 to 8 million input and 1 to 1.5 million output tokens, about $1.5 to $2.
+- **What one model run needs** (owner decision 2026-10-01, ADR-0014): check that your accounts cover it. Estimates from the code's calls per case and the owner's v1 run's measured tokens per call; none of the three Friday models has been measured on a full run, and these are v2 estimates not re-measured for v3, where each config runs every judge of its layers (up to five guard calls per job):
+  - `gpt-4o-mini` (OpenAI): **about 8,000 to 11,000 requests** per run (9 configs x 550 cases: at most one reply per case, the triage model when the rules and the classifier are unsure, and the guard's model calls in every config that runs a guard layer), about 4 to 8 million input and 1 to 1.5 million output tokens, about $1.5 to $2.
   - Qwen2.5-7B and Llama-3.1-8B (OpenRouter): the same requests and about the same tokens per run, about $1 and $2 of credit (E1).
   - The embedding: **about 6,000 to 10,000 requests per model run**, so about 18,000 to 30,000 for the three: the 567 knowledge documents of the 100 RAG cases in each of the 9 configs (about 5,100 requests, one per document) plus one query per drafted email that retrieves (up to about 4,950), about 1 to 1.5 million tokens per model run.
   - The reader (D7): up to about 3,600 reads per model.
@@ -296,7 +317,7 @@ The reader is reached through the `LLM__*` settings of the process that runs it,
 make mailguard-worktree
 ```
 
-The guard (AgentMailGuard) comes with the clone, in `agentmailguard/`. `make mailguard-worktree` only checks that this folder is exactly the commit the benchmark pins (`915cb1e2b86395e4389673deb9914308cc39627b`) and unmodified, and prints `ok AgentMailGuard subtree ... @ 915cb1e...`; it changes nothing. `make bench-setup` (D3) checks the same, and the doctor (D2) fails on a guard that is not at the pin.
+The guard (AgentMailGuard) comes with the clone, in `agentmailguard/`. `make mailguard-worktree` only checks that this folder is exactly the commit the benchmark pins (`d95e542c616ca9ef4fee067a0862816004fffac3`, the v3 guard) and unmodified, and prints `ok AgentMailGuard subtree ... @ d95e542...`; it changes nothing. `make bench-setup` (D3) checks the same, and the doctor (D2) fails on a guard that is not at the pin.
 
 Now the classifier. The owner sends you `l1_injection_clf_v1.joblib` privately (it is not in git, see "What you need"). Save it on Windows, for example in Downloads, copy it into the repository folder (replace `<your Windows name>`), and check its fingerprint:
 
@@ -350,12 +371,12 @@ make bench-run MODEL=qwen2.5-7b-openrouter RUN=2026-10-02-qwen25-openrouter-live
 make bench-run MODEL=llama-3.1-8b-openrouter RUN=2026-10-02-llama31-openrouter-live CONCURRENCY=2
 ```
 
-`CONCURRENCY=2` for all three; never more. The configs default to the v2 list `C0, C0T, C1` to `C7` (`C0` is rag-email alone; `C0T` the guard's reply template with no layer active; `C1` to `C5` one detection layer each (L1, L2, L3, L3b, L4) together with the policy layer L5; `C6` the policy layer alone; `C7` the full guard); `CONFIGS=C0,C7` runs only those, `LIMIT=5` runs only the first five cases of each config, and `CASE_IDS=<id>,<id>,...` runs only those cases of each config (a trial, below; its `RUN` must start with `trial`).
+`CONCURRENCY=2` for all three; never more. The configs default to the v3 campaign `C0, C3` (`C0` is rag-email alone; `C3` is the full guard, the target). They are the only v3 configs since ADR-0017: `C0T`, `C1`, `C2`, `C3-L1` to `C3-L4` and `C3-ISO` are refused. A judge that fails fails closed (human review, `judge_invalid:<stage>`). `make bench-run` has no `JUDGE_FALLBACK` option (the visible v2 fallback exists only for `make mailguard-bench`). `CONFIGS=C0` or `CONFIGS=C3` runs only that one, `LIMIT=5` runs only the first five cases of each config, and `CASE_IDS=<id>,<id>,...` runs only those cases of each config (a trial, below; its `RUN` must start with `trial`).
 
 **Do a small trial first**, under a throwaway name, and read what it says. It runs one LLMail attack, one benign email and one RAG case, so it also uploads (and embeds) the RAG case's knowledge documents:
 
 ```bash
-make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C0T,C7 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
+make bench-run MODEL=gpt-4o-mini RUN=trial-gpt CONFIGS=C0,C3 CASE_IDS=attack-llmail-01d16d4e4af9,benign-llmailfp-0,attack-prag-hotpotqa-5a76e88555429972597f13f4 CONCURRENCY=1
 ```
 
 It costs a few calls. `CASE_IDS` only picks cases the config runs anyway; the pinned case file and the full run's selection are not changed, and the kit refuses it unless `RUN` starts with `trial`. Do the same for each OpenRouter model before its run, after its canary (`RUN=trial-qwen` and `RUN=trial-llama`, with its `MODEL=`), and run the report of one trial with your reader (`make bench-report RUN=trial-gpt READER=<your reader model>`, with the `LLM__` words of D7) so the reader's endpoint is tried once.
@@ -371,7 +392,7 @@ This prints one line per case of the trial (no key, no email text):
 
 ```bash
 RUN=trial-gpt
-for c in C0 C0T C7; do python3 -c "
+for c in C0 C3; do python3 -c "
 import json, sys
 latest = {}
 for line in open(sys.argv[1]):
@@ -384,7 +405,7 @@ for row in latest.values():
 
 If the trial passes, delete its folder (`rm -r evaluation/results/mailguard_bench/trial-gpt`): a trial folder is never a result. If it does not, send the owner its lines and the kit's output.
 
-**What the trial does and does not test.** Its RAG case uploads six knowledge documents (five poisoned, one clean; each chunk of the case is its own document), so the trial embeds documents through the knowledge-worker; whether that email is then routed to retrieval is triage's call (`retrieved:` in its line). A trial is three cases of three configs, not the run's mix: watch `C0`'s lines when they reach the RAG cases of the real run (case ids starting `attack-prag-` or `attack-seedrag-`, the last 100 of each config): each must start with `ok`. If they start with `error`, press Ctrl+C, check the embedding (part C, and the embedding rows of G), and run the same command again. `LIMIT=5` instead runs the first five cases of each config, all LLMail attacks: no benign email and no RAG case. (The owner's own preflight, `docs/demo-runbook.md` section 9.9 step 5, runs all nine configs; this trial runs three.)
+**What the trial does and does not test.** Its RAG case uploads six knowledge documents (five poisoned, one clean; each chunk of the case is its own document), so the trial embeds documents through the knowledge-worker; whether that email is then routed to retrieval is triage's call (`retrieved:` in its line). A trial is three cases of three configs, not the run's mix: watch `C0`'s lines when they reach the RAG cases of the real run (case ids starting `attack-prag-` or `attack-seedrag-`, the last 100 of each config): each must start with `ok`. If they start with `error`, press Ctrl+C, check the embedding (part C, and the embedding rows of G), and run the same command again. `LIMIT=5` instead runs the first five cases of each config, all LLMail attacks: no benign email and no RAG case. (The owner's own preflight, `docs/demo-runbook.md` section 9.9 step 5, runs every config of the campaign; this trial runs three.)
 
 What the run does for you, in the order of the owner's runbook (section 9.9, steps 3 to 7): it writes the model's container settings, makes the one embedding call of part C and refuses to go on unless it returns a 1536-wide vector, and recreates the four model-calling containers with the settings (it prints the model, for an OpenRouter model the pinned provider, and the embedding); for each config it switches which process drafts (the `ai-worker` container for `C0`, the guard-worker, a process on your machine, for every other config), waits until it is ready, runs the cases, stops it, and saves the containers' log lines of that config; then it makes one retry pass over the configs that left errors, and builds the reports. If a quota or a credit runs out, or the route of an OpenRouter model stops serving, the whole run stops (part E4).
 
@@ -410,6 +431,8 @@ If something stops (Ctrl+C, a power cut, sleep, a network failure, a `STOP` of t
 Nothing the kit prints or logs contains a key.
 
 ### D7. Reports and the meaning column
+
+**Reading a result.** `make mailguard-report RUN=<id>` scores a scheme v3 run and refuses an older folder. Its report adds, beside the ASR tables, a "Config scheme v3" section, the exit points per config (`gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`), the inbound floor, guard calls per stage (the stages `inbound_scan`, `inbound_extract`, `doc_chunk`, `doc_set`, `output`), the fail-closed events, route metrics and the guard's overhead per job. `make mailguard-analyses RUN=<id>` runs the no-API analyses of a v3 folder. A committed v1 or v2 folder is re-read, never re-scored or re-run, with `make mailguard-report RUN=<id> LEGACY=1`; it prints the old tables from the committed outputs and writes nothing.
 
 The run builds `report.md` itself; its "Run setup" section names the model, the pinned provider and the providers that served the calls, and the embedding. The meaning column needs your reader model. Run it for a finished model like this, with the reader's key in `.env` as `LLM__OPENAI_API_KEY` (part C) and its provider and URL given on the command line (the two `LLM__` words before `make` apply to that one command only; nothing is exported). With a Gemini reader:
 
@@ -522,7 +545,7 @@ When every model's run is finished and sent: delete `.env.stack` (it holds your 
 | Doctor: `line endings: N tracked text files have CRLF` | The clone was made by Git for Windows, or under `/mnt/c`. Clone again inside Ubuntu, in `~/work` (part B). |
 | `permission denied while trying to connect to the Docker daemon socket` | You are not in the `docker` group yet: `sudo usermod -aG docker $USER`, close the Ubuntu window and open a new one. |
 | `Cannot connect to the Docker daemon` | Docker is not running. `sudo systemctl start docker`. If it says there is no systemd, part A2. |
-| `port is already allocated` or doctor `ports: in use by another program` | Another program holds a port the stack needs (Postgres 5433, RabbitMQ 5672 and 15672, MinIO 9010 and 9011, Prometheus 9090, Grafana 3002, the API 8000, the review UI 3001, the guard-worker 8014). Find it with `ss -ltnp \| grep :<port>` inside Ubuntu, or `netstat -ano \| findstr :<port>` in PowerShell, and stop it. |
+| `port is already allocated` or doctor `ports: in use by another program` | Another program holds a port the stack needs (Postgres 5433, RabbitMQ 5672 and 15672, MinIO 9010 and 9011, Prometheus 9090, Grafana 3002, the API 8000, the review UI 3001, the demo console 3003, the guard-worker 8014). Find it with `ss -ltnp \| grep :<port>` inside Ubuntu, or `netstat -ano \| findstr :<port>` in PowerShell, and stop it. |
 | Builds or containers are killed, `docker memory` fails | WSL has too little memory: part A3, then `wsl --shutdown`. |
 | `the embedding check refused this run` | `make bench-run`'s one embedding call (part C) failed: the message names why (another width than 1536, `dimensions` rejected, the key, the model or URL, a used-up quota, or a per-minute rate limit twice: the kit waits out the first one). Fix it in `.env` (part C) or restore the quota, then the same command again. Nothing else ran. |
 | `429` from the embedding endpoint (Gemini says `RESOURCE_EXHAUSTED`) | A per-minute limit: the services retry it. A used-up quota or a daily limit stops the run (`STOP ... quota_exhausted`, E4). Gemini applies limits per project, not per key (AI Studio shows them). Raise or restore the limit, then the same command again. |
@@ -676,7 +699,7 @@ ollama run llama3.1:8b "Reply with OK"
 make bench-run MODEL=llama-3.1-8b-local RUN=<date>-llama31-local-live CONCURRENCY=1
 ```
 
-Do a small trial first for each local model too (D4), after loading it: `make bench-run MODEL=qwen2.5-7b RUN=trial-qwen CONFIGS=C0,C0T,C7 LIMIT=5 CONCURRENCY=1`. A local model answers slowly (about 10 s per case on the owner's desktop), so the trial is a few minutes, not seconds.
+Do a small trial first for each local model too (D4), after loading it: `make bench-run MODEL=qwen2.5-7b RUN=trial-qwen CONFIGS=C0,C3 LIMIT=5 CONCURRENCY=1`. A local model answers slowly (about 10 s per case on the owner's desktop), so the trial is a few minutes, not seconds.
 
 ---
 
@@ -704,4 +727,4 @@ External facts in this guide come from these pages, read on 2026-09-30, and for 
 
 The run times in "What you need" and appendix L are the owner's own, from a 7-case smoke run on 2026-09-30/10-01 on the owner's desktop (RTX 3060, 12 GB); they are not from a page, and the two OpenRouter models were not measured. The decisions cited are in `docs/adr/0012-post-review-v2-done-fixes-and-main.md` (15: the classifier is not redistributed; 16: Docker Engine inside WSL2 is the primary route). `socat`'s option syntax (`TCP-LISTEN`, `bind=`, `reuseaddr`, `fork`): its manual page, `man socat`, after `sudo apt install socat`.
 
-The procedure itself is the owner's runbook, `docs/demo-runbook.md` section 9.9 (9.10 for the OpenRouter route, 9.8 for the local models); this guide is the same steps, run by the kit. The decision for the cloud route is `docs/adr/0014-full-cloud-route-for-the-v2-benchmark.md`.
+The procedure itself is the owner's runbook, `docs/demo-runbook.md` section 9.9 (9.10 for the OpenRouter route, 9.8 for the local models); this guide is the same steps, run by the kit. The decision for the cloud route (written for the v2 benchmark, amended by ADR-0015) is `docs/adr/0014-full-cloud-route-for-the-v2-benchmark.md`.

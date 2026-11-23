@@ -31,6 +31,7 @@ from packages.broker.retry import (
     handle_job_transient_failure,
     is_valid_uuid,
 )
+from packages.core.run_context import run_options_scope
 from packages.core.settings import BrokerSettings, RetryLadderSettings, WorkerConcurrencySettings
 from packages.observability.context import bind_log_context
 from packages.observability.metrics import PipelineMetrics
@@ -292,8 +293,10 @@ class BaseBatchConsumer(BaseConsumer):
                             "Failed to acquire lease for job %s: %s", envelope.job_id, lease_err
                         )
 
-                # Independent job processing — strictly separate prompt/inference (R3.7)
-                await self.process_job(envelope, message)
+                # Independent job processing — strictly separate prompt/inference (R3.7),
+                # under the job's run options (R25.3)
+                with run_options_scope(envelope.run_options):
+                    await self.process_job(envelope, message)
             except Exception as exc:
                 should_retry = self.is_transient_error(exc) and (
                     envelope.attempt < self.retry_settings.max_retries

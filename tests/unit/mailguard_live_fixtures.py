@@ -20,6 +20,7 @@ OUTCOMES = ("drafted", "early_exit", "template", "blocked_inbound", "blocked_out
 def live_meta(base: dict[str, Any]) -> dict[str, Any]:
     """A run meta of the live pipeline: ``base`` plus the keys package D adds to the fingerprint."""
     return {
+        "scheme": "v3",
         **base,
         "transport": "services-v2",
         "reranker": {"enabled": True, "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"},
@@ -96,9 +97,13 @@ def live_row(
         if reached
         else {"guarded_total": 0, "generation": 0, "guard": 0},
         "report": (
-            {"decision": {"action": "block", "matched_rule_id": "P10"}}
+            {"schema_version": 3, "decision": {"action": "block", "matched_rule_id": "P10"}}
             if blocked
-            else ({"decision": {"action": decision}} if guarded and reached else None)
+            else (
+                {"schema_version": 3, "decision": {"action": decision}}
+                if guarded and reached
+                else None
+            )
         ),
         "system_instructions": "You are the support agent.",
         "pipeline": {

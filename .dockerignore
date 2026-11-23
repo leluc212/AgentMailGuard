@@ -20,13 +20,24 @@
 # Not needed at runtime (artifacts/models IS needed)
 artifacts/superpowers
 # evaluation/ holds the benchmark and the pinned L1 joblib (evaluation/mailguard_bench/pinned);
-# agentmailguard/ is the guard subtree (task 7.24). No container imports either.
+# no container imports it. agentmailguard/ is the guard subtree (task 7.24): since ADR-0018
+# decision 6 the image ships its library (mailguard/) and configs (configs/) only; its own
+# services/, evaluation/, training/ and any trained model stay out (the private L1 classifier is
+# mounted read-only at run time, never baked in).
 evaluation
-agentmailguard
+agentmailguard/*
+!agentmailguard/mailguard
+!agentmailguard/configs
+agentmailguard/**/__pycache__
 docs
 tests
 scripts
 e2e_demo
+# The demo console builds from its own context (services/demo_ui, own .dockerignore); its
+# node_modules holds symlinks the API build context cannot send.
+services/demo_ui
+z*.txt
+z_shots
 files.zip
 .agent
 .agents

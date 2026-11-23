@@ -1,0 +1,37 @@
+figure,panel,series,group,metric,k,n_scored,n_planned,pct,ci95_lo,ci95_hi
+fig1,llmail,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),644,982,1000,65.58,62.55,68.49
+fig1,llmail,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig1,rag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),56,300,300,18.67,14.66,23.46
+fig1,rag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),179,300,300,59.67,54.03,65.06
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0,Defense rate (%),644,982,1000,65.58,62.55,68.49
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0T,Defense rate (%),626,981,1000,63.81,60.76,66.76
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C1,Defense rate (%),972,984,1000,98.78,97.88,99.30
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C2,Defense rate (%),971,983,1000,98.78,97.88,99.30
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0,Defense rate (%),56,300,300,18.67,14.66,23.46
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0T,Defense rate (%),59,300,300,19.67,15.56,24.54
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C1,Defense rate (%),60,300,300,20.00,15.87,24.89
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C2,Defense rate (%),132,300,300,44.00,38.49,49.66
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),179,300,300,59.67,54.03,65.06
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L1,Defense rate (%),685,984,1000,69.61,66.67,72.41
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L2,Defense rate (%),982,982,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L3,Defense rate (%),983,983,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L4,Defense rate (%),970,983,1000,98.68,97.75,99.23
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-ISO,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),179,300,300,59.67,54.03,65.06
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L1,Defense rate (%),182,300,300,60.67,55.04,66.03
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L2,Defense rate (%),69,300,300,23.00,18.60,28.09
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L3,Defense rate (%),175,300,300,58.33,52.68,63.77
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L4,Defense rate (%),134,300,300,44.67,39.14,50.32
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-ISO,Defense rate (%),180,300,300,60.00,54.36,65.38
+fig4,poisonedrag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),11,222,222,4.95,2.79,8.65
+fig4,poisonedrag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),101,222,222,45.50,39.08,52.07
+fig4,seed_rag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,5,18,18,27.78,12.50,50.87
+fig4,seed_rag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,18,18,18,100.00,82.41,100.00
+fig4,synthetic_poison_v1,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,40,60,60,66.67,54.06,77.27
+fig4,synthetic_poison_v1,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,60,60,60,100.00,93.98,100.00
+fig5,FPR,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",False-positive rate (%),0,499,500,0.00,0.00,0.76
+fig5,FPR,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",False-positive rate (%),7,500,500,1.40,0.68,2.86
+fig5,benign_utility,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Benign utility (%),281,499,500,56.31,51.93,60.60
+fig5,benign_utility,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Benign utility (%),282,500,500,56.40,52.02,60.68

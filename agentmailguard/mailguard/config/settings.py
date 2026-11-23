@@ -2,13 +2,63 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# v2 environment keys and their v3 replacements (ADR-0015 decision 6: hard rename, no aliases).
+# A key ending in "__" is a prefix: the rest of the key is kept (L4__REDACT_PII ->
+# OUTPUT_GUARD__REDACT_PII). Exact keys are listed before the prefix they would also match.
+LEGACY_ENV_KEYS: dict[str, str] = {
+    "L1__LLM_ENABLED": "INBOUND_GUARD__SCAN_LLM_ENABLED",
+    "L1__": "INBOUND_GUARD__",
+    "L2__LLM_ENABLED": "INBOUND_GUARD__EXTRACT_LLM_ENABLED",
+    "L2__": "INBOUND_GUARD__",
+    "L3__": "CHANNEL_ISOLATION__",
+    "L3B__": "DOC_SCANNER__",
+    "L4__": "OUTPUT_GUARD__",
+    "L5__": "POLICY__",
+    "GUARD_MODELS__JUDGE": "GUARD_MODELS__INBOUND_JUDGE",
+    "GUARD_MODELS__EXTRACTOR": "GUARD_MODELS__INBOUND_EXTRACTOR",
+    "GUARD_MODELS__DOC_SCANNER": "GUARD_MODELS__DOC_JUDGE",
+}
+
+
+class LegacyConfigError(ValueError):
+    """A v2 guard environment key is set; the message names its v3 replacement."""
+
+
+def legacy_replacement(key: str) -> str | None:
+    """The v3 key for a v2 guard key (case-insensitive), None if ``key`` is not a v2 key."""
+    upper = key.upper()
+    if upper in LEGACY_ENV_KEYS and not upper.endswith("__"):
+        return LEGACY_ENV_KEYS[upper]
+    for old, new in LEGACY_ENV_KEYS.items():
+        if old.endswith("__") and upper.startswith(old) and len(upper) > len(old):
+            return new + upper[len(old) :]
+    return None
+
+
+def _check_legacy_keys(sources: Iterable[tuple[str, Iterable[str]]]) -> None:
+    found: list[str] = []
+    for origin, keys in sources:
+        for key in keys:
+            new = legacy_replacement(key)
+            if new is not None:
+                found.append(f"  {key} ({origin}) -> {new}")
+    if found:
+        raise LegacyConfigError(
+            "v2 guard config keys are no longer read (guard v3, ADR-0015); rename them:\n"
+            + "\n".join(found)
+        )
 
 
 class OllamaSettings(BaseModel):
@@ -19,60 +69,102 @@ class OllamaSettings(BaseModel):
 class GuardModelSettings(BaseModel):
     """Which registered model (configs/models.yaml) backs each LLM-based stage."""
 
-    judge: str = Field(default="fake", description="L1 stage-3 LLM judge")
-    extractor: str = Field(default="fake", description="L2 intent extractor")
-    doc_scanner: str = Field(default="fake", description="L3b LLM scanner")
-    output_judge: str = Field(default="fake", description="L4 LLM judge")
+    inbound_judge: str = Field(default="fake", description="Inbound Guard scan LLM judge")
+    inbound_extractor: str = Field(default="fake", description="Inbound Guard intent extractor")
+    doc_judge: str = Field(default="fake", description="Doc Scanner per-chunk LLM judge")
+    doc_set_judge: str = Field(default="fake", description="Doc Scanner LLM set judge")
+    output_judge: str = Field(default="fake", description="Output Guard LLM judge")
     models_path: str = Field(default="configs/models.yaml")
 
 
-class L1Settings(BaseModel):
+class InboundGuardSettings(BaseModel):
+    """L1 Inbound Guard: the scan (rules, ML, judge) and the extract sub-stage."""
+
     rules_path: str = Field(default="configs/injection_rules.yaml")
     ml_model_path: str = Field(default="artifacts/models/l1_injection_clf_v1.joblib")
     rule_confidence_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
     ml_confidence_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    llm_enabled: bool = Field(default=True)
+    scan_llm_enabled: bool = Field(default=True)
     block_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     flag_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     max_chars: int = Field(default=12000, ge=200)
-
-    @model_validator(mode="after")
-    def _order(self) -> L1Settings:
-        if self.flag_threshold > self.block_threshold:
-            raise ValueError("flag_threshold must be <= block_threshold")
-        return self
-
-
-class L2Settings(BaseModel):
-    llm_enabled: bool = Field(default=True)
+    extract_llm_enabled: bool = Field(default=True)
     max_body_chars: int = Field(default=6000, ge=200)
     strip_threshold: float = Field(
         default=0.50, ge=0.0, le=1.0, description="Segment score >= threshold is stripped"
     )
 
+    @model_validator(mode="after")
+    def _order(self) -> InboundGuardSettings:
+        if self.flag_threshold > self.block_threshold:
+            raise ValueError("flag_threshold must be <= block_threshold")
+        return self
 
-class L3Settings(BaseModel):
+
+class ChannelIsolationSettings(BaseModel):
     spotlighting_mode: str = Field(default="datamark", description="delimit | datamark | encode")
     datamark_char: str = Field(default="^", min_length=1, max_length=1)
     channels_path: str = Field(default="configs/channels.yaml")
     max_untrusted_tokens: int = Field(default=6000, ge=100)
 
     @model_validator(mode="after")
-    def _mode(self) -> L3Settings:
+    def _mode(self) -> ChannelIsolationSettings:
         if self.spotlighting_mode not in {"delimit", "datamark", "encode"}:
             raise ValueError("spotlighting_mode must be delimit | datamark | encode")
         return self
 
 
-class L3bSettings(BaseModel):
+class DocScannerSettings(BaseModel):
     quarantine_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     llm_enabled: bool = Field(default=False)
+    set_judge_llm_enabled: bool = Field(
+        default=False,
+        description="LLM set judge over the retrieved set (GUARD_MODELS__DOC_SET_JUDGE); adds "
+        "quarantines only, at most one call, only when a kept chunk scores in suspicious_band",
+    )
     max_quarantine_ratio: float = Field(
         default=0.60, ge=0.0, le=1.0, description="If more chunks are quarantined, escalate"
     )
+    # Cheap-stage signals (ADR-0015 decision 9). Chosen with training/tune_doc_scanner.py on
+    # datasets/splits/rag_poison_dev.json (schema v3, seed 20261014: 90 PoisonedRAG items outside
+    # the benchmark pool and the pinned cases x styles prefix/paraphrase/mid, 600 clean Bitext
+    # answer chunks), never on the pinned benchmark cases. Dev result (cheap stages, no
+    # classifier): every poisoned chunk caught in 78 % (prefix), 79 % (mid), 0 % (paraphrase) of
+    # cases, 7/600 clean chunks flagged; the v2 scanner alone: 28 %, 0 %, 0 %, 1/600.
+    echo_threshold: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        description="echo_vs_question at or above it quarantines the chunk; dev split 0.70-0.95 "
+        "caught the same poison, 0.90 kept clean false positives at 7/600 (0.70: 15, 0.95: 6)",
+    )
+    echo_min_question_tokens: int = Field(
+        default=4,
+        ge=1,
+        description="echo and ordered-prefix count only for a question of at least this many "
+        "content tokens; dev split: 6 or 8 halved the poison caught, 4 was needed",
+    )
+    echo_short_question_tokens: int = Field(
+        default=3,
+        ge=1,
+        description="a question of at most this many content tokens echoes only as an exact phrase "
+        "in a chunk's first 20 content tokens",
+    )
+    cluster_echo_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="chunks at or above this echo that resemble each other form a bait cluster, "
+        "quarantined whole; dev split: 0.5-0.7 equal on clean chunks, 0.7 the most specific",
+    )
+    suspicious_band: tuple[float, float] = Field(
+        default=(0.30, 0.70),
+        description="chunk scores in [low, high) are untrusted (and go to the LLM judges when "
+        "enabled); below low trusted; at quarantine_threshold quarantined",
+    )
 
 
-class L4Settings(BaseModel):
+class OutputGuardSettings(BaseModel):
     pii_patterns_path: str = Field(default="configs/pii_patterns.yaml")
     redact_pii: bool = Field(default=True)
     system_prompt_leak_ngram: int = Field(default=8, ge=3)
@@ -80,7 +172,7 @@ class L4Settings(BaseModel):
     external_domain_allowlist: list[str] = Field(default_factory=list)
 
 
-class L5Settings(BaseModel):
+class PolicySettings(BaseModel):
     policy_path: str = Field(default="configs/policy.yaml")
     audit_log_path: str = Field(default="logs/mailguard_audit.jsonl")
 
@@ -96,6 +188,27 @@ class MailGuardCoreSettings(BaseModel):
     fail_closed: bool = Field(
         default=True, description="Internal error is treated as HIGH severity (never fail open)"
     )
+    fail_closed_on_judge_error: bool = Field(
+        default=True,
+        description="A failed or invalid judge answer sets the verdict's error "
+        "(judge_invalid:<stage>), so the fail-closed policy rule asks for human review; false "
+        "keeps the cheap verdict with the visible llm_fallback mark (v2). A judge that is not "
+        "configured is not an error (ADR-0015 decision 5)",
+    )
+
+
+def _dotenv_keys(env_file: Any, encoding: str | None) -> list[tuple[str, list[str]]]:
+    """Keys of the dotenv file(s) pydantic-settings will read (missing files are skipped)."""
+    if env_file is None:
+        return []
+    files = [env_file] if isinstance(env_file, str | os.PathLike) else list(env_file)
+    out: list[tuple[str, list[str]]] = []
+    for f in files:
+        path = Path(f).expanduser()
+        if path.is_file():
+            values: Mapping[str, str | None] = dotenv_values(path, encoding=encoding)
+            out.append((str(path), list(values)))
+    return out
 
 
 class MailGuardSettings(BaseSettings):
@@ -107,13 +220,20 @@ class MailGuardSettings(BaseSettings):
     mailguard: MailGuardCoreSettings = Field(default_factory=MailGuardCoreSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     guard_models: GuardModelSettings = Field(default_factory=GuardModelSettings)
-    l1: L1Settings = Field(default_factory=L1Settings)
-    l2: L2Settings = Field(default_factory=L2Settings)
-    l3: L3Settings = Field(default_factory=L3Settings)
-    l3b: L3bSettings = Field(default_factory=L3bSettings)
-    l4: L4Settings = Field(default_factory=L4Settings)
-    l5: L5Settings = Field(default_factory=L5Settings)
+    inbound_guard: InboundGuardSettings = Field(default_factory=InboundGuardSettings)
+    doc_scanner: DocScannerSettings = Field(default_factory=DocScannerSettings)
+    channel_isolation: ChannelIsolationSettings = Field(default_factory=ChannelIsolationSettings)
+    output_guard: OutputGuardSettings = Field(default_factory=OutputGuardSettings)
+    policy: PolicySettings = Field(default_factory=PolicySettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
+
+    def __init__(self, **values: Any) -> None:
+        # v2 keys would be silently ignored (extra="ignore"); refuse them before loading.
+        config = type(self).model_config
+        env_file = values["_env_file"] if "_env_file" in values else config.get("env_file")
+        encoding = values.get("_env_file_encoding") or config.get("env_file_encoding")
+        _check_legacy_keys([("environment", list(os.environ)), *_dotenv_keys(env_file, encoding)])
+        super().__init__(**values)
 
     def resolve(self, relative: str) -> Path:
         """Resolve a config-relative path against the project root."""

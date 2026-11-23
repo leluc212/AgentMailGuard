@@ -12,11 +12,13 @@ from packages.broker.envelope import JobEnvelope
 from packages.domain.state_machine import IllegalStateTransitionError, JobState
 from packages.observability.context import bind_log_context
 from services.api.dependencies import (
+    GuardReportStoreDep,
     JobStoreDep,
     PublisherDep,
     get_organization_id,
 )
 from services.api.schemas.jobs import (
+    GuardReportResponse,
     JobDetailResponse,
     JobReplayRequest,
     JobReplayResponse,
@@ -95,6 +97,7 @@ async def get_job(
         priority=job.priority,
         lease_expires_at=job.lease_expires_at,
         last_error=job.last_error,
+        run_options=job.run_options,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -257,6 +260,7 @@ async def replay_job(
         thread_id=str(replayed_job.thread_id or ""),
         attempt=replayed_job.attempt,
         payload={"replayed": True, "reason": req_body.reason},
+        run_options=replayed_job.run_options,  # a replay keeps the job's run options (R25.3)
     )
     try:
         await publisher.publish(
@@ -293,4 +297,43 @@ async def replay_job(
         republished=True,
         routing_key=routing_key,
         replayed_at=event.created_at,
+    )
+
+
+@jobs_router.get(
+    "/{id}/guard",
+    summary="Get the job's AgentMailGuard report",
+    description=(
+        "The guard report of a C3 job, organization-scoped; 404 for a job that ran without the "
+        "guard (R25.6, ADR-0018 decision 7)."
+    ),
+    response_model=GuardReportResponse,
+)
+async def get_job_guard_report(
+    id: Annotated[UUID, Path(description="Target processing job unique identifier.")],
+    org_id: Annotated[UUID, Depends(get_organization_id)],
+    guard_reports: GuardReportStoreDep,
+) -> GuardReportResponse:
+    """Read the report written with the job's draft; never another tenant's (R23.6)."""
+    record = await guard_reports.get_for_job(org_id, id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Job '{id}' has no guard report (not found, or it ran without the guard)",
+                "code": "GUARD_REPORT_NOT_FOUND",
+            },
+        )
+    return GuardReportResponse(
+        job_id=UUID(str(record.job_id)),
+        organization_id=UUID(str(record.organization_id)),
+        guard_mode=record.guard_mode,
+        model_profile=record.model_profile,
+        schema_version=record.schema_version,
+        inbound_action=record.inbound_action,
+        final_action=record.final_action,
+        guard_llm_calls=record.guard_llm_calls,
+        timings_ms=record.timings_ms,
+        report=record.report,
+        created_at=record.created_at,
     )

@@ -5,7 +5,7 @@ Checks, cheapest first:
     1. sensitive-data patterns  (configs/pii_patterns.yaml; Luhn for cards)  -> redaction
     2. system-prompt / context leak  (n-gram overlap with protected texts)
     3. citation integrity            (draft cites only chunks that were retrieved & kept)
-    4. injected-goal compliance      (attacker emails/URLs/phrases from L1/L3b reach the draft)
+    4. injected-goal compliance      (attacker emails/URLs/phrases from L1/L2 reach the draft)
     5. unsafe action                 (forward / recipients outside the conversation)
     6. external link insertion       (URLs not present in trusted knowledge)
     7. optional LLM judge            (uncertain band only)
@@ -39,13 +39,14 @@ from mailguard.contracts.verdict import (
 )
 from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L4_OUTPUT_SCANNER
+LAYER = LayerName.OUTPUT_GUARD
 PROMPT_NAME = "output_judge.v1"
 
 _SEVERITY_SCORE = {
@@ -156,7 +157,7 @@ class OutputScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l4
+        self.cfg = self.settings.output_guard
         self.patterns = (
             patterns
             if patterns is not None
@@ -464,7 +465,8 @@ class OutputScanner:
         intent: SanitizedIntent | None,
         injected_instructions: Sequence[str],
     ) -> OutputVerdict:
-        assert self.llm is not None
+        if self.llm is None:
+            return cheap  # no provider: nothing to ask, the cheap verdict stands
         goals = "\n".join(f"- {g}" for g in injected_instructions[:5]) or "- (none detected)"
         summary = intent.user_intent if intent is not None else "(not available)"
         messages = [
@@ -480,13 +482,19 @@ class OutputScanner:
                 ),
             ),
         ]
+        record_guard_call("output")
         try:
             out, result = await call_structured(
                 self.llm, messages, OutputJudgeOutput, tier=ModelTier.FAST, max_tokens=400
             )
         except LLMError as exc:
             logger.warning("L4 LLM judge unavailable (%s)", exc)
-            mark_llm_fallback(cheap.metadata, exc)
+            cheap.error = judge_failure(
+                cheap.metadata,
+                exc,
+                stage="output",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return cheap
         findings = list(cheap.findings)
         complied = cheap.complied_with_injected_goal

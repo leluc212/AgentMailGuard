@@ -1,6 +1,6 @@
-"""Layer 2 - User Intent Extractor.
+"""L1 Inbound Guard, extract sub-stage: the User Intent Extractor.
 
-Turns the raw (already L1-scored) email into a *structured, non-executable* intent:
+Turns the raw (already scanned) email into a *structured, non-executable* intent:
 
     1. Segment the body (paragraphs -> sentences) and score every segment with the
        Stage-1 rules and the Stage-2 classifier. Segments at or above
@@ -10,11 +10,13 @@ Turns the raw (already L1-scored) email into a *structured, non-executable* inte
     3. Optionally ask the extractor LLM for a neutral third-person paraphrase. The
        sanitized body is wrapped in nonce-tagged data markers and the model is told
        to describe, never to follow. On any LLM failure (timeout, transport error, non-JSON,
-       missing or invalid fields) the heuristic result stands unchanged and the verdict
-       metadata says so: ``llm_fallback``, ``llm_fallback_reason``, ``llm_error``. The
-       verdict's ``error`` stays empty, so the email is processed normally.
+       missing or invalid fields) the heuristic result is kept and the verdict metadata says
+       so: ``llm_fallback``, ``llm_fallback_reason``, ``llm_error``. With
+       ``MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR`` on (the default) the verdict's ``error`` is
+       also set to ``judge_invalid:inbound_extract``, which the fail-closed policy rule (P00)
+       turns into human review; with it off the error stays empty (the v2 visible fallback).
 
-The output ``SanitizedIntent`` is what Layer 3 places in the semi-trusted INTENT
+The output ``SanitizedIntent`` is what channel isolation places in the semi-trusted INTENT
 channel; the raw email only ever reaches the model inside the untrusted EMAIL
 channel (and only its sanitized form).
 """
@@ -42,13 +44,14 @@ from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.classifier import InjectionClassifier
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
 from mailguard.layers.inbound_guard.rules import RuleEngine
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L2_INTENT_EXTRACTOR
+LAYER = LayerName.INBOUND_GUARD
 PROMPT_NAME = "inbound_extractor.v1"
 
 _PARA_SPLIT = re.compile(r"\n\s*\n")
@@ -206,10 +209,10 @@ class UserIntentExtractor:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l2
-        self.rules = rules or RuleEngine.load(self.settings.resolve(self.settings.l1.rules_path))
+        self.cfg = self.settings.inbound_guard
+        self.rules = rules or RuleEngine.load(self.settings.resolve(self.cfg.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
-            Path(self.settings.resolve(self.settings.l1.ml_model_path))
+            Path(self.settings.resolve(self.cfg.ml_model_path))
         )
         self.llm = llm
         self.fail_closed = (
@@ -271,7 +274,7 @@ class UserIntentExtractor:
             try:
                 intent = self._extract_heuristic(email)
             except Exception as exc:
-                logger.exception("L2 heuristic extraction failed")
+                logger.exception("L1 heuristic extraction failed")
                 intent = self._error_intent(email, exc)
         intent.latency_ms = sw.elapsed_ms
         return intent
@@ -280,10 +283,10 @@ class UserIntentExtractor:
         with timed() as sw:
             try:
                 intent = self._extract_heuristic(email)
-                if self.cfg.llm_enabled and self.llm is not None:
+                if self.cfg.extract_llm_enabled and self.llm is not None:
                     intent = await self._refine_with_llm(email, intent)
             except Exception as exc:
-                logger.exception("L2 extraction failed")
+                logger.exception("L1 extraction failed")
                 intent = self._error_intent(email, exc)
         intent.latency_ms = sw.elapsed_ms
         return intent
@@ -324,7 +327,8 @@ class UserIntentExtractor:
         return intent
 
     async def _refine_with_llm(self, email: GuardedEmail, base: SanitizedIntent) -> SanitizedIntent:
-        assert self.llm is not None
+        if self.llm is None:
+            return base  # no provider: nothing to ask, the heuristic intent stands
         payload = f"Subject: {email.subject}\n\n{base.sanitized_body}"[: self.cfg.max_body_chars]
         messages = [
             ChatMessage(role="system", content=load_prompt(PROMPT_NAME)),
@@ -335,31 +339,37 @@ class UserIntentExtractor:
                 + "\n\nReturn the JSON object now.",
             ),
         ]
+        record_guard_call("inbound_extract")
         try:
             out, result = await call_structured(
                 self.llm, messages, ExtractorOutput, tier=ModelTier.FAST, max_tokens=500
             )
         except Exception as exc:  # any failure of the AI step keeps the heuristic result
             logger.warning(
-                "L2 extractor LLM failed (%s); heuristic result kept",
+                "L1 extractor LLM failed (%s); heuristic result kept",
                 exc,
                 exc_info=not isinstance(exc, LLMError),  # full trace for non-LLM errors
             )
-            mark_llm_fallback(base.metadata, exc)
+            base.error = judge_failure(
+                base.metadata,
+                exc,
+                stage="inbound_extract",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return base
         findings = list(base.findings)
-        score = base.score
         if out.contains_assistant_instructions:
+            # R-i (ADR-0015 decision 9): the extractor reports, it never grades. The finding
+            # carries the model's confidence; the sub-stage severity stays the strip result.
             llm_score = max(0.6, out.confidence)
-            score = max(score, llm_score)
             findings.append(
                 Finding(
                     layer=LAYER,
                     threat_type=ThreatType.PROMPT_INJECTION,
                     severity=Severity.from_score(llm_score),
                     score=round(llm_score, 4),
-                    detector="llm",
-                    rule_id="llm:assistant_instructions",
+                    detector="extract",
+                    rule_id="assistant_instructions",
                     technique="ai_addressing",
                     excerpt=(
                         out.instructions_to_assistant[0][:300]
@@ -390,8 +400,8 @@ class UserIntentExtractor:
             }
         )
         return SanitizedIntent(
-            severity=Severity.from_score(score),
-            score=round(score, 4),
+            severity=base.severity,
+            score=base.score,
             findings=findings,
             decided_by="llm",
             model=result.model,

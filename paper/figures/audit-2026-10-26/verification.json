@@ -1,0 +1,19 @@
+{
+  "offline_tests": 5,
+  "tests_passed": 5,
+  "pdf_pages": 8,
+  "monochrome_checks": {
+    "fig1_guard_effect.png": true,
+    "fig2_configurations.png": true,
+    "fig3_ablation.png": true,
+    "fig4_sources_provisional.png": true,
+    "fig5_benign_tradeoff.png": true,
+    "fig6_summary.png": true,
+    "supp1_scoring_sensitivity.png": true,
+    "supp2_retrieval_exposure.png": true
+  },
+  "visual_review": "All eight updated PDF pages inspected after column-chart conversion",
+  "runtime_stack_and_CI": "Not run; chart/report-only work",
+  "chart_style": "Grouped columns; summary table retained",
+  "exported_data_rows_unchanged": 348
+}

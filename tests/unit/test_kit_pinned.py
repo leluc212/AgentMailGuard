@@ -1,6 +1,6 @@
 """The pinned benchmark inputs shipped in git, and their verification (task 7.23; R22.12).
 
-The teammate gets the 550 benchmark cases and the L1 classifier from git instead of rebuilding
+The teammate gets the 1,800 benchmark cases and the L1 classifier from git instead of rebuilding
 them; ``verify`` says what is wrong with a checkout, and names the reason for each problem.
 """
 
@@ -182,7 +182,7 @@ def test_without_the_owners_classifier_the_real_verify_names_only_that_file() ->
 
 def test_the_pinned_hashes_are_the_ones_the_context_fixed() -> None:
     assert pinned.PINNED.cases.sha256 == (
-        "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19"
+        "df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870"
     )
     assert pinned.PINNED.classifier.sha256 == (
         "8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103"
@@ -265,7 +265,7 @@ def test_the_notice_says_which_training_texts_overlap_the_benchmark_and_which_do
 
 
 def test_the_case_file_really_has_the_three_question_dataset_prefixes() -> None:
-    """The NOTICE counts (30, 29, 30) must match what is committed."""
+    """The NOTICE counts (68, 89, 65) must match what is committed."""
     counts = {"hotpotqa": 0, "nq": 0, "msmarco": 0}
     with (pinned.REPO_ROOT / pinned.PINNED.cases.path).open(encoding="utf-8", newline="\n") as fh:
         lines = [line for line in fh if line.strip()]
@@ -274,7 +274,7 @@ def test_the_case_file_really_has_the_three_question_dataset_prefixes() -> None:
         for name in counts:
             if case_id.startswith(f"attack-prag-{name}-"):
                 counts[name] += 1
-    assert counts == {"hotpotqa": 30, "nq": 29, "msmarco": 30}
+    assert counts == {"hotpotqa": 68, "nq": 89, "msmarco": 65}
 
 
 def test_the_classifier_is_not_tracked_by_git() -> None:

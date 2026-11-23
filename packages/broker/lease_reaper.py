@@ -96,6 +96,7 @@ class LeaseReaper:
             attempt=job.attempt,
             idempotency_key=job.idempotency_key,
             trace_id=job.trace_id or uuid4().hex,
+            run_options=job.run_options,  # R25.3
         )
 
         target_queue = job.queue_name or "email.general_inquiry.normal"

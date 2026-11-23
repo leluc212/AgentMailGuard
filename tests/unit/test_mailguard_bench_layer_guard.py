@@ -1,7 +1,12 @@
-"""Guard wiring of the layer-ablation presets on fake providers (task 7.22; R22.12).
+"""Guard wiring around the layers of a v3 config, on fake providers (plan_v3 Task 12; R22.12).
 
-Needs the AgentMailGuard worktree installed (`uv run --with-editable`); skipped in CI.
-No network: the guard's model is the registry's built-in "fake" backend or a stub.
+Since ADR-0017 scheme v3 has no ablation config: the guard keeps its "C3 minus one switch"
+presets (``GuardConfig.ABLATIONS``), but the benchmark never builds them, and every name of them
+is refused. What is left here is that refusal, the rule ``require_live`` applies per active
+layer (it reads the layers a guard reports, not a config name), and C3's need for a guard. The
+tests that built the v3 ablations are in the history (``scheme.V3_FULL_CAMPAIGN_COMMIT``).
+Needs the AgentMailGuard worktree installed (`uv run --with-editable`); skipped in CI. No
+network.
 """
 
 from __future__ import annotations
@@ -12,242 +17,100 @@ import pytest
 
 pytest.importorskip("mailguard")
 
-from evaluation.mailguard_bench.guard_build import ABLATION_CONFIGS, build_guard  # noqa: E402
+from evaluation.mailguard_bench import scheme  # noqa: E402
+from evaluation.mailguard_bench.guard_build import build_guard  # noqa: E402
 from evaluation.mailguard_bench.guard_env import GuardEnvError  # noqa: E402
 from evaluation.mailguard_bench.guard_factory import LiveLayers, require_live  # noqa: E402
 from evaluation.mailguard_bench.guarded_reply import GuardedCaseExecutor  # noqa: E402
 from evaluation.mailguard_bench.runner import prepared_case_executor  # noqa: E402
 from packages.llm import AgentProfileRegistry, FakeLLMProvider, SinglePassGenerator  # noqa: E402
-from tests.unit.test_mailguard_bench_guarded_reply import (  # noqa: E402
-    BENIGN,
-    INJECTION,
-    _executor,
-    _prepared,
-)
 
-FULL = ("l1", "l2", "l3", "l3b", "l4", "l5")
-REMOVED = {
-    "C3-L1": "l1",
-    "C3-L2": "l2",
-    "C3-L3": "l3",
-    "C3-L3B": "l3b",
-    "C3-L4": "l4",
-    "C3-L5": "l5",
-}
+FULL = scheme.V3_SWITCHES
 MODEL = "gpt-4o-mini"
 LIVE = f"OpenAIProvider:{MODEL}"
 
 
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
-def test_each_config_builds_the_guards_own_preset_of_the_same_name(
-    config: str, tmp_path: Path
-) -> None:
-    guard = build_guard(
-        config,
-        model_name="fake",
-        audit_log_path=tmp_path / "audit.jsonl",
-        l1_model_path=tmp_path / "clf.joblib",
-    )
-    assert (guard.config, guard.preset) == (config, config)
-    assert guard.pipeline.config.name == config
-    assert tuple(guard.pipeline.config.active_layers) == tuple(
-        layer for layer in FULL if layer != REMOVED[config]
-    )
-    assert guard.describe()["preset"] == config
-    assert guard.describe()["live_layers"]["preset"] == config
+def test_an_ablation_name_fails_loudly(tmp_path: Path) -> None:
+    # v1's C3-L3B / C3-L5 and the v3 ablations ADR-0017 removed are no v3 config.
+    for name in ("C3-L6", "C3-L5", "C3-L3B", "C3-L1", "C3-L2", "C3-L3", "C3-L4", "C3-ISO"):
+        with pytest.raises(ValueError, match="scheme v3"):
+            build_guard(
+                name,
+                model_name="fake",
+                audit_log_path=tmp_path / "a.jsonl",
+                l1_model_path=tmp_path / "clf.joblib",
+            )
 
 
-def test_an_unknown_ablation_preset_still_fails_loudly(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="preset"):
-        build_guard(
-            "C3-L6",
-            model_name="fake",
-            audit_log_path=tmp_path / "a.jsonl",
-            l1_model_path=tmp_path / "clf.joblib",
-        )
+# --- require_live follows the layers the guard reports
 
 
-# --- GuardBuild.missing_live_stages expects exactly the stages the preset runs
-
-
-def _stripped(config: str, tmp_path: Path, *, off: tuple[str, ...]) -> list[str]:
-    """Missing stages of ``config`` once the named guard parts are switched off."""
-    guard = build_guard(
-        config,
-        model_name="fake",
-        audit_log_path=tmp_path / f"{config}.jsonl",
-        l1_model_path=tmp_path / "clf.joblib",
-    )
-    pipeline = guard.pipeline
-    pipeline.settings.l3b.llm_enabled = True  # so an absent L3b/L4 model would count
-    pipeline.settings.l4.llm_enabled = True
-    pipeline.l3b.llm = pipeline.l4.llm = guard.guard_llm
-    pipeline.l1.classifier.pipeline = guard.guard_llm  # any non-None: classifier "available"
-    for part in off:
-        if part == "l1.classifier":
-            pipeline.l1.classifier.pipeline = None
-        elif part == "l1.judge":
-            pipeline.l1.judge = None
-        else:
-            layer, _, _ = part.partition(".")
-            getattr(pipeline, layer).llm = None
-    return guard.missing_live_stages()
-
-
-@pytest.mark.parametrize(
-    ("config", "stage", "expected"),
-    [
-        ("C3", "l1.judge", ["l1.judge"]),
-        ("C3-L1", "l1.judge", []),  # no L1, so no L1 judge
-        ("C3-L2", "l1.judge", ["l1.judge"]),
-        ("C3", "l2.llm", ["l2.llm"]),
-        ("C3-L2", "l2.llm", []),  # no L2 LLM step
-        ("C3-L1", "l2.llm", ["l2.llm"]),
-        ("C3", "l3b.llm", ["l3b.llm"]),
-        ("C3-L3B", "l3b.llm", []),
-        ("C3-L4", "l3b.llm", ["l3b.llm"]),
-        ("C3", "l4.llm", ["l4.llm"]),
-        ("C3-L4", "l4.llm", []),
-        ("C3-L3B", "l4.llm", ["l4.llm"]),
-        ("C3-L3", "l4.llm", ["l4.llm"]),  # L3 and L5 have no LLM stage of their own
-        ("C3-L5", "l2.llm", ["l2.llm"]),
-    ],
-)
-def test_only_the_llm_stages_the_preset_runs_are_required_live(
-    config: str, stage: str, expected: list[str], tmp_path: Path
-) -> None:
-    assert _stripped(config, tmp_path, off=(stage,)) == expected
-
-
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
-def test_a_fully_live_ablation_preset_has_no_missing_stage(config: str, tmp_path: Path) -> None:
-    assert _stripped(config, tmp_path, off=()) == []
-
-
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
-def test_a_missing_classifier_fails_wherever_a_layer_uses_it(config: str, tmp_path: Path) -> None:
-    # L1 uses the trained classifier; so do L2 and L3b (the pipeline hands them L1's). Every
-    # ablation preset keeps at least one of them, so a skipped `make mailguard-prep` must
-    # never yield a silently weaker guard.
-    assert _stripped(config, tmp_path, off=("l1.classifier",)) == ["l1.classifier"]
-
-
-# --- require_live, the guard-smoke check, follows the preset too
-
-
-def _layers(preset: str, **over: object) -> LiveLayers:
-    active = tuple(layer for layer in FULL if layer != REMOVED.get(preset, ""))
+def _layers(removed: str = "", /, **over: object) -> LiveLayers:
+    """What a guard reports: C3, or (``removed``) a guard without that switch."""
     base: dict[str, object] = {
-        "preset": preset,
-        "active_layers": active,
-        "l1_classifier": True,
-        "l1_judge": LIVE,
-        "l2_llm": LIVE,
-        "l3b_llm": None,
-        "l4_llm": None,
+        "preset": "C3" if not removed else f"without-{removed}",
+        "active_layers": tuple(s for s in FULL if s != removed),
+        "classifier": True,
+        "inbound_judge": LIVE,
+        "inbound_extractor": LIVE,
+        "doc_judge": None,
+        "doc_set_judge": None,
+        "output_judge": None,
     }
     return LiveLayers(**{**base, **over})  # type: ignore[arg-type]
 
 
-def test_require_live_still_demands_everything_for_the_full_guard() -> None:
-    require_live(_layers("C3"), model_name=MODEL)
-    for field in ("l1_judge", "l2_llm"):
+def test_require_live_demands_everything_for_the_full_guard() -> None:
+    require_live(_layers(), model_name=MODEL)
+    for field in ("inbound_judge", "inbound_extractor"):
         with pytest.raises(GuardEnvError, match=f"{field} is None"):
-            require_live(_layers("C3", **{field: None}), model_name=MODEL)
+            require_live(_layers(**{field: None}), model_name=MODEL)
     with pytest.raises(GuardEnvError, match="L1 classifier not loaded"):
-        require_live(_layers("C3", l1_classifier=False), model_name=MODEL)
-    with pytest.raises(GuardEnvError, match="l3b_llm is None"):
-        require_live(_layers("C3"), model_name=MODEL, l3b_llm=True)
-    with pytest.raises(GuardEnvError, match="l4_llm is .*expected off"):
-        require_live(_layers("C3", l4_llm=LIVE), model_name=MODEL)
+        require_live(_layers(classifier=False), model_name=MODEL)
+    with pytest.raises(GuardEnvError, match="doc_set_judge is None"):
+        require_live(_layers(doc_judge=LIVE), model_name=MODEL, doc_llm=True)
+    with pytest.raises(GuardEnvError, match="output_judge is .*expected off"):
+        require_live(_layers(output_judge=LIVE), model_name=MODEL)
 
 
-def test_require_live_without_l1_does_not_ask_for_an_l1_judge() -> None:
-    require_live(_layers("C3-L1", l1_judge=None), model_name=MODEL)
-    with pytest.raises(GuardEnvError, match="l2_llm is None"):
-        require_live(_layers("C3-L1", l1_judge=None, l2_llm=None), model_name=MODEL)
+def test_require_live_without_a_layer_ignores_its_judges() -> None:
+    # The rule is per active layer, so it still holds for a guard built without one.
+    require_live(
+        _layers("inbound_guard", inbound_judge=None, inbound_extractor=None),
+        model_name=MODEL,
+    )
+    require_live(_layers("doc_scanner"), model_name=MODEL, doc_llm=True)
+    require_live(_layers("output_guard"), model_name=MODEL, output_llm=True)
+    with pytest.raises(GuardEnvError, match="output_judge is None"):
+        require_live(_layers(), model_name=MODEL, output_llm=True)
 
 
-def test_require_live_without_l2_does_not_ask_for_an_l2_llm_step() -> None:
-    require_live(_layers("C3-L2", l2_llm=None), model_name=MODEL)
-    with pytest.raises(GuardEnvError, match="l1_judge is None"):
-        require_live(_layers("C3-L2", l1_judge=None, l2_llm=None), model_name=MODEL)
+def test_require_live_without_the_inbound_guard_still_needs_the_classifier() -> None:
     with pytest.raises(GuardEnvError, match="L1 classifier not loaded"):
-        require_live(_layers("C3-L2", l2_llm=None, l1_classifier=False), model_name=MODEL)
+        require_live(
+            _layers(
+                "inbound_guard",
+                inbound_judge=None,
+                inbound_extractor=None,
+                classifier=False,
+            ),
+            model_name=MODEL,
+        )
 
 
-def test_require_live_without_l3b_or_l4_ignores_their_wanted_flags() -> None:
-    require_live(_layers("C3-L3B"), model_name=MODEL, l3b_llm=True)
-    require_live(_layers("C3-L4"), model_name=MODEL, l4_llm=True)
-    with pytest.raises(GuardEnvError, match="l4_llm is None"):
-        require_live(_layers("C3"), model_name=MODEL, l4_llm=True)
-
-
-def test_require_live_without_l1_still_needs_the_classifier_for_l2_and_l3b() -> None:
-    with pytest.raises(GuardEnvError, match="L1 classifier not loaded"):
-        require_live(_layers("C3-L1", l1_judge=None, l1_classifier=False), model_name=MODEL)
-
-
-# --- each preset runs through the real executor on stub models
-
-
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
-async def test_every_ablation_preset_makes_one_generation_call_for_a_benign_email(
-    config: str, tmp_path: Path
-) -> None:
-    executor, fake, _ = _executor(config, tmp_path)
-
-    execution = await executor.execute(_prepared(BENIGN))
-
-    assert len(fake.recorded_calls) == 1
-    assert execution.guard_errors == ()
-    assert execution.record["blocked"] is False
-    assert execution.record["final_draft"] is not None
-
-
-@pytest.mark.parametrize("config", ABLATION_CONFIGS)
-async def test_the_removed_layer_never_speaks_in_the_report(config: str, tmp_path: Path) -> None:
-    executor, _, _ = _executor(config, tmp_path)
-
-    execution = await executor.execute(_prepared(INJECTION))
-
-    report = execution.record["report"]
-    removed = REMOVED[config]
-    if removed in ("l1", "l2", "l3", "l4"):
-        assert report[removed] is None
-    if removed == "l3b":
-        assert report["l3b"] == []
-    if removed == "l5":
-        assert report["decision"] is None and execution.record["blocked"] is False
-    assert execution.guard_errors == ()
-
-
-async def test_without_l1_the_injection_is_still_seen_by_the_other_layers(
-    tmp_path: Path,
-) -> None:
-    executor, _, _ = _executor("C3-L1", tmp_path)
-
-    execution = await executor.execute(_prepared(INJECTION))
-
-    assert "l1_injection_scanner" not in execution.record["detected_layers"]
-    assert execution.record["report"]["l1"] is None
-    assert execution.record["report"]["l2"] is not None
-
-
-def test_ablation_configs_need_a_guard_like_c3(tmp_path: Path) -> None:
+def test_the_full_guard_needs_a_guard(tmp_path: Path) -> None:
     generator = SinglePassGenerator(
         llm_provider=FakeLLMProvider(default_response={}),
         profile_registry=AgentProfileRegistry.from_yaml("config/agent_profiles.yaml"),
     )
-    for config in ABLATION_CONFIGS:
-        with pytest.raises(ValueError, match="needs a guard"):
-            prepared_case_executor(config, generator=generator, guard=None)
+    with pytest.raises(ValueError, match="needs a guard"):
+        prepared_case_executor("C3", generator=generator, guard=None)
     guard = build_guard(
-        "C3-L5",
+        "C3",
         model_name="fake",
         audit_log_path=tmp_path / "a.jsonl",
         l1_model_path=tmp_path / "clf.joblib",
     )
-    executor = prepared_case_executor("C3-L5", generator=generator, guard=guard)
+    executor = prepared_case_executor("C3", generator=generator, guard=guard)
     assert isinstance(executor, GuardedCaseExecutor)
-    assert executor.pipeline.config.name == "C3-L5"
+    assert executor.pipeline.config.name == "C3"

@@ -20,13 +20,15 @@ from tests.parity import (
     INTENDED_DELTAS,
     OUTCOME_KEYS,
     PROMPT_NAMES,
+    V2_ISOLATION_KEY,
     ParityCase,
-    apply_deltas,
     capture,
     cases,
     diff_records,
+    expected_outcomes,
     load_golden,
     offline_settings,
+    project_golden,
     render_golden,
     run_case,
 )
@@ -37,7 +39,7 @@ CASES = cases()
 
 @pytest.fixture(scope="module")
 def expected() -> dict[str, dict]:
-    return apply_deltas(load_golden(), INTENDED_DELTAS)
+    return expected_outcomes()
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
@@ -83,15 +85,35 @@ def test_parity_matrix_exercises_every_judge_prompt():
 
 
 def test_golden_is_byte_stable(tmp_path):
+    """The matrix is deterministic and reproduces the golden exactly, after the v3 projection
+    and the intended deltas (the golden file itself is never rewritten)."""
     regenerated = render_golden(capture(offline_settings(tmp_path)))
-    assert regenerated.encode("utf-8") == GOLDEN_PATH.read_bytes()
+    assert regenerated == render_golden(expected_outcomes())
+
+
+def test_golden_file_is_the_v2_capture():
+    """The committed golden is still the v2 capture: rendering it again changes no byte."""
+    assert render_golden(load_golden()).encode("utf-8") == GOLDEN_PATH.read_bytes()
+
+
+def test_projection_only_drops_the_isolation_verdict():
+    golden = load_golden()
+    projected = project_golden(golden)
+    for case_id, record in golden.items():
+        dropped = set(record["layer_severities"]) - set(projected[case_id]["layer_severities"])
+        assert dropped <= {V2_ISOLATION_KEY}
+        rest = {k: v for k, v in record.items() if k != "layer_severities"}
+        assert rest == {k: v for k, v in projected[case_id].items() if k != "layer_severities"}
 
 
 def test_intended_deltas_name_an_existing_test():
     for case_id, delta in INTENDED_DELTAS.items():
         assert set(delta) == {"fields", "why", "test"}, f"{case_id}: malformed delta"
         assert delta["why"].strip(), f"{case_id}: delta does not say why"
-    wanted = {delta["test"] for delta in INTENDED_DELTAS.values()}
+    wanted: set[str] = set()
+    for delta in INTENDED_DELTAS.values():
+        tests = delta["test"]
+        wanted |= {tests} if isinstance(tests, str) else set(tests)
     if not wanted:
         return
     # addopts already holds -q; clear it so a single -q lists one node id per line

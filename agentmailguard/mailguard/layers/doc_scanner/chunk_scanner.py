@@ -1,4 +1,4 @@
-"""Layer 3b - Retrieved Document Scanner (RAG poisoning defense).
+"""L2 Doc Scanner, per-chunk stage (RAG poisoning defense).
 
 Inspects every knowledge chunk *after* retrieval and *before* context assembly.
 PoisonedRAG-style attacks (Zou et al., 2025) prepend the target question to a
@@ -25,20 +25,28 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from mailguard.config.settings import MailGuardSettings, get_settings
-from mailguard.contracts.email import GuardedEmail, RetrievedChunk
-from mailguard.contracts.verdict import ChunkVerdict, Finding, LayerName, Severity, ThreatType
+from mailguard.contracts.email import GuardedEmail, SourceDocument
+from mailguard.contracts.verdict import (
+    ChunkTrust,
+    ChunkVerdict,
+    Finding,
+    LayerName,
+    Severity,
+    ThreatType,
+)
 from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.classifier import InjectionClassifier
 from mailguard.layers.inbound_guard.llm_judge import wrap_untrusted
 from mailguard.layers.inbound_guard.rules import RuleEngine, obfuscation_findings
 from mailguard.layers.inbound_guard.scan import noisy_or
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
-from mailguard.llm.structured import call_structured, mark_llm_fallback
+from mailguard.llm.structured import call_structured
 from mailguard.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L3B_DOCUMENT_SCANNER
+LAYER = LayerName.DOC_SCANNER
 PROMPT_NAME = "doc_chunk_judge.v1"
 
 _ANSWER_FORCING = [
@@ -108,6 +116,11 @@ _ANSWER_FORCING = [
 _TOKEN = re.compile(r"[a-z0-9]{3,}")
 
 
+def _trust(quarantined: bool) -> ChunkTrust:
+    """Retrieved text is untrusted data until Task 7's ``trust_of`` grades it; quarantine wins."""
+    return "quarantined" if quarantined else "untrusted"
+
+
 def token_set(text: str) -> set[str]:
     return set(_TOKEN.findall(text.lower()))
 
@@ -138,7 +151,7 @@ def query_echo_score(chunk_text: str, query: str | None) -> float:
     return 0.0
 
 
-def poison_findings(chunk: RetrievedChunk, query: str | None = None) -> list[Finding]:
+def poison_findings(chunk: SourceDocument, query: str | None = None) -> list[Finding]:
     text = chunk.content
     findings: list[Finding] = []
     for pattern, score, technique in _ANSWER_FORCING:
@@ -203,10 +216,11 @@ class RetrievedDocumentScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.cfg = self.settings.l3b
-        self.rules = rules or RuleEngine.load(self.settings.resolve(self.settings.l1.rules_path))
+        self.cfg = self.settings.doc_scanner
+        inbound = self.settings.inbound_guard
+        self.rules = rules or RuleEngine.load(self.settings.resolve(inbound.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
-            Path(self.settings.resolve(self.settings.l1.ml_model_path))
+            Path(self.settings.resolve(inbound.ml_model_path))
         )
         self.llm = llm
         self.fail_closed = (
@@ -214,17 +228,18 @@ class RetrievedDocumentScanner:
         )
 
     # ------------------------------------------------------------------ per chunk
-    def scan_chunk_sync(self, chunk: RetrievedChunk, query: str | None = None) -> ChunkVerdict:
+    def scan_chunk_sync(self, chunk: SourceDocument, query: str | None = None) -> ChunkVerdict:
         with timed() as sw:
             try:
                 verdict = self._scan_cheap(chunk, query)
             except Exception as exc:
-                logger.exception("L3b chunk scan failed")
+                logger.exception("L2 chunk scan failed")
                 base = error_verdict(LAYER, exc, fail_closed=self.fail_closed)
                 verdict = ChunkVerdict(
                     chunk_id=chunk.chunk_id,
                     document_id=chunk.document_id,
                     quarantined=self.fail_closed,
+                    trust=_trust(self.fail_closed),
                     severity=base.severity,
                     score=base.score,
                     findings=base.findings,
@@ -234,12 +249,17 @@ class RetrievedDocumentScanner:
         verdict.latency_ms = sw.elapsed_ms
         return verdict
 
-    async def scan_chunk(self, chunk: RetrievedChunk, query: str | None = None) -> ChunkVerdict:
+    async def scan_chunk(self, chunk: SourceDocument, query: str | None = None) -> ChunkVerdict:
         verdict = self.scan_chunk_sync(chunk, query)
+        return await self.refine(chunk, verdict)
+
+    async def refine(self, chunk: SourceDocument, verdict: ChunkVerdict) -> ChunkVerdict:
+        """The optional LLM judge, for a chunk whose cheap score sits in the uncertain band."""
         if (
             self.cfg.llm_enabled
             and self.llm is not None
             and verdict.error is None
+            and not verdict.quarantined
             and 0.30 <= verdict.score < self.cfg.quarantine_threshold
         ):
             with timed() as sw:
@@ -248,23 +268,23 @@ class RetrievedDocumentScanner:
         return verdict
 
     async def scan(
-        self, chunks: Sequence[RetrievedChunk], query: str | None = None
-    ) -> tuple[list[RetrievedChunk], list[ChunkVerdict]]:
+        self, chunks: Sequence[SourceDocument], query: str | None = None
+    ) -> tuple[list[SourceDocument], list[ChunkVerdict]]:
         """Return (kept chunks in original order, one verdict per chunk)."""
-        verdicts = [await self.scan_chunk(RetrievedChunk.from_any(c), query) for c in chunks]
+        verdicts = [await self.scan_chunk(SourceDocument.from_any(c), query) for c in chunks]
         kept = [
-            RetrievedChunk.from_any(c)
+            SourceDocument.from_any(c)
             for c, v in zip(chunks, verdicts, strict=True)
             if not v.quarantined
         ]
         return kept, verdicts
 
     def scan_sync(
-        self, chunks: Sequence[RetrievedChunk], query: str | None = None
-    ) -> tuple[list[RetrievedChunk], list[ChunkVerdict]]:
-        verdicts = [self.scan_chunk_sync(RetrievedChunk.from_any(c), query) for c in chunks]
+        self, chunks: Sequence[SourceDocument], query: str | None = None
+    ) -> tuple[list[SourceDocument], list[ChunkVerdict]]:
+        verdicts = [self.scan_chunk_sync(SourceDocument.from_any(c), query) for c in chunks]
         kept = [
-            RetrievedChunk.from_any(c)
+            SourceDocument.from_any(c)
             for c, v in zip(chunks, verdicts, strict=True)
             if not v.quarantined
         ]
@@ -277,10 +297,14 @@ class RetrievedDocumentScanner:
         return sum(1 for v in verdicts if v.quarantined) / len(verdicts)
 
     # ------------------------------------------------------------------ internals
-    def _scan_cheap(self, chunk: RetrievedChunk, query: str | None) -> ChunkVerdict:
+    def _scan_cheap(self, chunk: SourceDocument, query: str | None) -> ChunkVerdict:
         pseudo = GuardedEmail(body_text=chunk.content)
-        findings = self.rules.scan_text(chunk.content, scope="body")
-        findings += obfuscation_findings(pseudo)
+        # the shared Inbound Guard rules emit inbound_guard findings; inside a chunk they are ours
+        findings = [
+            f.model_copy(update={"layer": LAYER})
+            for f in self.rules.scan_text(chunk.content, scope="body")
+            + obfuscation_findings(pseudo)
+        ]
         findings += poison_findings(chunk, query)
         rule_score = max((f.score for f in findings), default=0.0)
         ml_score = 0.0
@@ -302,10 +326,12 @@ class RetrievedDocumentScanner:
             )
             decided_by = "ml" if ml_score > rule_score else "rule"
         fused = noisy_or(rule_score, ml_score)
+        quarantined = fused >= self.cfg.quarantine_threshold
         return ChunkVerdict(
             chunk_id=chunk.chunk_id,
             document_id=chunk.document_id,
-            quarantined=fused >= self.cfg.quarantine_threshold,
+            quarantined=quarantined,
+            trust=_trust(quarantined),
             severity=Severity.from_score(fused, flag=0.5, block=self.cfg.quarantine_threshold),
             score=round(fused, 4),
             findings=findings,
@@ -317,8 +343,9 @@ class RetrievedDocumentScanner:
             },
         )
 
-    async def _stage_llm(self, chunk: RetrievedChunk, cheap: ChunkVerdict) -> ChunkVerdict:
-        assert self.llm is not None
+    async def _stage_llm(self, chunk: SourceDocument, cheap: ChunkVerdict) -> ChunkVerdict:
+        if self.llm is None:
+            return cheap  # no provider: nothing to ask, the cheap verdict stands
         messages = [
             ChatMessage(role="system", content=load_prompt(PROMPT_NAME)),
             ChatMessage(
@@ -328,13 +355,19 @@ class RetrievedDocumentScanner:
                 + "\n\nReturn the JSON object now.",
             ),
         ]
+        record_guard_call("doc_chunk")
         try:
             out, result = await call_structured(
                 self.llm, messages, DocJudgeOutput, tier=ModelTier.FAST, max_tokens=400
             )
         except LLMError as exc:
-            logger.warning("L3b LLM judge unavailable (%s)", exc)
-            mark_llm_fallback(cheap.metadata, exc)
+            logger.warning("L2 chunk LLM judge unavailable (%s)", exc)
+            cheap.error = judge_failure(
+                cheap.metadata,
+                exc,
+                stage="doc_chunk",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return cheap
         final = 0.6 * out.poison_score + 0.4 * cheap.score
         findings = list(cheap.findings)
@@ -354,10 +387,12 @@ class RetrievedDocumentScanner:
             )
         metadata = dict(cheap.metadata)
         metadata.update({"llm_score": round(out.poison_score, 4), "llm_model": result.model})
+        quarantined = final >= self.cfg.quarantine_threshold
         return ChunkVerdict(
             chunk_id=chunk.chunk_id,
             document_id=chunk.document_id,
-            quarantined=final >= self.cfg.quarantine_threshold,
+            quarantined=quarantined,
+            trust=_trust(quarantined),
             severity=Severity.from_score(final, flag=0.5, block=self.cfg.quarantine_threshold),
             score=round(final, 4),
             findings=findings,

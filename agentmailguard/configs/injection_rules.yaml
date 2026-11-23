@@ -2,7 +2,7 @@
 #
 # Evaluated over subject + body (scope: any | subject | body). Every match yields a
 # Finding with the rule's `score` and `technique` tag. The cascade stops at Stage 1
-# only when max(score) >= L1__RULE_CONFIDENCE_THRESHOLD (default 0.90); lower
+# only when max(score) >= INBOUND_GUARD__RULE_CONFIDENCE_THRESHOLD (default 0.90); lower
 # scores are kept as evidence and fused with the ML / LLM stages.
 #
 # technique tags follow the taxonomy in evaluation/attacks/taxonomy.py

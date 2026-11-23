@@ -92,6 +92,7 @@ Twelve logical components. This matches `enterprise-rag-email.architecture.json`
 | `knowledge-worker` | Knowledge Ingestion | document ingestion volume |
 | `dispatch-worker` | Draft Store & Dispatcher (send side) | dispatch queue depth |
 | `frontend` | Review UI | — |
+| `demo-ui` | Demo Console (§5.9, ADR-0018) | — |
 
 Context Builder, Hybrid RAG, and Reply Agent co-locate in `ai-worker` to avoid three network hops on the hot path. They remain **separate modules with separate interfaces** so they can be split into their own processes later without refactoring callers.
 
@@ -739,6 +740,39 @@ The outbound message is written back into `email_message` with `direction='outbo
 
 **Review UI (R23.4, R23.5, R23.7):** server-rendered pages (FastAPI + Jinja2 + htmx) in the `frontend` service, calling the `/v1` API only: the pending-draft queue (original email, thread summary, citations shown next to the sentences they support, business facts highlighted, edit / approve / reject), a job timeline per message from `processing_event`, and knowledge upload with per-document ingestion status. Local use only, with no login (ADR-0009): compose binds the `frontend` and `api` ports to `127.0.0.1`. The UI reads `FRONTEND__API_BASE_URL` and `FRONTEND__ORGANIZATION_ID` and sends the organization as the `X-Organization-Id` header the API already requires (R23.6). Meets the WCAG 2.2 AA basics: visible focus, 24 px targets, status changes announced through a live region.
 
+### 5.9 Demo Console — *R25* (ADR-0018)
+
+For the thesis defence: start any scenario on the running stack and watch it, with or without AgentMailGuard, with the fake or the live model.
+
+```
+demo-ui (React SPA, nginx, 127.0.0.1:3003) ──/v1 (reverse proxy)──▶ api
+   POST /v1/demo/messages | /v1/demo/scenarios/{id}/run      (only when DEMO__ENABLED=true)
+        │ 202 demo_request_id
+        ▼
+   api ── mail.demo.inject ──▶ mail-connector: SyncOrchestrator.sync_mailbox(mailbox, adapter=InlineMessageAdapter)
+                                 (archive · idempotency key · processing_job + run_options · publish email.normalize)
+        ▼ the normal pipeline: email-worker → triage-worker → ai-worker (→ guarded drafting when guard_mode=C3) → draft
+   demo-ui polls GET /v1/demo/requests/{id} → job_id, then GET /v1/jobs/{id}/timeline (~500 ms) until terminal;
+   reads messages, threads, drafts, search/debug, GET /v1/jobs/{id}/guard, GET /v1/metrics/summary
+```
+
+| Part | Where | Notes |
+|---|---|---|
+| Console | `services/demo_ui/` | React + Vite + TypeScript + Tailwind + shadcn/ui, React Flow, Recharts, react-i18next (vi, en). Static build; nginx proxies `/v1` to `api`, so no CORS change. Calls only `/v1`. Screens: Live Pipeline, Scenario Runner, Guard Inspector (C0 ⇄ C3), Review & Dispatch, Timeline, Observability, Knowledge, Benchmark Explorer. |
+| Demo router | `services/api/routers/demo.py` | `capabilities`, `scenarios`, `messages`, `scenarios/{id}/run`, `requests/{id}`. Mounted only when `DEMO__ENABLED=true`. Validates run options; `live` without a configured live provider → 422 (R25.4). |
+| Inline adapter | `packages/adapters/demo.py` | Provider `demo` (migration `0007` adds it to the `mailbox.provider` check). Its sync side holds the one demo message; its dispatch side records the outbound message in the dispatch-worker's memory and sends nothing, so an approved demo draft never reaches a real mailbox. The provider name stays inside `packages/adapters/` (AGENTS.md §4). One demo mailbox per seeded tenant (`make seed`). |
+| Run options | `processing_job.run_options` (JSONB, nullable), envelope field `run_options` (§7.3) | `{model_profile: fake\|live, guard_mode: C0\|C3, live_model: <catalog name>\|null}`. Absent = today's behaviour. `live_model` added by ADR-0019. |
+| Provider per job | triage-worker, ai-worker | `LLMProvider`s built at start-up: `fake`, `live` from `LLM__*`, and one per `config/live_models.yaml` model whose key variable is set (ADR-0019). Chosen per job: `fake`, the named catalog model, the `LLM__*` provider, or the only keyed catalog model. The guard's live judges follow the job's choice. The embedding never switches (R5.10). |
+| Guarded drafting | `services/ai_worker/guarded_drafting.py` | Calls `mailguard.pipeline.MailGuardPipeline` (`GuardConfig.preset("C3")`) and `mailguard.integration.adapters` only (ADR-0010). Outcome mapping equals the benchmark's; a parity test keeps them equal. The benchmark code and the guard pin are unchanged. |
+| Guard report | table `guard_report` (migration `0008`); `GET /v1/jobs/{id}/guard` | Written in the `persist_drafted` transaction. Display only: dispatch mode and review are unchanged. |
+| Metrics summary | `GET /v1/metrics/summary` | Reads Prometheus (`OBSERVABILITY__PROMETHEUS_URL`); filtered by the request's organization where a metric has the `organization` label, each panel marked `scope: "organization"` or `scope: "stack"`. |
+| Benchmark results | `scripts/export_bench_for_demo.py` → console static assets | Committed v3 1,800-case results of the three models, read-only. |
+| Fault markers | `packages/llm/fake.py` | `[[demo-fault:timeout]]`, `[[demo-fault:invalid-json]]`, only with `DEMO__FAULT_MARKERS_ENABLED=true`. |
+
+Settings (all default off): `DEMO__ENABLED`, `DEMO__FAULT_MARKERS_ENABLED`, `GUARD__ENABLED`, `GUARD__DEFAULT_MODE` (`C0`), `GUARD__L1_MODEL_PATH` (host path of the private classifier, mounted read-only), `OBSERVABILITY__PROMETHEUS_URL`.
+
+Models: the live profile is `gpt-4o-mini` for every role, including the guard's five judges; both profiles embed with a real `text-embedding-3-small` (1536 dimensions), and a separate offline profile (`LLM__PROVIDER=fake`, `EMBEDDING__MOCK=true`) is the no-network fallback, started before a demo. A `C3` job's guard judge calls (at most five) are counted in `guard_llm_calls_total` and the guard report, outside the job's `CallBudgetTracker` (ADR-0018 decision 6).
+
 ---
 
 ## 6. Data model
@@ -949,6 +983,7 @@ Failed job → publish to `email.retry.<delay>` with original routing key in hea
   "enqueued_at": "ISO-8601"
 }
 ```
+Added by ADR-0018 (§5.9): an optional `"run_options": {"model_profile": "fake|live", "guard_mode": "C0|C3"}`, copied from `processing_job.run_options` into every envelope of the job, so retries and replays keep it (R25.3).
 
 ### 7.4 Micro-batching (R3.6, R3.7)
 
@@ -1096,7 +1131,7 @@ evaluation/
 │   ├── exp07_failure_recovery.py     # kill worker mid-job
 │   ├── exp08_corpus_growth.py        # PostgreSQL retrieval vs corpus size
 │   └── exp09_rag_vs_norag.py         # response quality baseline
-├── mailguard_bench/                  # AgentMailGuard prompt-injection benchmark, C0 vs C3 (7.19, ADR-0010)
+├── mailguard_bench/                  # AgentMailGuard prompt-injection benchmark, C0 vs C3 (7.19, ADR-0010; scheme v3, ADR-0015)
 └── results/<experiment>/<run_id>/{manifest.json,metrics.csv,report.md}
 ```
 
@@ -1106,7 +1141,7 @@ evaluation/
 
 **Load harness:** a generator replays fixture emails through the `FakeProviderAdapter` at a multiple of the 1.16 msg/s reference average, up to 20× ≈ 23 msg/s (NFR12), while Prometheus records throughput, queue depth, and latency percentiles.
 
-**AgentMailGuard prompt-injection benchmark (task 7.19, ADR-0010):** `evaluation/mailguard_bench/` measures AgentMailGuard, the separate prompt-injection subsystem that §0.5 of the requirements and CLAUDE.md §6 keep out of rag-email, running inside rag-email's real reply path: `ContextBuilder`, then one `reply.v1` generation call through `SinglePassGenerator`. The same sampled cases (300 LLMail-Inject phase-2 attacks from the half not used to train the guard's classifier, stratified by scenario, seed 20260930; 150 benign emails; about 100 RAG-vector attacks ingested into an isolated evaluation organization) run under three required configs: `C0` is rag-email exactly as it runs (`SinglePassGenerator.generate_draft` on the `ContextPackage`, rendered by rag-email's own profile template; no AgentMailGuard code runs); `C0T` is AgentMailGuard's `MailGuardPipeline.run` with preset `C0` (its prompt template with no layer active; its task line still tells the model to use only trusted sections for instructions); `C3` is `MailGuardPipeline.run` with every layer on. In `C0T` and `C3` the generation call is `SinglePassGenerator.generate_from_messages`, one additive public method, on the prompt AgentMailGuard's L3 layer built from rag-email's `ContextPackage` (`GuardedReplyAgent` is not used because it calls the model with its own schema); `generate_draft` delegates to it, so the live path is unchanged. `C1`/`C2` are an optional ablation on a fixed 100-attack subset. rag-email adds no defence logic. AgentMailGuard is a git worktree of its branch installed editable for the run (`uv run --with-editable`); the branches are not merged. Scoring uses AgentMailGuard's own rule and metrics (`goal_achieved`, Wilson 95 % intervals, exact McNemar). The headline is "C3 ASR ≤ 5 %: met / not met" on LLMail-Inject, always with FPR, benign utility and the C0 ASR; McNemar compares C0 vs C3 (the headline pair: rag-email without vs with the guard) and C0T vs C3 (the guard's layers alone, same template). The report adds latency p50/p95/p99 (guard vs generation), tokens, calls and cost per email, a TF-IDF leakage check, the first catching layer, worked examples and a threat-model section. Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`; the manifest records both branches' commit SHAs. Live runs are owner-run Make targets and never part of `make ci` (R24.5). Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`.
+**AgentMailGuard prompt-injection benchmark (task 7.19, ADR-0010):** `evaluation/mailguard_bench/` measures AgentMailGuard, the separate prompt-injection subsystem that §0.5 of the requirements and CLAUDE.md §6 keep out of rag-email, running inside rag-email's real reply path: `ContextBuilder`, then one `reply.v1` generation call through `SinglePassGenerator`. The same sampled cases (300 LLMail-Inject phase-2 attacks from the half not used to train the guard's classifier, stratified by scenario, seed 20260930; 150 benign emails; about 100 RAG-vector attacks ingested into an isolated evaluation organization) run under three required configs: `C0` is rag-email exactly as it runs (`SinglePassGenerator.generate_draft` on the `ContextPackage`, rendered by rag-email's own profile template; no AgentMailGuard code runs); `C0T` is AgentMailGuard's `MailGuardPipeline.run` with preset `C0` (its prompt template with no layer active; its task line still tells the model to use only trusted sections for instructions); `C3` is `MailGuardPipeline.run` with every layer on. In `C0T` and `C3` the generation call is `SinglePassGenerator.generate_from_messages`, one additive public method, on the prompt AgentMailGuard's channel isolation (not a layer since ADR-0015) built from rag-email's `ContextPackage` (`GuardedReplyAgent` is not used because it calls the model with its own schema); `generate_draft` delegates to it, so the live path is unchanged. Since ADR-0015 (plan_v3) the guard has four layers (L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard) plus a channel-isolation switch, the report is `schema_version` 3, and the benchmark is config scheme v3: since ADR-0017 only `C0` and `C3` (every layer, the target), which are also the default campaign (until then also `C0T`, `C1`, `C2` and the ablations `C3-L1` to `C3-L4` and `C3-ISO`), with every judge of the layers a config runs live, fail-closed judges (`--judge-fallback` restores the v2 behaviour), at most five guard calls per job, the guarded prompt version `guarded.v3` and exit points `gate_pass_1`, `gate_pass_2`, `output_guard`, `delivered`. Committed v1/v2 result folders stay readable through the legacy reader (`make mailguard-report RUN=<id> LEGACY=1`) and a run at HEAD takes scheme v3 only. The v3 numbers come from the live run of plan_v3 Task 16 (task 7.31). rag-email adds no defence logic. AgentMailGuard is a git worktree of its branch installed editable for the run (`uv run --with-editable`); the branches are not merged. Scoring uses AgentMailGuard's own rule and metrics (`goal_achieved`, Wilson 95 % intervals, exact McNemar). The headline is "C3 ASR ≤ 5 %: met / not met" on LLMail-Inject, always with FPR, benign utility and the C0 ASR; McNemar compares C0 vs C3 (the headline pair: rag-email without vs with the guard); the v1 runs also compared C0T vs C3 (the guard's layers alone, same template), which scheme v3 no longer runs (ADR-0017). The report adds latency p50/p95/p99 (guard vs generation), tokens, calls and cost per email, a TF-IDF leakage check, the first catching layer, worked examples and a threat-model section. Artifacts: `evaluation/results/mailguard_bench/<run_id>/{manifest.json,metrics.csv,report.md,analyses.md}`; the manifest records both branches' commit SHAs. Live runs are owner-run Make targets and never part of `make ci` (R24.5). Spec: `docs/superpowers/specs/2026-09-29-mailguard-benchmark-design.md`.
 
 ---
 
@@ -1143,6 +1178,12 @@ evaluation/
 | 0008 | Business data fetched by a code-side plan, not by intent alone or model tool calls | the ML stage emits no intent; tool calls need a second generation call; typed IDs and profile policy are deterministic and model-independent |
 | 0009 | Dispatch: claim → provider draft → send → confirm; local review UI without login | a provider send cannot be rolled back; the draft id lets a retry check instead of resend; auth is out of scope (CLAUDE.md §6) |
 | 0010 | AgentMailGuard is integrated as the separate prompt-injection subsystem, first for evaluation; rag-email adds no defence logic | CLAUDE.md §6 keeps defences out of rag-email; the guard is the thesis contribution and needs a real host; consumed as an editable worktree install pinned by commit, no branch merge |
+| 0011 | The live pipeline benchmark runs every rag-email service for real; the guard runs as an evaluation guard-worker outside rag-email | production-faithful measurement: the guard's effect is measured on what triage lets through, and rag-email stays free of defence logic |
+| 0012 | After the thesis review: v2 definition of done, guard fixes on the guard's branch, one repository on `main` | the review's findings, the visible fallback of the guard's AI stages and the single-repository layout (subtree) |
+| 0013 | A category retrieval floor in the triage gate, and a benchmark switch for the retrieval category filter | case documents are filed under the case's own category while live triage picks another; tenant isolation is kept |
+| 0014 | Full-cloud route for the benchmark, the guard pin it needs and the runner's embedding | the owner's decision 2026-10-01: no local GPU run; one pinned provider per OpenRouter model |
+| 0015 | AgentMailGuard v3: four named layers, no outbound gate, fail-closed judges, `schema_version` 3 | the inbound decision must precede generation and see the documents; isolation builds the prompt and decides nothing; accepted pending Task 16 live acceptance |
+| 0018 | A demo console for the thesis defence: React app, demo ingest door through the connector, per-job model and guard options, AgentMailGuard in the live ai-worker | the defence needs a live, visual run of every scenario, C0 and C3 side by side, fake or live model; the queue and ADR-0010's boundary are kept |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 
@@ -1222,6 +1263,7 @@ One validated settings object per service, loaded from environment, failing fast
 | 5.6 Knowledge Ingestion | R9.1–R9.11 |
 | 5.7 Reply Agent & Cascade | R14.1–R14.7, R15.1–R15.6, R16.1–R16.5 |
 | 5.8 Draft & Dispatch | R16.6–R16.8, R17.1–R17.7 |
+| 5.9 Demo Console | R25.1–R25.12 |
 | 6 Data model | R5.1–R5.10, R13.1 |
 | 7 Messaging | R3.1–R3.9, R7.1–R7.6 |
 | 8 State machine | R18.1–R18.7 |
@@ -1231,3 +1273,23 @@ One validated settings object per service, loaded from environment, failing fast
 | 12 Technology | R24.6, ADR record |
 | 13 Deployment | R20.1–R20.9, R23.x (API surface) |
 | 14 Testing | R24.1–R24.7 |
+
+### Expanded v3 benchmark pin
+
+Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
+emails (all 203 LLMail FP emails plus 297 seeded Enron ham emails), and 300
+poisoned-document cases (222 valid PoisonedRAG questions, 18 seed cases, and
+60 explicitly labeled `synthetic_poison_v1` cases). Synthetic cases use six
+fictional policies and ten instruction payload templates; they are not independent
+real-world observations. Source labels remain available for separate reporting.
+The historical manifest key `llmail_benign` now includes both benign sources.
+The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
+
+The two v3 configs (C0 and C3, ADR-0017) give 3,600 case runs per model. Earlier
+550-case timing/cost estimates below describe the old dataset
+and should not be used for this expansion. Existing run folders keep their own pins;
+use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
+
+Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
+`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
+Use `--force` only to intentionally replace an older pin. The seed stays 20260930.

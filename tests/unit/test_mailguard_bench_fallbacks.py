@@ -15,9 +15,9 @@ import pytest
 from evaluation.mailguard_bench.guarded_reply import classify_ai_step_failures
 from evaluation.mailguard_bench.scoring import AiStepFallback
 
-L1 = "l1_injection_scanner"
-L2 = "l2_intent_extractor"
-L3B = "l3b_document_scanner"
+L1 = "inbound_scan"
+L2 = "inbound_extract"
+L3B = "doc_chunk"
 
 
 def verdict(layer: str, *, error: str | None = None, **metadata: Any) -> SimpleNamespace:
@@ -83,18 +83,18 @@ def test_every_l3b_chunk_that_fell_back_is_its_own_entry() -> None:
         ("error", False),
     ],
 )
-def test_l2_schema_fallback_means_the_answer_did_not_carry_the_schema(
+def test_extract_schema_fallback_means_the_answer_did_not_carry_the_schema(
     reason: str, is_schema_fallback: bool
 ) -> None:
     split = classify_ai_step_failures([verdict(L2, **marked(reason))])
 
-    assert split.l2_schema_fallback is is_schema_fallback
+    assert split.extract_schema_fallback is is_schema_fallback
 
 
-def test_another_layers_non_json_answer_is_not_an_l2_schema_fallback() -> None:
+def test_another_layers_non_json_answer_is_not_an_extract_schema_fallback() -> None:
     split = classify_ai_step_failures([verdict(L1, **marked("non_json"))])
 
-    assert split.l2_schema_fallback is False
+    assert split.extract_schema_fallback is False
 
 
 def test_a_fallback_serialises_to_the_audit_shape() -> None:

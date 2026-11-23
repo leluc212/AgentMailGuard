@@ -17,19 +17,19 @@ import logging
 import re
 from pathlib import Path
 
-from mailguard.config.settings import L1Settings, MailGuardSettings, get_settings
+from mailguard.config.settings import InboundGuardSettings, MailGuardSettings, get_settings
 from mailguard.contracts.email import GuardedEmail
 from mailguard.contracts.verdict import Finding, LayerName, LayerVerdict, Severity, ThreatType
 from mailguard.layers.base import error_verdict, timed
 from mailguard.layers.inbound_guard.classifier import InjectionClassifier
 from mailguard.layers.inbound_guard.llm_judge import judge_email, judge_findings
 from mailguard.layers.inbound_guard.rules import RuleEngine, obfuscation_findings
+from mailguard.llm.judge_calls import judge_failure, record_guard_call
 from mailguard.llm.protocol import LLMError, LLMProvider
-from mailguard.llm.structured import mark_llm_fallback
 
 logger = logging.getLogger(__name__)
 
-LAYER = LayerName.L1_INJECTION_SCANNER
+LAYER = LayerName.INBOUND_GUARD
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _URL_RE = re.compile(r"https?://[^\s<>\"'\)\]]+", re.IGNORECASE)
@@ -67,14 +67,16 @@ class EmailInjectionScanner:
         fail_closed: bool | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        cfg: L1Settings = self.settings.l1
+        cfg: InboundGuardSettings = self.settings.inbound_guard
         self.cfg = cfg
         self.rules = rules or RuleEngine.load(self.settings.resolve(cfg.rules_path))
         self.classifier = classifier or InjectionClassifier.load(
             Path(self.settings.resolve(cfg.ml_model_path))
         )
         self.judge = judge
-        self.judge_name = judge_name or (self.settings.guard_models.judge if judge else None)
+        self.judge_name = judge_name or (
+            self.settings.guard_models.inbound_judge if judge else None
+        )
         self.fail_closed = (
             self.settings.mailguard.fail_closed if fail_closed is None else fail_closed
         )
@@ -127,7 +129,7 @@ class EmailInjectionScanner:
                 verdict = self._inspect_cheap(email)
                 fused = float(verdict.metadata.get("fused_cheap", verdict.score))
                 if (
-                    self.cfg.llm_enabled
+                    self.cfg.scan_llm_enabled
                     and self.judge is not None
                     and verdict.error is None
                     and self.needs_llm(fused)
@@ -175,12 +177,19 @@ class EmailInjectionScanner:
     async def _stage_llm(
         self, email: GuardedEmail, cheap: LayerVerdict, fused_cheap: float
     ) -> LayerVerdict:
-        assert self.judge is not None
+        if self.judge is None:
+            return cheap  # no judge: nothing to ask, the cheap verdict stands
+        record_guard_call("inbound_scan")
         try:
             output, result = await judge_email(self.judge, email, max_chars=self.cfg.max_chars)
         except LLMError as exc:
             logger.warning("L1 LLM judge unavailable (%s); keeping cheap verdict", exc)
-            mark_llm_fallback(cheap.metadata, exc)
+            cheap.error = judge_failure(
+                cheap.metadata,
+                exc,
+                stage="inbound_scan",
+                fail_closed=self.settings.mailguard.fail_closed_on_judge_error,
+            )
             return cheap
         llm_score = output.injection_score
         final = 0.6 * llm_score + 0.4 * fused_cheap

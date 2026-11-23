@@ -1,5 +1,25 @@
 # Pinned benchmark inputs: sources and licenses
 
+## Expanded v3 pinned dataset (2026-10-18)
+
+Each config now runs 1,800 cases: 1,000 LLMail bench-half attacks, 500 benign
+emails (all 203 LLMail FP emails plus 297 seeded Enron ham emails), and 300
+poisoned-document cases (222 valid PoisonedRAG questions, 18 seed cases, and
+60 explicitly labeled `synthetic_poison_v1` cases). Synthetic cases use six
+fictional policies and ten instruction payload templates; they are not independent
+real-world observations. Source labels remain available for separate reporting.
+The historical manifest key `llmail_benign` now includes both benign sources.
+The 100-case `ablation_attack` subset is legacy metadata; v3 runs the full set.
+
+Nine default configs give 16,200 case runs per model; optional C0T raises this to
+18,000. Earlier 550-case timing/cost estimates below describe the old dataset
+and should not be used for this expansion. Existing run folders keep their own pins;
+use a new RUN for this dataset. The Task 16 clean-document benign set remains separate.
+
+Rebuild with the pinned v3 guard installed and the usual MAILGUARD environment:
+`python -m evaluation.mailguard_bench.build_cases --raw-dir /path/to/datasets/raw`
+Use `--force` only to intentionally replace an older pin. The seed stays 20260930.
+
 The case file, its manifest and the classifier's metrics are committed, so nobody has to rebuild
 them (`make mailguard-cases` is not needed to run the v2 benchmark). **The L1 classifier is not in
 git and is not redistributed** (see "Why the classifier is not in git" below): the owner sends it to
@@ -9,7 +29,7 @@ once the classifier is here, and `make bench-doctor` does the same and names wha
 
 | File | In git | What it is |
 |---|---|---|
-| `evaluation/datasets/mailguard/cases.jsonl` | yes | The 550 benchmark cases (300 LLMail-Inject attack emails, 150 benign emails and 100 RAG-poisoning cases), seed 20260930. sha256 `c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19`. |
+| `evaluation/datasets/mailguard/cases.jsonl` | yes | The 1,800 benchmark cases (1,000 LLMail attacks, 500 mixed-source benign emails and 300 RAG-poisoning cases), seed 20260930. sha256 `df35022389823454700c8ed0916189807320a8c1274ca0e5d1a2945685b64870`. |
 | `evaluation/datasets/mailguard/manifest.json` | yes | Which case ids make up each set, and how they were drawn. |
 | `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.joblib` | **no** (git-ignored) | The Layer-1 injection classifier (TF-IDF word and character n-grams into a calibrated logistic regression), built with scikit-learn 1.9.1. Its sha256 must be `8fc1cbe74a599ab870a10ca5ff43f4a6d80b3e2273e36c7ed163c637a1d40103`; the kit refuses a file with any other. |
 | `evaluation/mailguard_bench/pinned/l1_injection_clf_v1.metrics.json` | yes | Its validation and test metrics, written by the training script (numbers only, no training text). |
@@ -24,15 +44,17 @@ their pages on 2026-09-30 and their license files were read again on 2026-10-01 
 
 | Source | Used for | License | Link |
 |---|---|---|---|
-| LLMail-Inject challenge, phase 2 (Microsoft; Abdelnabi et al., 2025) | 300 attack emails, 150 benign emails | MIT | https://huggingface.co/datasets/microsoft/llmail-inject-challenge |
-| PoisonedRAG (Zou et al., USENIX Security 2025) | 89 poisoned-passage cases | MIT for the attack passages; the questions inside them come from HotpotQA (CC BY-SA 4.0), Natural Questions (CC BY-SA 3.0) and MS MARCO (non-commercial research only), see "The question text" below | https://github.com/sleeepeer/PoisonedRAG |
-| AgentMailGuard seed knowledge base and poison templates (written for this project) | 11 cases | the project's own (AgentMailGuard `pyproject.toml`: MIT) | https://github.com/leluc212/AgentMailGuard |
+| LLMail-Inject challenge, phase 2 (Microsoft; Abdelnabi et al., 2025) | 1,000 attack emails, 203 benign emails | MIT | https://huggingface.co/datasets/microsoft/llmail-inject-challenge |
+| PoisonedRAG (Zou et al., USENIX Security 2025) | 222 poisoned-passage cases | MIT for the attack passages; the questions inside them come from HotpotQA (CC BY-SA 4.0), Natural Questions (CC BY-SA 3.0) and MS MARCO (non-commercial research only), see "The question text" below | https://github.com/sleeepeer/PoisonedRAG |
+| AgentMailGuard seed knowledge base and poison templates (written for this project) | 18 cases | the project's own (AgentMailGuard `pyproject.toml`: MIT) | https://github.com/leluc212/AgentMailGuard |
 
 The attack emails are the attacks that Microsoft's challenge participants submitted; they are data
 for measuring a defense and are never sent anywhere (the benchmark only drafts replies).
 
-`manifest.json` records `mailguard_commit` 81df5d07b15b5bb3d1ecf3aae556df01e304cbe0: the guard
-commit whose builder drew the cases (the v1 guard). The case set is the same for v1 and v2.
+The expanded manifest records the v3 guard builder commit `d95e542c616ca9ef4fee067a0862816004fffac3`. Historical v1/v2 runs retain their own manifests.
+
+The additional 297 Enron ham emails use the Enron source listed below. The 60
+`synthetic_poison_v1` cases are project-authored fictional policies and instruction payloads.
 
 ## The L1 classifier (not in git)
 
@@ -162,16 +184,16 @@ SOFTWARE.
 
 PoisonedRAG builds its poisoned passages for questions taken from three public question-answering
 datasets, and every one of the 89 committed cases carries that question: the case ids are
-`attack-prag-hotpotqa-*` (30 cases), `attack-prag-nq-*` (29) and `attack-prag-msmarco-*` (30), and
+`attack-prag-hotpotqa-*` (68 cases), `attack-prag-nq-*` (89) and `attack-prag-msmarco-*` (65), and
 each poisoned passage in them starts with the question text (for example "what day is groundhog's
 day?"). The PoisonedRAG MIT license above covers the attack passages; it does not cover the question
 text, which keeps the terms of its own dataset. Read on 2026-10-01 from the datasets' own pages:
 
 | Dataset | Questions in the cases | Terms | Where read |
 |---|---|---|---|
-| HotpotQA (Yang et al., EMNLP 2018) | 30 | CC BY-SA 4.0: "HotpotQA is distributed under a CC BY-SA 4.0 License." Attribution: cite Yang et al. (2018), *HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering*, EMNLP 2018. | https://hotpotqa.github.io/ |
-| Natural Questions (Kwiatkowski et al., TACL 2019) | 29 | CC BY-SA 3.0 (the Hugging Face dataset card's Licensing Information: "Creative Commons Attribution-ShareAlike 3.0 Unported"; the Google code repository itself is Apache-2.0, which covers the code and not the data). Attribution: cite Kwiatkowski et al. (2019), *Natural Questions: a Benchmark for Question Answering Research*, TACL. | https://huggingface.co/datasets/google-research-datasets/natural_questions |
-| MS MARCO (Microsoft) | 30 | Non-commercial research only: "The MS MARCO datasets are intended for non-commercial research purposes only to promote advancement in the field of artificial intelligence and related areas, and is made available free of charge without extending any license or other intellectual property rights." | https://microsoft.github.io/msmarco/ |
+| HotpotQA (Yang et al., EMNLP 2018) | 68 | CC BY-SA 4.0: "HotpotQA is distributed under a CC BY-SA 4.0 License." Attribution: cite Yang et al. (2018), *HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering*, EMNLP 2018. | https://hotpotqa.github.io/ |
+| Natural Questions (Kwiatkowski et al., TACL 2019) | 89 | CC BY-SA 3.0 (the Hugging Face dataset card's Licensing Information: "Creative Commons Attribution-ShareAlike 3.0 Unported"; the Google code repository itself is Apache-2.0, which covers the code and not the data). Attribution: cite Kwiatkowski et al. (2019), *Natural Questions: a Benchmark for Question Answering Research*, TACL. | https://huggingface.co/datasets/google-research-datasets/natural_questions |
+| MS MARCO (Microsoft) | 65 | Non-commercial research only: "The MS MARCO datasets are intended for non-commercial research purposes only to promote advancement in the field of artificial intelligence and related areas, and is made available free of charge without extending any license or other intellectual property rights." | https://microsoft.github.io/msmarco/ |
 
 What this means for the repository: the CC BY-SA terms ask for attribution (above) and, if the text
 is redistributed in an adapted form, for the same license on the adaptation; the MS MARCO terms

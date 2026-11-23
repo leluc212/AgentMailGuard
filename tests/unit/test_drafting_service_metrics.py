@@ -94,7 +94,8 @@ async def test_created_draft_counts_the_email_and_its_cost() -> None:
     tier = outcome.draft.model_tier or ""
     assert _emails(m, job.organization_id, "support", tier) == 1
     assert m.registry.get_sample_value(
-        "generated_draft_cost_total", {"category": "support", "model_tier": tier}
+        "generated_draft_cost_total",
+        {"category": "support", "model_tier": tier, "model_profile": "default"},
     ) == pytest.approx(outcome.draft.cost_estimate)
 
 
@@ -123,7 +124,8 @@ async def test_unpriced_draft_counts_email_but_not_cost() -> None:
     assert _emails(m, job.organization_id, "billing", tier) == 1
     assert (
         m.registry.get_sample_value(
-            "generated_draft_cost_total", {"category": "billing", "model_tier": tier}
+            "generated_draft_cost_total",
+            {"category": "billing", "model_tier": tier, "model_profile": "default"},
         )
         is None
     )

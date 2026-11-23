@@ -1,0 +1,109 @@
+figure,panel,series,group,metric,k,n_scored,n_planned,pct,ci95_lo,ci95_hi
+fig1,llmail,C0: no guard,gpt-4o-mini (OpenAI API),Defense rate (%),756,999,1000,75.68,72.92,78.23
+fig1,llmail,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),644,982,1000,65.58,62.55,68.49
+fig1,llmail,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),668,999,1000,66.87,63.89,69.72
+fig1,llmail,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig1,llmail,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig1,llmail,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig1,rag,C0: no guard,gpt-4o-mini (OpenAI API),Defense rate (%),232,300,300,77.33,72.27,81.71
+fig1,rag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),56,300,300,18.67,14.66,23.46
+fig1,rag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),71,300,300,23.67,19.21,28.79
+fig1,rag,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),Defense rate (%),291,300,300,97.00,94.40,98.41
+fig1,rag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),179,300,300,59.67,54.03,65.06
+fig1,rag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),265,300,300,88.33,84.21,91.49
+fig2,llmail,gpt-4o-mini (OpenAI API),C0,Defense rate (%),756,999,1000,75.68,72.92,78.23
+fig2,llmail,gpt-4o-mini (OpenAI API),C0T,Defense rate (%),795,1000,1000,79.50,76.89,81.89
+fig2,llmail,gpt-4o-mini (OpenAI API),C1,Defense rate (%),993,1000,1000,99.30,98.56,99.66
+fig2,llmail,gpt-4o-mini (OpenAI API),C2,Defense rate (%),993,1000,1000,99.30,98.56,99.66
+fig2,llmail,gpt-4o-mini (OpenAI API),C3,Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0,Defense rate (%),644,982,1000,65.58,62.55,68.49
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0T,Defense rate (%),626,981,1000,63.81,60.76,66.76
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C1,Defense rate (%),972,984,1000,98.78,97.88,99.30
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C2,Defense rate (%),971,983,1000,98.78,97.88,99.30
+fig2,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0,Defense rate (%),668,999,1000,66.87,63.89,69.72
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0T,Defense rate (%),645,996,1000,64.76,61.74,67.66
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C1,Defense rate (%),984,999,1000,98.50,97.54,99.09
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C2,Defense rate (%),985,999,1000,98.60,97.66,99.16
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig2,rag,gpt-4o-mini (OpenAI API),C0,Defense rate (%),232,300,300,77.33,72.27,81.71
+fig2,rag,gpt-4o-mini (OpenAI API),C0T,Defense rate (%),233,300,300,77.67,72.62,82.01
+fig2,rag,gpt-4o-mini (OpenAI API),C1,Defense rate (%),241,300,300,80.33,75.46,84.44
+fig2,rag,gpt-4o-mini (OpenAI API),C2,Defense rate (%),265,300,300,88.33,84.21,91.49
+fig2,rag,gpt-4o-mini (OpenAI API),C3,Defense rate (%),291,300,300,97.00,94.40,98.41
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0,Defense rate (%),56,300,300,18.67,14.66,23.46
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C0T,Defense rate (%),59,300,300,19.67,15.56,24.54
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C1,Defense rate (%),60,300,300,20.00,15.87,24.89
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C2,Defense rate (%),132,300,300,44.00,38.49,49.66
+fig2,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),179,300,300,59.67,54.03,65.06
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0,Defense rate (%),71,300,300,23.67,19.21,28.79
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0T,Defense rate (%),80,300,300,26.67,21.98,31.94
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C1,Defense rate (%),82,300,300,27.33,22.60,32.64
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C2,Defense rate (%),169,300,300,56.33,50.68,61.83
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),265,300,300,88.33,84.21,91.49
+fig3,llmail,gpt-4o-mini (OpenAI API),C3,Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig3,llmail,gpt-4o-mini (OpenAI API),C3-L1,Defense rate (%),896,1000,1000,89.60,87.55,91.34
+fig3,llmail,gpt-4o-mini (OpenAI API),C3-L2,Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig3,llmail,gpt-4o-mini (OpenAI API),C3-L3,Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig3,llmail,gpt-4o-mini (OpenAI API),C3-L4,Defense rate (%),990,1000,1000,99.00,98.17,99.46
+fig3,llmail,gpt-4o-mini (OpenAI API),C3-ISO,Defense rate (%),1000,1000,1000,100.00,99.62,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L1,Defense rate (%),685,984,1000,69.61,66.67,72.41
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L2,Defense rate (%),982,982,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L3,Defense rate (%),983,983,1000,100.00,99.61,100.00
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L4,Defense rate (%),970,983,1000,98.68,97.75,99.23
+fig3,llmail,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-ISO,Defense rate (%),984,984,1000,100.00,99.61,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L1,Defense rate (%),723,999,1000,72.37,69.52,75.06
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L2,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L3,Defense rate (%),998,998,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L4,Defense rate (%),986,999,1000,98.70,97.79,99.24
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-ISO,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,rag,gpt-4o-mini (OpenAI API),C3,Defense rate (%),291,300,300,97.00,94.40,98.41
+fig3,rag,gpt-4o-mini (OpenAI API),C3-L1,Defense rate (%),281,300,300,93.67,90.32,95.91
+fig3,rag,gpt-4o-mini (OpenAI API),C3-L2,Defense rate (%),268,300,300,89.33,85.33,92.34
+fig3,rag,gpt-4o-mini (OpenAI API),C3-L3,Defense rate (%),291,300,300,97.00,94.40,98.41
+fig3,rag,gpt-4o-mini (OpenAI API),C3-L4,Defense rate (%),267,300,300,89.00,84.95,92.06
+fig3,rag,gpt-4o-mini (OpenAI API),C3-ISO,Defense rate (%),289,300,300,96.33,93.55,97.94
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3,Defense rate (%),179,300,300,59.67,54.03,65.06
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L1,Defense rate (%),182,300,300,60.67,55.04,66.03
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L2,Defense rate (%),69,300,300,23.00,18.60,28.09
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L3,Defense rate (%),175,300,300,58.33,52.68,63.77
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-L4,Defense rate (%),134,300,300,44.67,39.14,50.32
+fig3,rag,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",C3-ISO,Defense rate (%),180,300,300,60.00,54.36,65.38
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),265,300,300,88.33,84.21,91.49
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L1,Defense rate (%),204,300,300,68.00,62.52,73.02
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L2,Defense rate (%),248,300,300,82.67,77.98,86.53
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L3,Defense rate (%),269,300,300,89.67,85.71,92.62
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L4,Defense rate (%),173,300,300,57.67,52.01,63.13
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-ISO,Defense rate (%),257,300,300,85.67,81.25,89.18
+fig4,poisonedrag,C0: no guard,gpt-4o-mini (OpenAI API),Defense rate (%),193,222,222,86.94,81.87,90.75
+fig4,poisonedrag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),11,222,222,4.95,2.79,8.65
+fig4,poisonedrag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),20,222,222,9.01,5.91,13.50
+fig4,poisonedrag,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),Defense rate (%),213,222,222,95.95,92.48,97.85
+fig4,poisonedrag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Defense rate (%),101,222,222,45.50,39.08,52.07
+fig4,poisonedrag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),187,222,222,84.23,78.86,88.44
+fig4,seed_rag,C0: no guard,gpt-4o-mini (OpenAI API),,5,18,18,27.78,12.50,50.87
+fig4,seed_rag,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,5,18,18,27.78,12.50,50.87
+fig4,seed_rag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,4,18,18,22.22,9.00,45.21
+fig4,seed_rag,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),,18,18,18,100.00,82.41,100.00
+fig4,seed_rag,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,18,18,18,100.00,82.41,100.00
+fig4,seed_rag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,18,18,18,100.00,82.41,100.00
+fig4,synthetic_poison_v1,C0: no guard,gpt-4o-mini (OpenAI API),,34,60,60,56.67,44.10,68.43
+fig4,synthetic_poison_v1,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,40,60,60,66.67,54.06,77.27
+fig4,synthetic_poison_v1,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,47,60,60,78.33,66.38,86.88
+fig4,synthetic_poison_v1,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),,60,60,60,100.00,93.98,100.00
+fig4,synthetic_poison_v1,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",,60,60,60,100.00,93.98,100.00
+fig4,synthetic_poison_v1,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,60,60,60,100.00,93.98,100.00
+fig5,FPR,C0: no guard,gpt-4o-mini (OpenAI API),False-positive rate (%),0,500,500,0.00,0.00,0.76
+fig5,FPR,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",False-positive rate (%),0,499,500,0.00,0.00,0.76
+fig5,FPR,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",False-positive rate (%),0,499,500,0.00,0.00,0.76
+fig5,FPR,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),False-positive rate (%),7,500,500,1.40,0.68,2.86
+fig5,FPR,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",False-positive rate (%),7,500,500,1.40,0.68,2.86
+fig5,FPR,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",False-positive rate (%),20,499,500,4.01,2.61,6.11
+fig5,benign_utility,C0: no guard,gpt-4o-mini (OpenAI API),Benign utility (%),194,500,500,38.80,34.63,43.14
+fig5,benign_utility,C0: no guard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Benign utility (%),281,499,500,56.31,51.93,60.60
+fig5,benign_utility,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Benign utility (%),333,499,500,66.73,62.49,70.73
+fig5,benign_utility,C3: full AgentMailGuard,gpt-4o-mini (OpenAI API),Benign utility (%),188,500,500,37.60,33.46,41.93
+fig5,benign_utility,C3: full AgentMailGuard,"Qwen2.5-7B-Instruct (OpenRouter, Phala)",Benign utility (%),282,500,500,56.40,52.02,60.68
+fig5,benign_utility,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Benign utility (%),279,499,500,55.91,51.53,60.21

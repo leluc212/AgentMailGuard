@@ -250,6 +250,7 @@ async def _publish_dispatch(publisher: Any, org_id: UUID, outcome: DecisionOutco
         thread_id=str(draft.thread_id),
         mailbox_id=str(view.mailbox_id),
         payload={"draft_id": str(draft.id), "trigger": "approve"},
+        run_options=job.run_options,  # R25.3
     )
     try:
         await publisher.publish(

@@ -201,6 +201,15 @@ def create_app(
     # Mount scoped /v1 API router
     app.include_router(v1_router)
 
+    # Demo console ingest door, only with DEMO__ENABLED=true (ADR-0018, R25.1); absent = 404
+    if active_settings.demo.enabled:
+        from services.api.demo_catalog import load_catalog
+        from services.api.routers.demo import demo_router
+
+        # A broken scenario catalog fails start-up, not a run during the defence (R25.2)
+        app.state.demo_catalog = load_catalog(active_settings.demo.scenarios_path)
+        app.include_router(demo_router)
+
     return app
 
 

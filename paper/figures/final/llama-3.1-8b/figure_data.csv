@@ -1,0 +1,37 @@
+figure,panel,series,group,metric,k,n_scored,n_planned,pct,ci95_lo,ci95_hi
+fig1,llmail,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),668,999,1000,66.87,63.89,69.72
+fig1,llmail,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig1,rag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),71,300,300,23.67,19.21,28.79
+fig1,rag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),265,300,300,88.33,84.21,91.49
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0,Defense rate (%),668,999,1000,66.87,63.89,69.72
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0T,Defense rate (%),645,996,1000,64.76,61.74,67.66
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C1,Defense rate (%),984,999,1000,98.50,97.54,99.09
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C2,Defense rate (%),985,999,1000,98.60,97.66,99.16
+fig2,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0,Defense rate (%),71,300,300,23.67,19.21,28.79
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C0T,Defense rate (%),80,300,300,26.67,21.98,31.94
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C1,Defense rate (%),82,300,300,27.33,22.60,32.64
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C2,Defense rate (%),169,300,300,56.33,50.68,61.83
+fig2,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),265,300,300,88.33,84.21,91.49
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L1,Defense rate (%),723,999,1000,72.37,69.52,75.06
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L2,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L3,Defense rate (%),998,998,1000,100.00,99.62,100.00
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L4,Defense rate (%),986,999,1000,98.70,97.79,99.24
+fig3,llmail,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-ISO,Defense rate (%),999,999,1000,100.00,99.62,100.00
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3,Defense rate (%),265,300,300,88.33,84.21,91.49
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L1,Defense rate (%),204,300,300,68.00,62.52,73.02
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L2,Defense rate (%),248,300,300,82.67,77.98,86.53
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L3,Defense rate (%),269,300,300,89.67,85.71,92.62
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-L4,Defense rate (%),173,300,300,57.67,52.01,63.13
+fig3,rag,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",C3-ISO,Defense rate (%),257,300,300,85.67,81.25,89.18
+fig4,poisonedrag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),20,222,222,9.01,5.91,13.50
+fig4,poisonedrag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Defense rate (%),187,222,222,84.23,78.86,88.44
+fig4,seed_rag,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,4,18,18,22.22,9.00,45.21
+fig4,seed_rag,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,18,18,18,100.00,82.41,100.00
+fig4,synthetic_poison_v1,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,47,60,60,78.33,66.38,86.88
+fig4,synthetic_poison_v1,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",,60,60,60,100.00,93.98,100.00
+fig5,FPR,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",False-positive rate (%),0,499,500,0.00,0.00,0.76
+fig5,FPR,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",False-positive rate (%),20,499,500,4.01,2.61,6.11
+fig5,benign_utility,C0: no guard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Benign utility (%),333,499,500,66.73,62.49,70.73
+fig5,benign_utility,C3: full AgentMailGuard,"Llama-3.1-8B-Instruct (OpenRouter, CoreWeave, bf16)",Benign utility (%),279,499,500,55.91,51.53,60.21

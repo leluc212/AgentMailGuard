@@ -42,8 +42,29 @@ class JobDetailResponse(BaseModel):
         default=None, description="Lease expiration timestamp."
     )
     last_error: str | None = Field(default=None, description="Most recent error message.")
+    run_options: dict[str, Any] | None = Field(
+        default=None, description="Demo run options {model_profile, guard_mode} (R25.3)."
+    )
     created_at: datetime = Field(description="Job creation timestamp.")
     updated_at: datetime = Field(description="Last update timestamp.")
+
+
+class GuardReportResponse(BaseModel):
+    """AgentMailGuard's report of a C3 job (R25.6, ADR-0018 decision 7)."""
+
+    job_id: UUID
+    organization_id: UUID
+    guard_mode: str
+    model_profile: str | None = None
+    schema_version: int
+    inbound_action: str | None = None
+    final_action: str | None = None
+    guard_llm_calls: int = 0
+    timings_ms: dict[str, Any] = Field(default_factory=dict)
+    report: dict[str, Any] = Field(
+        description="Per-layer verdicts, chunk trust, isolation and the decisions (guard schema 3)."
+    )
+    created_at: datetime
 
 
 class JobTimelineResponse(BaseModel):

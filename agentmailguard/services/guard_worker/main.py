@@ -22,7 +22,7 @@ import logging
 import sys
 from typing import Any
 
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.integration.adapters import decision_to_job_result
 from mailguard.pipeline import GuardConfig, MailGuardPipeline
 
@@ -31,11 +31,11 @@ logger = logging.getLogger("services.guard_worker")
 
 async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[str, Any]:
     email = GuardedEmail.from_any(job.get("email") or {})
-    chunks = [RetrievedChunk.from_any(c) for c in job.get("chunks") or []]
+    chunks = [SourceDocument.from_any(c) for c in job.get("chunks") or []]
     category = job.get("category") or email.category
     system = str(job.get("system_instructions") or "You are a customer support assistant.")
     if job.get("draft"):  # outbound-only inspection of an existing draft
-        report = await pipeline.inspect_inbound(email, category=category)
+        report = await pipeline.inspect_inbound(email, chunks, category=category)
         bundle = await pipeline.build_prompt(report, email, chunks, system_instructions=system)
         draft = DraftCandidate.from_any(job["draft"])
         report = await pipeline.inspect_outbound(
@@ -46,10 +46,10 @@ async def process_job(pipeline: MailGuardPipeline, job: dict[str, Any]) -> dict[
             protected_texts=[system],
             category=category,
         )
-        if report.l4 is not None:
-            draft = draft.model_copy(update={"body": report.l4.redacted_text})
+        if report.output_guard is not None:
+            draft = draft.model_copy(update={"body": report.output_guard.redacted_text})
     else:
-        report = await pipeline.inspect_inbound(email, category=category)
+        report = await pipeline.inspect_inbound(email, chunks, category=category)
         draft = None
     result = decision_to_job_result(report, draft)
     result["job_id"] = job.get("job_id")

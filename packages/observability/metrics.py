@@ -20,6 +20,7 @@ from prometheus_client import (
 )
 
 from packages.core.pricing import estimate_inference_cost
+from packages.core.run_context import model_profile_label
 
 if TYPE_CHECKING:
     from packages.core.settings import ModelPricing
@@ -96,6 +97,7 @@ class PipelineMetrics:
     estimated_ai_cost_total: Counter
     generated_draft_cost_total: Counter
     llm_calls_total: Counter
+    guard_llm_calls_total: Counter
     retrieval_underfilled_total: Counter
     retrieval_degraded_total: Counter
     rerank_fallback_total: Counter
@@ -224,19 +226,25 @@ def create_pipeline_metrics(registry: CollectorRegistry | None = None) -> Pipeli
         estimated_ai_cost_total=Counter(
             "estimated_ai_cost_total",
             "Monotonic cumulative estimated AI cost in USD",
-            ["model", "tier"],
+            ["model", "tier", "model_profile"],
             registry=reg,
         ),
         generated_draft_cost_total=Counter(
             "generated_draft_cost_total",
             "Estimated USD cost of persisted AI drafts, by category (R21.6)",
-            ["category", "model_tier"],
+            ["category", "model_tier", "model_profile"],
             registry=reg,
         ),
         llm_calls_total=Counter(
             "llm_calls_total",
             "Total discrete LLM inference invocations",
             ["kind", "model"],
+            registry=reg,
+        ),
+        guard_llm_calls_total=Counter(
+            "guard_llm_calls_total",
+            "AgentMailGuard judge calls of C3 jobs, outside the job's call budget (ADR-0018 C7)",
+            ["model_profile"],
             registry=reg,
         ),
         retrieval_underfilled_total=Counter(
@@ -475,7 +483,9 @@ def record_ai_cost(
         logger.warning("No pricing configured for model '%s'; recorded tokens at 0 cost", model)
         return 0.0
 
-    m.estimated_ai_cost_total.labels(model=model, tier=tier).inc(cost)
+    m.estimated_ai_cost_total.labels(
+        model=model, tier=tier, model_profile=model_profile_label()
+    ).inc(cost)
     return cost
 
 

@@ -68,9 +68,17 @@ def context_built_payload(
                 "document_id": str(chunk.document_id),
                 "rank": rank,
                 "rerank_score": chunk.rerank_score,
+                # Per-branch evidence for the demo console's retrieval panel (task 9.1, R25.7).
+                "lexical_rank": chunk.lexical_rank,
+                "lexical_score": chunk.lexical_score,
+                "vector_rank": chunk.vector_rank,
+                "vector_score": chunk.vector_score,
+                "fused_score": chunk.fused_score,
             }
             for rank, chunk in enumerate(context.retrieved_chunks, start=1)
         ],
+        "thread_summary_used": context.thread_summary is not None,
+        "recent_messages_count": len(context.recent_messages),
         "retrieval_degraded": context.retrieval_degraded,
         "retrieval_underfilled": context.retrieval_underfilled,
         "retrieval_vector_error": context.retrieval_vector_error,

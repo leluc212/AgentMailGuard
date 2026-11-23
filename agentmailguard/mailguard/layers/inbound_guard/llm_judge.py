@@ -98,7 +98,7 @@ def judge_findings(output: JudgeOutput, model: str) -> list[Finding]:
         tech = tech.strip().lower().replace("-", "_").replace(" ", "_")
         findings.append(
             Finding(
-                layer=LayerName.L1_INJECTION_SCANNER,
+                layer=LayerName.INBOUND_GUARD,
                 threat_type=TECHNIQUE_TO_THREAT.get(tech, ThreatType.PROMPT_INJECTION),
                 severity=Severity.from_score(score),
                 score=score,

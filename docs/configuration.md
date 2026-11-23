@@ -110,7 +110,7 @@ The ai-worker and the API embed retrieval queries with this model; the knowledge
 
 #### The live benchmark's embedding: the runner's choice (tasks 7.20, 7.29; ADR-0014)
 
-The live v2 benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint serves if it **accepts the `dimensions` parameter** and returns 1536-dimension vectors: the embedder sends `dimensions` with every request whenever `EMBEDDING__DIMENSION` is set (`packages/knowledge/embedder.py`), and the benchmark always sets it. OpenAI documents the parameter for `text-embedding-3` and later models; Google's endpoint accepted it for `gemini-embedding-001` (checked 2026-09-29). A model that is 1536 wide natively but rejects the parameter, such as OpenAI `text-embedding-ada-002`, fails every call. `make bench-doctor` and `stack_env` check the settings by name only; `make bench-run` then makes one embedding call with them, through `get_embedder`, before the stack is touched and before any model call, and refuses to start unless one 1536-dimension vector comes back (`evaluation/mailguard_bench/kit/embedding_check.py`; owner decision 2026-10-01, ADR-0014). Two worked examples:
+The live benchmark embeds the case knowledge and the retrieval queries with **one embedding model of the runner's choice, 1536 dimensions, the same for every run of a comparison, recorded with each run**. Any OpenAI-compatible `/embeddings` endpoint serves if it **accepts the `dimensions` parameter** and returns 1536-dimension vectors: the embedder sends `dimensions` with every request whenever `EMBEDDING__DIMENSION` is set (`packages/knowledge/embedder.py`), and the benchmark always sets it. OpenAI documents the parameter for `text-embedding-3` and later models; Google's endpoint accepted it for `gemini-embedding-001` (checked 2026-09-29). A model that is 1536 wide natively but rejects the parameter, such as OpenAI `text-embedding-ada-002`, fails every call. `make bench-doctor` and `stack_env` check the settings by name only; `make bench-run` then makes one embedding call with them, through `get_embedder`, before the stack is touched and before any model call, and refuses to start unless one 1536-dimension vector comes back (`evaluation/mailguard_bench/kit/embedding_check.py`; owner decision 2026-10-01, ADR-0014). Two worked examples:
 
 ```dotenv
 # OpenAI text-embedding-3-small (1536 wide, accepts dimensions)
@@ -320,7 +320,7 @@ The ai-worker sends a generation failure that waiting does not lift straight to 
 | `ROUTING__PRIORITY_LANES` | `list[string]` | `["normal", "priority"]` | Non-empty | Set of priority lanes declared for each category (R7.2) |
 | `ROUTING__CONFIGURED_CONSUMERS` | `list[string]` | unset (derived: every category of the taxonomy on every lane) | Valid patterns | Queue names or glob patterns defining queues with active consumers. Unset, the consumers are derived from the category taxonomy (the canonical nine plus `config/categories.yaml`, crossed with `ROUTING__PRIORITY_LANES`), so no lane is left without a consumer and a category added by configuration is consumed at once (R7.4, R7.6, v2 Amendment 1 G.2). A value, even `[]`, is used as it is; queues it does not cover trigger a startup warning (R7.6). Leave it unset (see below) |
 
-Docker Compose forwards no `ROUTING__*` value, so the containers always run the derived default of `ROUTING__CONFIGURED_CONSUMERS` (`packages.broker.routing.resolve_configured_consumers`, which the `ai-worker`, the guard-worker and the topology check all call). Host processes read `.env`: a value there gives them other lanes than the ai-worker container consumes. For the live benchmark that is a silent fault, because C0 drafts in the ai-worker container and C0T to C3 in the guard-worker (a host process): a lane the guard-worker does not consume, such as `email.administration.priority` (the `.env.example` of before task 7.20 listed only `email.administration.normal`), leaves that lane's emails unconsumed in the guarded configs. Keep the setting out of `.env`; `stack_env` refuses an `.env` that sets it (§2.22).
+Docker Compose forwards no `ROUTING__*` value, so the containers always run the derived default of `ROUTING__CONFIGURED_CONSUMERS` (`packages.broker.routing.resolve_configured_consumers`, which the `ai-worker`, the guard-worker and the topology check all call). Host processes read `.env`: a value there gives them other lanes than the ai-worker container consumes. For the live benchmark that is a silent fault, because C0 drafts in the ai-worker container and C3 in the guard-worker (a host process): a lane the guard-worker does not consume, such as `email.administration.priority` (the `.env.example` of before task 7.20 listed only `email.administration.normal`), leaves that lane's emails unconsumed in the guarded configs. Keep the setting out of `.env`; `stack_env` refuses an `.env` that sets it (§2.22).
 
 #### Per-category dispatch mode (`config/categories.yaml`)
 *How an approved draft leaves the system (R17.1, R17.6, R16.8, design.md §5.8, ADR-0009). These are YAML keys on each category entry, not environment variables.*
@@ -395,10 +395,44 @@ The review UI is server-rendered (FastAPI + Jinja2 + htmx) and calls only the `/
 | `FRONTEND__API_BASE_URL` | `string` | `http://localhost:8000` | Starts with `http://` or `https://`; a trailing `/` is dropped | Base URL of the API the review UI calls; only `/v1` paths are used |
 | `FRONTEND__ORGANIZATION_ID` | `UUID` | unset | UUID, or blank for unset | Tenant whose drafts are reviewed, sent as `X-Organization-Id` (R23.6). `.env.example` sets the seeded demo tenant `00000000-0000-0000-0000-000000000001` |
 
-### 2.22 Live benchmark stack environment (`.env.stack`)
-*Per-model container settings of the live v2 benchmark (task 7.20, ADR-0011, `docs/demo-runbook.md` §9.9). Not part of the application's own settings: a generated file, read only by `docker compose`.*
+### 2.21a Demo console (`DEMO__*`)
+*The demo console's ingest door (R25.1, ADR-0018, design.md §5.9). Off by default.*
 
-The v2 benchmark runs rag-email's own services for real, with one benchmarked model per run in every LLM role. `python -m evaluation.mailguard_bench.live.stack_env --model-profile <profile>` renders the settings the containers that call a model (`api`, `triage-worker`, `knowledge-worker`, `ai-worker`) need into `.env.stack`, and prints the command that applies them:
+With `DEMO__ENABLED=true` the API mounts `/v1/demo` (`capabilities`, `messages`, `requests/{id}`) and the mail-connector consumes `mail.demo.inject`. A demo email goes only into the organization's demo mailbox (provider `demo`, one per tenant from `make seed`), whose dispatch adapter records an approved reply and sends nothing. With `false` every `/v1/demo` path answers 404 and nothing consumes the queue. Compose forwards the key to every application container. There is no login (ADR-0018 decision 2): keep the API on `127.0.0.1`.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `DEMO__ENABLED` | `boolean` | `false` | Boolean | Mount `/v1/demo` and run the demo ingest consumer (R25.1) |
+| `DEMO__FAULT_MARKERS_ENABLED` | `boolean` | `false` | Boolean; has effect only with `DEMO__ENABLED=true` | The fake LLM provider fails on `[[demo-fault:timeout]]` (a timeout, so the retry ladder runs) and `[[demo-fault:invalid-json]]` (a reply that matches no schema) in a prompt; scenarios S10 and G06. Live providers never read markers (R25.11) |
+| `DEMO__SCENARIOS_PATH` | `string` | `config/demo_scenarios.yaml` | Readable YAML file; validated at API start-up when the demo is enabled | Scenario catalog served by `GET /v1/demo/scenarios` and run by `POST /v1/demo/scenarios/{id}/run` (R25.2) |
+| `DEMO__LIVE_MODELS_PATH` | `string` | `config/live_models.yaml` | YAML file; absent means an empty catalog | Live models a demo job can name in `run_options.live_model` and the console's model picker lists (task 9.16, ADR-0019). Each entry names its endpoint, model id, provider pin, prices and the environment variable that holds its key |
+| `DEMO_OPENAI_API_KEY` | `string` (secret) | empty | Read by the api, triage-worker and ai-worker; never logged or returned | Key of the catalog's `gpt-4o-mini`. Empty: the model is listed greyed out |
+| `DEMO_OPENROUTER_API_KEY` | `string` (secret) | empty | As above | Key of the catalog's two OpenRouter models (Qwen2.5-7B, Llama-3.1-8B) |
+
+### 2.21b AgentMailGuard in the ai-worker (`GUARD__*`)
+*The guard around the one generation call of a `C3` job (R25.5, R25.6, ADR-0018 decisions 6–7). Off by default.*
+
+The image ships AgentMailGuard's library and configs under `/opt/agentmailguard`; the private L1 classifier is mounted read-only from the host folder `MAILGUARD_L1_HOST_DIR` (compose only, default `./evaluation/mailguard_bench/pinned`) into the api and the ai-worker. Without it L1's classifier stage is off and `GET /v1/demo/capabilities` says so. A `fake` job builds no judge; a `live` job's five judges use the live LLM provider, and their calls are counted in `guard_llm_calls_total` and the job's `guard_report`, outside its call budget (ADR-0018 decision 6). The guard's decision is display only: dispatch mode and review are unchanged.
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `GUARD__ENABLED` | `boolean` | `false` | Boolean | Make the guard available; a job runs it when its `guard_mode` is `C3` |
+| `GUARD__DEFAULT_MODE` | `string` | `C0` | `C0` or `C3` | `guard_mode` of a job without run options |
+| `GUARD__L1_MODEL_PATH` | `string` | `/opt/agentmailguard-models/l1_injection_clf_v1.joblib` | Container path | Where the guard looks for the mounted L1 classifier |
+| `GUARD__AUDIT_LOG_PATH` | `string` | `/tmp/mailguard_audit.jsonl` | Writable path | The guard's own policy audit log inside the container |
+
+### 2.21c Metrics summary (`OBSERVABILITY__*`)
+*Where the API reads the R21 metrics back for `GET /v1/metrics/summary` (R25.9, ADR-0018 decision 9).*
+
+| Variable | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `OBSERVABILITY__PROMETHEUS_URL` | `string` | `http://prometheus:9090` | `http://` or `https://` URL | Prometheus the API queries; panels with the `organization` label are filtered by the request's tenant, the others are marked `scope: "stack"` |
+| `OBSERVABILITY__QUERY_TIMEOUT_S` | `float` | `5.0` | 0.5–60 | Timeout of each Prometheus query; a failure answers 503 |
+
+### 2.22 Live benchmark stack environment (`.env.stack`)
+*Per-model container settings of the live benchmark (task 7.20, ADR-0011, `docs/demo-runbook.md` §9.9). Not part of the application's own settings: a generated file, read only by `docker compose`.*
+
+The live benchmark runs rag-email's own services for real, with one benchmarked model per run in every LLM role. `python -m evaluation.mailguard_bench.live.stack_env --model-profile <profile>` renders the settings the containers that call a model (`api`, `triage-worker`, `knowledge-worker`, `ai-worker`) need into `.env.stack`, and prints the command that applies them:
 
 ```bash
 docker compose --env-file .env --env-file .env.stack up -d --no-deps api triage-worker knowledge-worker ai-worker
@@ -430,6 +464,69 @@ It never runs the command; Postgres, RabbitMQ and MinIO are never restarted by i
 - **Keys.** The file holds API keys, so it is written owner-only (`0600`), only where git ignores the path (`.env.stack` is in `.gitignore`, and `.dockerignore` keeps it out of every build), and its keys are never printed. The tool refuses a path git could commit. Delete the file after the last run.
 - **Precedence.** Compose reads the files named by `--env-file` in order, the later one winning, and `--env-file` replaces the default `.env`, which is why the printed command names both. A variable exported in the shell wins over every file, so the tool refuses to write when the shell sets a rendered setting to another value (it names the setting, never the value); keep the keys in `.env` and out of the shell.
 - **Optional keys.** Compose forwards `LLM__TIMEOUT_S`, `LLM__OPENAI_PROVIDER_ROUTING`, `LLM__OPENAI_RESPONSE_METADATA`, `EMBEDDING__DIMENSION`, the `RETRIEVAL__RERANK_*` keys, `RETRIEVAL__CATEGORY_FILTER_ENABLED` and `TRIAGE__CATEGORY_RETRIEVAL_FLOOR` only when they are set: they are value-less in `docker-compose.yml`, which Compose drops when nothing resolves them, so the settings default or the image's own value applies. Do not write them into `.env` as `NAME=`: a blank value would be forwarded and would override that.
-- **Host processes.** C0 drafts in the `ai-worker` container, but C0T and C1 to C7 draft in the guard-worker, a host process, and the live runner is one too. They take the model profile's `LLM__*` keys from the profile and every other setting from the shell and `.env`, never from `.env.stack`. `stack_env` therefore refuses to write while `.env` (or the shell) would give them other settings than the containers: `.env` must hold the embedding lines of the runner's choice (§2.5) with `EMBEDDING__MOCK=false`, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000`, `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` (the code default, `true`, would filter the guarded configs by category and not C0) and `LLM__TIMEOUT_S=60` (the value `--llm-timeout-s` sets; `60` and `60.0` are the same number) as `docs/demo-runbook.md` §9.9 step 1 lists them; it may hold the three `RETRIEVAL__RERANK_*` lines only with the values above; `SUMMARIZATION__SUMMARIZER_MODEL` must be unset or the profile's model; and `ROUTING__CONFIGURED_CONSUMERS` must be unset (§2.16). The message names each setting and what it must be, never the value it found, which may be a key. The preflight in §9.9 step 5 prints the same settings from an `ai-worker` container and from the host, so a difference shows before any quota is spent.
+- **Host processes.** C0 drafts in the `ai-worker` container, but C3 (the other v3 config since ADR-0017) drafts in the guard-worker, a host process, and the live runner is one too. They take the model profile's `LLM__*` keys from the profile and every other setting from the shell and `.env`, never from `.env.stack`. `stack_env` therefore refuses to write while `.env` (or the shell) would give them other settings than the containers: `.env` must hold the embedding lines of the runner's choice (§2.5) with `EMBEDDING__MOCK=false`, `RETRIEVAL__RETRIEVAL_TIMEOUT_MS=3000`, `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` (the code default, `true`, would filter the guarded configs by category and not C0) and `LLM__TIMEOUT_S=60` (the value `--llm-timeout-s` sets; `60` and `60.0` are the same number) as `docs/demo-runbook.md` §9.9 step 1 lists them; it may hold the three `RETRIEVAL__RERANK_*` lines only with the values above; `SUMMARIZATION__SUMMARIZER_MODEL` must be unset or the profile's model; and `ROUTING__CONFIGURED_CONSUMERS` must be unset (§2.16). The message names each setting and what it must be, never the value it found, which may be a key. The preflight in §9.9 step 5 prints the same settings from an `ai-worker` container and from the host, so a difference shows before any quota is spent.
 - **Host alias.** `api`, `triage-worker`, `knowledge-worker` and `ai-worker` get `extra_hosts: ["host.docker.internal:host-gateway"]`. On Linux, Docker Engine resolves `host-gateway` to the host's address on the default bridge (`docker0`), so a local Ollama must listen there (`docs/demo-runbook.md` §9.9).
 - **After the benchmark.** `make up` forwards `.env`'s own lines, so set `RETRIEVAL__CATEGORY_FILTER_ENABLED` back to `true` (or delete the line) with the other benchmark lines (`docs/demo-runbook.md` §9.9 step 8), or the normal stack keeps searching without the category filter.
+
+### 2.23 AgentMailGuard guard keys (v3)
+*Read by the guard (`agentmailguard/mailguard/config/settings.py`, `MailGuardSettings`) from the shell and the `.env` of the guard's working directory (`agentmailguard/.env` when run from there); template `agentmailguard/.env.example`. rag-email's own services do not read them. Guard v3, ADR-0015.*
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `MAILGUARD__FAIL_CLOSED_ON_JUDGE_ERROR` | `bool` | `true` | a judge that fails or answers outside its schema (timeout, transport error, non-JSON, missing or invalid fields) sets the verdict's `error` to `judge_invalid:<stage>` (`inbound_scan`, `inbound_extract`, `doc_chunk`, `doc_set`, `output`); the cheap result stays and policy rule P00 asks for human review. `false` keeps the v2 visible fallback (cheap result, `metadata.llm_fallback=true`, no error). A judge with no model configured is not an error. The v3 benchmark runs fail-closed by default (the run meta records `judge_fail_closed`); its `--judge-fallback` flag (`JUDGE_FALLBACK=1` with `make mailguard-bench`) sets this key to `false` to reproduce the v2 behaviour |
+| `MAILGUARD__ENABLED` | `bool` | `true` | declared in the settings but read by no stage or host code today (the guard is switched by `GuardConfig` and the stage switches); setting it changes nothing |
+| `OLLAMA__BASE_URL` | `str` | `http://localhost:11434` | endpoint of the guard's `ollama` backend entries in `configs/models.yaml` (without `/v1`) |
+| `OLLAMA__TIMEOUT_S` | `float` | `60.0` | default timeout of those entries (at least 1) |
+| `GUARD_MODELS__INBOUND_JUDGE` | `str` | `fake` | model (from `configs/models.yaml`) of the L1 Inbound Guard scan judge |
+| `GUARD_MODELS__INBOUND_EXTRACTOR` | `str` | `fake` | model of the L1 Inbound Guard intent extractor |
+| `GUARD_MODELS__DOC_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner per-chunk judge |
+| `GUARD_MODELS__DOC_SET_JUDGE` | `str` | `fake` | model of the L2 Doc Scanner LLM set judge; read only when `DOC_SCANNER__SET_JUDGE_LLM_ENABLED=true` |
+| `GUARD_MODELS__OUTPUT_JUDGE` | `str` | `fake` | model of the L4 Output Guard judge |
+| `GUARD_MODELS__MODELS_PATH` | `str` | `configs/models.yaml` | model registry, relative to `agentmailguard/` |
+| `INBOUND_GUARD__RULES_PATH` | `str` | `configs/injection_rules.yaml` | injection rules (scan and extract) |
+| `INBOUND_GUARD__ML_MODEL_PATH` | `str` | `artifacts/models/l1_injection_clf_v1.joblib` | injection classifier artifact (pinned name) |
+| `INBOUND_GUARD__RULE_CONFIDENCE_THRESHOLD` | `float` 0–1 | `0.90` | a rule score at or above it skips the ML stage |
+| `INBOUND_GUARD__ML_CONFIDENCE_THRESHOLD` | `float` 0–1 | `0.80` | validated, not read by any stage (as in v2) |
+| `INBOUND_GUARD__SCAN_LLM_ENABLED` | `bool` | `true` | scan judge for uncertain scores |
+| `INBOUND_GUARD__BLOCK_THRESHOLD` | `float` 0–1 | `0.85` | score at or above it is HIGH severity; must be ≥ `FLAG_THRESHOLD` |
+| `INBOUND_GUARD__FLAG_THRESHOLD` | `float` 0–1 | `0.50` | score at or above it is MEDIUM severity |
+| `INBOUND_GUARD__MAX_CHARS` | `int` ≥ 200 | `12000` | characters the scan classifier reads |
+| `INBOUND_GUARD__EXTRACT_LLM_ENABLED` | `bool` | `true` | LLM step of the extractor; its deterministic part always runs |
+| `INBOUND_GUARD__MAX_BODY_CHARS` | `int` ≥ 200 | `6000` | body characters the extractor reads |
+| `INBOUND_GUARD__STRIP_THRESHOLD` | `float` 0–1 | `0.50` | a segment scoring at or above it is stripped |
+| `DOC_SCANNER__QUARANTINE_THRESHOLD` | `float` 0–1 | `0.70` | chunk score at or above it is quarantined |
+| `DOC_SCANNER__LLM_ENABLED` | `bool` | `false` | per-chunk judge for uncertain chunks |
+| `DOC_SCANNER__SET_JUDGE_LLM_ENABLED` | `bool` | `false` | LLM set judge over the whole retrieved set: at most one call, made only when a chunk not yet quarantined scores inside `DOC_SCANNER__SUSPICIOUS_BAND`; it can only add quarantines, never remove one |
+| `DOC_SCANNER__MAX_QUARANTINE_RATIO` | `float` 0–1 | `0.60` | above this share of quarantined chunks the reply escalates |
+| `DOC_SCANNER__ECHO_THRESHOLD` | `float` 0–1 | `0.90` | a chunk whose opening echoes the email's question at or above it is quarantined (chosen on the dev split) |
+| `DOC_SCANNER__ECHO_MIN_QUESTION_TOKENS` | `int` | `4` | echo and ordered-prefix count only for a question of at least this many content tokens |
+| `DOC_SCANNER__ECHO_SHORT_QUESTION_TOKENS` | `int` | `3` | a question this short echoes only as an exact phrase in a chunk's first 20 content tokens |
+| `DOC_SCANNER__CLUSTER_ECHO_THRESHOLD` | `float` 0–1 | `0.70` | near-copies at or above this echo form a bait cluster, quarantined whole |
+| `DOC_SCANNER__SUSPICIOUS_BAND` | `[low, high]` | `[0.30, 0.70]` | chunk scores in the band are `untrusted`, below it `trusted` |
+| `CHANNEL_ISOLATION__SPOTLIGHTING_MODE` | `delimit` \| `datamark` \| `encode` | `datamark` | how untrusted text is marked in the prompt |
+| `CHANNEL_ISOLATION__DATAMARK_CHAR` | one character | `^` | datamark character |
+| `CHANNEL_ISOLATION__CHANNELS_PATH` | `str` | `configs/channels.yaml` | channel definitions |
+| `CHANNEL_ISOLATION__MAX_UNTRUSTED_TOKENS` | `int` ≥ 100 | `6000` | cap on untrusted tokens per prompt |
+| `OUTPUT_GUARD__PII_PATTERNS_PATH` | `str` | `configs/pii_patterns.yaml` | PII / secret patterns |
+| `OUTPUT_GUARD__REDACT_PII` | `bool` | `true` | redact PII in drafts |
+| `OUTPUT_GUARD__SYSTEM_PROMPT_LEAK_NGRAM` | `int` ≥ 3 | `8` | n-gram length of the system-prompt leak check |
+| `OUTPUT_GUARD__LLM_ENABLED` | `bool` | `false` | output judge for doubtful drafts |
+| `OUTPUT_GUARD__EXTERNAL_DOMAIN_ALLOWLIST` | JSON list of `str` | `[]` | extra recipient domains a draft may address besides the thread's own |
+| `POLICY__POLICY_PATH` | `str` | `configs/policy.yaml` | policy rules |
+| `POLICY__AUDIT_LOG_PATH` | `str` | `logs/mailguard_audit.jsonl` | JSONL audit log |
+
+**Migration from v2.** v2 keys are no longer read. If one is set in the shell or in the `.env` the guard reads, `MailGuardSettings` raises `LegacyConfigError` before loading, listing every v2 key it found with its v3 name (the table is `LEGACY_ENV_KEYS` in `settings.py`). Matching is case-insensitive.
+
+| v2 key | v3 key |
+|---|---|
+| `L1__LLM_ENABLED` | `INBOUND_GUARD__SCAN_LLM_ENABLED` |
+| `L1__<KEY>` (any other) | `INBOUND_GUARD__<KEY>` |
+| `L2__LLM_ENABLED` | `INBOUND_GUARD__EXTRACT_LLM_ENABLED` |
+| `L2__<KEY>` (any other) | `INBOUND_GUARD__<KEY>` |
+| `L3__<KEY>` | `CHANNEL_ISOLATION__<KEY>` |
+| `L3B__<KEY>` | `DOC_SCANNER__<KEY>` |
+| `L4__<KEY>` | `OUTPUT_GUARD__<KEY>` |
+| `L5__<KEY>` | `POLICY__<KEY>` |
+| `GUARD_MODELS__JUDGE` | `GUARD_MODELS__INBOUND_JUDGE` |
+| `GUARD_MODELS__EXTRACTOR` | `GUARD_MODELS__INBOUND_EXTRACTOR` |
+| `GUARD_MODELS__DOC_SCANNER` | `GUARD_MODELS__DOC_JUDGE` |

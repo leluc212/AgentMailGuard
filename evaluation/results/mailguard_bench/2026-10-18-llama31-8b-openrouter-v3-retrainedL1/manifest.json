@@ -1,0 +1,3797 @@
+{
+  "experiment": "mailguard_bench",
+  "task": "7.20",
+  "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+  "timestamp": "2026-10-18T18:34:58.689690+00:00",
+  "git": {
+    "rag_email": {
+      "sha": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "runs": {
+        "C0": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C0T": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C1": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C2": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L1": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L2": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L3": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-L4": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "C3-ISO": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "at_report_time": {
+        "sha": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dirty": false
+      }
+    },
+    "agentmailguard": {
+      "sha": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "runs": {
+        "C0": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C0T": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C1": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C2": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L1": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L2": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L3": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-L4": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "C3-ISO": "d95e542c616ca9ef4fee067a0862816004fffac3"
+      },
+      "layout": "subtree",
+      "at_report_time": {
+        "sha": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "dirty": false
+      }
+    }
+  },
+  "config_hash": "51404fe0ad23cf1afbbc2f83ea0d09fc0db3e9a8d2c3ec76ce0768ad636b3b81",
+  "case_manifest_sha256": "5cedca0020c7a2c63137d917cda4e8e25df1081bc7ff6734e53ba75fc16013d4",
+  "models": {
+    "C0": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": null,
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": null,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C0T": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C0T",
+        "active_layers": [],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C1": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C2": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L1": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L2": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L3": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-L4": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": null
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    },
+    "C3-ISO": {
+      "generation": "meta-llama/llama-3.1-8b-instruct",
+      "guard": "meta-llama/llama-3.1-8b-instruct",
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "live_layers": {
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      }
+    }
+  },
+  "runs": {
+    "C0": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C0",
+      "scheme": "v3",
+      "preset": "C0",
+      "guard_preset": null,
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": null,
+      "live_layers": null,
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0",
+        "preset": null,
+        "active_layers": [],
+        "guard_model": null,
+        "live_stages": {},
+        "missing_live_stages": [],
+        "live_layers": null,
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": null
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {},
+      "service_images": {
+        "ai-worker": "sha256:fba2033339505a296dc0d33cadf48990eb2ba4ba497147b68d2e00e35cb2f3bf",
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "ai-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C0",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": null,
+        "live_layers": null,
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {},
+        "service_images": {
+          "ai-worker": "sha256:fba2033339505a296dc0d33cadf48990eb2ba4ba497147b68d2e00e35cb2f3bf",
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "ai-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T13:46:49.017221+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T14:07:52.582834+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 546,
+            "error": 4,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:41:08.317419+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:41:17.385977+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 546,
+            "ok": 4,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0
+          }
+        }
+      ]
+    },
+    "C0T": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C0T",
+      "scheme": "v3",
+      "preset": "C0T",
+      "guard_preset": "C0",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C0T",
+        "active_layers": [],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C0T",
+        "scheme": "v3",
+        "preset": "C0",
+        "active_layers": [],
+        "channel_isolation": false,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C0T",
+          "active_layers": [],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C0T.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C0T",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C0T",
+          "active_layers": [],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T17:48:20.115347+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T18:09:20.763120+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 548,
+            "error": 2,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 426,
+              "by_role": {
+                "generation": 426
+              },
+              "by_provider": {
+                "CoreWeave": 426
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 426
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 236956,
+              "completion_tokens": 85299,
+              "cost_usd": 0.07089609999999996
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T18:09:35.235018+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T18:09:54.685577+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 548,
+            "ok": 1,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 427,
+              "by_role": {
+                "generation": 427
+              },
+              "by_provider": {
+                "CoreWeave": 427
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 427
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 237442,
+              "completion_tokens": 85443,
+              "cost_usd": 0.07103469999999996
+            }
+          }
+        }
+      ]
+    },
+    "C1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C1",
+      "scheme": "v3",
+      "preset": "C1",
+      "guard_preset": "C1",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C1",
+        "scheme": "v3",
+        "preset": "C1",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate"
+        ],
+        "channel_isolation": false,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C1.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C1",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C1",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T14:08:02.591070+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T14:30:17.580399+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 550,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 736,
+              "by_role": {
+                "guard": 510,
+                "generation": 226
+              },
+              "by_provider": {
+                "CoreWeave": 736
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 736
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 359106,
+              "completion_tokens": 88620,
+              "cost_usd": 0.09849971999999997
+            }
+          }
+        }
+      ]
+    },
+    "C2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C2",
+      "scheme": "v3",
+      "preset": "C2",
+      "guard_preset": "C2",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C2",
+        "scheme": "v3",
+        "preset": "C2",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C2.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C2",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C2",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T14:30:26.828077+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T14:53:23.580590+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 549,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 798,
+              "by_role": {
+                "guard": 571,
+                "generation": 227
+              },
+              "by_provider": {
+                "CoreWeave": 798
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 798
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 452050,
+              "completion_tokens": 91004,
+              "cost_usd": 0.11947187999999996
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:41:44.787345+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:41:50.439379+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 549,
+            "ok": 1,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 799,
+              "by_role": {
+                "guard": 572,
+                "generation": 227
+              },
+              "by_provider": {
+                "CoreWeave": 799
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 799
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 452448,
+              "completion_tokens": 91136,
+              "cost_usd": 0.11958847999999996
+            }
+          }
+        }
+      ]
+    },
+    "C3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3",
+      "scheme": "v3",
+      "preset": "C3",
+      "guard_preset": "C3",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3",
+        "scheme": "v3",
+        "preset": "C3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T14:53:33.044315+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T15:20:02.790108+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 543,
+            "error": 7,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 898,
+              "by_role": {
+                "guard": 675,
+                "generation": 223
+              },
+              "by_provider": {
+                "CoreWeave": 898
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 898
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 504924,
+              "completion_tokens": 98300,
+              "cost_usd": 0.13270927999999968
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:42:03.014541+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:42:23.280558+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 543,
+            "ok": 7,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 909,
+              "by_role": {
+                "guard": 682,
+                "generation": 227
+              },
+              "by_provider": {
+                "CoreWeave": 909
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 909
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 511696,
+              "completion_tokens": 99884,
+              "cost_usd": 0.13454759999999963
+            }
+          }
+        }
+      ]
+    },
+    "C3-L1": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3-L1",
+      "scheme": "v3",
+      "preset": "C3-L1",
+      "guard_preset": "C3-L1",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L1",
+        "scheme": "v3",
+        "preset": "C3-L1",
+        "active_layers": [
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3-L1.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L1",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3-L1",
+          "active_layers": [
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T15:20:12.710672+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T15:46:27.915717+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 537,
+            "error": 13,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 523,
+              "by_role": {
+                "generation": 423,
+                "guard": 100
+              },
+              "by_provider": {
+                "CoreWeave": 523
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 523
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 449236,
+              "completion_tokens": 97807,
+              "cost_usd": 0.12034946000000002
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:42:36.137297+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:44:16.375443+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 537,
+            "ok": 12,
+            "error": 1,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 535,
+              "by_role": {
+                "generation": 435,
+                "guard": 100
+              },
+              "by_provider": {
+                "CoreWeave": 535
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 535
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 464073,
+              "completion_tokens": 100433,
+              "cost_usd": 0.12419132000000006
+            }
+          }
+        }
+      ]
+    },
+    "C3-L2": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3-L2",
+      "scheme": "v3",
+      "preset": "C3-L2",
+      "guard_preset": "C3-L2",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": null,
+        "doc_set_judge": null,
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L2",
+        "scheme": "v3",
+        "preset": "C3-L2",
+        "active_layers": [
+          "inbound_guard",
+          "inbound_gate",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3-L2.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": false,
+        "doc_set_judge": false,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L2",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3-L2",
+          "active_layers": [
+            "inbound_guard",
+            "inbound_gate",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": null,
+          "doc_set_judge": null,
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": false,
+          "doc_set_judge": false,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T15:46:37.506736+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T16:13:43.838634+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 548,
+            "error": 2,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 842,
+              "by_role": {
+                "guard": 616,
+                "generation": 226
+              },
+              "by_provider": {
+                "CoreWeave": 842
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 842
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 515190,
+              "completion_tokens": 104369,
+              "cost_usd": 0.13630297999999993
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:44:31.365501+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:44:55.521596+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 548,
+            "ok": 2,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 850,
+              "by_role": {
+                "guard": 622,
+                "generation": 228
+              },
+              "by_provider": {
+                "CoreWeave": 850
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 850
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 521038,
+              "completion_tokens": 105763,
+              "cost_usd": 0.13789621999999996
+            }
+          }
+        }
+      ]
+    },
+    "C3-L3": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3-L3",
+      "scheme": "v3",
+      "preset": "C3-L3",
+      "guard_preset": "C3-L3",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L3",
+        "scheme": "v3",
+        "preset": "C3-L3",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "output_guard",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3-L3.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L3",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3-L3",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "output_guard",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T16:13:53.163676+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T16:48:33.333716+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 535,
+            "error": 15,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 1227,
+              "by_role": {
+                "generation": 415,
+                "guard": 812
+              },
+              "by_provider": {
+                "CoreWeave": 1227
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 1227
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 741383,
+              "completion_tokens": 155840,
+              "cost_usd": 0.1973890599999998
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:45:09.240708+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:46:30.406497+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 535,
+            "ok": 15,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 1270,
+              "by_role": {
+                "generation": 429,
+                "guard": 841
+              },
+              "by_provider": {
+                "CoreWeave": 1270
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 1270
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 769747,
+              "completion_tokens": 163427,
+              "cost_usd": 0.2052982799999999
+            }
+          }
+        }
+      ]
+    },
+    "C3-L4": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3-L4",
+      "scheme": "v3",
+      "preset": "C3-L4",
+      "guard_preset": "C3-L4",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": null
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-L4",
+        "scheme": "v3",
+        "preset": "C3-L4",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "channel_isolation"
+        ],
+        "channel_isolation": true,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": null
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3-L4.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": false
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-L4",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3-L4",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "channel_isolation"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": null
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": false
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T16:48:46.927867+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:14:49.055366+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 544,
+            "error": 6,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 796,
+              "by_role": {
+                "guard": 570,
+                "generation": 226
+              },
+              "by_provider": {
+                "CoreWeave": 796
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 796
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 450169,
+              "completion_tokens": 90204,
+              "cost_usd": 0.11888205999999997
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:46:44.128269+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:46:57.838564+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 544,
+            "ok": 6,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 800,
+              "by_role": {
+                "guard": 573,
+                "generation": 227
+              },
+              "by_provider": {
+                "CoreWeave": 800
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 800
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 452781,
+              "completion_tokens": 90681,
+              "cost_usd": 0.11956163999999998
+            }
+          }
+        }
+      ]
+    },
+    "C3-ISO": {
+      "schema": "mailguard-bench-run.v2",
+      "run_id": "2026-10-18-llama31-8b-openrouter-v3-retrainedL1",
+      "config": "C3-ISO",
+      "scheme": "v3",
+      "preset": "C3-ISO",
+      "guard_preset": "C3-ISO",
+      "case_dir": "C:\\AgentMailGuard\\evaluation\\datasets\\mailguard",
+      "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+      "case_sets": [
+        "llmail_attack",
+        "llmail_benign",
+        "rag_attack"
+      ],
+      "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+      "rag_email_dirty": false,
+      "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+      "guarded_prompt_version": "guarded.v3",
+      "judge_fail_closed": true,
+      "generation_model": "meta-llama/llama-3.1-8b-instruct",
+      "generation": {
+        "provider": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model_map": {
+          "fast": "meta-llama/llama-3.1-8b-instruct",
+          "routine": "meta-llama/llama-3.1-8b-instruct",
+          "strong": "meta-llama/llama-3.1-8b-instruct",
+          "fallback": "meta-llama/llama-3.1-8b-instruct"
+        },
+        "force_single_tier": false,
+        "timeout_s": 60.0,
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        },
+        "response_metadata": true
+      },
+      "prices": {
+        "meta-llama/llama-3.1-8b-instruct": {
+          "input_per_m": 0.22,
+          "output_per_m": 0.22
+        }
+      },
+      "benign_utility_rule": "min_draft_chars.v1",
+      "guard_models": "meta-llama/llama-3.1-8b-instruct",
+      "live_layers": {
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "classifier": true,
+        "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+        "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+      },
+      "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+      "embedding_mock": false,
+      "embedding": {
+        "mock": false,
+        "model": "text-embedding-3-small",
+        "dimension": 1536,
+        "base_url_host": "api.openai.com"
+      },
+      "retrieval": {
+        "top_k": 5,
+        "top_n": 20,
+        "timeout_ms": 3000,
+        "category_filter": false
+      },
+      "database": "rag_email",
+      "guard": {
+        "config": "C3-ISO",
+        "scheme": "v3",
+        "preset": "C3-ISO",
+        "active_layers": [
+          "inbound_guard",
+          "doc_scanner",
+          "inbound_gate",
+          "output_guard"
+        ],
+        "channel_isolation": false,
+        "guard_model": "meta-llama/llama-3.1-8b-instruct",
+        "judge_fail_closed": true,
+        "live_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "missing_live_stages": [],
+        "live_layers": {
+          "preset": "C3-ISO",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_path": "C:\\AgentMailGuard-bench-artifacts\\l1_injection_clf_v1.joblib",
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "mailguard_root": "C:\\AgentMailGuard\\agentmailguard",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "audit_log_path": "C:\\AgentMailGuard\\evaluation\\results\\mailguard_bench\\2026-10-18-llama31-8b-openrouter-v3-retrainedL1\\raw\\guard_l5__C3-ISO.jsonl",
+        "provider_routing": {
+          "order": [
+            "coreweave"
+          ],
+          "allow_fallbacks": false,
+          "require_parameters": true,
+          "quantizations": [
+            "bf16"
+          ]
+        }
+      },
+      "degraded_allowed": false,
+      "transport": "services-v2",
+      "reranker": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      },
+      "triage": {
+        "mode": "live",
+        "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+        "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+      },
+      "guard_llm_stages": {
+        "classifier": true,
+        "inbound_judge": true,
+        "inbound_extractor": true,
+        "doc_judge": true,
+        "doc_set_judge": true,
+        "output_judge": true
+      },
+      "service_images": {
+        "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+        "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+        "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+        "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+        "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+        "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+      },
+      "service_revisions": {
+        "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+      },
+      "ollama": {
+        "version": null,
+        "context_length": null,
+        "keep_alive": null
+      },
+      "fingerprint": {
+        "preset": "C3-ISO",
+        "scheme": "v3",
+        "cases_sha256": "c00dddca6336df91bcf80de7904ad5a8335564ababd8618c7b1d953a23811d19",
+        "rag_email_commit": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+        "mailguard_commit": "d95e542c616ca9ef4fee067a0862816004fffac3",
+        "guarded_prompt_version": "guarded.v3",
+        "judge_fail_closed": true,
+        "generation_model": "meta-llama/llama-3.1-8b-instruct",
+        "generation": {
+          "provider": "openai",
+          "base_url": "https://openrouter.ai/api/v1",
+          "model": "meta-llama/llama-3.1-8b-instruct",
+          "model_map": {
+            "fast": "meta-llama/llama-3.1-8b-instruct",
+            "routine": "meta-llama/llama-3.1-8b-instruct",
+            "strong": "meta-llama/llama-3.1-8b-instruct",
+            "fallback": "meta-llama/llama-3.1-8b-instruct"
+          },
+          "force_single_tier": false,
+          "timeout_s": 60.0,
+          "provider_routing": {
+            "order": [
+              "coreweave"
+            ],
+            "allow_fallbacks": false,
+            "require_parameters": true,
+            "quantizations": [
+              "bf16"
+            ]
+          },
+          "response_metadata": true
+        },
+        "guard_models": "meta-llama/llama-3.1-8b-instruct",
+        "live_layers": {
+          "preset": "C3-ISO",
+          "active_layers": [
+            "inbound_guard",
+            "doc_scanner",
+            "inbound_gate",
+            "output_guard"
+          ],
+          "classifier": true,
+          "inbound_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "inbound_extractor": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "doc_set_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct",
+          "output_judge": "CountingProvider:meta-llama/llama-3.1-8b-instruct"
+        },
+        "l1_model_sha256": "04ac26a8465dad148766607b717e85bcc4fe01bd2fbb1e0d22d39c257136d808",
+        "embedding": {
+          "mock": false,
+          "model": "text-embedding-3-small",
+          "dimension": 1536,
+          "base_url_host": "api.openai.com"
+        },
+        "retrieval": {
+          "top_k": 5,
+          "top_n": 20,
+          "timeout_ms": 3000,
+          "category_filter": false
+        },
+        "database": "rag_email",
+        "degraded_allowed": false,
+        "transport": "services-v2",
+        "reranker": {
+          "enabled": true,
+          "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        },
+        "triage": {
+          "mode": "live",
+          "ml_sha256": "b965d30bedc509a1c734e0efc888c383ac78167c9537cb37ff765c1de0885e59",
+          "rules_sha256": "982e3c73607cde51cadfee964038bf8baf665d0b76fc897c748e74b0c2d13608"
+        },
+        "guard_llm_stages": {
+          "classifier": true,
+          "inbound_judge": true,
+          "inbound_extractor": true,
+          "doc_judge": true,
+          "doc_set_judge": true,
+          "output_judge": true
+        },
+        "service_images": {
+          "api": "sha256:3fd24aa797709ee5c0883c67a0ccf71a49ffc4025cd3b777907b17d1806081e5",
+          "dispatch-worker": "sha256:467b90c6d91057796068469886bc427d1ff58f5719aa2595647820e8824c8052",
+          "email-worker": "sha256:5925f926bf95ead63ba323c0d941c61aa947bec4b1584f0b822003dee1993b5b",
+          "knowledge-worker": "sha256:5605c2ecdd6808a001b0b148f43c87f1ffc33ef2783efef486d35eeace9d0b2e",
+          "mail-connector": "sha256:edc0ca88a7ae19819577322d1a609ac6afee677e83c2fee0d2d8b5bb16fb0a66",
+          "triage-worker": "sha256:48d2fcbd732264b78121462582944ff1946c5467fea05afb631a6ff790955163"
+        },
+        "service_revisions": {
+          "api": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "dispatch-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "email-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "knowledge-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "mail-connector": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a",
+          "triage-worker": "ecdf33d5f826e4db5da465ae601a1fa15b58b95a"
+        },
+        "rag_email_dirty": false,
+        "ollama": {
+          "version": null,
+          "context_length": null,
+          "keep_alive": null
+        }
+      },
+      "invocations": [
+        {
+          "started_at": "2026-10-18T17:15:02.477368+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:40:50.240614+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 0,
+            "ok": 547,
+            "error": 3,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 892,
+              "by_role": {
+                "guard": 668,
+                "generation": 224
+              },
+              "by_provider": {
+                "CoreWeave": 892
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 892
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 417018,
+              "completion_tokens": 97660,
+              "cost_usd": 0.11322916000000001
+            }
+          }
+        },
+        {
+          "started_at": "2026-10-18T17:47:11.470341+00:00",
+          "n_cases_selected": 550,
+          "limit": null,
+          "case_ids": null,
+          "retry_errors": true,
+          "concurrency": 2,
+          "case_timeout_s": 300.0,
+          "purged_stale_orgs": 0,
+          "purged_stale_objects": 0,
+          "purge_errors": [],
+          "finished_at": "2026-10-18T17:47:41.068282+00:00",
+          "summary": {
+            "selected": 550,
+            "skipped_already_recorded": 547,
+            "ok": 3,
+            "error": 0,
+            "torn_lines_skipped": 0,
+            "cleanup_failures": 0,
+            "provenance": {
+              "calls": 902,
+              "by_role": {
+                "guard": 675,
+                "generation": 227
+              },
+              "by_provider": {
+                "CoreWeave": 902
+              },
+              "by_model": {
+                "meta-llama/llama-3.1-8b-instruct": 902
+              },
+              "fallback_attempts": 0,
+              "unverified": 0,
+              "prompt_tokens": 420737,
+              "completion_tokens": 98594,
+              "cost_usd": 0.11425281999999999
+            }
+          }
+        }
+      ]
+    }
+  },
+  "counts": {
+    "C0": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C0T": {
+      "records": 550,
+      "scored": 549,
+      "errors": 1
+    },
+    "C1": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C2": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L1": {
+      "records": 550,
+      "scored": 549,
+      "errors": 1
+    },
+    "C3-L2": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L3": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-L4": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    },
+    "C3-ISO": {
+      "records": 550,
+      "scored": 550,
+      "errors": 0
+    }
+  },
+  "meaning": {
+    "rubric": "meaning-rubric.v1",
+    "prompt_sha256": "2e909d38db36841a282847d029e224058804c8a3c7b86ebc5d9b8a77c39246bc",
+    "reader_models": [
+      "gpt-4.1-mini"
+    ],
+    "files": {
+      "C0": "3cf8516dfd5e2f4507a60222806748f457c004903f772911d13c52ce4441799d",
+      "C0T": "2447f20a12fbdc851206460343b4a7c7c2eb65ed6cdc3af2ec690eba8e58a295",
+      "C1": "ef1b601bb25ae96f19e91bd81afdff0d5a187236a60901e3dad384efc985ee8a",
+      "C2": "d8b806f3c73deaad2a64a90fc150776c07969ba1dd70ee6163d7bcb23db3fecc",
+      "C3": "c04f3bbac8cd1ffeb846fba1ca2a6b7ce9a2815a3a1c41356671500dbe81c0d4",
+      "C3-L1": "0bc43e6763933c6f630358fb0a377a40d1c039e0672be1ea3506b632f44de0e7",
+      "C3-L2": "d083db9b9447b5b0cf93ad70e25df27c52e7ae8d52accf6c754ffd38434d54b0",
+      "C3-L3": "b8ea19120275685efb66bca12db5eae44f7302265844ed0e579c2cbef91e33c5",
+      "C3-L4": "560a8085de8b1a20b8ccd4dc1cef25edcc85d5ca324e6892eb36641dd47a7f44",
+      "C3-ISO": "2f77d90606ee20bdd37d35abeeafd8e86a4f44b5044ae9b1e9613234c6cd91e6"
+    }
+  },
+  "scheme": "v3"
+}

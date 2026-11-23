@@ -1,6 +1,6 @@
 # ADR-0015: AgentMailGuard architecture v3 (four guard layers, no outbound gate)
 
-- **Status:** Proposed (owner decisions of 2026-10-12, amended by the review of 2026-10-13); branch `refactor/guard-v3`
+- **Status:** Accepted pending Task 16 (live acceptance), 2026-10-15; owner decisions of 2026-10-12, amended by the review of 2026-10-13; branch `refactor/guard-v3`. Decision 13 stays open until the v3 benchmark run meets its criteria.
 - **Date:** 2026-10-12
 - **Decided by:** project owner (plan review of 2026-10-12, `plan_v3/plan_v3.md`)
 - **Target architecture:** `plan_v3/architect_v3.jpg`
@@ -46,20 +46,27 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
    | (not a layer) | `channel_isolation` | L3 channel isolation |
 
    The policy engine becomes a shared component (`mailguard.policy`), used by the gate and by L4.
-2. **Order.** email → L1 → L3 Inbound Gate on L1 facts alone (documents marked "not scanned"); a
-   block or quarantine stops here with no doc judge call, as in v2 → otherwise documents → L2 → L3
-   Inbound Gate again with every fact, before any model call; block/quarantine → escalated draft
-   with no model call; pass → channel isolation → one host generation → L4 → host review queue.
+2. **Order.** email → L1 → **L3 Inbound Gate pass 1** on L1 facts alone (documents marked "not
+   scanned"); a block or quarantine stops here with no doc judge call, as in v2 → otherwise documents
+   → L2 → **L3 Inbound Gate pass 2** with every fact, before any model call; block/quarantine →
+   escalated draft with no model call; pass → channel isolation → one host generation → L4 → host
+   review queue. The report keeps only the final inbound decision (pass 2, or pass 1 when it stopped)
+   with `metadata.gate_passes` = 1 or 2; the audit log gets one record for that final decision, its id
+   seeded with the gate pass so it stays deterministic; a pass-1 that passes is provisional and is not
+   audited.
    An empty document set (template jobs) makes L2 a contractual no-op. The question sentences L2
    compares against are produced by a pure function the pipeline always runs, not by L1, so
    switching L1 off does not weaken L2.
 3. **Inbound floor (strictest action wins).** L4 merges its outbound policy decision with the
    inbound decision. The inbound decision is carried only when a specific rule produced it (not the
-   catch-all default), so a clean inbound `draft_only` does not suppress a clean `auto_send`. The
+   catch-all default) **and** its action is stricter than `auto_send`, so a clean inbound `draft_only`
+   does not suppress a clean `auto_send`, and an inbound `auto_send` never counts as a floor (which keeps
+   the invariant "auto_send only without a floor and on the allowlist"). The
    floor is code, not configuration. Invariants: the final action is at least the floor;
    `requires_human` is the OR of both; audit ids stay deterministic.
 4. **Doc scanner signals and set judge.** The doc scanner's cheap stage compares each chunk with the
-   email's question sentences (supplied by L1 as `question_sentences`), not with the whole body, and
+   email's question sentences (the pure function of decision 2; recorded on L1's verdict when L1 runs),
+   not with the whole body, and
    adds an ordered-prefix signal and bait clusters (chunks that echo each other are quarantined as a
    cluster). Each chunk verdict carries `trust`, `cluster_id` and the raw `signals`. The set-level
    verdict is deterministic by default (aggregate of those signals). An optional LLM set judge
@@ -85,13 +92,16 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
    `reason`, `decided_by` and `guard_schema_version`.
 8. **Channel isolation does not grade.** It returns `IsolationInfo` (mode, nonce, counts). Forged
    channel markers are graded where they arrive: in the email by L1 and in documents by L2. Markers
-   scrubbed from thread history are recorded as a `forged_channel_marker` finding on the inbound
-   verdict (no severity change). Because isolation runs at prompt build, after the inbound gate, that
-   finding is visible only to L4's facts and to the benchmark; it never changes an inbound decision.
+   scrubbed from thread history are recorded in `IsolationInfo.forged_markers` (`forged_channel_marker`
+   findings; `markers_scrubbed` stays the count). The inbound verdict is never modified after the gate,
+   so the report shows exactly what the gate saw. Because isolation runs at prompt build, after the
+   inbound gate, this is visible only to L4 (outbound fact `isolation_forged_markers`, used by no rule
+   by default) and to the benchmark; it never changes an inbound decision.
    A failed prompt build still fails closed through the policy's `layer_error` fact.
 9. **L1 severity comes from the scan sub-stage only.** The extractor contributes intent, the
-   sanitized body, `removed_ratio`, `question_sentences` and findings tagged `stage="extract"`; those
-   findings never raise severity or score. This closes context item 4.
+   sanitized body, `removed_ratio` and findings tagged `stage="extract"`; those findings never raise
+   severity or score. This closes context item 4. The extract sub-stage always runs deterministically;
+   only its LLM call is optional (`INBOUND_GUARD__EXTRACT_LLM_ENABLED`).
 10. **Prompt version.** Rendering chunks with their trust level changes the guarded prompt, so
     `GUARDED_PROMPT_VERSION` becomes `guarded.v3` and is written into every run meta.
 11. **Host hooks are a separate ADR.** The host-side changes that consume `trust` (review-UI badge,
@@ -104,24 +114,67 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
 13. **Acceptance is a live measurement, not parity.** The refactor is complete only after a v3
     benchmark run (Task 16) meets the recorded criteria: C3 ASR ≤ 5% on LLMail-Inject, ≥ 80/100
     poisoned-document cases with every poisoned chunk caught, ≤ 5% of benign question emails and
-    ≤ 2% of clean documents escalated, and each single-layer ablation worse than C3 on its own route.
+    ≤ 2% of clean documents escalated, and each single-layer ablation worse than C3 on its own route
+    metric (C3-L1: inbound catch rate before generation on LLMail-Inject; C3-L2: every-poisoned-chunk
+    rate on the poisoned-document cases). Final ASR is reported but is not the ablation criterion,
+    because L4 can still catch an injection when L1 is off.
     A failed criterion reopens Task 5 or 7 and is recorded here; thresholds are never tuned on the
     pinned cases.
 14. **Parity deltas are bounded.** Every `INTENDED_DELTAS` entry names the unit test that proves the
     new behaviour independently of the golden, and each task has a pre-declared maximum number of
-    deltas. The golden is never regenerated.
+    deltas (Task 4 ≤ 10, raised from 3 by the owner on 2026-10-14 for the isolation deltas only,
+    plan_v3 F10; 5 ≤ 11 and 6 ≤ 52, raised by the owner on 2026-10-14, plan_v3 F11/F12; 7 ≤ 21, F13;
+    8 ≤ 26, F14; 11 ≤ 5; every other task 0). The golden is never
+    regenerated.
 
 ## Intended behaviour changes (recorded in `agentmailguard/tests/parity.py`)
 
-- Poisoned or critical knowledge is decided at the inbound gate: a quarantine stops the job before
-  generation; a human-approval escalation is carried into L4 as the floor.
-- Forged markers inside thread history (not email, not documents) are still removed by isolation
-  but no longer graded.
-- With the fail-closed flag on, an invalid judge answer is human review instead of the cheap verdict.
-- An email whose scan is clean but whose extractor flags assistant-style instructions is no longer
-  escalated by severity (decision 9); it keeps a finding only.
-- Poisoned chunks that echo the question sentences, or form a bait cluster, are quarantined by the
-  cheap stage where v2 kept them (decision 4).
+Every `INTENDED_DELTAS` reason in `agentmailguard/tests/parity.py` appears below as one item (the numbers
+are the "intended change N" of those reasons), with the test that proves it independently of the golden.
+Items marked "no parity delta" have no `INTENDED_DELTAS` entry and are proven by unit tests only. The
+golden is never regenerated. The decision numbers below are the ones of this ADR; two `why` strings
+in `parity.py` cite them off by name (`_THREAD_FORGED_WHY` says decision 10, `_EXTRACTOR_WHY` says
+decision 8), which this list corrects without touching the parity file. 99 distinct golden cases
+move in total; the per-group counts below overlap where a case is changed by two tasks.
+
+1. Poisoned or critical knowledge is decided at the inbound gate: a quarantine stops the job before
+   generation; a human-approval escalation is carried into L4 as the floor (decision 2). 21 cases
+   (14 `C3-L1`, 7 `C3`; mostly P05 human approval, three P08, two P02 blocks with no generation) in
+   `agentmailguard/tests/deltas/task7_doc_scanner_before_gate.json`. Proof:
+   `test_inbound_gate.py::test_pass_2_sees_the_documents_and_is_the_one_audited`.
+2. Forged markers inside thread history (not email, not documents) are still removed by isolation
+   but no longer graded; they are recorded in `IsolationInfo.forged_markers` (decision 8). 8 cases
+   (`b-005`, inline in `parity.py`). Proof:
+   `test_channel_isolation.py::test_thread_forged_markers_are_recorded_not_graded`.
+3. With the fail-closed flag on, an invalid judge answer is human review instead of the cheap
+   verdict (decision 5). No parity delta: the matrix runs the cheap and scripted-judge path. Proven
+   by unit tests only (`judge_invalid:<stage>` per stage, P00).
+4. An email whose scan is clean but whose extractor flags assistant-style instructions is no longer
+   escalated by severity (decision 9); it keeps a finding only, so P08 no longer matches, and the
+   scripted `s-001`/`s-003` with `llm=1` move to P09 (draft only) because heavy sanitization is the
+   only rule left. 11 cases, inline in `parity.py` (`_TASK5_FIELDS`). Proof:
+   `test_inbound_guard.py::test_clean_scan_and_flagging_extractor_keep_severity_and_add_a_finding`.
+5. Poisoned chunks that echo the question sentences, or form a bait cluster, are quarantined by the
+   cheap stage where v2 kept them (decision 4). No parity delta: no golden case contains such a
+   chunk. Proven by the Doc Scanner unit tests; the live measure is Task 16 criterion (b).
+6. The outbound policy decision belongs to the L4 Output Guard; there is no outbound gate (decision 1).
+   With the inbound gate off, a job still gets a final decision after generation (v2's single L5
+   switch made both decisions, so turning it off left none). Owner decision 2026-10-14 (plan_v3
+   F14). 26 cases (all v2 `C3-L5`) in `agentmailguard/tests/deltas/task8_output_guard.json`. Proof:
+   `test_output_guard_floor.py::test_the_output_guard_decides_without_the_inbound_gate`.
+7. A marker forged in a kept document is scrubbed from the prompt but graded by nobody when the Doc
+   Scanner is off (decision 8: forged markers are graded where they arrive, and the document is
+   graded by L2 only). 2 cases (`b-004`, inline in `parity.py`; with L2 on the chunk is still
+   quarantined). Proof: `test_channel_isolation.py::test_document_forged_markers_are_scrubbed_without_a_verdict`.
+8. `C1` is Inbound Guard plus Inbound Gate: v2 `C1` ran the scan sub-stage only, v3 `C1` also runs
+   the extract sub-stage (decision 1: one Inbound Guard switch; `removed_ratio` recorded, one
+   extractor call with `llm=1`). Actions are unchanged apart from the P99 to P09 move of
+   `s-001`/`s-003` with `llm=1`. 26 cases in `agentmailguard/tests/deltas/task6_guard_config.json`
+   (the `C1` half). Proof: `test_inbound_guard.py::test_c1_runs_both_inbound_guard_sub_stages`.
+9. `C3-L1` is C3 without the Inbound Guard: v2 `C3-L1` still ran the extract sub-stage, v3 runs
+   neither sub-stage (no inbound severity, no `removed_ratio`, no extractor call; decision 1). 26
+   cases in `agentmailguard/tests/deltas/task6_guard_config.json` (the `C3-L1` half). Proof:
+   `test_inbound_guard.py::test_c3_l1_runs_no_inbound_guard_sub_stage`.
 
 ## Consequences
 
@@ -129,7 +182,8 @@ Two measured defects of v2 must not survive the refactor (benchmark v1, 2026-09)
   runs and scores v3 only, and reads the committed v1/v2 folders through the read-only legacy reader.
   The guard pin moves to the v3 commit.
 - Final acceptance runs `make ci` on a Linux checkout in addition to the Windows script, because the
-  Windows baseline (63 environment failures) cannot prove the make/bash recipes still work.
+  Windows baseline (63 environment failures) cannot prove the make/bash recipes still work. GitHub CI
+  is the authoritative baseline; the Windows list is for local regression comparison only.
 - The branch is pushed after every task (never merged, no PR) so the code is reviewable and safe
   before Task 15.
 - The paper's v3 tables come from the Task 16 run; v2 tables stay labelled v2 until then.

@@ -39,6 +39,23 @@ def _parse_uuid(value: str | None) -> UUID | None:
         return None
 
 
+async def resolve_tenant_mailbox(store: MailboxStore, envelope: JobEnvelope) -> Mailbox:
+    """The envelope's mailbox, checked against its organization (R23.6), or FatalError."""
+    org_id = _parse_uuid(envelope.organization_id)
+    if org_id is None:
+        raise FatalError(f"Missing or invalid organization_id '{envelope.organization_id}' (R23.6)")
+    mailbox_id = _parse_uuid(envelope.mailbox_id)
+    if mailbox_id is None:
+        raise FatalError(f"Unresolvable mailbox_id '{envelope.mailbox_id}'")
+
+    mailbox = await store.get(mailbox_id)  # DB errors propagate -> retry
+    if mailbox is None:
+        raise FatalError(f"Mailbox {mailbox_id} not found")
+    if _parse_uuid(str(mailbox.organization_id)) != org_id:
+        raise FatalError(f"Mailbox {mailbox_id} does not belong to organization {org_id} (R23.6)")
+    return mailbox
+
+
 class MailSyncConsumer(BaseConsumer):
     """Consumer mapping `sync_mailbox` envelopes onto SyncOrchestrator.sync_mailbox."""
 
@@ -71,23 +88,7 @@ class MailSyncConsumer(BaseConsumer):
 
     async def resolve_mailbox(self, envelope: JobEnvelope) -> Mailbox:
         """Resolve and tenant-check the target mailbox, or raise FatalError."""
-        org_id = _parse_uuid(envelope.organization_id)
-        if org_id is None:
-            raise FatalError(
-                f"Missing or invalid organization_id '{envelope.organization_id}' (R23.6)"
-            )
-        mailbox_id = _parse_uuid(envelope.mailbox_id)
-        if mailbox_id is None:
-            raise FatalError(f"Unresolvable mailbox_id '{envelope.mailbox_id}'")
-
-        mailbox = await self.mailbox_store.get(mailbox_id)  # DB errors propagate -> retry
-        if mailbox is None:
-            raise FatalError(f"Mailbox {mailbox_id} not found")
-        if _parse_uuid(str(mailbox.organization_id)) != org_id:
-            raise FatalError(
-                f"Mailbox {mailbox_id} does not belong to organization {org_id} (R23.6)"
-            )
-        return mailbox
+        return await resolve_tenant_mailbox(self.mailbox_store, envelope)
 
     async def process_job(
         self,

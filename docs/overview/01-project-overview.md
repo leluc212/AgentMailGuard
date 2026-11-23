@@ -11,7 +11,7 @@
 - An AI that reads email also reads what strangers send it. An attacker can hide instructions
   for the AI in an email or a company document. This is called **prompt injection** (the
   "prompt" is all the text the AI reads at once).
-- **AgentMailGuard** is a guard with five layers (stages of checks) that stops these hidden
+- **AgentMailGuard** is a guard with four layers (stages of checks) and a prompt-building step that stops these hidden
   instructions. It is the main contribution of the project.
 - A guard must be tested on a real AI email system. No company's email system was available to
   us, so rag-email is the realistic system the guard protects and is tested on.
@@ -61,7 +61,7 @@ real company needs.
 
 Targets fixed before the benchmark runs (targets, not results): rag-email is designed for 10,000
 mailboxes and 100,000 emails a day, a typical draft within seconds (not tested by the benchmark).
-With all five layers on, at most 5 in 100 LLMail-Inject attacks that reach the reply-writing step
+With all four layers on, at most 5 in 100 LLMail-Inject attacks that reach the reply-writing step
 may succeed.
 
 ## How the two parts fit together
@@ -74,16 +74,18 @@ each guard layer is attached to one of rag-email's steps:
             clean                facts       a draft       approves     sent
                │          │         │            │             │
            ┌───┴──────────┴─────────┴────────────┴─────────────┴───┐
-           │ L1+L2       L3        L3b          L4            L5   │
+           │ L1 (+ L3 gate)  L2 + isolation        L4 Output Guard  │
            └─────────────────── AgentMailGuard ────────────────────┘
 ```
 
-**L1** scans the email for instructions aimed at the AI and reports them. **L2** removes
-sentences that read like orders. **L3b** checks documents the search found for planted
-instructions; **L3** marks all outsiders' text as "information, not orders". **L4** checks the
-draft for private data and the attacker's address. **L5** decides, before and after the AI
-writes: block, require a person's approval, or keep a normal draft. Some layers can ask an
-**AI judge**, an AI model giving a second opinion, which adds time.
+**L1 Inbound Guard** scans the email for instructions aimed at the AI, removes sentences that
+read like orders and reports them. **L3 Inbound Gate** decides before the AI writes (stop, or go on);
+**L2 Doc Scanner** checks the documents the search found for planted instructions, and the gate
+decides again with that result. A prompt-building step (**channel isolation**, not a layer) marks all
+outsiders' text as "information, not orders". **L4 Output Guard** checks the draft for private data
+and the attacker's address and takes the final decision: block, require a person's approval, or keep a
+normal draft, never weaker than the gate's. Some layers can ask an **AI judge**, an AI model giving a
+second opinion, which adds time; if a judge that is switched on fails, a person must approve.
 
 ![The whole project in one picture: rag-email's parts, with the AgentMailGuard layers as red
 boxes along the bottom and dashed red lines showing where each layer
@@ -134,7 +136,7 @@ no login, the draft review screen runs only on a developer's computer, for demos
 ## How we test it
 
 The benchmark, a repeatable test, runs the same fixed emails through each setup (no guard up to
-all five layers): LLMail-Inject attacks, normal emails from the same challenge, and poisoned
+all four layers): LLMail-Inject attacks, normal emails from the same challenge, and poisoned
 documents. Version one, with results now, sends each email straight to rag-email's reply step
 (search and drafting), skipping fetch, cleaning, sorting and queues; version two, still being
 built, runs every service after the mailbox fetch. Emails are plain text (HTML and attachment
@@ -154,7 +156,7 @@ AI models (GPT-4o-mini, Llama 3.1 8B, Qwen 2.5 7B). Results are in a separate do
 | Term | Meaning |
 |---|---|
 | rag-email | This project's AI email assistant; it writes drafts (unsent replies) for approval. |
-| AgentMailGuard | The main contribution: a guard against prompt injection, in five layers. |
+| AgentMailGuard | The main contribution: a guard against prompt injection, in four layers. |
 | LLM | Large language model: an AI trained on huge amounts of text. |
 | Classifier | A small program that learned from labeled examples to sort inputs. |
 | AI judge | An AI model a layer asks for a second opinion when unsure. |

@@ -1,5 +1,7 @@
 # AgentMailGuard prompt-injection benchmark: rag-email with and without the guard
 
+> **Historic design (scheme v1), kept as written.** It describes the first benchmark on the six-layer guard (pin `81df5d07`). A run at HEAD takes config scheme v3 only (ADR-0015); this design's layer names, presets and the C1/C2 ablation are history, and the committed v1 folders are read with `make mailguard-report RUN=<id> LEGACY=1`. Current procedure: `docs/demo-runbook.md` §9.9.
+
 - **Date:** 2026-09-28
 - **Status:** design approved in conversation (owner, 2026-09-28); this written spec awaits the owner's review
 - **Decision record:** `docs/adr/0010-agentmailguard-integration-for-evaluation.md`

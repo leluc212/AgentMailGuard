@@ -26,6 +26,8 @@ from evaluation.mailguard_bench.guard_env import (
     V1_MAILGUARD_TREE,
     V2_MAILGUARD_COMMIT,
     V2_MAILGUARD_TREE,
+    V3_MAILGUARD_COMMIT,
+    V3_MAILGUARD_TREE,
     GuardEnvError,
     guard_layout,
     require_pinned_worktree,
@@ -103,20 +105,27 @@ def _commit_tree_anywhere(commit: str) -> str | None:
     for repo in candidates:
         if not repo.is_dir():
             continue
-        done = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "--verify", "-q", f"{commit}^{{tree}}"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if done.returncode == 0:
-            return done.stdout.strip()
+        # A commit of this repository (v3) pins the guard directory inside it; a commit of the
+        # guard's own repository (v1, v2) pins its root tree.
+        for spec in (f"{commit}:{PREFIX}", f"{commit}^{{tree}}"):
+            done = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", "-q", spec],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if done.returncode == 0:
+                return done.stdout.strip()
     return None
 
 
 @pytest.mark.parametrize(
     ("commit", "tree"),
-    [(V1_MAILGUARD_COMMIT, V1_MAILGUARD_TREE), (V2_MAILGUARD_COMMIT, V2_MAILGUARD_TREE)],
+    [
+        (V1_MAILGUARD_COMMIT, V1_MAILGUARD_TREE),
+        (V2_MAILGUARD_COMMIT, V2_MAILGUARD_TREE),
+        (V3_MAILGUARD_COMMIT, V3_MAILGUARD_TREE),
+    ],
 )
 def test_each_recorded_tree_is_the_tree_of_its_commit(commit: str, tree: str) -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", tree)
@@ -126,19 +135,12 @@ def test_each_recorded_tree_is_the_tree_of_its_commit(commit: str, tree: str) ->
     assert tree == actual
 
 
-def test_the_two_generations_have_different_trees() -> None:
-    assert V1_MAILGUARD_TREE != V2_MAILGUARD_TREE
+def test_the_three_generations_have_different_trees() -> None:
+    assert len({V1_MAILGUARD_TREE, V2_MAILGUARD_TREE, V3_MAILGUARD_TREE}) == 3
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ADR-0015: the committed guard tree diverges from the v2 pin "
-        "until the v3 pin moves in task v3.15b"
-    ),
-)
-def test_the_committed_guard_folder_is_the_v2_pin() -> None:
-    """HEAD's ``agentmailguard/`` is the tree the v2 benchmark pins (ADR-0014 decision 4).
+def test_the_committed_guard_folder_is_the_v3_pin() -> None:
+    """HEAD's ``agentmailguard/`` is the tree the v3 benchmark pins (ADR-0015, task v3.15b).
 
     The tests above compare the recorded constants with commit objects and the Makefile; this one
     compares them with the guard this repository actually carries, so a guard change committed
@@ -156,9 +158,9 @@ def test_the_committed_guard_folder_is_the_v2_pin() -> None:
     if done.returncode != 0:
         pytest.skip(f"this checkout has no committed {PREFIX}/ subtree")
     have = done.stdout.strip()
-    assert have == V2_MAILGUARD_TREE, (
-        f"HEAD:{PREFIX} is tree {have}, but the v2 pin (guard_env.V2_MAILGUARD_COMMIT "
-        f"{V2_MAILGUARD_COMMIT[:12]}) is tree {V2_MAILGUARD_TREE}: move the pin (guard_env, the "
+    assert have == V3_MAILGUARD_TREE, (
+        f"HEAD:{PREFIX} is tree {have}, but the v3 pin (guard_env.V3_MAILGUARD_COMMIT "
+        f"{V3_MAILGUARD_COMMIT[:12]}) is tree {V3_MAILGUARD_TREE}: move the pin (guard_env, the "
         "Makefile, the guides) in the same change as the guard"
     )
 
@@ -508,6 +510,8 @@ def test_the_makefile_knows_the_same_trees_as_guard_env() -> None:
     assert _makefile_constant("MAILGUARD_V1_TREE") == V1_MAILGUARD_TREE
     assert _makefile_constant("MAILGUARD_V2_COMMIT") == V2_MAILGUARD_COMMIT
     assert _makefile_constant("MAILGUARD_V2_TREE") == V2_MAILGUARD_TREE
+    assert _makefile_constant("MAILGUARD_V3_COMMIT") == V3_MAILGUARD_COMMIT
+    assert _makefile_constant("MAILGUARD_V3_TREE") == V3_MAILGUARD_TREE
 
 
 def _subtree_work(tmp_path: Path, sha_index: int = 1) -> tuple[Path, list[str], Path]:
@@ -643,8 +647,16 @@ def test_docker_context_leaves_out_the_subtree_and_the_pinned_joblib() -> None:
         for line in (REPO_ROOT / ".dockerignore").read_text("utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     }
-    assert "agentmailguard" in lines
+    # ADR-0018 decision 6 (amending task 7.24): the image ships the guard's library and configs
+    # only; the rest of the subtree (its services/, evaluation/, training/, models) stays out.
+    assert "agentmailguard/*" in lines
+    assert {"!agentmailguard/mailguard", "!agentmailguard/configs"} <= lines
+    assert not any(line.startswith("!agentmailguard/") for line in lines - GUARD_IN_IMAGE)
     assert "evaluation" in lines or "evaluation/mailguard_bench/pinned" in lines
+
+
+GUARD_IN_IMAGE = {"!agentmailguard/mailguard", "!agentmailguard/configs"}
+"""What ADR-0018 decision 6 lets into the image from the subtree."""
 
 
 def test_the_runtime_image_copies_no_benchmark_or_guard_directory() -> None:
@@ -653,7 +665,10 @@ def test_the_runtime_image_copies_no_benchmark_or_guard_directory() -> None:
     )
     assert copied, "the Dockerfile has no COPY lines"
     for source in copied:
-        assert not source.startswith(("agentmailguard", "evaluation")), source
+        assert not source.startswith("evaluation"), source
+        if source.startswith("agentmailguard"):
+            # ADR-0018 decision 6: only the library and its configs, never a trained model
+            assert source in ("agentmailguard/mailguard/", "agentmailguard/configs/"), source
 
 
 def test_the_runbook_explains_both_layouts_and_the_tree_pin() -> None:
@@ -892,3 +907,28 @@ def test_no_git_binary_is_a_guard_env_error_not_a_traceback(
     monkeypatch.setenv("PATH", "/nonexistent")
     with pytest.raises(GuardEnvError, match="git"):
         worktree_info(guard)
+
+
+def test_commit_tree_asks_for_the_guard_subtree_before_the_root_tree() -> None:
+    asked: list[str] = []
+    answers = {"abc:agentmailguard": "subtree-id", "abc^{tree}": "root-id"}
+
+    def fake(_path: Path, *args: str) -> str | None:
+        asked.append(args[-1])
+        return answers.get(args[-1])
+
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) == "subtree-id"
+    assert asked == ["abc:agentmailguard"]
+    del answers["abc:agentmailguard"]
+    asked.clear()
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) == "root-id"
+    assert asked == ["abc:agentmailguard", "abc^{tree}"]
+    answers.clear()
+    assert guard_env._commit_tree(Path("."), "abc", run=fake) is None
+
+
+def test_commit_tree_uses_the_recorded_constant_without_asking_git() -> None:
+    def never(_path: Path, *_args: str) -> str | None:
+        raise AssertionError("git must not be asked for a recorded pin")
+
+    assert guard_env._commit_tree(Path("."), V3_MAILGUARD_COMMIT, run=never) == V3_MAILGUARD_TREE

@@ -35,7 +35,12 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
-from mailguard.config.settings import GuardModelSettings, L1Settings, L5Settings, MailGuardSettings
+from mailguard.config.settings import (
+    GuardModelSettings,
+    InboundGuardSettings,
+    MailGuardSettings,
+    PolicySettings,
+)
 from mailguard.contracts.policy import GuardReport, PolicyDecision
 from mailguard.contracts.verdict import Severity
 from mailguard.llm.fake import FakeLLMProvider
@@ -48,6 +53,37 @@ FIXTURE_EMAILS = TESTS_DIR / "fixtures" / "emails.json"
 GOLDEN_PATH = TESTS_DIR / "golden" / "guard_v2_baseline.json"
 
 CONFIGS: tuple[str, ...] = ("C0", "C1", "C2", "C3", "C3-L1", "C3-L3B", "C3-L5")
+# The golden is keyed by the v2 preset names. Each runs as the v3 GuardConfig with the same
+# layer set where v3 can express it (Task 6). v3 has one Inbound Guard switch, so v2 C1 (scan
+# only) gains the extract sub-stage and v2 C3-L1 (extract only) loses it: their intended deltas.
+V2_CONFIG_FLAGS: dict[str, dict[str, bool]] = {
+    "C0": dict.fromkeys(GuardConfig.LAYERS + ("channel_isolation",), False),
+    "C1": {
+        "inbound_guard": True,
+        "doc_scanner": False,
+        "inbound_gate": True,
+        "output_guard": False,
+        "channel_isolation": False,
+    },  # fmt: skip
+    "C2": {
+        "inbound_guard": True,
+        "doc_scanner": False,
+        "inbound_gate": True,
+        "output_guard": False,
+        "channel_isolation": True,
+    },  # fmt: skip
+    "C3": {},
+    "C3-L1": {"inbound_guard": False},
+    "C3-L3B": {"doc_scanner": False},
+    "C3-L5": {"inbound_gate": False},
+}
+
+
+def guard_config_for(v2_name: str) -> GuardConfig:
+    """The v3 ``GuardConfig`` a golden (v2-named) config runs as."""
+    return GuardConfig(f"v2-{v2_name}", **V2_CONFIG_FLAGS[v2_name])
+
+
 # Fixture emails cycle through FIXTURE_DOC_VARIANTS; the synthetic borderline emails always
 # get "borderline" (2 clean chunks + 1 chunk whose cheap score sits in the L3b judge band).
 FIXTURE_DOC_VARIANTS: tuple[str, ...] = (
@@ -64,6 +100,9 @@ PROMPT_NAMES: tuple[str, ...] = (
     "doc_chunk_judge.v1",
     "output_judge.v1",
 )
+# Guard prompts new in v3, absent from the v2 golden (the parity matrix never enables them):
+# their calls are counted under their own name, not "unknown".
+V3_PROMPT_NAMES: tuple[str, ...] = ("doc_set_judge.v1",)
 
 # The golden keys llm_calls by the v2 prompt file names; the v3 move only renames the files,
 # so call counts are still reported under the v2 key and the golden stays untouched.
@@ -73,6 +112,15 @@ GOLDEN_PROMPT_KEY: dict[str, str] = {
     "doc_chunk_judge.v1": "l3b_doc_judge.v1",
     "output_judge.v1": "l4_output_judge.v1",
 }
+# The golden keys layer_severities by the v2 LayerName values. Schema 3 reports the scan and
+# extract sub-stages of the Inbound Guard, the Doc Scanner and the Output Guard; they are
+# reported under these v2 keys so the golden stays untouched. Channel isolation has no verdict
+# in v3 (ADR-0015 R-d), so the golden's isolation entry is dropped by ``project_golden``.
+V2_SCAN_KEY = "l1_injection_scanner"
+V2_EXTRACT_KEY = "l2_intent_extractor"
+V2_ISOLATION_KEY = "l3_channel_isolation"
+V2_DOCS_KEY = "l3b_document_scanner"
+V2_OUTPUT_KEY = "l4_output_scanner"
 OUTCOME_KEYS: tuple[str, ...] = (
     "inbound_action",
     "inbound_rule",
@@ -278,20 +326,27 @@ def offline_settings(tmp_dir: Path) -> MailGuardSettings:
     """No network, no classifier file, no registered guard model, audit log under ``tmp_dir``."""
     tmp_dir = Path(tmp_dir)
     return _OfflineSettings(
+        _env_file=None,
         guard_models=GuardModelSettings(
-            judge="none", extractor="none", doc_scanner="none", output_judge="none"
+            inbound_judge="none",
+            inbound_extractor="none",
+            doc_judge="none",
+            doc_set_judge="none",
+            output_judge="none",
         ),
-        l1=L1Settings(ml_model_path=str(tmp_dir / "absent-l1-classifier.joblib")),
-        l5=L5Settings(audit_log_path=str(tmp_dir / "audit.jsonl")),
+        inbound_guard=InboundGuardSettings(
+            ml_model_path=str(tmp_dir / "absent-l1-classifier.joblib")
+        ),
+        policy=PolicySettings(audit_log_path=str(tmp_dir / "audit.jsonl")),
     )
 
 
 def _case_settings(case: ParityCase, settings: MailGuardSettings) -> MailGuardSettings:
-    """``llm`` also switches on the L3b and L4 judges (off by default in v2)."""
+    """``llm`` also switches on the doc scanner and output guard judges (off by default in v2)."""
     return settings.model_copy(
         update={
-            "l3b": settings.l3b.model_copy(update={"llm_enabled": case.llm}),
-            "l4": settings.l4.model_copy(update={"llm_enabled": case.llm}),
+            "doc_scanner": settings.doc_scanner.model_copy(update={"llm_enabled": case.llm}),
+            "output_guard": settings.output_guard.model_copy(update={"llm_enabled": case.llm}),
         }
     )
 
@@ -302,7 +357,7 @@ _SUSPICIOUS = ("ignore", "instruction", "forward", "assistant", "system", "evil"
 
 def _prompt_name(messages: list[ChatMessage]) -> str:
     system = messages[0].content if messages and messages[0].role == "system" else ""
-    for name in PROMPT_NAMES:
+    for name in (*PROMPT_NAMES, *V3_PROMPT_NAMES):
         if system == load_prompt(name):
             return name
     return "unknown"
@@ -353,19 +408,22 @@ def _fake_answer(messages: list[ChatMessage], _schema: dict[str, Any] | None) ->
             "violations": ["injected_goal_compliance"] if unsafe else [],
             "rationale": "scripted parity output judge",
         }
+    if name == "doc_set_judge.v1":  # v3 only; the golden never enables the set judge
+        return {"poisoned_chunk_ids": [], "reason": "scripted parity set judge"}
     return {}
 
 
 def _llm_calls(provider: FakeLLMProvider | None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for call in provider.calls if provider is not None else []:
-        name = GOLDEN_PROMPT_KEY.get(_prompt_name(call["messages"]), "unknown")
+        prompt = _prompt_name(call["messages"])
+        name = GOLDEN_PROMPT_KEY.get(prompt, prompt)
         counts[name] = counts.get(name, 0) + 1
     return dict(sorted(counts.items()))
 
 
 # --------------------------------------------------------------------------- one case
-_CHUNK_ID = re.compile(r"\[chunk[\s^]id=([^\]\s^]+)\]")
+_CHUNK_ID = re.compile(r"\[chunk[\s^]id=([^\]\s^]+)(?:[\s^]trust=[^\]\s^]+)?\]")
 
 
 def draft_for(messages: list[ChatMessage]) -> str:
@@ -384,14 +442,26 @@ def _rule(decision: PolicyDecision | None) -> str | None:
 
 
 def _layer_severities(report: GuardReport) -> dict[str, dict[str, Any]]:
+    """Per-layer severities under the golden's v2 keys, read from the schema-3 report.
+
+    The two Inbound Guard sub-stages map to the v2 scanner and extractor keys. Channel
+    isolation has no verdict in v3 (ADR-0015 R-d): its v2 key is never produced, which the
+    projection tolerates through ``V2_ISOLATION_KEY`` (see ``project_golden``).
+    """
     out: dict[str, dict[str, Any]] = {}
-    for v in (report.l1, report.l2, report.l3, report.l4):
-        if v is not None:
-            out[str(v.layer)] = {"severity": str(v.severity), "score": round(v.score, 3)}
-    if report.l3b:
-        severity = Severity.max(*(c.severity for c in report.l3b))
-        score = max(c.score for c in report.l3b)
-        out[str(report.l3b[0].layer)] = {"severity": str(severity), "score": round(score, 3)}
+    inbound = report.inbound_guard
+    for stage, key in (("scan", V2_SCAN_KEY), ("extract", V2_EXTRACT_KEY)):
+        record = inbound.stage(stage) if inbound is not None else None
+        if record is not None:
+            out[key] = {"severity": str(record["severity"]), "score": round(record["score"], 3)}
+    if report.output_guard is not None:
+        v = report.output_guard
+        out[V2_OUTPUT_KEY] = {"severity": str(v.severity), "score": round(v.score, 3)}
+    if report.doc_scanner is not None and report.doc_scanner.chunks:
+        chunks = report.doc_scanner.chunks
+        severity = Severity.max(*(c.severity for c in chunks))
+        score = max(c.score for c in chunks)
+        out[V2_DOCS_KEY] = {"severity": str(severity), "score": round(score, 3)}
     return dict(sorted(out.items()))
 
 
@@ -400,14 +470,14 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
     fake = FakeLLMProvider(responder=_fake_answer) if case.llm else None
     pipeline = MailGuardPipeline(
         settings,
-        GuardConfig.preset(case.config),
-        judge=fake,
-        extractor_llm=fake,
-        doc_llm=fake,
-        output_llm=fake,
+        guard_config_for(case.config),
+        inbound_judge=fake,
+        inbound_extractor=fake,
+        doc_judge=fake,
+        output_judge=fake,
         audit=False,
     )
-    if pipeline.l1.classifier.available:
+    if pipeline.inbound_guard.classifier.available:
         raise RuntimeError("parity must run without the L1 classifier; a model file was loaded")
 
     generated: list[str] = []
@@ -426,6 +496,8 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
         category=case.email.get("category"),
     )
     final = report.decision
+    inbound = report.inbound_guard
+    extracted = inbound is not None and inbound.stage("extract") is not None
     return {
         "inbound_action": _action(report.inbound_decision),
         "inbound_rule": _rule(report.inbound_decision),
@@ -434,14 +506,31 @@ async def _run_case_async(case: ParityCase, settings: MailGuardSettings) -> dict
         "requires_human": final.requires_human if final is not None else None,
         "risk_tier": str(final.risk_tier) if final is not None else None,
         "layer_severities": _layer_severities(report),
-        "quarantined_chunk_ids": sorted(c.chunk_id for c in report.l3b if c.quarantined),
+        "quarantined_chunk_ids": sorted(report.quarantined_chunk_ids),
         "kept_chunk_ids": sorted(c.chunk_id for c in bundle.kept_chunks) if bundle else [],
-        "removed_ratio": round(report.l2.removed_ratio, 3) if report.l2 is not None else None,
+        "removed_ratio": round(inbound.removed_ratio, 3) if inbound and extracted else None,
         "draft_body": draft.body if draft is not None else None,
         "generation_called": bool(generated),
         "llm_calls": _llm_calls(fake),
-        "errors": sorted(v.error for v in report.verdicts() if v.error),
+        "errors": _errors(report),
     }
+
+
+def _errors(report: GuardReport) -> list[str]:
+    """Every sub-stage, chunk, output and isolation error, one entry each (the v2 shape)."""
+    out: list[str] = []
+    inbound = report.inbound_guard
+    for stage in ("scan", "extract"):
+        record = inbound.stage(stage) if inbound is not None else None
+        if record is not None and record.get("error"):
+            out.append(str(record["error"]))
+    if report.doc_scanner is not None:
+        out += [c.error for c in report.doc_scanner.chunks if c.error]
+    if report.output_guard is not None and report.output_guard.error:
+        out.append(report.output_guard.error)
+    if report.isolation is not None and report.isolation.error:
+        out.append(report.isolation.error)
+    return sorted(out)
 
 
 def run_case(case: ParityCase, settings: MailGuardSettings) -> dict[str, Any]:
@@ -468,7 +557,249 @@ def load_golden(path: Path = GOLDEN_PATH) -> dict[str, dict[str, Any]]:
     return golden
 
 
-INTENDED_DELTAS: dict[str, dict[str, Any]] = {}
+_ISOLATION_DELTA_FIELDS: dict[str, Any] = {"final_rule": "P99-default", "risk_tier": "t0_clean"}
+_THREAD_FORGED_WHY = (
+    "ADR-0015 intended change 2 (R-d, decision 10): a marker forged in thread history is still "
+    "scrubbed by channel isolation but no longer graded; it is recorded in "
+    "IsolationInfo.forged_markers, so P08 (medium) no longer matches and the default applies. "
+    "The action stays draft_only. [task v3.4]"
+)
+_DOC_FORGED_NO_SCANNER_WHY = (
+    "ADR-0015 R-d (isolation is not a layer) with the Doc Scanner off: the marker forged in a "
+    "kept chunk is scrubbed from the prompt but no layer grades it, so P08 no longer matches. "
+    "The action stays draft_only; with the Doc Scanner on (C3, C3-L1) the chunk is still "
+    "quarantined. Owner decision 2026-10-14: Task 4 cap 10, isolation deltas only. [task v3.4]"
+)
+_THREAD_TEST = (
+    "tests/unit/test_channel_isolation.py::test_thread_forged_markers_are_recorded_not_graded"
+)
+_DOC_TEST = (
+    "tests/unit/test_channel_isolation.py::"
+    "test_document_forged_markers_are_scrubbed_without_a_verdict"
+)
+
+# Task 5 (R-i): the extractor LLM's "assistant instructions" flag is a finding, not a severity.
+# b-004 ("please ignore my previous email ...") and the borderline questions s-001 / s-003 are
+# harmless; the scripted extractor flags them on keywords. Owner decision 2026-10-14 (F11).
+_EXTRACTOR_WHY = (
+    "ADR-0015 intended change 4 (R-i, decision 8): the scan of this harmless email is clean and "
+    "only the extractor LLM flagged assistant-style instructions; the flag is now a finding, it "
+    "no longer raises the severity to medium, so P08 no longer matches. [task v3.5]"
+)
+_EXTRACTOR_TEST = (
+    "tests/unit/test_inbound_guard.py::"
+    "test_clean_scan_and_flagging_extractor_keep_severity_and_add_a_finding"
+)
+_NONE = {"score": 0.0, "severity": "none"}
+_DOCS_HIGH = {"score": 0.95, "severity": "high"}
+_SANITIZED = {
+    "final_rule": "P09-heavy-sanitization-draft-only",
+    "inbound_rule": "P09-heavy-sanitization-draft-only",
+    "risk_tier": "t1_low",
+}
+_TASK5_FIELDS: dict[str, dict[str, Any]] = {
+    "b-004|C2|llm=1|docs=x-forged": {
+        "final_rule": "P99-default",
+        "inbound_rule": "P99-default",
+        "layer_severities": {V2_SCAN_KEY: _NONE, V2_EXTRACT_KEY: _NONE},
+        "risk_tier": "t0_clean",
+    },
+    "b-004|C3|llm=1|docs=x-forged": {
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
+        },
+    },
+    "b-004|C3-L1|llm=1|docs=x-forged": {
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
+        },
+    },
+    "b-004|C3-L3B|llm=1|docs=x-forged": {
+        "final_rule": "P99-default",
+        "inbound_rule": "P99-default",
+        "layer_severities": {
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_OUTPUT_KEY: _NONE,
+        },
+        "risk_tier": "t0_clean",
+    },
+    # C3-L5 has no gate: only the extractor's recorded severity moves
+    "b-004|C3-L5|llm=1|docs=x-forged": {
+        "layer_severities": {
+            V2_SCAN_KEY: _NONE,
+            V2_EXTRACT_KEY: _NONE,
+            V2_DOCS_KEY: _DOCS_HIGH,
+            V2_OUTPUT_KEY: _NONE,
+        },
+    },
+    "s-001|C2|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-001|C3|llm=1|docs=borderline": {"inbound_rule": _SANITIZED["inbound_rule"]},
+    "s-001|C3-L3B|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-003|C2|llm=1|docs=borderline": dict(_SANITIZED),
+    "s-003|C3|llm=1|docs=borderline": {"inbound_rule": _SANITIZED["inbound_rule"]},
+    "s-003|C3-L3B|llm=1|docs=borderline": dict(_SANITIZED),
+}
+_TASK5_DELTAS: dict[str, dict[str, Any]] = {
+    case_id: {"fields": fields, "why": _EXTRACTOR_WHY, "test": _EXTRACTOR_TEST}
+    for case_id, fields in _TASK5_FIELDS.items()
+}
+
+# Task 6: GuardConfig v3 has one Inbound Guard switch (R-a). The golden's v2 C1 ran the scan only
+# and v2 C3-L1 the extract only; v3 runs both sub-stages or neither. The new outcome of every
+# changed case is recorded in tests/deltas/task6_guard_config.json (owner decision 2026-10-14,
+# plan_v3 F11/F12: Task 6 cap 52).
+TASK6_DELTAS_PATH = TESTS_DIR / "deltas" / "task6_guard_config.json"
+_TASK6_WHY = {
+    "C1": "ADR-0015 R-a (L1 Inbound Guard = scan + extract) and Task 6 preset C1 = Inbound Guard + "
+    "Inbound Gate: v2 C1 ran the scan only, v3 C1 also runs the extract sub-stage (removed_ratio "
+    "recorded, one extractor call with llm=1). Actions are unchanged; s-001/s-003 llm=1 move "
+    "P99 -> P09 (draft_only). [task v3.6]",
+    "C3-L1": "ADR-0015 Task 6 ablation C3-L1 = C3 without the Inbound Guard: v2 C3-L1 still ran the "
+    "extract sub-stage, v3 runs neither sub-stage, so no inbound severity, removed_ratio or "
+    "extractor call; the F11 transitional rule is removed. [task v3.6]",
+}
+_TASK6_TEST = {
+    "C1": "tests/unit/test_inbound_guard.py::test_c1_runs_both_inbound_guard_sub_stages",
+    "C3-L1": "tests/unit/test_inbound_guard.py::test_c3_l1_runs_no_inbound_guard_sub_stage",
+}
+
+
+def _task6_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK6_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {
+            "fields": record,
+            "why": _TASK6_WHY[case_id.split("|")[1]],
+            "test": _TASK6_TEST[case_id.split("|")[1]],
+        }
+        for case_id, record in fields.items()
+    }
+
+
+INTENDED_DELTAS: dict[str, dict[str, Any]] = {
+    **{
+        f"b-005|{config}|llm={llm}|docs=thread-forged": {
+            "fields": dict(_ISOLATION_DELTA_FIELDS),
+            "why": _THREAD_FORGED_WHY,
+            "test": _THREAD_TEST,
+        }
+        for config in ("C2", "C3", "C3-L1", "C3-L3B")
+        for llm in (0, 1)
+    },
+    **{
+        f"b-004|{config}|llm=0|docs=x-forged": {
+            "fields": dict(_ISOLATION_DELTA_FIELDS),
+            "why": _DOC_FORGED_NO_SCANNER_WHY,
+            "test": _DOC_TEST,
+        }
+        for config in ("C2", "C3-L3B")
+    },
+    **_TASK5_DELTAS,
+}
+
+
+def _merge_deltas(*layers: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Stack the tasks' deltas in order: a later task's fields win, every why and test is kept.
+
+    A later task's fields are measured against the outcome with the earlier deltas applied, so
+    they only ever add to or override an earlier entry of the same case.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for layer in layers:
+        for case_id, delta in layer.items():
+            tests = [delta["test"]] if isinstance(delta["test"], str) else list(delta["test"])
+            if case_id not in out:
+                out[case_id] = {"fields": dict(delta["fields"]), "why": delta["why"], "test": tests}
+                continue
+            prev = out[case_id]
+            prev["fields"].update(delta["fields"])
+            prev["why"] = f"{prev['why']} | {delta['why']}"
+            prev["test"] = [*prev["test"], *(t for t in tests if t not in prev["test"])]
+    for delta in out.values():
+        if len(delta["test"]) == 1:
+            delta["test"] = delta["test"][0]
+    return out
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task6_deltas())
+
+# Task 7: the Doc Scanner runs before the inbound gate (ADR-0015 decision 2, intended change 1).
+# Poisoned, forged or borderline knowledge is now decided at the inbound gate (P05/P02 instead of
+# the default), and a block there stops generation. Every change is in C3 or C3-L1 (the configs
+# with the Doc Scanner and the gate); no newly flagged chunk (intended change 5) moves a case.
+TASK7_DELTAS_PATH = TESTS_DIR / "deltas" / "task7_doc_scanner_before_gate.json"
+_TASK7_WHY = (
+    "ADR-0015 intended change 1 (decision 2): the Doc Scanner runs before the inbound gate, so "
+    "a quarantined or high-severity chunk is decided at inbound (human approval, or a block that "
+    "stops generation) instead of after the draft. [task v3.7]"
+)
+_TASK7_TEST = (
+    "tests/unit/test_inbound_gate.py::test_pass_2_sees_the_documents_and_is_the_one_audited"
+)
+
+
+def _task7_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK7_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {"fields": record, "why": _TASK7_WHY, "test": _TASK7_TEST}
+        for case_id, record in fields.items()
+    }
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task7_deltas())
+
+# Task 8: the L4 Output Guard owns the outbound policy decision (ADR-0015 R-e, intended change
+# 6); no separate policy step follows L4. The golden's v2 C3-L5 (L5 off: neither stage decided) runs as
+# v3 inbound_gate=False, so the Output Guard now decides after generation. The inbound floor
+# itself moves no case. Owner decision 2026-10-14 (plan_v3 F14): Task 8 cap 26.
+TASK8_DELTAS_PATH = TESTS_DIR / "deltas" / "task8_output_guard.json"
+_TASK8_WHY = (
+    "ADR-0015 intended change 6 (R-e): the L4 Output Guard is draft scan + outbound policy, so "
+    "with the inbound gate off (v2 C3-L5) the job still gets a final decision after generation; "
+    "v2 had none because one L5 switch made both decisions. Generation is unchanged. [task v3.8]"
+)
+_TASK8_TEST = (
+    "tests/unit/test_output_guard_floor.py::test_the_output_guard_decides_without_the_inbound_gate"
+)
+
+
+def _task8_deltas() -> dict[str, dict[str, Any]]:
+    with open(TASK8_DELTAS_PATH, encoding="utf-8") as f:
+        fields: dict[str, dict[str, Any]] = json.load(f)
+    return {
+        case_id: {"fields": record, "why": _TASK8_WHY, "test": _TASK8_TEST}
+        for case_id, record in fields.items()
+    }
+
+
+INTENDED_DELTAS = _merge_deltas(INTENDED_DELTAS, _task8_deltas())
+
+
+def project_golden(golden: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The golden as schema 3 can report it: without the isolation verdict (R-d).
+
+    Removing a reporting key is not a behaviour change, so it is not an intended delta. Any
+    decision that moved because the isolation verdict no longer reaches the policy is one.
+    """
+    out = copy.deepcopy(golden)
+    for record in out.values():
+        record["layer_severities"].pop(V2_ISOLATION_KEY, None)
+    return out
+
+
+def expected_outcomes(golden: dict[str, dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
+    """The projected golden with every intended delta applied: what the guard must produce."""
+    return apply_deltas(project_golden(golden or load_golden()), INTENDED_DELTAS)
 
 
 def apply_deltas(

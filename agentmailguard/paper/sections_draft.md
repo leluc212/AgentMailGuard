@@ -3,6 +3,8 @@
 All numbers below are produced by the commands in `docs/experiments.md`; regenerate before
 submission. Placeholders `[TBD]` need the three-model runs (Ollama / OpenAI).
 
+**Version note (ADR-0015).** The guard in the repository is now the v3 guard: L1 Inbound Guard, L2 Doc Scanner, L3 Inbound Gate, L4 Output Guard, and channel isolation as a switch that is not a layer. Every number below was produced by the v2 guard (six layers: L1, L2, L3, L3b, L4, L5) and is labelled "v2 results" where it appears; no v3 number exists yet (plan_v3 Task 16 produces them). The v2 layer names used in the text map to v3 as: Layers 1 and 2 -> L1 Inbound Guard (scan and extract), Layer 3b -> L2 Doc Scanner, Layer 3 -> channel isolation, Layer 5 -> the shared policy engine used by L3 Inbound Gate and L4 Output Guard, Layer 4 -> L4 Output Guard.
+
 ## VI-A. Datasets (replacement text)
 
 We evaluate on a unified email-and-RAG benchmark of 1,405 cases assembled from public
@@ -32,7 +34,7 @@ item identifier so no benchmark item is seen in training; seed templates are ben
 ## VI-B. Models
 
 Qwen2.5-7B-Instruct and Llama-3.1-8B-Instruct (Q4_K_M, Ollama) and GPT-4o-mini (OpenAI API)
-serve both as the reply agent and as the judge behind the LLM stages of Layers 1, 2, 3b and 4.
+serve both as the reply agent and as the judge behind the LLM stages (v3: the L1 scan judge and extractor, the L2 chunk and set judges, the L4 output judge; the v2 draft listed Layers 1, 2, 3b and 4).
 The Stage-2 classifier of Layer 1 is a calibrated TF-IDF (word 1-2 grams, character 3-5 grams)
 logistic regression: on the held-out test split it reaches precision 0.966, recall 0.927,
 F1 0.946, AUROC 0.990 and FPR 2.0% at 0.9 ms per email on a laptop CPU.
@@ -50,13 +52,13 @@ intervals and, for the ablation, exact McNemar tests on paired case ids.
 
 | Component | Metric | Value |
 |---|---|---|
-| L1 rules + ML (no LLM), 694 email-vector attacks | detection at MEDIUM+ | 89.8% [87.3, 91.8] |
+| v2 results: L1 rules + ML (no LLM), 694 email-vector attacks | detection at MEDIUM+ | 89.8% [87.3, 91.8] |
 | | detection on LLMail-Inject (n=300) | 100.0% |
 | | detection on BIPIA (n=225) | 86.2% |
 | | detection on InjecAgent (n=49) | 75.5% |
 | | FPR on 543 benign emails | 1.8% [1.0, 3.4] |
 | | latency | 6.4 ms/email (rules+ML+heuristics) |
-| L3b rules + heuristics + ML, 2,883 chunks | precision / recall / F1 (quarantine) | 0.956 / 0.853 / 0.902 |
+| v2 results: L3b (now the L2 Doc Scanner) rules + heuristics + ML, 2,883 chunks | precision / recall / F1 (quarantine) | 0.956 / 0.853 / 0.902 |
 | | PoisonedRAG passages (n=1,500) recall | 85.1% |
 | | clean Bitext / Enron chunks specificity | 93.4% / 98.7% |
 
@@ -64,12 +66,12 @@ Weak spots of the cheap stages (motivating the LLM judge): trigger-word-free par
 (0/10 detected), quoted-history injections (1/5), persona hijacks without explicit
 "unrestricted" wording (5/10).
 
-## VII. Results — harness validation with the simulated agent (not a model result)
+## VII. Results — harness validation with the simulated agent (not a model result; v2 results, scheme v2, pre ADR-0015)
 
 The deterministic simulated agent obeys any instruction visible outside channel markers.
 Under C0 it reaches ASR [see evaluation/results/naive-all/summary.json]; C3 drives the
 email-vector ASR to 0% and the RAG-vector ASR to [TBD after rerun]; removing Layer 3
-(channel isolation) is the single most damaging ablation because the simulated agent then
+(channel isolation; in v3 this ablation is `C3-ISO`, and `C3-L3` removes the Inbound Gate instead) is the single most damaging ablation because the simulated agent then
 obeys poisoned chunks that Layer 3b did not catch. These runs validate the harness and the
 goal checks; model results (Tables V and VI) come from the Qwen / Llama / GPT-4o-mini runs.
 

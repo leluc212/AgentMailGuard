@@ -230,6 +230,7 @@ class EmailNormalizationConsumer(BaseConsumer):
                 attempt=0,
                 classification={},
                 payload=triage_payload,
+                run_options=envelope.run_options,  # R25.3: same job, same run options
             )
             await self._publisher.publish(
                 exchange_name=self.triage_exchange,

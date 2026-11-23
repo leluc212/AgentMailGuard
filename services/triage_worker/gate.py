@@ -61,6 +61,26 @@ class GateAction(StrEnum):
     PROCEED_RAG = "proceed_rag"
 
 
+def triage_event_fields(classification: Classification) -> dict[str, Any]:
+    """Payload of the NORMALIZED -> CLASSIFIED event: the whole triage result (task 9.1, R25.7).
+
+    The demo console reads the classification from this event, so every decision field is
+    kept, with the cascade stage's own latency and model (None when a rule decided).
+    """
+    return {
+        "category": classification.category,
+        "intent": classification.intent,
+        "priority": classification.priority,
+        "reply_required": classification.reply_required,
+        "workflow_hint": classification.workflow_hint,
+        "retrieval_required": classification.retrieval_required,
+        "confidence": classification.confidence,
+        "decided_by": classification.decided_by,
+        "triage_latency_ms": classification.latency_ms,
+        "triage_model": classification.model,
+    }
+
+
 @dataclass(frozen=True)
 class GateDecision:
     """Outcome of early-exit gate evaluation detailing state transition and permitted work."""
@@ -365,9 +385,7 @@ class EarlyExitGate:
                 current_job,
                 JobState.CLASSIFIED,
                 payload={
-                    "category": classification.category,
-                    "confidence": classification.confidence,
-                    "decided_by": classification.decided_by,
+                    **triage_event_fields(classification),
                 },
                 trace_id=active_trace_id,
             )
@@ -386,6 +404,7 @@ class EarlyExitGate:
             reason = "no_reply_required"
             payload = {
                 "early_exit": True,
+                "gate_action": action.value,
                 "reason": reason,
                 "category": classification.category,
                 "intent": classification.intent,
@@ -465,6 +484,8 @@ class EarlyExitGate:
 
             payload = {
                 "template_reply": True,
+                "gate_action": action.value,
+                "reason": reason,
                 "template_id": matched_template.id,
                 "template_version": matched_template.version,
                 "category": classification.category,
@@ -545,6 +566,8 @@ class EarlyExitGate:
         should_generate = True
 
         payload = {
+            "gate_action": action.value,
+            "reason": reason,
             "category": effective_cls.category,
             "intent": effective_cls.intent,
             "priority": effective_cls.priority,
@@ -624,9 +647,7 @@ class EarlyExitGate:
                 job_id=current_job.id,
                 target_state=JobState.CLASSIFIED,
                 payload={
-                    "category": classification.category,
-                    "confidence": classification.confidence,
-                    "decided_by": classification.decided_by,
+                    **triage_event_fields(classification),
                     "trace_id": active_trace_id,
                 },
                 message_id=current_job.message_id,
@@ -647,6 +668,7 @@ class EarlyExitGate:
             reason = "no_reply_required"
             payload = {
                 "early_exit": True,
+                "gate_action": action.value,
                 "reason": reason,
                 "category": classification.category,
                 "intent": classification.intent,
@@ -748,6 +770,8 @@ class EarlyExitGate:
 
             payload = {
                 "template_reply": True,
+                "gate_action": action.value,
+                "reason": reason,
                 "template_id": matched_template.id,
                 "template_version": matched_template.version,
                 "category": classification.category,
@@ -834,6 +858,8 @@ class EarlyExitGate:
         should_generate = True
 
         payload = {
+            "gate_action": action.value,
+            "reason": reason,
             "category": effective_cls.category,
             "intent": effective_cls.intent,
             "priority": effective_cls.priority,

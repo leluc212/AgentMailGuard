@@ -22,7 +22,7 @@ from pathlib import Path
 from evaluation.harness import BenchCase
 from evaluation.metrics import Proportion
 from mailguard.config.settings import PROJECT_ROOT, MailGuardSettings
-from mailguard.contracts.email import RetrievedChunk
+from mailguard.contracts.email import SourceDocument
 from mailguard.contracts.verdict import Severity
 from mailguard.layers.doc_scanner.chunk_scanner import RetrievedDocumentScanner
 from mailguard.layers.inbound_guard.scan import EmailInjectionScanner
@@ -96,7 +96,7 @@ def eval_l3b(chunks_path: Path, settings: MailGuardSettings) -> dict:
     t0 = time.perf_counter()
     results = []
     for r in rows:
-        chunk = RetrievedChunk(
+        chunk = SourceDocument(
             chunk_id=r["chunk_id"], document_id=r.get("source", ""), content=r["content"]
         )
         v = scanner.scan_chunk_sync(chunk, query=r.get("target_query") or None)

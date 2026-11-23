@@ -143,7 +143,7 @@ def _probe_paths(monkeypatch: pytest.MonkeyPatch, provider: OpenAIProvider) -> A
     monkeypatch.setattr(
         guard_smoke,
         "build_guard_pipeline",
-        lambda *_a, **_k: SimpleNamespace(l1=SimpleNamespace(judge=provider)),
+        lambda *_a, **_k: SimpleNamespace(inbound_guard=SimpleNamespace(judge=provider)),
     )
     return SimpleNamespace(l1_model=Path("clf.joblib"))
 

@@ -76,6 +76,17 @@ x-app-env: &app-env
   # .env or the shell sets it, and unset (a bare name) the settings default, true, applies. The
   # image sets no TRIAGE__* variable, so a bare key erases nothing. Keep it out of .env as `NAME=`.
   TRIAGE__CATEGORY_RETRIEVAL_FLOOR:
+  # Demo console ingest door (R25.1, ADR-0018): /v1/demo on the API, mail.demo.inject consumer.
+  DEMO__ENABLED: ${DEMO__ENABLED:-false}
+  # Demo fault markers in the fake LLM (R25.11): S10 retry/replay, G06 fail-closed judge.
+  DEMO__FAULT_MARKERS_ENABLED: ${DEMO__FAULT_MARKERS_ENABLED:-false}
+  # AgentMailGuard in the live ai-worker for C3 jobs (R25.5, ADR-0018 decision 6).
+  GUARD__ENABLED: ${GUARD__ENABLED:-false}
+  GUARD__DEFAULT_MODE: ${GUARD__DEFAULT_MODE:-C0}
+  # Keys of the console's live models (config/live_models.yaml, ADR-0019, task 9.16). Empty: the
+  # model is shown greyed out. Only the api (presence check), triage-worker and ai-worker read them.
+  DEMO_OPENAI_API_KEY: ${DEMO_OPENAI_API_KEY:-}
+  DEMO_OPENROUTER_API_KEY: ${DEMO_OPENROUTER_API_KEY:-}
 
 # The services that call a model reach the host by name, for an Ollama on the desktop (task 7.20).
 # Docker Engine resolves host-gateway to the host's address on the default bridge (docker0).
@@ -230,6 +241,9 @@ services:
       <<: *app-env
       SERVICE_NAME: api
       PORT: "8000"
+    volumes:
+      # Read only so GET /v1/demo/capabilities can say whether the L1 classifier is there.
+      - ${MAILGUARD_L1_HOST_DIR:-./evaluation/mailguard_bench/pinned}:/opt/agentmailguard-models:ro
     depends_on: *after-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/readyz"]
@@ -332,6 +346,10 @@ services:
       <<: *app-env
       SERVICE_NAME: ai_worker
       PORT: "8004"
+    volumes:
+      # The private L1 classifier, read-only, never baked in (ADR-0012, ADR-0018 decision 6).
+      # Missing on the host: Docker mounts an empty folder and L1's classifier stage is off.
+      - ${MAILGUARD_L1_HOST_DIR:-./evaluation/mailguard_bench/pinned}:/opt/agentmailguard-models:ro
     depends_on: *after-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/readyz"]
@@ -382,6 +400,24 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  # Demo console (task 9.9, ADR-0018): static React build behind nginx, /v1 proxied to the api.
+  # Local only, no login (R25.12); 3003 because Grafana holds 3002 (owner decision C15).
+  demo-ui:
+    build:
+      context: ./services/demo_ui
+    container_name: rag-email-demo-ui
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3003:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:

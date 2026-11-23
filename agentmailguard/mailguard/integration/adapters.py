@@ -23,7 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from mailguard.contracts.email import DraftCandidate, GuardedEmail, RetrievedChunk
+from mailguard.contracts.email import DraftCandidate, GuardedEmail, SourceDocument
 from mailguard.contracts.policy import GuardReport, PolicyAction
 from mailguard.llm.protocol import ChatMessage, LLMError, LLMProvider, ModelTier
 from mailguard.llm.structured import call_structured
@@ -48,8 +48,8 @@ def guarded_email_from_context(ctx: Any) -> GuardedEmail:
     return email
 
 
-def chunks_from_context(ctx: Any) -> list[RetrievedChunk]:
-    return [RetrievedChunk.from_any(c) for c in (_get(ctx, "retrieved_chunks", []) or [])]
+def chunks_from_context(ctx: Any) -> list[SourceDocument]:
+    return [SourceDocument.from_any(c) for c in (_get(ctx, "retrieved_chunks", []) or [])]
 
 
 def recent_messages_from_context(ctx: Any, limit: int = 5) -> list[str]:
@@ -143,6 +143,9 @@ def decision_to_job_result(report: GuardReport, draft: DraftCandidate | None) ->
             "redactions": d.redactions_applied if d else 0,
             "max_severity": str(report.max_severity),
             "latency_ms": report.total_latency_ms,
+            "reason": d.reasons[0] if d and d.reasons else None,
+            "decided_by": d.metadata.get("decided_by") if d else None,
+            "guard_schema_version": report.schema_version,
         },
         "draft": None
         if draft is None or action in (PolicyAction.BLOCK, PolicyAction.QUARANTINE)
