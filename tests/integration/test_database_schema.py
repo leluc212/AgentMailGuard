@@ -28,6 +28,7 @@ from packages.db.migrator import (
     rollback_migrations,
     verify_database_vector_dimension,
 )
+from tests.integration.migration_helpers import release_demo_mailboxes
 
 CORE_TABLES = [
     "organization",
@@ -257,6 +258,7 @@ async def test_migration_reversibility() -> None:
 
     # Roll back all migrations
     num_migrations = len(discover_migrations())
+    await release_demo_mailboxes(settings.asyncpg_dsn)  # rolling back past 0007 (task 9.3)
     rolled_back = await rollback_migrations(dsn=settings.asyncpg_dsn, steps=num_migrations)
     assert "0001" in rolled_back
     assert "0002" in rolled_back
