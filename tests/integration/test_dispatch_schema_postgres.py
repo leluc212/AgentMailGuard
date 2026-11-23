@@ -17,6 +17,7 @@ from packages.db.connection import create_pool_from_settings
 from packages.db.draft import PostgresDraftStore
 from packages.db.migrator import apply_migrations, discover_migrations, rollback_migrations
 from packages.domain.entities import GeneratedDraft
+from tests.integration.migration_helpers import release_demo_mailboxes
 
 DISPATCH_COLUMNS = ("provider_draft_id", "provider_draft_message_id", "dispatch_idempotency_key")
 
@@ -207,6 +208,7 @@ async def test_0005_rolls_back_cleanly_and_reapplies() -> None:
     dsn = AppSettings().database.asyncpg_dsn
     await apply_migrations(dsn=dsn)
     steps = sum(1 for m in discover_migrations() if m.version >= "0005")
+    await release_demo_mailboxes(dsn)  # rolling back past 0007 (task 9.3)
     rolled_back = await rollback_migrations(dsn=dsn, steps=steps)
     assert "0005" in rolled_back
 
