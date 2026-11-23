@@ -73,7 +73,8 @@ exclude = [
     "dist",
 ]
 # The AgentMailGuard subtree (task 7.24) keeps its own pyproject and its own checks.
-extend-exclude = ["agentmailguard"]
+# paper/ holds the thesis's one-off figure scripts (matplotlib builds), not shipped code.
+extend-exclude = ["agentmailguard", "paper"]
 
 [tool.ruff.format]
 # Markdown documents (plans, specs, audits) often hold paste-in code fragments that the
@@ -112,4 +113,5 @@ exclude = [
     "^\\.agent/",
     "^\\.venv/",
     "^agentmailguard/",
+    "^paper/",
 ]
