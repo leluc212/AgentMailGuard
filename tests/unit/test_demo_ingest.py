@@ -228,24 +228,32 @@ async def test_a_catalog_live_model_runs_only_with_its_key(
     async for client in _client(app):
         caps = (await client.get("/v1/demo/capabilities", headers=_headers(ORGS[0]))).json()
         keyed = await client.post(
-            "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("qwen2.5-7b-openrouter")
+            "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("qwen3.5-9b-openrouter")
         )
-        keyless = await client.post(
+        # ADR-0020: gpt-4o-mini left the catalog, so naming it is an unknown model
+        unknown = await client.post(
             "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("gpt-4o-mini")
         )
         unnamed = await client.post("/v1/demo/messages", headers=_headers(ORGS[0]), json=live(None))
 
     assert caps["live_model_available"] is True
     assert {m["name"]: m["available"] for m in caps["live_models"]} == {
-        "gpt-4o-mini": False,
-        "qwen2.5-7b-openrouter": True,
         "llama-3.1-8b-openrouter": True,
+        "qwen3.5-9b-openrouter": True,
     }
     assert keyed.status_code == status.HTTP_202_ACCEPTED
     envelope = publisher.publish.await_args_list[0].kwargs["envelope"]
-    assert envelope.run_options["live_model"] == "qwen2.5-7b-openrouter"
+    assert envelope.run_options["live_model"] == "qwen3.5-9b-openrouter"
+    assert unknown.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    # a catalog model whose key variable is empty is refused and the error names the variable
+    app.state.live_models = load_live_models("config/live_models.yaml", environ={})
+    async for client in _client(app):
+        keyless = await client.post(
+            "/v1/demo/messages", headers=_headers(ORGS[0]), json=live("llama-3.1-8b-openrouter")
+        )
     assert keyless.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert "DEMO_OPENAI_API_KEY" in keyless.json()["error"]
+    assert "DEMO_OPENROUTER_API_KEY" in keyless.json()["error"]
     # two keyed models and no LLM__* provider: a live run has to name one
     assert unnamed.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert publisher.publish.await_count == 1

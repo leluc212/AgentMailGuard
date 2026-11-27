@@ -19,7 +19,7 @@ from packages.llm.model_profile import (
 from packages.llm.protocol import LLMProvider, LLMResult
 
 CATALOG = Path("config/live_models.yaml")
-BENCH_V3 = ("gpt-4o-mini", "qwen2.5-7b-openrouter", "llama-3.1-8b-openrouter")
+DEMO_MODELS = ("llama-3.1-8b-openrouter", "qwen3.5-9b-openrouter")  # ADR-0020
 
 
 class _Named(LLMProvider):
@@ -30,10 +30,12 @@ class _Named(LLMProvider):
         raise AssertionError(f"{self.name} called")
 
 
-def test_the_catalog_lists_the_three_benchmark_models_as_the_benchmark_runs_them() -> None:
+def test_a_catalog_model_named_like_a_benchmark_profile_runs_as_the_benchmark_runs_it() -> None:
     catalog = load_live_models(CATALOG, environ={})
-    assert [m.name for m in catalog.models] == list(BENCH_V3)
-    for model in catalog.models:
+    assert [m.name for m in catalog.models] == list(DEMO_MODELS)
+    shared = [m for m in catalog.models if m.name in PROFILES]
+    assert [m.name for m in shared] == ["llama-3.1-8b-openrouter"]
+    for model in shared:
         profile = PROFILES[model.name]
         assert model.model == profile.model
         assert model.base_url == profile.base_url.rstrip("/")
@@ -44,14 +46,22 @@ def test_the_catalog_lists_the_three_benchmark_models_as_the_benchmark_runs_them
 
 def test_a_model_is_available_only_with_its_key_set() -> None:
     catalog = load_live_models(CATALOG, environ={"DEMO_OPENROUTER_API_KEY": "k"})
-    assert not catalog.available("gpt-4o-mini")
-    assert catalog.available("qwen2.5-7b-openrouter")
+    assert catalog.available("qwen3.5-9b-openrouter")
     assert catalog.available("llama-3.1-8b-openrouter")
+    assert not catalog.available("gpt-4o-mini")  # left the catalog (ADR-0020)
     assert not catalog.available("unknown")
-    assert set(catalog.build_providers(timeout_s=5)) == {
-        "qwen2.5-7b-openrouter",
-        "llama-3.1-8b-openrouter",
-    }
+    assert set(catalog.build_providers(timeout_s=5)) == set(DEMO_MODELS)
+    keyless = load_live_models(CATALOG, environ={})
+    assert not any(keyless.available(name) for name in DEMO_MODELS)
+    assert keyless.build_providers(timeout_s=5) == {}
+
+
+def test_an_unpinned_model_sends_no_routing() -> None:
+    model = load_live_models(CATALOG, environ={}).get("qwen3.5-9b-openrouter")
+    assert model is not None
+    settings = model.tier_settings("k", timeout_s=5)
+    assert settings.openai_provider_routing is None
+    assert settings.openai_response_metadata is False
 
 
 def test_a_routed_model_asks_for_the_routers_metadata() -> None:
@@ -110,8 +120,8 @@ async def test_the_live_view_follows_the_jobs_live_model() -> None:
 
 
 def test_build_profile_provider_adds_the_keyed_catalog_models() -> None:
-    catalog = load_live_models(CATALOG, environ={"DEMO_OPENAI_API_KEY": "k"})
+    catalog = load_live_models(CATALOG, environ={"DEMO_OPENROUTER_API_KEY": "k"})
     routed = build_profile_provider(LLMTiersSettings(provider="fake"), live_models=catalog)
     assert routed.live is None
-    assert set(routed.live_models) == {"gpt-4o-mini"}
+    assert set(routed.live_models) == set(DEMO_MODELS)
     assert routed.has_live

@@ -1146,6 +1146,10 @@
   - `docs/BENCHMARK.md` states the v2 run times (9 configs × 550 cases: "4 to 6 hours", "12 to 15 hours"); the pinned set is v3 (1,800 cases). Re-measure a v3 smoke per profile, restate the hours, update `SMOKE_SECONDS_PER_CASE`/`STATED_HOURS` and remove the `xfail` on `test_the_stated_run_times_follow_from_the_smoke_measurements`.
   - _Requirements: R22, R24.7_
 
+- [x] **9.18 Demo live model catalog after the first keyed run** _(owner decision 2026-11-27; ADR-0020)_
+  - OpenRouter withdrew `qwen/qwen-2.5-7b-instruct` (HTTP 404) and the owner has no direct OpenAI key. `config/live_models.yaml` now lists `llama-3.1-8b-openrouter` (unchanged) and `qwen3.5-9b-openrouter` (`qwen/qwen3.5-9b`, unpinned); `test_live_models.py` checks that an entry named like a benchmark profile equals it, instead of requiring the three benchmark models. `model_profiles.py` unchanged.
+  - _Requirements: R25.3, R25.4, R21.6_
+
 > **Phase 9 gate:** with the fake profile, every S01–S14 and G01–G06 meets its expected outcome from the console alone; one C0 ⇄ C3 comparison and one live-model run are shown end to end; the review UI and the benchmark still pass their checks; `make ci` is green.
 ---
 
