@@ -33,6 +33,9 @@ class ScenarioKnowledge(BaseModel):
     title: str
     category: str
     content: str
+    poisoned: bool = Field(
+        default=False, description="Planted by the scenario as an attack (G03, G05); display only."
+    )
 
 
 class ScenarioSource(BaseModel):
@@ -54,6 +57,15 @@ class ScenarioRunOptions(BaseModel):
 
 Kind = Literal["email", "comparison", "flow"]
 Flow = Literal["cross_tenant", "replay", "review", "knowledge", "burst", "search_debug"]
+Category = Literal[
+    "early_exit", "drafting", "operations", "guard_email", "guard_knowledge", "guard_safety"
+]
+"""What a scenario demonstrates; the console groups its cards by it (task 9.19)."""
+
+CATEGORIES_BY_GROUP: dict[str, set[str]] = {
+    "pipeline": {"early_exit", "drafting", "operations"},
+    "guard": {"guard_email", "guard_knowledge", "guard_safety"},
+}
 
 
 class Scenario(BaseModel):
@@ -61,10 +73,19 @@ class Scenario(BaseModel):
 
     id: str = Field(pattern=r"^[SG]\d{2}$")
     group: Literal["pipeline", "guard"]
+    category: Category
     kind: Kind
     flow: Flow | None = None
     title: LocalizedText
     description: LocalizedText
+    rationale: LocalizedText | None = Field(
+        default=None,
+        description="Why the system should act as expected on this input; authored, not measured.",
+    )
+    highlights: list[str] = Field(
+        default_factory=list,
+        description="Exact substrings of the email or a knowledge document the console marks.",
+    )
     run_options: ScenarioRunOptions = Field(default_factory=ScenarioRunOptions)
     email: ScenarioEmail | None = None
     thread: list[DemoThreadMessage] = Field(default_factory=list)
@@ -94,7 +115,22 @@ class Scenario(BaseModel):
             raise ValueError(f"{self.id}: a comparison runs both guard modes; name none")
         if self.requires_live and self.run_options.model_profile != "live":
             raise ValueError(f"{self.id}: requires_live needs model_profile live")
+        if self.category not in CATEGORIES_BY_GROUP[self.group]:
+            raise ValueError(f"{self.id}: category {self.category} is not in group {self.group}")
+        texts = self.highlight_sources()
+        for needle in self.highlights:
+            if not needle or not any(needle in text for text in texts):
+                raise ValueError(
+                    f"{self.id}: highlight {needle!r} is not in the email or knowledge"
+                )
         return self
+
+    def highlight_sources(self) -> list[str]:
+        """The texts a highlight may come from: the email's fields and the knowledge documents."""
+        texts = [d.content for d in self.knowledge]
+        if self.email is not None:
+            texts += [self.email.sender_email, self.email.subject, self.email.body]
+        return texts
 
     @property
     def runnable(self) -> bool:

@@ -1,0 +1,26 @@
+﻿=== QUALITY: ruff format
+=== QUALITY: ruff check
+All checks passed!
+=== QUALITY: mypy
+Success: no issues found in 593 source files
+=== QUALITY: openapi
+[OK] OpenAPI schema valid (v3.1.0, 33 paths)
+=== UNIT
+FAILED tests/unit/test_kit_docs.py::test_the_stated_run_times_follow_from_the_smoke_measurements
+=== GUARD UNIT
+tests/unit/test_kit_docs.py:367: AssertionError
+SKIPPED [1] tests/unit/test_mailguard_bench_guarded_reply.py:329: the installed guard marks failed AI steps (llm_fallback)
+SKIPPED [1] tests/unit/test_mailguard_bench_guarded_reply.py:339: the installed guard marks failed AI steps (llm_fallback)
+SKIPPED [1] tests/unit/test_mailguard_bench_guarded_reply.py:352: the installed guard marks failed AI steps (llm_fallback)
+SKIPPED [1] tests/unit/test_mailguard_bench_guarded_reply.py:425: the installed guard marks failed AI steps (llm_fallback)
+SKIPPED [1] tests/unit/test_mailguard_live_guarded_drafting.py:717: the installed guard marks failed AI steps (llm_fallback)
+FAILED tests/unit/test_kit_docs.py::test_the_stated_run_times_follow_from_the_smoke_measurements
+make: *** [Makefile:224: mailguard-unit] Error 1
+=== INTEGRATION
+E           asyncio.exceptions.CancelledError
+E               TimeoutError
+E   asyncpg.exceptions.CheckViolationError: check constraint "mailbox_provider_check" of relation "mailbox" is violated by some row
+E   asyncpg.exceptions.CheckViolationError: check constraint "mailbox_provider_check" of relation "mailbox" is violated by some row
+ERROR tests/integration/test_dispatch_store_postgres.py::test_claim_sets_key_queue_and_dispatched_in_one_transaction
+FAILED tests/integration/test_database_schema.py::test_migration_reversibility
+FAILED tests/integration/test_dispatch_schema_postgres.py::test_0005_rolls_back_cleanly_and_reapplies

@@ -1,0 +1,2 @@
+﻿253: async def test_migration_reversibility() -> None:
+260:     rolled_back = await rollback_migrations(dsn=settings.asyncpg_dsn, steps=num_migrations)

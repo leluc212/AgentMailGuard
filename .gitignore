@@ -118,3 +118,6 @@ Thumbs.db
 # privately and it sits in pinned/ untracked; every .joblib in that folder is ignored, so a
 # browser-renamed copy ("l1_injection_clf_v1 (1).joblib") cannot be staged by `git add .` either.
 evaluation/mailguard_bench/pinned/*.joblib
+
+# Private guard model handed over by the owner (copied to evaluation/mailguard_bench/pinned/)
+secret/

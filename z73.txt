@@ -1,0 +1,19 @@
+﻿test_business_data_e2e.py:54: from packages.db.seed import deterministic_embed
+test_business_provider_postgres.py:30: from packages.db.seed import seed_business_tenant_fixtures
+test_business_seed.py:32: from packages.db.seed import SEED_NAMESPACE, seed_business_tenant_fixtures, seed_database
+test_business_seed.py:46: await seed_database(pool=db_pool, clean=True)
+test_business_seed.py:97: await seed_database(pool=db_pool, clean=True)
+test_database_schema.py:253: async def test_migration_reversibility() -> None:
+test_demo_ingest_e2e.py:22: from packages.adapters.demo import demo_seed_mailbox
+test_demo_ingest_e2e.py:33: from packages.db.seed import deterministic_embed
+test_demo_ingest_e2e.py:101: row = demo_seed_mailbox(
+test_dispatch_schema_postgres.py:205: async def test_0005_rolls_back_cleanly_and_reapplies() -> None:
+test_phase6_pipeline_e2e.py:52: from packages.db.seed import deterministic_embed
+test_seed_loader.py:24: from packages.db.seed import deterministic_embed, seed_database
+test_seed_loader.py:44: async def test_seed_database_live_lifecycle(
+test_seed_loader.py:50: summary = await seed_database(pool=db_pool, storage=storage_client, clean=True)
+test_seed_loader.py:132: async def test_seed_database_idempotency(
+test_seed_loader.py:140: await seed_database(pool=db_pool, storage=storage_client, clean=False)
+test_seed_loader.py:143: summary = await seed_database(pool=db_pool, storage=storage_client, clean=False)
+test_seed_loader.py:163: async def test_seed_database_with_stub_embedder(
+test_seed_loader.py:170: summary = await seed_database(

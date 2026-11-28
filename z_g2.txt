@@ -1,0 +1,14 @@
+﻿
+> tests\unit\test_category_retrieval_floor.py:1:"""The category retrieval floor (task 7.28; R6.6, R6.9, R12.4; design.md section 5.3).
+  tests\unit\test_category_retrieval_floor.py:2:
+  tests\unit\test_category_retrieval_floor.py:3:Accepted by the owner, 2026-10-01 00:42 (ADR-0012 decision 12): ADR-0013
+> tests\unit\test_category_retrieval_floor.py:4:(docs/adr/0013-category-retrieval-floor-and-benchmark-category-filter.md).
+  tests\unit\test_category_retrieval_floor.py:5:
+  tests\unit\test_category_retrieval_floor.py:6:The live v2 smoke of 2026-09-30 and 2026-10-01 (gpt-4o-mini) saw the stage-3 LLM answer
+  tests\unit\test_category_retrieval_floor.py:7:``retrieval_required=false`` for 9 of 9 company-policy questions (warranty period, refund fee,
+  tests\unit\test_category_retrieval_floor.py:8:password reset, shipping redirect, discount, policy), so hybrid retrieval and the reranker never
+  tests\unit\test_category_retrieval_floor.py:9:ran. ``config/categories.yaml`` declares ``default_retrieval_required`` per category, and nothing
+  tests\unit\test_category_retrieval_floor.py:10:applied it to a stage's result.
+
+
+

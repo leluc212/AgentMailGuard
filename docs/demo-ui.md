@@ -25,7 +25,7 @@ Development without Docker: `cd services/demo_ui && npm install && npm run dev` 
 | Screen | What it shows | Requirement |
 |---|---|---|
 | Live Pipeline | Inbox of the console's runs; the pipeline diagram, animated from the job timeline (polled every 500 ms until the job stops); each step's event payload, the retrieved chunks with their BM25, vector, RRF and rerank scores, tokens, cost and latency | R25.7 |
-| Scenarios | S01–S14 and G01–G06 from `config/demo_scenarios.yaml`, run one or all (the burst S13 only on its own), expected vs actual with pass/fail; a free email composer with C0/C3 | R25.2 |
+| Scenarios | S01–S14 and G01–G06 from `config/demo_scenarios.yaml`, grouped by `category` (early exit; drafting and RAG; operations; guard attacks in the email; guard attacks through knowledge; no false block and fail-closed). Run one, a group or all (the burst S13 only on its own); expected vs actual with pass/fail. "View email" opens the scenario's email, thread and knowledge verbatim, the authored `rationale`, the catalog `highlights` (yellow) and the text the guard quoted in its report (red), and the latest C0 ⇄ C3 result with the guard's findings. A free email composer with C0/C3 | R25.2, R25.8 |
 | Guard Inspector | For a C3 job: the decision, the four layers, the chunk trust, the isolation data, the raw report; C0 ⇄ C3 columns for a G scenario | R25.6, R25.8 |
 | Review & Dispatch | Drafts awaiting review: edit, approve, reject. A demo mailbox records the reply and sends nothing | R23.4 |
 | Timeline | Every event of a job; replay of a dead-lettered job | R23.5 |

@@ -234,6 +234,8 @@ Any task that appears to require one of the above SHALL be stopped and raised ra
 | R10.10 | IF a filtered ANN query returns fewer than the requested top-N candidates, THEN THE SYSTEM SHALL record `retrieval_underfilled=true`, export it as a metric, and widen the search (raised `ef_search` / iterative scan / tenant-partitioned index) before falling back to the lexical branch alone. |
 | R10.11 | THE SYSTEM SHALL verify under integration test that filtered vector search on a multi-tenant corpus returns the full requested top-N for the target tenant. |
 
+> **Note (ADR-0021, 2026-11-28).** Soft category scoping fuses lists filtered by the classification's category with lists filtered by organization and status only. R10.4 still holds: every list applies its filters inside its branch, never after fusion, and the organization filter is applied to every list. R12.4 still holds: the category filter of the lane lists is derived from the classification. A document's category is a taxonomy category or none (shared).
+
 ## R11 — Reranking & Context Packing
 
 **User story:** As a cost owner, I want the smallest sufficient context, so that quality doesn't degrade and tokens don't inflate.

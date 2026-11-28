@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+import yaml
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
@@ -18,7 +19,7 @@ from packages.core.settings import APISettings, BrokerSettings, DemoSettings
 from packages.db.job import InMemoryJobStore
 from packages.db.mailbox import InMemoryMailboxStore
 from packages.domain.entities import Mailbox
-from services.api.demo_catalog import ScenarioCatalog, load_catalog
+from services.api.demo_catalog import CATEGORIES_BY_GROUP, ScenarioCatalog, load_catalog
 from services.api.main import create_app
 
 CATALOG = Path("config/demo_scenarios.yaml")
@@ -62,6 +63,87 @@ def test_copied_cases_keep_their_case_id_and_text(catalog: ScenarioCatalog) -> N
         assert scenario.email.subject == case["email"]["subject"]
         if scenario.source.modified is None:
             assert scenario.email.body == case["email"]["body_text"]
+
+
+def test_every_scenario_names_a_category_of_its_group(catalog: ScenarioCatalog) -> None:
+    """Task 9.19: the console groups cards by category; each of the six has at least one."""
+    for scenario in catalog.scenarios:
+        assert scenario.category in CATEGORIES_BY_GROUP[scenario.group]
+    assert {s.category for s in catalog.scenarios} == set().union(*CATEGORIES_BY_GROUP.values())
+
+
+def test_every_guard_scenario_explains_itself(catalog: ScenarioCatalog) -> None:
+    """Task 9.19: a guard card shows why the email is (or is not) an attack."""
+    for scenario in catalog.scenarios:
+        if scenario.group == "guard":
+            assert scenario.rationale is not None
+            assert scenario.rationale.vi and scenario.rationale.en
+
+
+def test_attacks_mark_their_payload(catalog: ScenarioCatalog) -> None:
+    """The attack text the console highlights is in the email (G01, G02) or a planted document."""
+    for sid in ("G01", "G02", "G03", "G05"):
+        scenario = catalog.get(sid)
+        assert scenario is not None and scenario.highlights
+    for sid in ("G03", "G05"):
+        scenario = catalog.get(sid)
+        assert scenario is not None
+        poisoned = [d.content for d in scenario.knowledge if d.poisoned]
+        assert poisoned and all(any(h in d for d in poisoned) for h in scenario.highlights)
+
+
+def test_knowledge_is_filed_under_a_triage_category(catalog: ScenarioCatalog) -> None:
+    """Retrieval keeps only documents of the email's triage category (R12.4, R10.4).
+
+    A document filed under a category triage never returns (e.g. ``support`` for a return-policy
+    question, which live triage files as ``general_inquiry``) is never retrieved, so the scenario
+    silently runs without its knowledge.
+    """
+    taxonomy = {
+        c["category"]
+        for c in yaml.safe_load(Path("config/categories.yaml").read_text(encoding="utf-8"))[
+            "categories"
+        ]
+    }
+    for scenario in catalog.scenarios:
+        for doc in scenario.knowledge:
+            assert doc.category in taxonomy, (scenario.id, doc.title, doc.category)
+    expected = {"S12": "general_inquiry", "G03": "general_inquiry", "G05": "sales"}
+    for sid, category in expected.items():
+        found = catalog.get(sid)
+        assert found is not None
+        assert {d.category for d in found.knowledge} == {category}, sid
+
+
+def _entry(**extra: object) -> dict[str, object]:
+    return {
+        "id": "S98",
+        "group": "pipeline",
+        "category": "drafting",
+        "kind": "email",
+        "title": {"vi": "a", "en": "a"},
+        "description": {"vi": "a", "en": "a"},
+        "email": {"sender_email": "a@b.example", "subject": "Hello", "body": "Body text"},
+        **extra,
+    }
+
+
+def test_a_minimal_entry_is_accepted() -> None:
+    ScenarioCatalog.model_validate({"version": 1, "scenarios": [_entry(highlights=["Body"])]})
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"highlights": ["not in the email"]},
+        {"highlights": [""]},
+        {"category": "guard_email"},  # a guard category on a pipeline scenario
+        {"category": "unknown"},
+    ],
+)
+def test_a_bad_category_or_highlight_is_refused(extra: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        ScenarioCatalog.model_validate({"version": 1, "scenarios": [_entry(**extra)]})
 
 
 def test_a_malformed_catalog_is_refused() -> None:

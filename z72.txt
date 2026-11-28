@@ -1,0 +1,63 @@
+﻿
+tests\integration\test_demo_ingest_e2e.py:22:from packages.adapters.demo import 
+demo_seed_mailbox
+tests\integration\test_demo_ingest_e2e.py:59:@pytest.fixture
+tests\integration\test_demo_ingest_e2e.py:62:        yield fast
+tests\integration\test_demo_ingest_e2e.py:65:@pytest.fixture
+tests\integration\test_demo_ingest_e2e.py:71:        yield ch
+tests\integration\test_demo_ingest_e2e.py:76:@pytest.fixture
+tests\integration\test_demo_ingest_e2e.py:80:        yield p
+tests\integration\test_demo_ingest_e2e.py:89:    row = demo_seed_mailbox(
+tests\integration\test_demo_ingest_e2e.py:149:async def 
+test_demo_emails_of_three_tenants_reach_drafted_through_the_broker(
+tests\integration\test_demo_ingest_e2e.py:172:        
+shutdown_coordinator=res.shutdown,
+tests\integration\test_demo_ingest_e2e.py:186:            
+shutdown_coordinator=res.shutdown,
+tests\integration\test_demo_ingest_e2e.py:246:async def 
+test_the_demo_door_is_404_when_disabled(pool: asyncpg.Pool) -> None:
+tests\integration\test_database_schema.py:59:@pytest.fixture
+tests\integration\test_database_schema.py:67:        yield pool
+tests\integration\test_database_schema.py:72:async def 
+test_extensions_installed(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:83:async def 
+test_all_entities_exist(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:100:async def 
+test_tenant_scoping_columns(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:139:async def 
+test_composite_uniqueness_constraints(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:217:            await conn.execute("DELETE 
+FROM organization WHERE id = $1", org_id)
+tests\integration\test_database_schema.py:220:async def 
+test_gin_and_hnsw_indexes_exist(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:242:async def 
+test_vector_dimension_verification(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_database_schema.py:253:async def 
+test_migration_reversibility() -> None:
+tests\integration\test_dispatch_schema_postgres.py:24:@pytest.fixture
+tests\integration\test_dispatch_schema_postgres.py:30:        yield pool
+tests\integration\test_dispatch_schema_postgres.py:105:async def 
+test_0005_adds_the_dispatch_and_review_columns(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_dispatch_schema_postgres.py:120:async def 
+test_dispatch_key_is_unique_but_unclaimed_drafts_coexist(
+tests\integration\test_dispatch_schema_postgres.py:134:            await 
+conn.execute("DELETE FROM organization WHERE id = $1", org_id)
+tests\integration\test_dispatch_schema_postgres.py:137:async def 
+test_feedback_allows_one_row_per_draft(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_dispatch_schema_postgres.py:165:            await 
+conn.execute("DELETE FROM organization WHERE id = $1", org_id)
+tests\integration\test_dispatch_schema_postgres.py:168:async def 
+test_draft_store_round_trips_the_dispatch_handle(db_pool: asyncpg.Pool[Any]) -> None:
+tests\integration\test_dispatch_schema_postgres.py:202:            await 
+conn.execute("DELETE FROM organization WHERE id = $1", org_id)
+tests\integration\test_dispatch_schema_postgres.py:205:async def 
+test_0005_rolls_back_cleanly_and_reapplies() -> None:
+tests\integration\test_dispatch_schema_postgres.py:206:    """R5.5: 0005.down removes 
+exactly what 0005.up added and restores idx_feedback_draft."""
+
+
+-- Migration: 0007_mailbox_provider_demo.down.sql
+-- Fails while a `demo` mailbox exists; delete those mailboxes first.
+ALTER TABLE mailbox DROP CONSTRAINT IF EXISTS mailbox_provider_check;
+ALTER TABLE mailbox ADD CONSTRAINT mailbox_provider_check
+    CHECK (provider IN ('gmail', 'graph', 'imap'));

@@ -40,20 +40,30 @@ export interface ScenarioEmail {
   body: string;
 }
 
+export type ScenarioCategory =
+  | "early_exit"
+  | "drafting"
+  | "operations"
+  | "guard_email"
+  | "guard_knowledge"
+  | "guard_safety";
 export interface Scenario {
   id: string;
   group: "pipeline" | "guard";
+  category: ScenarioCategory;
   kind: "email" | "comparison" | "flow";
   flow: string | null;
   title: Localized;
   description: Localized;
+  rationale: Localized | null;
+  highlights: string[];
   run_options: { model_profile: ModelProfile; guard_mode: GuardMode | null };
   email: ScenarioEmail | null;
   thread: ScenarioEmail[];
-  knowledge: { title: string; category: string; content: string }[];
+  knowledge: { title: string; category: string; content: string; poisoned: boolean }[];
   burst: number | null;
   query: string | null;
-  source: { case_id: string; origin: string; license: string } | null;
+  source: { case_id: string; dataset?: string; origin: string; license: string; modified?: string | null } | null;
   requires_live: boolean;
   expected: Record<string, unknown>;
 }

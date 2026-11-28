@@ -1,0 +1,51 @@
+﻿===LINT
+
+> rag-email-demo-console@0.1.0 lint
+> eslint src
+
+===TYPECHECK
+
+> rag-email-demo-console@0.1.0 typecheck
+> tsc -b --noEmit
+
+===TEST
+
+> rag-email-demo-console@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /ui
+
+ Γ£ô src/lib/pipeline.test.ts (5 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  03:53:05
+   Duration  2.72s (transform 187ms, setup 0ms, collect 215ms, tests 5ms, environment 0ms, prepare 1.57s)
+
+===BUILD
+
+> rag-email-demo-console@0.1.0 build
+> tsc -b && vite build
+
+vite v5.4.21 building for production...
+transforming...
+Γ£ô 2223 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.46 kB Γöé gzip:   0.31 kB
+dist/assets/index-DrQZWRGp.css   26.37 kB Γöé gzip:   5.47 kB
+dist/assets/index-CROqYHwo.js   884.10 kB Γöé gzip: 262.56 kB
+docker : 
+At line:1 char:1
++ docker run --rm -v "${PWD}/services/demo_ui:/ui" -w /ui node:20-alpin ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: 
+https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+Γ£ô built in 39.95s

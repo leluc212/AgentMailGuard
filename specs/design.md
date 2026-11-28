@@ -409,7 +409,7 @@ class RetrievalQuery:
 
 Built from `current email + thread summary + classification intent` — no extra LLM call in the default path (R12.5). Persisted with the job for replay (R12.6).
 
-The category filter is derived from the classification (R12.4) and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` switches it off; the organization and status filters always stay (R10.4). Production keeps it on. Only the live benchmark turns it off, because its knowledge documents are filed under the case's own category while live triage picks the query's (ADR-0013, accepted).
+The category filter is derived from the classification (R12.4) and `RETRIEVAL__CATEGORY_FILTER_ENABLED=false` switches it off (superseded by `RETRIEVAL__CATEGORY_SCOPE=hard|soft|off`, ADR-0021, §5.5); the organization and status filters always stay (R10.4). Production keeps it on. Only the live benchmark turns it off, because its knowledge documents are filed under the case's own category while live triage picks the query's (ADR-0013, accepted).
 
 **Business data (R13) — code-side fetch plan (ADR-0008):** the decision to fetch is made in code, before the one generation call, from signals the pipeline already has. The model never calls a lookup tool: a tool call needs a second model request, which breaks the one-generation budget (§5.7). An intent-only trigger is not enough, because the ML triage stage always emits `intent=None`.
 
@@ -544,6 +544,24 @@ LIMIT :fuse_limit;
 Identifiers from `RetrievalQuery.identifiers` are injected into the lexical branch verbatim — this is why exact-match cases like `INV-2026-01829` work where vector-only retrieval fails (R12.3).
 
 **RRF:** `score(d) = Σ_r 1/(k + rank_r(d))`, `k = 60` default. Used because BM25-style and cosine scores are not on a comparable scale.
+
+**Category scope (ADR-0021, accepted 2026-11-28).** The email's category is the lane triage routes it to; a document's category is a lane or `NULL` (shared, no lane), validated at upload against the taxonomy. `RETRIEVAL__CATEGORY_SCOPE` decides how the lane is used:
+
+```
+                 ┌─ lexical (org, status, lane) ─┐
+ hard  ──────────┤                               ├──► RRF ──► rerank ──► top-K
+                 └─ vector  (org, status, lane) ─┘
+
+                 ┌─ lexical (org, status, lane) ─┐
+                 ├─ vector  (org, status, lane) ─┤
+ soft  ──────────┤                               ├──► RRF ──► rerank ──► top-K
+                 ├─ lexical (org, status)        ─┤
+                 └─ vector  (org, status)        ─┘
+
+ off   ──────────  lexical + vector (org, status) ──► RRF ──► rerank ──► top-K
+```
+
+Every list carries its filters inside the SQL (R10.4); the organization filter is never dropped. In `soft`, a lane document is found by a lane list and a tenant list, so RRF ranks it above an equally close document from another lane, and a document triage's lane would have excluded (a mis-route, or a shared policy) is still found by the tenant lists: the worst case is `off`. One query embedding serves both vector lists; the top-K handed to generation does not change (R11.3). Each candidate records which lists found it (`scope_source`: `lane`, `tenant`, `both`; R10.8). `hard` and `off` are what `RETRIEVAL__CATEGORY_FILTER_ENABLED=true|false` meant before; that setting still applies when the new one is unset. The default stays `hard` until task 9.20's measurement gate selects one.
 
 **Filtered ANN under-fill — read this before tuning retrieval (R10.10, R10.11).**
 
@@ -1184,6 +1202,7 @@ evaluation/
 | 0014 | Full-cloud route for the benchmark, the guard pin it needs and the runner's embedding | the owner's decision 2026-10-01: no local GPU run; one pinned provider per OpenRouter model |
 | 0015 | AgentMailGuard v3: four named layers, no outbound gate, fail-closed judges, `schema_version` 3 | the inbound decision must precede generation and see the documents; isolation builds the prompt and decides nothing; accepted pending Task 16 live acceptance |
 | 0018 | A demo console for the thesis defence: React app, demo ingest door through the connector, per-job model and guard options, AgentMailGuard in the live ai-worker | the defence needs a live, visual run of every scenario, C0 and C3 side by side, fake or live model; the queue and ADR-0010's boundary are kept |
+| 0021 | Soft category scoping for retrieval; a document's category is a lane or shared | triage picks the email's lane, not the document's; the hard lane filter returned zero chunks on every live job; fusing lane and tenant lists keeps the lane's precision with the unscoped worst case |
 
 **Migration seam** (when exp08 shows PostgreSQL retrieval is insufficient): implement `OpenSearchBackend` behind `SearchBackend`, dual-write the chunk index, run exp02 against both, switch by config. The email pipeline does not change.
 
